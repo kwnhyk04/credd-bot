@@ -38,6 +38,26 @@ function invalidatePrefixCache(guildId) {
 }
 
 /**
+ * Lightweight ban check by discord id. Returns true if the user IS banned.
+ * Used by `crd register` (which skips the full pipeline) and by button
+ * interactions (which bypass message middleware entirely).
+ * Fails CLOSED: on DB error, returns true (treat as banned / block) so a
+ * hiccup never lets a write through unchecked.
+ */
+async function isBanned(discordId) {
+  try {
+    const { rows } = await pool.query(
+      'SELECT is_banned FROM users WHERE discord_id = $1',
+      [discordId]
+    );
+    return rows[0]?.is_banned === true;
+  } catch (err) {
+    console.error('[middleware] isBanned error:', err.message);
+    return true;
+  }
+}
+
+/**
  * Middleware pipeline — runs before every RPG/economy/casino/admin/dev command.
  *
  * Order (Blueprint §4):
@@ -145,4 +165,4 @@ async function runMiddleware(message, { requiresCharacter = false } = {}) {
   return true;
 }
 
-module.exports = { runMiddleware, getPrefix, invalidatePrefixCache, DEFAULT_PREFIX };
+module.exports = { runMiddleware, getPrefix, invalidatePrefixCache, isBanned, DEFAULT_PREFIX };
