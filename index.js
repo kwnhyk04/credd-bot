@@ -4,7 +4,8 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const { BOT_TOKEN } = require('./src/config/config');
 const { setupGlobalErrorHandlers } = require('./src/utils/errorHandler');
 const { handleMessage } = require('./src/handlers/commandHandler');
-const { runMiddleware } = require('./src/handlers/middleware');
+const { handleInteraction } = require('./src/handlers/interactionHandler');
+const { runMiddleware, isBanned } = require('./src/handlers/middleware');
 const { startBattleReaper } = require('./src/schedulers/battleReaper');
 const { startResetScheduler } = require('./src/schedulers/resetScheduler');
 
@@ -26,7 +27,7 @@ client.once('ready', async () => {
 
 client.on('messageCreate', async (message) => {
   try {
-    await handleMessage(message, { runMiddleware });
+    await handleMessage(message, { runMiddleware, isBanned });
   } catch (err) {
     console.error('[messageCreate] Unhandled error:', err);
     try {
@@ -37,6 +38,14 @@ client.on('messageCreate', async (message) => {
     } catch {
       // channel gone, nothing to do
     }
+  }
+});
+
+client.on('interactionCreate', async (interaction) => {
+  try {
+    await handleInteraction(interaction);
+  } catch (err) {
+    console.error('[interactionCreate] Unhandled error:', err);
   }
 });
 
