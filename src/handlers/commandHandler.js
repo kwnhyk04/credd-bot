@@ -7,6 +7,8 @@ const profileCmd = require('../commands/rpg/profile');
 const bagCmd = require('../commands/rpg/bag');
 const openCmd = require('../commands/rpg/open');
 const equipCmd = require('../commands/rpg/equip');
+const summonCmd = require('../commands/rpg/summon');
+const deityCmd = require('../commands/rpg/deity');
 
 // Commands with real Phase 2 implementations.
 //   mw 'ban'  → ban check only (no registration/character/activity); register needs this
@@ -20,6 +22,9 @@ const IMPLEMENTED = {
   b:        { mw: 'full', run: bagCmd.execute },
   open:     { mw: 'full', run: openCmd.execute },
   equip:    { mw: 'full', run: equipCmd.execute },
+  summon:   { mw: 'full', run: summonCmd.execute },
+  s:        { mw: 'full', run: summonCmd.execute },
+  deity:    { mw: 'full', run: deityCmd.execute },
 };
 
 // Command categories and their routing metadata

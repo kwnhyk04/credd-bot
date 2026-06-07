@@ -3,6 +3,7 @@
 const registerCmd = require('../commands/rpg/register');
 const createCmd = require('../commands/rpg/create');
 const bagCmd = require('../commands/rpg/bag');
+const deityCmd = require('../commands/rpg/deity');
 
 /**
  * Routes button interactions by customId.
@@ -12,6 +13,7 @@ const bagCmd = require('../commands/rpg/bag');
  *   create:confirm:<Class>:<uid>
  *   create:back:<uid>
  *   bagw:<page>:<uid>
+ *   deityc:<page>:<uid>
  */
 async function handleInteraction(interaction) {
   if (!interaction.isButton()) return;
@@ -30,6 +32,13 @@ async function handleInteraction(interaction) {
       const page = parseInt(parts[1], 10);
       const ownerId = parts[2];
       await bagCmd.handlePage(interaction, Number.isNaN(page) ? 1 : page, ownerId);
+      return;
+    }
+
+    if (namespace === 'deityc') {
+      const page = parseInt(parts[1], 10);
+      const ownerId = parts[2];
+      await deityCmd.handlePage(interaction, Number.isNaN(page) ? 1 : page, ownerId);
       return;
     }
 
