@@ -185,7 +185,7 @@ NOTE: Weapons are NOT class-locked. Any class can equip any weapon.
 |---|---|---|---|---|---|
 | Rare | 25–50 | 50–100 | 20–40 | 1–5% | — |
 | Mythic | 100–150 | 150–200 | 60–80 | 1–5% | — |
-| Legendary | 300–400 | 400–600 | 150–200 | 1–5% | 1% chance: +10–25% DMG or +10–25% CRIT DMG |
+| Legendary | 300–400 | 400–600 | 150–200 | 1–5% | 25% chance on drop: BOTH +25% DMG and +25% CRIT DMG (fixed); otherwise none |
 | Supreme | Fixed 800 | Fixed 1200 | Fixed 400 | — | 50% DMG, 50% CRIT DMG (always) |
 
 ### Weapon Enhancement System
@@ -1546,8 +1546,8 @@ NOTE: Enhancement stored as 1–11. Displayed to player as enhancement - 1 (+0 t
 | `base_hp` | Rolled on drop — static forever |
 | `base_def` | Rolled on drop — static forever |
 | `crit` | Rolled on drop |
-| `bonus_dmg_pct` | Legendary 1% bonus roll (nullable) |
-| `bonus_crit_dmg_pct` | Legendary 1% bonus roll (nullable) |
+| `bonus_dmg_pct` | Legendary 25%-on-drop bonus roll: set to 25.00 with bonus_crit_dmg_pct, else NULL. Supreme always 50.00 (nullable) |
+| `bonus_crit_dmg_pct` | Legendary 25%-on-drop bonus roll: set to 25.00 with bonus_dmg_pct, else NULL. Supreme always 50.00 (nullable) |
 | `is_locked` | Boolean — `crd lock`/`crd unlock`; locked weapons are excluded from `crd sell` |
 | `obtained_at` | Timestamp |
 
@@ -2037,7 +2037,7 @@ Worked example:
 
 **Quest reward buckets** (`questPool.js`): Raid wins 3–5→(3k,5)/6–8→(6k,10)/9–10→(10k,15) · Elite defeats 2–3→(5k,8)/4–5→(10k,15) · Credux spent 5k–20k→(4k,5)/21k–50k→(9k,12) · Weapon enhancements 2–3→(4k,5)/4–5→(8k,10) · Duel wins 1→(5k,8)/2–3→(12k,18) · Duel challenges 2–3→(3k,5)/4–5→(6k,10). Rewards auto-credit on completion. Duel quests count **accepted duels vs distinct opponents** only.
 
-**Weapon stat banding** (`dropRates.js`): roll each stat within the tier range, positioned by the type's qualitative profile (§7): Lowest→bottom 20% · Low→bottom 40% · Balanced→middle 40–60% · High→top 40% · Highest→top 20%. CRIT banded the same way (Bows top of 1–5%). Supreme = fixed stats. Legendary = 1% chance for the bonus DMG / crit-DMG rider.
+**Weapon stat banding** (`dropRates.js`): roll each stat within the tier range, positioned by the type's qualitative profile (§7): Lowest→bottom 20% · Low→bottom 40% · Balanced→middle 40–60% · High→top 40% · Highest→top 20%. CRIT banded the same way (Bows top of 1–5%). Supreme = fixed stats (always +50% DMG and +50% CRIT DMG, CRIT 0). Legendary = 25% chance on drop to roll BOTH +25% bonus_dmg_pct and +25% bonus_crit_dmg_pct (fixed); otherwise none. Rare/Mythic = no bonus rider.
 
 **Mob scaling** (seed in `mob_roster`): regular = HP+20 / ATK+8 / DEF+5 per level; elite = HP+38 / ATK+10 / DEF+8; boss = authored per row. Mob level = player level + random(−5..+5), clamped **[1, 55]**.
 
