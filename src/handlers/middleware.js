@@ -146,8 +146,10 @@ async function runMiddleware(message, { requiresCharacter = false } = {}) {
   const last = cooldowns.get(discordId) ?? 0;
   const elapsed = now - last;
   if (elapsed < COOLDOWN_MS) {
-    const remaining = Math.ceil((COOLDOWN_MS - elapsed) / 1000);
-    await replyError(message, `You are on cooldown. Try again in ${remaining} second${remaining !== 1 ? 's' : ''}.`);
+    const remainingMs = COOLDOWN_MS - elapsed;
+    // Discord relative timestamp counts down client-side — one message, no edits.
+    const readyAt = Math.floor((now + remainingMs) / 1000);
+    await replyError(message, `You're on cooldown — ready <t:${readyAt}:R>.`);
     return false;
   }
   cooldowns.set(discordId, now);
