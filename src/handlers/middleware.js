@@ -146,10 +146,15 @@ async function runMiddleware(message, { requiresCharacter = false } = {}) {
   const last = cooldowns.get(discordId) ?? 0;
   const elapsed = now - last;
   if (elapsed < COOLDOWN_MS) {
+    const remainingMs = COOLDOWN_MS - elapsed;
     // Future expiry instant = last successful use + the 10s window (NOT "now", NOT start).
     // Discord relative timestamp counts down client-side — one message, no edits.
     const readyAt = Math.floor((last + COOLDOWN_MS) / 1000); // SECONDS (10-digit), future
-    await replyError(message, `You're on cooldown — ready <t:${readyAt}:R>.`);
+    const sent = await message
+      .reply({ content: `You're on cooldown — ready <t:${readyAt}:R>.`, allowedMentions: { repliedUser: false } })
+      .catch(() => null);
+    // Auto-delete the notice when the cooldown ends — single timer, no edit/interval loop.
+    if (sent) setTimeout(() => sent.delete().catch(() => {}), remainingMs);
     return false;
   }
   cooldowns.set(discordId, now);
