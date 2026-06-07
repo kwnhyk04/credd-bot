@@ -102,9 +102,9 @@ const PASSIVE_REGISTRY = {
   },
 
   'steel_kite_shield': (bs) => {
-    // 10% chance block 15% incoming damage — handled in on-hit-received hook
-    if (!bs.flags.steel_kite_shield_block && Math.random() < 0.10) {
-      bs.flags.steel_kite_shield_block = true; // signal to engine to reduce incoming by 15%
+    // 10% chance to block 15% of incoming damage — re-rolled each turn (on-hit-received hook).
+    bs.flags.steel_kite_shield_block = Math.random() < 0.10;
+    if (bs.flags.steel_kite_shield_block) {
       bs.log.push('🛡️ Steel Kite Shield: Bulwark — Blocked 15% incoming damage!');
     }
   },
@@ -222,16 +222,11 @@ const PASSIVE_REGISTRY = {
   },
 
   'vatican_aspis': (bs) => {
-    // All incoming -10%; ATK +10% — applied as constants at battle start
-    // Engine checks bs.flags.vatican_aspis on first call to set modifiers
-    if (!bs.flags.vatican_aspis_init) {
-      bs.flags.vatican_aspis_init = true;
-      bs.flags.vatican_aspis_dmg_reduction = 0.10; // 10% all incoming reduced
-      bs.playerAtkMult += 0.10;
-      bs.log.push('🛡️ Vatican Aspis: Sacred Guard — ATK +10%, incoming -10%!');
-    }
-    // Reapply incoming reduction flag each turn so engine reads it
-    bs.flags.incoming_dmg_reduction = (bs.flags.incoming_dmg_reduction || 0) + 0.10;
+    // All damage received -10%; ATK +10% — both constant for the whole battle.
+    // playerAtkMult and bonusIncomingDmgMult are per-turn deltas (0 = normal),
+    // re-applied every turn so the effect stays constant (matches sword_of_damocles).
+    bs.playerAtkMult += 0.10;
+    bs.bonusIncomingDmgMult -= 0.10;
   },
 
   'battersea_shield': (bs) => {

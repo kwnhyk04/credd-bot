@@ -14,8 +14,9 @@ const pool = require('../db/pool');
  *     (actual quest generation happens in the daily/quests command logic in Phase 8)
  */
 function startResetScheduler() {
-  // 0 16 * * * = 16:00 UTC = 00:00 PHT
-  cron.schedule('0 16 * * *', async () => {
+  // With timezone 'Asia/Manila', the cron expression is evaluated in PHT,
+  // so '0 0 * * *' = 00:00 PHT (midnight). (NOT '0 16' — that would be 16:00 PHT.)
+  cron.schedule('0 0 * * *', async () => {
     console.log('[resetScheduler] Running midnight PHT reset...');
     const client = await pool.connect();
     try {
