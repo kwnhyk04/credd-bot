@@ -1,0 +1,28 @@
+# Secrets / env
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json.bak
+
+# Logs
+logs/
+*.log
+
+# Build / cache
+dist/
+build/
+.cache/
+coverage/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

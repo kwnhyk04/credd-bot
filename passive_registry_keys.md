@@ -1,0 +1,153 @@
+# CREDD — PASSIVE REGISTRY KEY LIST (authoritative)
+
+Every key below MUST have a function in `/engine/passiveRegistry.js`, implemented per its
+effect text under Master §35.1 (one round clock; CC + stat-debuffs = 1 turn; Bleed/Burn
+DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are riders).
+`none` is the shared no-op. Generated from the three seed files — regenerate if seeds change.
+
+## WEAPON passives (weapon_roster.passive_key)
+
+- `none` — (shared no-op)
+- `cutlass` — Serrated Edge: 10% chance to apply flat Bleed on hit.
+- `kampilan` — Opening Strike: First hit deals +20% ATK.
+- `war_club` — Concussive Blow: 10% chance to Stun the enemy for 1 turn.
+- `bone_crusher` — Opening Strike: First hit deals +20% ATK.
+- `crystal_wand` — Arcane Surge: 10% chance to deal a +15% ATK bonus hit.
+- `carved_totem` — Opening Strike: First hit deals +20% ATK.
+- `steel_kite_shield` — Bulwark: 10% chance to block 15% of incoming damage.
+- `reinforced_targe` — Opening Strike: First hit deals +20% ATK.
+- `recurve_bow` — Precise Shot: 10% chance to deal a +20% ATK bonus hit.
+- `crossbow` — Piercing Opener: First hit deals +20% ATK ignoring 25% DEF.
+- `katana` — Lethal Edge: CRIT deals +30% bonus damage on top of the x2.0 crit (i.e. x2.30 on a crit).
+- `gladius` — Brutal Swing: 30% chance to deal +50% bonus ATK.
+- `scimitar` — Rising Slash: ATK +3% every turn, stacking up to 15%.
+- `roman_cestus` — Executioner: Deals 50% more damage to stunned enemies.
+- `pata` — Rending Claws: Flat Bleed on hit: 30% ATK per turn for 2 turns.
+- `bagh_nakh` — Frenzied Claws: ATK +5% every turn, stacking up to 25%.
+- `japanese_bo` — Vital Siphon: 25% chance to heal 50% of damage dealt.
+- `english_quarterstaff` — Sweeping Strike: 20% chance to deal +50% bonus ATK.
+- `egyptian_asa` — Armor Breaker: +3% DEF ignore every turn, stacking to 15%.
+- `pilgrims_bordone` — Sundering Blow: 50% chance to reduce enemy DEF by 15% for 1 turn.
+- `vatican_aspis` — Sacred Guard: All damage received -10%; ATK +10%.
+- `battersea_shield` — Iron Stance: DEF +25% for the first 2 turns.
+- `enderby_shield` — Thornward: 10% chance to reflect 30% of incoming damage to the attacker.
+- `holmegaard_bow` — Steady Aim: ATK +3% every turn, stacking up to 15%.
+- `scandinavian_glacial_wooden_bow` — Frostwind Volley: 10% chance to take another turn.
+- `scythian_composite_bow` — Power Draw: 20% chance to deal +50% ATK bonus damage.
+- `xiphos` — Honed Edge: ATK +4% every turn, stacking up to 20%.
+- `kopis` — Cleaving Blow: 25% chance to deal +60% bonus ATK.
+- `caestus` — Hammer Fists: 35% chance to deal +40% bonus ATK.
+- `myrmex` — Predator's Grip: Deals 40% more damage to stunned enemies.
+- `dory` — Phalanx Momentum: ATK +6% every 2 turns, stacking up to 18%.
+- `thyrsus` — Maddening Touch: 20% chance each turn to apply flat Bleed (ATKx0.30 for 2 turns).
+- `dipylon_shield` — Hoplite Wall: DEF +20% for the first 3 turns.
+- `pelte` — Deflection: 15% chance to block 25% of incoming damage.
+- `arrow_of_eros` — Love's Arrow: 30% chance to deal +45% ATK bonus damage.
+- `cretan_bow` — Hunter's Focus: ATK +4% every turn, stacking up to 20%.
+- `juru_pakal` — Bloodhunter: Deals 30% more damage to bleeding enemies.
+- `gram` — Dragonbane: Ignores 20% of enemy DEF.
+- `tyrfing` — Cursed Edge: ATK +10% every turn, stacking up to 30%.
+- `laevateinn_sword` — Sundering Flame: Reduces enemy DEF by 10% every turn, stacking up to 30%.
+- `jarngreipr` — Thunder Grip: Stunning an enemy triggers Bash: +60% bonus damage.
+- `gridr_iron_gloves` — Ironhide: 20% chance to ignore incoming damage.
+- `alans_reversed_hands` — Untouchable: Immune to all status effects.
+- `knuckle_charm_anting_anting` — Death Charm: 5% chance to instantly kill the opponent (except Bosses).
+- `laevateinn_staff` — Flickering Flame: Attacks ignore 15% of enemy DEF.
+- `galdrastafir` — Runebreaker: 50% chance to reduce enemy DEF by 30% for 1 turn.
+- `babaylans_ritual_staff` — Sacred Cleansing: Auto-cleanses all debuffs every turn; +100% ATK for 1 turn after a cleanse actually removes a debuff.
+- `badiang_stalk` — Venom Burst: 30% chance Rupture: 10% enemy max HP. Blocked by all bosses.
+- `shield_of_the_valkyrie` — Valkyrie's Resolve: Every hit received: DEF +5% and ATK +5%, stacking up to 30% each.
+- `skjaldmaer` — Shieldmaiden's Guard: 15% chance to ignore incoming damage.
+- `luzon_tribal_shield` — Tribal Ward: While debuffed, gains 40% DEF boost until the debuff expires.
+- `gusisnautar` — Hemorrhaging Shot: 50% chance Hemorrhage: 10% enemy max HP for 1 turn + DEF -15% during Hemorrhage. Blocked by bosses.
+- `freyrs_arrow` — Auto-Fire: 50% chance to auto-fire dealing 100% ATK damage.
+- `harpe` — Gorgon Slayer: Ignores 30% DEF.
+- `sword_of_damocles` — Impending Doom: ATK +5% every turn, stacking up to +100%; player takes 5% more damage.
+- `labrys` — Double Strike: Every 3rd turn the attack hits twice; 2nd hit deals 70% ATK; both can CRIT.
+- `hephaestus_hammer` — Forged Armor: DEF +20% for the battle; every 4th turn deals a 150% ATK forge strike.
+- `caduceus` — Herald's Touch: Every 3rd turn: cleanses all player debuffs + restores 8% max HP.
+- `spear_of_ares` — Bloodlust: ATK +8% every 2 turns, stacking up to 40%.
+- `helm_of_darkness` — Invisibility: 25% chance each turn: enemy misses its next attack completely.
+- `aegis` — Medusa's Gaze: 20% chance on hit: Stone Stack. At 3 stacks: stun 1 turn. Resets after.
+- `apollos_silver_bow` — Unerring Arrow: Ignores 25% DEF; every 4th turn the attack is a guaranteed CRIT.
+- `mjolnir` — Crushing Force: Every turn +20% ATK bonus; every 4th turn: 200% ATK crush.
+- `gungnir` — Never Misses: Ignores 40% DEF; 30% chance to pierce ALL DEF (zero mitigation); enemy DEF -25% for 1 turn on pierce.
+- `thunderbolt_of_zeus` — Divine Thunder: 30% chance: 80% ATK bonus + paralyze 1 turn. Auto-triggers on CRIT.
+- `trident_of_poseidon` — Tidal Wrath: Every 3rd turn: 100% ATK bonus; 25% chance stun 1 turn; enemy DEF -20% for 1 turn.
+
+## DEITY blessings (deity_roster.blessing_key)
+
+- `bathala_divine_vessel` — Divine Vessel: All stats +20% for the first 3 turns.
+- `sidapa_deaths_reprieve` — Death's Reprieve: Once per battle, survive lethal damage at 1 HP.
+- `magwayen_soul_drain` — Soul Drain: Each attack steals 10% of damage dealt as HP.
+- `mandarangan_war_frenzy` — War Frenzy: ATK +10% every turn, capped at 30% (max turn 3).
+- `apolaki_solar_burn` — Solar Burn: Every 3rd turn ignites the enemy: 15% ATK flat Burn for 2 turns.
+- `mayari_lunar_veil` — Lunar Veil: When HP < 50%, DEF +30%.
+- `dian_masalanta_devotion` — Devotion: When HP < 30%, ATK +25%.
+- `amihan_tailwind` — Tailwind: 20% chance to evade any incoming attack.
+- `habagat_monsoon_fury` — Monsoon Fury: Every turn, 25% chance: storm strike dealing +50% ATK bonus damage.
+- `lakapati_abundance` — Abundance: Regenerate 3% max HP at the start of each turn.
+- `idiyanale_persistence` — Persistence: Every 5 turns, the next attack deals double damage.
+- `odin_all_fathers_wisdom` — All-Father's Wisdom: Every even turn (2/4/6...), the character takes 50% reduced damage.
+- `thor_mjolnirs_wrath` — Mjolnir's Wrath: Every 3rd turn: 50% ATK bonus + stun the enemy 1 turn.
+- `freya_valkyries_embrace` — Valkyrie's Embrace: Once per battle at <=40% HP: restore 20% max HP and gain ATK +15% for 2 turns.
+- `loki_illusory_double` — Illusory Double: 20% chance each turn to evade an attack and counter for 50% ATK.
+- `tyr_oathkeeper` — Oathkeeper: DEF +20% for the battle; while HP < 50%, reflect 15% of incoming damage.
+- `skadi_winters_hunt` — Winter's Hunt: Every 3rd turn: +40% ATK and apply Freeze (enemy skips its next turn).
+- `surt_muspells_flame` — Muspell's Flame: Every attack applies flat Burn (25% ATK for 2 turns); Burn deals +50% vs already-burning enemies.
+- `heimdall_eternal_vigilance` — Eternal Vigilance: The first hit taken each battle is negated by 50%.
+- `baldur_invulnerability` — Invulnerability: Once per battle, the first turn Baldur is debuffed or below 50% HP: remove all debuffs + restore 10% max HP.
+- `hel_half_dead` — Half-Dead: When HP < 50%: DEF +15% and ATK +15%.
+- `mimir_runic_knowledge` — Runic Knowledge: Every 4 turns, the next attack deals 65% more damage.
+- `freyr_harvest_bounty` — Harvest Bounty: Restore 5% max HP every 2 turns.
+- `njord_seas_favor` — Sea's Favor: 15% chance each turn to reduce incoming damage by 30%.
+- `bragi_battle_hymn` — Battle Hymn: Every 3 turns: ATK +8% for 2 turns.
+- `idunn_golden_apple` — Golden Apple: Once per battle at <=50% HP: restore 15% max HP.
+- `vidar_silent_vengeance` — Silent Vengeance: When hit by a crit, the next attack auto-crits back.
+- `magni_might_of_magni` — Might of Magni: ATK +5% for every 10% HP lost, capped at 25%.
+- `zeus_thunder_sovereign` — Thunder Sovereign: Every 3rd turn: 80% ATK bonus + enemy DEF -20% for 1 turn.
+- `ares_blood_frenzy` — Blood Frenzy: ATK +8% every 2 turns, stacking up to 40% (max turn 10).
+- `poseidon_tidal_force` — Tidal Force: Every 4 turns: 60% ATK bonus + 40% chance to stun 1 turn.
+- `hades_soul_harvest` — Soul Harvest: When enemy HP < 30%: ATK +35% for the remainder of battle.
+- `hera_divine_wrath` — Divine Wrath: When hit by a CRIT: DEF +10% and ATK +10%, stacking up to 3x.
+- `athena_aegis_shield` — Aegis Shield: The first 2 hits received each battle are reduced by 40%.
+- `apollo_solar_radiance` — Solar Radiance: ATK increased by 20% for the duration of battle.
+- `artemis_huntress_precision` — Huntress Precision: The first attack each battle always lands as a CRIT. Every 4 turns the next attack automatically crits.
+- `hephaestus_forged_armor` — Forged Armor: DEF increased by 20% for the duration of battle. When HP drops below 50%, ATK increases by 15%.
+- `aphrodite_enchanting_aura` — Enchanting Aura: 20% chance each turn to charm the enemy, causing it to skip its attack.
+- `persephone_cycle_of_renewal` — Cycle of Renewal: When HP < 50%: restore 20% max HP, once per battle.
+- `dionysus_drunken_haze` — Drunken Haze: 30% chance each turn the enemy attacks itself (30% of its own ATK as damage).
+- `nike_wings_of_victory` — Wings of Victory: ATK +25% for the duration of battle.
+
+## MOB / BOSS skills (mob_roster.skill_key)
+
+- `dwende_black_hex` — Hex: 25% chance to reduce player ATK -15% for 1 turn.
+- `dwende_white_daze` — Daze: 20% chance to reduce player CRIT -50% for 1 turn.
+- `amalanhig_infectious_bite` — Infectious Bite: 30% on hit: Rot 5% max HP per turn for 2 turns.
+- `amomongo_rend` — Rend: Every 3rd turn deals 150% ATK.
+- `bal_bal_carrion_sense` — Carrion Sense: When player HP < 30%: ATK +20%.
+- `santelmo_will_o_wisp` — Will-o-Wisp: 20% chance each turn: player skips next attack.
+- `manananggal_viscera_drain` — Viscera Drain: Every 3 turns: drain 15% of the player's max HP and heal self.
+- `aswang_shape_shift` — Shape Shift: Every 4 turns: copy the player's current ATK for 2 turns.
+- `tikbalang_disorientation` — Disorientation: Every 3 turns: player ATK -20% for 1 turn.
+- `kapre_smoke_cloud` — Smoke Cloud: Every 4 turns: player CRIT -30% and ATK -10% for 1 turn.
+- `sigbin_shadow_step` — Shadow Step: 20% chance to evade any incoming attack.
+- `batibat_sleep_paralysis` — Sleep Paralysis: Every 4 turns: paralyze the player 1 turn (guaranteed skip).
+- `troll_regeneration` — Regeneration: Recovers 5% max HP at the start of each turn.
+- `dwarves_stone_skin` — Stone Skin: Every 4 turns: absorb the next hit up to 20% max HP.
+- `dark_elves_curse_of_decay` — Curse of Decay: 25% on hit: DEF -10% for 1 turn.
+- `light_elves_radiant_strike` — Radiant Strike: 20% chance: blind player (CRIT to 0% for 1 turn).
+- `ratatoskr_slander` — Slander: Every 3 turns: player ATK -20% for 1 turn.
+- `fossegrim_enchanting_melody` — Enchanting Melody: Every 4 turns: player skips next turn.
+- `nokken_luring_form` — Luring Form: Every 3 turns: player DEF -20% for 1 turn.
+- `valkyrie_battle_judgment` — Battle Judgment: Every 4 turns: next attack deals 200% ATK.
+- `satyr_wild_revelry` — Wild Revelry: 25% chance each turn: player ATK -15% for 1 turn.
+- `harpy_swooping_talons` — Swooping Talons: Every 3rd turn: 150% ATK + DEF -10% for 1 turn.
+- `skeleton_warrior_undying_resolve` — Undying Resolve: When HP < 30%: DEF +25% for the remainder of battle.
+- `lamia_serpent_bite` — Serpent Bite: 30% on hit: flat Bleed ATKx0.35 per turn for 2 turns.
+- `minotaur_labyrinth_charge` — Labyrinth Charge: Every 3 turns: 180% ATK. If player HP > 70%: 220% ATK.
+- `cyclops_boulder_throw` — Boulder Throw: Every 4 turns: 160% ATK + stun 1 turn.
+- `chimera_tri_form_assault` — Tri-Form Assault: Rotates per attack: Lion Claw (140% ATK) -> Goat Ram (DEF -20%) -> Serpent Bite (Burn ATKx0.30 for 2 turns).
+- `none` — (shared no-op)
+- `hydra_regen` — Regeneration: Regenerates 5% max HP every 3rd turn (local instance; only NET damage commits to the shared pool).
+- `stone_stare` — Stone Stare: Every 3rd turn: petrify the player 1 turn, then the counter resets.

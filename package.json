@@ -1,0 +1,19 @@
+{
+  "name": "credd-bot",
+  "version": "1.0.0",
+  "description": "Credd — The Last Believer RPG Discord Bot",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.7",
+    "node-cron": "^3.0.3",
+    "pg": "^8.13.1"
+  }
+}
