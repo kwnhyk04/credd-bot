@@ -2,6 +2,7 @@
 
 const registerCmd = require('../commands/rpg/register');
 const createCmd = require('../commands/rpg/create');
+const bagCmd = require('../commands/rpg/bag');
 
 /**
  * Routes button interactions by customId.
@@ -10,6 +11,7 @@ const createCmd = require('../commands/rpg/create');
  *   create:class:<Class>:<uid>
  *   create:confirm:<Class>:<uid>
  *   create:back:<uid>
+ *   bagw:<page>:<uid>
  */
 async function handleInteraction(interaction) {
   if (!interaction.isButton()) return;
@@ -21,6 +23,13 @@ async function handleInteraction(interaction) {
     if (namespace === 'register' && action === 'confirm') {
       const ownerId = parts[2];
       await registerCmd.handleConfirm(interaction, ownerId);
+      return;
+    }
+
+    if (namespace === 'bagw') {
+      const page = parseInt(parts[1], 10);
+      const ownerId = parts[2];
+      await bagCmd.handlePage(interaction, Number.isNaN(page) ? 1 : page, ownerId);
       return;
     }
 

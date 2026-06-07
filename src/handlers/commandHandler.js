@@ -4,6 +4,9 @@ const { getPrefix } = require('./middleware');
 const registerCmd = require('../commands/rpg/register');
 const createCmd = require('../commands/rpg/create');
 const profileCmd = require('../commands/rpg/profile');
+const bagCmd = require('../commands/rpg/bag');
+const openCmd = require('../commands/rpg/open');
+const equipCmd = require('../commands/rpg/equip');
 
 // Commands with real Phase 2 implementations.
 //   mw 'ban'  → ban check only (no registration/character/activity); register needs this
@@ -13,6 +16,10 @@ const IMPLEMENTED = {
   create:   { mw: 'full', run: createCmd.execute },
   profile:  { mw: 'full', run: profileCmd.execute },
   stats:    { mw: 'full', run: profileCmd.execute },
+  bag:      { mw: 'full', run: bagCmd.execute },
+  b:        { mw: 'full', run: bagCmd.execute },
+  open:     { mw: 'full', run: openCmd.execute },
+  equip:    { mw: 'full', run: equipCmd.execute },
 };
 
 // Command categories and their routing metadata
