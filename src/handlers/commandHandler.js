@@ -9,6 +9,9 @@ const openCmd = require('../commands/rpg/open');
 const equipCmd = require('../commands/rpg/equip');
 const summonCmd = require('../commands/rpg/summon');
 const deityCmd = require('../commands/rpg/deity');
+const enhanceCmd = require('../commands/rpg/enhance');
+const lockCmd = require('../commands/rpg/lock');
+const sellCmd = require('../commands/rpg/sell');
 
 // Commands with real Phase 2 implementations.
 //   mw 'ban'  → ban check only (no registration/character/activity); register needs this
@@ -25,6 +28,10 @@ const IMPLEMENTED = {
   summon:   { mw: 'full', run: summonCmd.execute },
   s:        { mw: 'full', run: summonCmd.execute },
   deity:    { mw: 'full', run: deityCmd.execute },
+  enhance:  { mw: 'full', run: enhanceCmd.execute },
+  lock:     { mw: 'full', run: lockCmd.lock },
+  unlock:   { mw: 'full', run: lockCmd.unlock },
+  sell:     { mw: 'full', run: sellCmd.execute },
 };
 
 // Command categories and their routing metadata

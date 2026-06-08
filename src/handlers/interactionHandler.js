@@ -4,6 +4,8 @@ const registerCmd = require('../commands/rpg/register');
 const createCmd = require('../commands/rpg/create');
 const bagCmd = require('../commands/rpg/bag');
 const deityCmd = require('../commands/rpg/deity');
+const enhanceCmd = require('../commands/rpg/enhance');
+const sellCmd = require('../commands/rpg/sell');
 
 /**
  * Routes button interactions by customId.
@@ -14,6 +16,10 @@ const deityCmd = require('../commands/rpg/deity');
  *   create:back:<uid>
  *   bagw:<page>:<uid>
  *   deityc:<page>:<uid>
+ *   enhance:attempt:<weaponId>:<uid>
+ *   enhance:cancel:<weaponId>:<uid>
+ *   sell:confirm:<mode>:<arg>:<uid>
+ *   sell:cancel:<uid>
  */
 async function handleInteraction(interaction) {
   if (!interaction.isButton()) return;
@@ -40,6 +46,35 @@ async function handleInteraction(interaction) {
       const ownerId = parts[2];
       await deityCmd.handlePage(interaction, Number.isNaN(page) ? 1 : page, ownerId);
       return;
+    }
+
+    if (namespace === 'enhance') {
+      if (action === 'attempt') {
+        const weaponId = parts[2];
+        const ownerId = parts[3];
+        await enhanceCmd.handleAttempt(interaction, weaponId, ownerId);
+        return;
+      }
+      if (action === 'cancel') {
+        const ownerId = parts[3];
+        await enhanceCmd.handleCancel(interaction, ownerId);
+        return;
+      }
+    }
+
+    if (namespace === 'sell') {
+      if (action === 'confirm') {
+        const mode = parts[2];
+        const arg = parts[3];
+        const ownerId = parts[4];
+        await sellCmd.handleConfirm(interaction, mode, arg, ownerId);
+        return;
+      }
+      if (action === 'cancel') {
+        const ownerId = parts[2];
+        await sellCmd.handleCancel(interaction, ownerId);
+        return;
+      }
     }
 
     if (namespace === 'create') {
