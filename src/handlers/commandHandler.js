@@ -128,7 +128,8 @@ async function handleMessage(message, { runMiddleware, isBanned }) {
       // (the users row doesn't exist yet, so the FK would fail).
       if (await isBanned(message.author.id)) return true;
     } else {
-      const allowed = await runMiddleware(message, { requiresCharacter });
+      // commandKey = canonical COMMAND_MAP key → per-command cooldown window.
+      const allowed = await runMiddleware(message, { requiresCharacter, commandKey: command });
       if (!allowed) return true;
     }
     await impl.run(message, { args });
@@ -136,7 +137,7 @@ async function handleMessage(message, { runMiddleware, isBanned }) {
   }
 
   // Not yet implemented → run the full middleware pipeline, then stub reply.
-  const allowed = await runMiddleware(message, { requiresCharacter });
+  const allowed = await runMiddleware(message, { requiresCharacter, commandKey: command });
   if (!allowed) return true;
 
   await message.reply({

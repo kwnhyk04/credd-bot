@@ -3,7 +3,9 @@
 const pool = require('../db/pool');
 const { replyError } = require('../utils/errorHandler');
 
-// In-memory cooldown store: discord_id → timestamp of last command
+// In-memory cooldown store: "discord_id:commandKey" → timestamp of last use.
+// Compound key gives each command its own independent 10s window (per-user,
+// across guilds); `crd bag` no longer gates `crd enhance`.
 const cooldowns = new Map();
 const COOLDOWN_MS = 10_000;
 
@@ -65,12 +67,12 @@ async function isBanned(discordId) {
  *   2. Registration check
  *   3. Character check  (RPG commands only — pass requiresCharacter = true)
  *   4. Bot-channel check
- *   5. 10-second cooldown
+ *   5. 10-second cooldown (per user, per command — compound key)
  *   6. UPSERT user_guild_activity
  *
  * Returns true if the command should proceed, false if it was blocked.
  */
-async function runMiddleware(message, { requiresCharacter = false } = {}) {
+async function runMiddleware(message, { requiresCharacter = false, commandKey = '' } = {}) {
   const discordId = message.author.id;
   const guildId   = message.guild?.id;
 
@@ -141,9 +143,12 @@ async function runMiddleware(message, { requiresCharacter = false } = {}) {
     }
   }
 
-  // ── 5. 10-second cooldown ─────────────────────────────────────────────────
+  // ── 5. 10-second cooldown (per user PER COMMAND) ──────────────────────────
+  // Compound key → each command has its own window; subcommand args are NOT
+  // part of the key (canonical command identifier only).
+  const cooldownKey = `${discordId}:${commandKey}`;
   const now = Date.now();
-  const last = cooldowns.get(discordId) ?? 0;
+  const last = cooldowns.get(cooldownKey) ?? 0;
   const elapsed = now - last;
   if (elapsed < COOLDOWN_MS) {
     const remainingMs = COOLDOWN_MS - elapsed;
@@ -157,7 +162,7 @@ async function runMiddleware(message, { requiresCharacter = false } = {}) {
     if (sent) setTimeout(() => sent.delete().catch(() => {}), remainingMs);
     return false;
   }
-  cooldowns.set(discordId, now);
+  cooldowns.set(cooldownKey, now);
 
   // ── 6. UPSERT user_guild_activity ─────────────────────────────────────────
   if (guildId) {
