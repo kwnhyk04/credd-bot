@@ -25,7 +25,7 @@ function reply(message, payload) {
  * Returns { found:false } if the weapon no longer belongs to the player.
  * `resultLine` is an optional banner from the last attempt.
  */
-async function buildForgeView(discordId, weaponId, resultLine = null) {
+async function buildForgeView(discordId, weaponId, { resultLine = null, color = null } = {}) {
   const { rows } = await pool.query(
     `SELECT uw.enhancement, uw.base_atk, uw.base_hp, uw.base_def,
             uw.curr_atk, uw.curr_hp, uw.curr_def, uw.crit,
@@ -43,7 +43,7 @@ async function buildForgeView(discordId, weaponId, resultLine = null) {
   const display = w.enhancement - 1;
   const credux = Number(w.credux);
   const embed = new EmbedBuilder()
-    .setColor(TIER_COLOR[w.tier] || TIER_COLOR.Common)
+    .setColor(color ?? (TIER_COLOR[w.tier] || TIER_COLOR.Common))
     .setTitle(`🔨 Forge — ${w.name} (${w.tier}) +${display}`)
     .addFields({
       name: 'Current Stats',
@@ -212,12 +212,16 @@ async function handleAttempt(interaction, weaponId, ownerId) {
     client.release();
   }
 
-  // Soft outcomes that leave the forge open → ephemeral notice, no edit.
+  // Insufficient Credux → update the forge IN PLACE (red + Result), buttons stay
+  // live so the user can Cancel or retry. No spend, no game_logs (already rolled back).
   if (result.status === 'insufficient') {
-    await interaction.reply({
-      content: `Not enough Credux — need **${result.cost.toLocaleString()}**, you have **${result.credux.toLocaleString()}**.`,
-      ephemeral: true,
-    });
+    const resultLine = `❌ Not enough Credux — need **${result.cost.toLocaleString()}**, you have **${result.credux.toLocaleString()}**.`;
+    const view = await buildForgeView(ownerId, weaponId, { resultLine, color: 0xe74c3c });
+    if (!view.found) {
+      await interaction.update({ content: 'This weapon is no longer in your bag.', embeds: [], components: [] });
+      return;
+    }
+    await interaction.update({ embeds: [view.embed], components: view.components });
     return;
   }
   if (result.status === 'not_enhanceable') {
@@ -236,7 +240,7 @@ async function handleAttempt(interaction, weaponId, ownerId) {
   }
 
   if (result.status === 'maxed') {
-    const view = await buildForgeView(ownerId, weaponId, 'This weapon is already maxed (+10).');
+    const view = await buildForgeView(ownerId, weaponId, { resultLine: 'This weapon is already maxed (+10).' });
     if (!view.found) {
       await interaction.update({ content: 'This weapon is no longer in your bag.', embeds: [], components: [] });
       return;
@@ -250,7 +254,7 @@ async function handleAttempt(interaction, weaponId, ownerId) {
     ? `✅ **Success!** ${result.name} is now **+${result.newEnhancement - 1}**. (−${result.cost.toLocaleString()} Credux)`
     : `❌ **Failed** at +${result.targetLevel}. Weapon unchanged. (−${result.cost.toLocaleString()} Credux)`;
 
-  const view = await buildForgeView(ownerId, weaponId, resultLine);
+  const view = await buildForgeView(ownerId, weaponId, { resultLine });
   if (!view.found) {
     await interaction.update({ content: 'This weapon is no longer in your bag.', embeds: [], components: [] });
     return;
