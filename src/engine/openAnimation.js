@@ -85,7 +85,8 @@ async function runFrameAnimation(message, frames, finalEmbed, frameTitle) {
     await msg.edit({ embeds: [finalEmbed], files: [], attachments: [] });
     return msg;
   } catch (err) {
-    console.error('[animation] failed → falling through to results:', err.message);
+    // Surface WHICH failure (e.g. Discord code 50013 = Missing Permissions, 429 = rate limit).
+    console.error(`[animation] failed → falling through to results: code=${err.code ?? 'n/a'} ${err.message}`);
     try {
       if (msg) await msg.edit({ embeds: [finalEmbed], files: [], attachments: [] });
       else await message.reply({ embeds: [finalEmbed], allowedMentions: { repliedUser: false } });
