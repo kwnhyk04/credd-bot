@@ -1,20 +1,19 @@
 'use strict';
 
-const { EmbedBuilder } = require('discord.js');
 const pool = require('../../db/pool');
 const { runSummon } = require('../../engine/summonEngine');
-const { playSummonAnimation } = require('../../engine/openAnimation');
+const { buildFlipMessage, buildResultMessage, flipGifExists } = require('../../engine/renderSummon');
 const {
   SHARDS_PER_PULL,
   ALLOWED_SUMMON_COUNTS,
   TIER_ALIAS,
-  TIER_COLOR,
-  TIER_RANK,
 } = require('../../config/gachaRates');
 
 function reply(message, payload) {
   return message.reply({ ...payload, allowedMentions: { repliedUser: false } });
 }
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * `crd summon [1|5|10]` / `crd s` — deity gacha, spends Belief Shards.
@@ -79,51 +78,37 @@ async function execute(message, { args }) {
     client.release();
   }
 
-  const finalEmbed = buildResultEmbed(message, result, { count, shardsRemaining, sacredRelics });
-  const highestTier = result.pulls.reduce(
-    (h, p) => (TIER_RANK[p.tier] > TIER_RANK[h] ? p.tier : h),
-    'Epic'
-  );
-  // Cosmetic card-flip animation (post-commit). One flip for any pull size.
-  await playSummonAnimation(message, {
-    highestTier,
-    finalEmbed,
-    frameTitle: `Invocation — ${count} Summon${count > 1 ? 's' : ''}`,
-  });
-}
+  // ── Display layer (renderSummon, Components V2) — pulls are already committed.
+  // Two-phase: flip GIF suspense → edit to the rendered card-grid results.
+  // rarity must be the display alias ('Remnant'|'Awakened'|'Undying'|'Primordial').
+  const results = result.pulls.map((p) => ({
+    name: p.name,
+    rarity: TIER_ALIAS[p.tier],
+    isNew: !p.isDupe,
+  }));
+  const balances = { beliefShards: shardsRemaining, sacredRelics };
 
-/** Build the static results embed (no animation — hard constraint). */
-function buildResultEmbed(message, result, { count, shardsRemaining, sacredRelics }) {
-  const { pulls, summary, newActiveDeityId } = result;
-
-  const highest = pulls.reduce(
-    (h, p) => (TIER_RANK[p.tier] > TIER_RANK[h] ? p.tier : h),
-    'Epic'
-  );
-
-  const lines = pulls.map((p) => {
-    const star = p.isDupe ? '↻ +1 essence' : '✨ NEW';
-    return `**${p.name}** — ${TIER_ALIAS[p.tier]} *(${p.tier})* · ${p.mythology} · ${star}`;
-  });
-
-  // Summary line, highest → lowest, only non-zero tiers.
-  const summaryLine = ['Supreme', 'Legendary', 'Mythic', 'Epic']
-    .filter((t) => summary[t] > 0)
-    .map((t) => `${TIER_ALIAS[t]} ×${summary[t]}`)
-    .join(' · ');
-
-  const embed = new EmbedBuilder()
-    .setColor(TIER_COLOR[highest])
-    .setTitle(`Invocation — ${count} Summon${count > 1 ? 's' : ''}`)
-    .setDescription(lines.join('\n'))
-    .addFields({ name: 'Summary', value: summaryLine || '—', inline: false })
-    .setFooter({ text: `Belief Shards: ${shardsRemaining.toLocaleString()} · Sacred Relic: ${sacredRelics}` });
-
-  if (newActiveDeityId != null) {
-    embed.addFields({ name: 'Active Deity', value: 'Your first deity is now equipped.', inline: false });
+  let sent = null;
+  try {
+    if (flipGifExists()) {
+      sent = await reply(message, buildFlipMessage());
+      await sleep(2000);
+      // attachments: [] drops the flip GIF from the edited message.
+      await sent.edit({ ...(await buildResultMessage(results, balances)), attachments: [] });
+    } else {
+      // card_flip.gif not on disk — skip the suspense phase.
+      await reply(message, await buildResultMessage(results, balances));
+    }
+  } catch (err) {
+    // Display-only failure: the pulls are committed — always tell the player.
+    console.error('[summon] display failed:', err.message);
+    if (sent) await sent.delete().catch(() => {});
+    const lines = result.pulls.map((p) => `${p.name} — ${TIER_ALIAS[p.tier]}${p.isDupe ? ' (+1 essence)' : ' (NEW)'}`);
+    await message.reply({
+      content: `✨ Invocation complete:\n${lines.join('\n')}\nBelief Shards: ${shardsRemaining.toLocaleString()}`,
+      allowedMentions: { repliedUser: false },
+    }).catch(() => {});
   }
-
-  return embed;
 }
 
 module.exports = { execute };
