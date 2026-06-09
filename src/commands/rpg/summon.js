@@ -3,6 +3,7 @@
 const { EmbedBuilder } = require('discord.js');
 const pool = require('../../db/pool');
 const { runSummon } = require('../../engine/summonEngine');
+const { playSummonAnimation } = require('../../engine/openAnimation');
 const {
   SHARDS_PER_PULL,
   ALLOWED_SUMMON_COUNTS,
@@ -78,8 +79,16 @@ async function execute(message, { args }) {
     client.release();
   }
 
-  await reply(message, {
-    embeds: [buildResultEmbed(message, result, { count, shardsRemaining, sacredRelics })],
+  const finalEmbed = buildResultEmbed(message, result, { count, shardsRemaining, sacredRelics });
+  const highestTier = result.pulls.reduce(
+    (h, p) => (TIER_RANK[p.tier] > TIER_RANK[h] ? p.tier : h),
+    'Epic'
+  );
+  // Cosmetic card-flip animation (post-commit). One flip for any pull size.
+  await playSummonAnimation(message, {
+    highestTier,
+    finalEmbed,
+    frameTitle: `Invocation — ${count} Summon${count > 1 ? 's' : ''}`,
   });
 }
 

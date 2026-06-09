@@ -6,6 +6,7 @@ const { CHESTS, CHEST_ALIASES, MAX_OPEN, rollTier, rollWeaponStats } = require('
 const { generateUniqueWeaponId } = require('../../utils/weaponId');
 const { runSummon } = require('../../engine/summonEngine');
 const { TIER_ALIAS, TIER_COLOR: DEITY_TIER_COLOR, TIER_RANK: DEITY_TIER_RANK } = require('../../config/gachaRates');
+const { playChestAnimation, playRelicAnimation } = require('../../engine/openAnimation');
 
 const TIER_COLOR = {
   Common: 0x95a5a6, Rare: 0x3498db, Mythic: 0x9b59b6, Legendary: 0xFFD700, Supreme: 0xe74c3c,
@@ -148,7 +149,13 @@ async function execute(message, { args }) {
     .setDescription(lines.join('\n\n'))
     .setFooter({ text: `${chest.action} remaining: ${remaining} · Equip with crd equip <id>` });
 
-  await message.reply({ embeds: [embed], allowedMentions: { repliedUser: false } });
+  // Cosmetic frame-swap animation (post-commit). chestKey = column minus '_chest'.
+  await playChestAnimation(message, {
+    chestKey: col.replace(/_chest$/, ''),
+    highestTier: highest,
+    finalEmbed: embed,
+    frameTitle: `Opening ${amount} × ${chest.action}`,
+  });
 }
 
 /**
@@ -207,9 +214,17 @@ async function openRelic(message, alias) {
     client.release();
   }
 
-  await message.reply({
-    embeds: [buildRelicEmbed(message, relic, result, relicRemaining)],
-    allowedMentions: { repliedUser: false },
+  const finalEmbed = buildRelicEmbed(message, relic, result, relicRemaining);
+  const highestTier = result.pulls.reduce(
+    (h, p) => (DEITY_TIER_RANK[p.tier] > DEITY_TIER_RANK[h] ? p.tier : h),
+    'Epic'
+  );
+  // Cosmetic frame-swap animation (post-commit): relic frames → card flip → results.
+  await playRelicAnimation(message, {
+    relicAlias: alias,
+    highestTier,
+    finalEmbed,
+    frameTitle: `Opening ${relic.action}`,
   });
 }
 
