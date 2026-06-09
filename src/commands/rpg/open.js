@@ -27,6 +27,86 @@ function reply(message, content) {
 }
 
 /**
+ * Atomic chest-open core (extracted so the bag-chests Open button runs the
+ * EXACT same logic as `crd open <alias>`): lock bag → validate count → roll
+ * weapons + INSERT → deduct chests → game_logs → COMMIT. Behavior unchanged.
+ * @returns {{ok:true, drops:object[], previous:number, remaining:number} |
+ *           {ok:false, reason:'nobag'|'insufficient'|'no_weapon_pool'|'error', have?:number}}
+ */
+async function openChestsTxn(discordId, alias, amount) {
+  const chest = CHESTS[alias];
+  const col = chest.column; // whitelisted identifier from our constant map (not raw user input)
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const bagRes = await client.query(
+      `SELECT ${col} AS count FROM users_bag WHERE discord_id = $1 FOR UPDATE`,
+      [discordId]
+    );
+    if (bagRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return { ok: false, reason: 'nobag' };
+    }
+    const previous = bagRes.rows[0].count;
+    if (previous < amount) {
+      await client.query('ROLLBACK');
+      return { ok: false, reason: 'insufficient', have: previous };
+    }
+
+    const drops = [];
+    for (let i = 0; i < amount; i++) {
+      const tier = rollTier(alias);
+      const wr = await client.query(
+        `SELECT weapon_roster_id, name, type FROM weapon_roster
+          WHERE tier = $1 AND is_available = TRUE
+          ORDER BY RANDOM() LIMIT 1`,
+        [tier]
+      );
+      if (wr.rows.length === 0) {
+        await client.query('ROLLBACK');
+        console.error(`[open] no available weapon for tier ${tier}`);
+        return { ok: false, reason: 'no_weapon_pool' };
+      }
+      const { weapon_roster_id, name, type } = wr.rows[0];
+      const s = rollWeaponStats(tier, type);
+      const weaponId = await generateUniqueWeaponId(client);
+
+      await client.query(
+        `INSERT INTO user_weapons
+           (discord_id, weapon_id, weapon_roster_id, curr_atk, curr_hp, curr_def,
+            enhancement, base_atk, base_hp, base_def, crit, bonus_dmg_pct, bonus_crit_dmg_pct, is_locked)
+         VALUES ($1,$2,$3,$4,$5,$6,1,$4,$5,$6,$7,$8,$9,FALSE)`,
+        [discordId, weaponId, weapon_roster_id, s.atk, s.hp, s.def, s.crit, s.bonus_dmg_pct, s.bonus_crit_dmg_pct]
+      );
+      drops.push({ name, type, tier, ...s, weaponId });
+    }
+
+    const remaining = previous - amount;
+    await client.query(
+      `UPDATE users_bag SET ${col} = ${col} - $2 WHERE discord_id = $1`,
+      [discordId, amount]
+    );
+
+    await client.query(
+      `INSERT INTO game_logs (discord_id, action, item_type, previous_chest_count, updated_chest_count)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [discordId, chest.action, col, previous, remaining]
+    );
+
+    await client.query('COMMIT');
+    return { ok: true, drops, previous, remaining };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[open] transaction failed:', err.message);
+    return { ok: false, reason: 'error' };
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * `crd open <sc|gc|btc|bgtc|supc> [amount]`  — weapon chests
  * `crd open <sr|supr>`                        — relic-fed deity gacha (§6)
  */
@@ -59,80 +139,17 @@ async function execute(message, { args }) {
   }
 
   const chest = CHESTS[alias];
-  const col = chest.column; // whitelisted identifier from our constant map (not raw user input)
   const discordId = message.author.id;
 
-  const client = await pool.connect();
-  let drops, previous, remaining;
-  try {
-    await client.query('BEGIN');
-
-    const bagRes = await client.query(
-      `SELECT ${col} AS count FROM users_bag WHERE discord_id = $1 FOR UPDATE`,
-      [discordId]
-    );
-    if (bagRes.rows.length === 0) {
-      await client.query('ROLLBACK');
-      await reply(message, `You don't have any ${chest.action}s.`);
-      return;
-    }
-    previous = bagRes.rows[0].count;
-    if (previous < amount) {
-      await client.query('ROLLBACK');
-      await reply(message, `You don't have enough ${chest.action}s. You have ${previous}.`);
-      return;
-    }
-
-    drops = [];
-    for (let i = 0; i < amount; i++) {
-      const tier = rollTier(alias);
-      const wr = await client.query(
-        `SELECT weapon_roster_id, name, type FROM weapon_roster
-          WHERE tier = $1 AND is_available = TRUE
-          ORDER BY RANDOM() LIMIT 1`,
-        [tier]
-      );
-      if (wr.rows.length === 0) {
-        await client.query('ROLLBACK');
-        console.error(`[open] no available weapon for tier ${tier}`);
-        await reply(message, 'Chest opening is temporarily unavailable (no available weapons for a rolled tier). Nothing was consumed.');
-        return;
-      }
-      const { weapon_roster_id, name, type } = wr.rows[0];
-      const s = rollWeaponStats(tier, type);
-      const weaponId = await generateUniqueWeaponId(client);
-
-      await client.query(
-        `INSERT INTO user_weapons
-           (discord_id, weapon_id, weapon_roster_id, curr_atk, curr_hp, curr_def,
-            enhancement, base_atk, base_hp, base_def, crit, bonus_dmg_pct, bonus_crit_dmg_pct, is_locked)
-         VALUES ($1,$2,$3,$4,$5,$6,1,$4,$5,$6,$7,$8,$9,FALSE)`,
-        [discordId, weaponId, weapon_roster_id, s.atk, s.hp, s.def, s.crit, s.bonus_dmg_pct, s.bonus_crit_dmg_pct]
-      );
-      drops.push({ name, type, tier, ...s, weaponId });
-    }
-
-    remaining = previous - amount;
-    await client.query(
-      `UPDATE users_bag SET ${col} = ${col} - $2 WHERE discord_id = $1`,
-      [discordId, amount]
-    );
-
-    await client.query(
-      `INSERT INTO game_logs (discord_id, action, item_type, previous_chest_count, updated_chest_count)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [discordId, chest.action, col, previous, remaining]
-    );
-
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    console.error('[open] transaction failed:', err.message);
-    await reply(message, 'Something went wrong opening your chest. Nothing was consumed.');
+  const res = await openChestsTxn(discordId, alias, amount);
+  if (!res.ok) {
+    if (res.reason === 'nobag') await reply(message, `You don't have any ${chest.action}s.`);
+    else if (res.reason === 'insufficient') await reply(message, `You don't have enough ${chest.action}s. You have ${res.have}.`);
+    else if (res.reason === 'no_weapon_pool') await reply(message, 'Chest opening is temporarily unavailable (no available weapons for a rolled tier). Nothing was consumed.');
+    else await reply(message, 'Something went wrong opening your chest. Nothing was consumed.');
     return;
-  } finally {
-    client.release();
   }
+  const { drops, remaining } = res;
 
   // Build result embed.
   const highest = drops.reduce((h, d) => (TIER_RANK[d.tier] > TIER_RANK[h] ? d.tier : h), 'Common');
@@ -254,4 +271,4 @@ function buildRelicEmbed(message, relic, result, relicRemaining) {
   return embed;
 }
 
-module.exports = { execute };
+module.exports = { execute, openChestsTxn };
