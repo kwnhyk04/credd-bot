@@ -94,11 +94,24 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
   );
   const ownedSet = new Set(ownedRes.rows.map(r => r.deity_id));
 
+  // ── Single shard-spend row for the whole command (crd summon path only) ──
+  // Relic paths spend no shards (the relic is the cost, logged by open.js), so
+  // shardsPerPull is null there and no shard row is written.
+  const shardsPerPull = log.shardsPerPull ?? null;
+  if (shardsPerPull != null) {
+    const shardsBefore = log.shardsStart;
+    const shardsAfter = shardsBefore - shardsPerPull * count;
+    await client.query(
+      `INSERT INTO game_logs
+         (discord_id, action, previous_belief_shards, updated_belief_shards)
+       VALUES ($1, 'Deity Pull', $2, $3)`,
+      [discordId, shardsBefore, shardsAfter]
+    );
+  }
+
   // ── Roll loop ────────────────────────────────────────────────────────────
   const pulls = [];
   let pendingActiveId = null; // first new deity, if the player has none active
-  let shardBal = log.shardsStart; // running shard balance for per-pull logging
-  const shardsPerPull = log.shardsPerPull ?? null;
 
   for (let i = 0; i < count; i++) {
     // Step 1 — tier (relic-forced tiers bypass the roll AND leave pity as-is).
@@ -126,16 +139,12 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
 
     const isDupe = ownedSet.has(d.deity_id);
     let userDeityId = null;
-    let essenceColumn = null;
-    let essBefore = null;
-    let essAfter = null;
 
     if (isDupe) {
       // Duplicate → +ESSENCE_PER_DUPLICATE of the deity's tier essence.
-      essenceColumn = TIER_ESSENCE_COLUMN[tier];
-      essBefore = essence[essenceColumn];
-      essence[essenceColumn] = essBefore + ESSENCE_PER_DUPLICATE;
-      essAfter = essence[essenceColumn];
+      // Only the running balance is updated here; the consolidated per-tier
+      // essence log row is written once after the loop.
+      essence[TIER_ESSENCE_COLUMN[tier]] += ESSENCE_PER_DUPLICATE;
     } else {
       // New deity → INSERT (enhancement 1 ⇒ curr = base, floor is identity).
       const ins = await client.query(
@@ -150,24 +159,13 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
       if (char.active_deity_id == null && pendingActiveId == null) {
         pendingActiveId = userDeityId;
       }
+      // One informational "Deity Pull" row per newly-obtained deity (null
+      // currency cols — the deity itself isn't a currency movement).
+      await client.query(
+        `INSERT INTO game_logs (discord_id, action) VALUES ($1, 'Deity Pull')`,
+        [discordId]
+      );
     }
-
-    // Per-pull game_logs row (action "Deity Pull"; essence on dupe; shards if summon).
-    let shardBefore = null;
-    let shardAfter = null;
-    if (shardsPerPull != null) {
-      shardBefore = shardBal;
-      shardBal -= shardsPerPull;
-      shardAfter = shardBal;
-    }
-    await client.query(
-      `INSERT INTO game_logs
-         (discord_id, action, item_type,
-          previous_belief_shards, updated_belief_shards,
-          previous_essence_count, updated_essence_count)
-       VALUES ($1, 'Deity Pull', $2, $3, $4, $5, $6)`,
-      [discordId, essenceColumn, shardBefore, shardAfter, essBefore, essAfter]
-    );
 
     pulls.push({
       tier,
@@ -180,13 +178,25 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
     });
   }
 
-  // ── Persist essence deltas (only columns that changed) ───────────────────
+  // ── Persist essence deltas + write ONE consolidated log row per tier ──────
+  // Iterate tiers in fixed order (epic→mythic→legendary→supreme). For each tier
+  // that gained essence this command, both add it to the single UPDATE and emit
+  // one "Deity Pull" row summing the gain: previous/updated = bag balance
+  // before/after the aggregated add (item_type = full column name, e.g. 'epic_essence').
   const essenceUpdates = [];
   const essenceParams = [discordId];
   for (const col of ESSENCE_COLUMNS) {
-    if (essence[col] !== bagRes.rows[0][col]) {
-      essenceParams.push(essence[col]);
+    const before = bagRes.rows[0][col];
+    const after = essence[col];
+    if (after !== before) {
+      essenceParams.push(after);
       essenceUpdates.push(`${col} = $${essenceParams.length}`);
+      await client.query(
+        `INSERT INTO game_logs
+           (discord_id, action, item_type, previous_essence_count, updated_essence_count)
+         VALUES ($1, 'Deity Pull', $2, $3, $4)`,
+        [discordId, col, before, after]
+      );
     }
   }
   if (essenceUpdates.length > 0) {
