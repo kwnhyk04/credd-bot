@@ -1,0 +1,361 @@
+'use strict';
+
+/**
+ * `crd dev <subcommand>` — superuser test-enabler suite (Master §2, §26).
+ *
+ * The dev-id gate lives in commandHandler (mw 'dev'): non-devs never reach this
+ * module (silent ignore). Every action writes one dev_logs row. All mutations
+ * are parameterized; whitelisted column identifiers come only from the constant
+ * maps below (never raw user input). Each mutation + its dev_logs insert share
+ * one transaction (resetplayer is a single atomic wipe).
+ */
+
+const pool = require('../../db/pool');
+const { computeWeaponStats } = require('../../engine/enhancement');
+const { computeDeityStats } = require('../../engine/deityEnhancement');
+
+const INT_MAX = 2147483647; // INTEGER column ceiling (shards/chests/relics)
+const MENTION_RE = /^<@!?\d+>$/;
+
+// type alias → users_bag column (accepts open-cmd aliases too).
+const CHEST_COLUMNS = {
+  silver: 'silver_chest', gold: 'gold_chest', boss_treasure: 'boss_treasure_chest',
+  boss_golden: 'boss_golden_chest', supreme: 'supreme_chest',
+  sc: 'silver_chest', gc: 'gold_chest', btc: 'boss_treasure_chest',
+  bgtc: 'boss_golden_chest', supc: 'supreme_chest',
+};
+const RELIC_COLUMNS = { sacred: 'sacred_relics', supreme: 'supreme_relics' };
+
+// Per-player tables wiped by resetplayer (immutable *_logs are preserved).
+// Snapshot order = read order; DELETE order is FK-safe (children before users).
+const SNAPSHOT_TABLES = [
+  'users', 'users_bag', 'user_character', 'user_weapons', 'user_deities',
+  'pity_counters', 'daily_quests', 'user_guild_activity', 'active_battles', 'boss_attack_log',
+];
+const DELETE_ORDER = [
+  'user_character', 'user_weapons', 'user_deities', 'users_bag', 'pity_counters',
+  'daily_quests', 'user_guild_activity', 'active_battles', 'boss_attack_log', 'users',
+];
+
+function reply(message, content) {
+  return message.reply({ content, allowedMentions: { repliedUser: false } });
+}
+
+function nonMentionArgs(args) {
+  return args.slice(1).filter(a => !MENTION_RE.test(a));
+}
+
+function parseAmount(raw) {
+  if (!/^\d+$/.test(raw || '')) return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) return null;
+  return n;
+}
+
+// Accepts "+5" or "5"; valid display level 0..10.
+function parseLevel(raw) {
+  const m = /^\+?(\d{1,2})$/.exec(raw || '');
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  if (n < 0 || n > 10) return null;
+  return n;
+}
+
+async function logDev(client, devId, actionType, targetId, detail, snapshot = null) {
+  await client.query(
+    `INSERT INTO dev_logs (dev_id, action_type, target_discord_id, amount_or_detail, pre_reset_snapshot)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [devId, actionType, targetId, detail ?? null, snapshot == null ? null : JSON.stringify(snapshot)]
+  );
+}
+
+// ── crd dev givecredux @user <amount> ──────────────────────────────────────
+async function giveCredux(message, args, devId) {
+  const target = message.mentions.users.first();
+  if (!target) return reply(message, 'Usage: `crd dev givecredux @user <amount>`');
+  const amount = parseAmount(nonMentionArgs(args)[0]);
+  if (amount == null) return reply(message, 'Amount must be a positive whole number.');
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const bag = await client.query('SELECT 1 FROM users_bag WHERE discord_id = $1 FOR UPDATE', [target.id]);
+    if (bag.rows.length === 0) { await client.query('ROLLBACK'); return reply(message, 'That user has no bag (are they registered?).'); }
+    const upd = await client.query(
+      'UPDATE users_bag SET credux = credux + $2 WHERE discord_id = $1 RETURNING credux',
+      [target.id, amount]
+    );
+    const bal = upd.rows[0].credux;
+    await logDev(client, devId, 'give_credux', target.id, `+${amount} credux (→ ${bal})`);
+    await client.query('COMMIT');
+    return reply(message, `✅ Gave **${amount.toLocaleString()}** Credux to <@${target.id}>. Balance: ${Number(bal).toLocaleString()}.`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev givecredux]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  } finally {
+    client.release();
+  }
+}
+
+// ── crd dev givebeliefshards @user <amount> ────────────────────────────────
+async function giveBeliefShards(message, args, devId) {
+  const target = message.mentions.users.first();
+  if (!target) return reply(message, 'Usage: `crd dev givebeliefshards @user <amount>`');
+  const amount = parseAmount(nonMentionArgs(args)[0]);
+  if (amount == null) return reply(message, 'Amount must be a positive whole number.');
+  if (amount > INT_MAX) return reply(message, 'Amount is too large.');
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const bag = await client.query('SELECT 1 FROM users_bag WHERE discord_id = $1 FOR UPDATE', [target.id]);
+    if (bag.rows.length === 0) { await client.query('ROLLBACK'); return reply(message, 'That user has no bag (are they registered?).'); }
+    const upd = await client.query(
+      'UPDATE users_bag SET belief_shards = belief_shards + $2 WHERE discord_id = $1 RETURNING belief_shards',
+      [target.id, amount]
+    );
+    const bal = upd.rows[0].belief_shards;
+    await logDev(client, devId, 'give_beliefshards', target.id, `+${amount} belief_shards (→ ${bal})`);
+    await client.query('COMMIT');
+    return reply(message, `✅ Gave **${amount.toLocaleString()}** Belief Shards to <@${target.id}>. Balance: ${Number(bal).toLocaleString()}.`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev givebeliefshards]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  } finally {
+    client.release();
+  }
+}
+
+// ── crd dev givechest @user <type> <amount> ────────────────────────────────
+async function giveChest(message, args, devId) {
+  const target = message.mentions.users.first();
+  if (!target) return reply(message, 'Usage: `crd dev givechest @user <silver|gold|boss_treasure|boss_golden|supreme> <amount>`');
+  const rest = nonMentionArgs(args);
+  const col = CHEST_COLUMNS[(rest[0] || '').toLowerCase()];
+  if (!col) return reply(message, 'Type must be one of: silver, gold, boss_treasure, boss_golden, supreme (or sc/gc/btc/bgtc/supc).');
+  const amount = parseAmount(rest[1]);
+  if (amount == null) return reply(message, 'Amount must be a positive whole number.');
+  if (amount > INT_MAX) return reply(message, 'Amount is too large.');
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const bag = await client.query('SELECT 1 FROM users_bag WHERE discord_id = $1 FOR UPDATE', [target.id]);
+    if (bag.rows.length === 0) { await client.query('ROLLBACK'); return reply(message, 'That user has no bag (are they registered?).'); }
+    const upd = await client.query(
+      `UPDATE users_bag SET ${col} = ${col} + $2 WHERE discord_id = $1 RETURNING ${col} AS cnt`,
+      [target.id, amount]
+    );
+    const cnt = upd.rows[0].cnt;
+    await logDev(client, devId, 'give_chest', target.id, `+${amount} ${col} (→ ${cnt})`);
+    await client.query('COMMIT');
+    return reply(message, `✅ Gave **${amount}× ${col}** to <@${target.id}>. Now: ${cnt}.`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev givechest]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  } finally {
+    client.release();
+  }
+}
+
+// ── crd dev giverelic @user <type> <amount> ────────────────────────────────
+async function giveRelic(message, args, devId) {
+  const target = message.mentions.users.first();
+  if (!target) return reply(message, 'Usage: `crd dev giverelic @user <sacred|supreme> <amount>`');
+  const rest = nonMentionArgs(args);
+  const col = RELIC_COLUMNS[(rest[0] || '').toLowerCase()];
+  if (!col) return reply(message, 'Type must be: sacred or supreme.');
+  const amount = parseAmount(rest[1]);
+  if (amount == null) return reply(message, 'Amount must be a positive whole number.');
+  if (amount > INT_MAX) return reply(message, 'Amount is too large.');
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const bag = await client.query('SELECT 1 FROM users_bag WHERE discord_id = $1 FOR UPDATE', [target.id]);
+    if (bag.rows.length === 0) { await client.query('ROLLBACK'); return reply(message, 'That user has no bag (are they registered?).'); }
+    const upd = await client.query(
+      `UPDATE users_bag SET ${col} = ${col} + $2 WHERE discord_id = $1 RETURNING ${col} AS cnt`,
+      [target.id, amount]
+    );
+    const cnt = upd.rows[0].cnt;
+    await logDev(client, devId, 'give_relic', target.id, `+${amount} ${col} (→ ${cnt})`);
+    await client.query('COMMIT');
+    return reply(message, `✅ Gave **${amount}× ${col}** to <@${target.id}>. Now: ${cnt}.`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev giverelic]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  } finally {
+    client.release();
+  }
+}
+
+// ── crd dev ban|unban @user ────────────────────────────────────────────────
+async function setBan(message, devId, banned) {
+  const target = message.mentions.users.first();
+  if (!target) return reply(message, `Usage: \`crd dev ${banned ? 'ban' : 'unban'} @user\``);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const upd = await client.query(
+      'UPDATE users SET is_banned = $2 WHERE discord_id = $1 RETURNING discord_id',
+      [target.id, banned]
+    );
+    if (upd.rows.length === 0) { await client.query('ROLLBACK'); return reply(message, 'That user is not registered.'); }
+    await logDev(client, devId, banned ? 'ban' : 'unban', target.id, banned ? 'is_banned = TRUE' : 'is_banned = FALSE');
+    await client.query('COMMIT');
+    return reply(message, `✅ <@${target.id}> is now **${banned ? 'banned' : 'unbanned'}**.`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev ban]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  } finally {
+    client.release();
+  }
+}
+
+// ── crd dev resetplayer @user ──────────────────────────────────────────────
+async function resetPlayer(message, devId) {
+  const target = message.mentions.users.first();
+  if (!target) return reply(message, 'Usage: `crd dev resetplayer @user`');
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Snapshot every per-player row first (pre_reset_snapshot recovery copy).
+    const snapshot = {};
+    for (const table of SNAPSHOT_TABLES) {
+      const res = await client.query(`SELECT * FROM ${table} WHERE discord_id = $1`, [target.id]);
+      snapshot[table] = res.rows;
+    }
+    if (snapshot.users.length === 0) {
+      await client.query('ROLLBACK');
+      return reply(message, 'That user is not registered — nothing to reset.');
+    }
+
+    // Wipe in FK-safe order (children → users). Immutable *_logs are preserved.
+    let totalDeleted = 0;
+    for (const table of DELETE_ORDER) {
+      const del = await client.query(`DELETE FROM ${table} WHERE discord_id = $1`, [target.id]);
+      totalDeleted += del.rowCount;
+    }
+
+    await logDev(client, devId, 'reset', target.id, `wiped ${totalDeleted} rows across ${DELETE_ORDER.length} tables`, snapshot);
+    await client.query('COMMIT');
+    return reply(message, `✅ Reset <@${target.id}> — wiped **${totalDeleted}** rows. Pre-reset snapshot saved to dev_logs.`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev resetplayer]', err.message);
+    return reply(message, 'Failed — nothing was wiped.');
+  } finally {
+    client.release();
+  }
+}
+
+// ── crd dev enhanceweapon <weapon_id> <+level> ─────────────────────────────
+async function enhanceWeapon(message, args, devId) {
+  const weaponId = (args[1] || '').trim().toLowerCase();
+  const level = parseLevel(args[2]);
+  if (!weaponId || level == null) return reply(message, 'Usage: `crd dev enhanceweapon <weapon_id> <+0..+10>`');
+
+  const stored = level + 1;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const wRes = await client.query(
+      'SELECT discord_id, base_atk, base_hp, base_def FROM user_weapons WHERE weapon_id = $1 FOR UPDATE',
+      [weaponId]
+    );
+    if (wRes.rows.length === 0) { await client.query('ROLLBACK'); return reply(message, 'No weapon exists with that ID.'); }
+    const w = wRes.rows[0];
+    const stats = computeWeaponStats(w, stored);
+    await client.query(
+      'UPDATE user_weapons SET enhancement = $2, curr_atk = $3, curr_hp = $4, curr_def = $5 WHERE weapon_id = $1',
+      [weaponId, stored, stats.curr_atk, stats.curr_hp, stats.curr_def]
+    );
+    await logDev(client, devId, 'enhance_weapon', w.discord_id, `${weaponId} → +${level}`);
+    await client.query('COMMIT');
+    return reply(message, `✅ Weapon \`${weaponId}\` set to **+${level}** — ATK ${stats.curr_atk} · HP ${stats.curr_hp} · DEF ${stats.curr_def}.`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev enhanceweapon]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  } finally {
+    client.release();
+  }
+}
+
+// ── crd dev enhancedeity @user <deity name> <+level> ───────────────────────
+async function enhanceDeity(message, args, devId) {
+  const target = message.mentions.users.first();
+  const rest = nonMentionArgs(args);
+  const level = parseLevel(rest[rest.length - 1]);
+  const name = rest.slice(0, -1).join(' ').trim();
+  if (!target || !name || level == null) {
+    return reply(message, 'Usage: `crd dev enhancedeity @user <deity name> <+0..+10>`');
+  }
+
+  const stored = level + 1;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const dRes = await client.query(
+      `SELECT ud.user_deity_id, dr.name, dr.base_atk, dr.base_hp, dr.base_def
+         FROM user_deities ud
+         JOIN deity_roster dr ON ud.deity_id = dr.deity_id
+        WHERE ud.discord_id = $1 AND dr.name ILIKE $2
+        FOR UPDATE OF ud`,
+      [target.id, name]
+    );
+    if (dRes.rows.length === 0) { await client.query('ROLLBACK'); return reply(message, `<@${target.id}> doesn't own a deity named "${name}".`); }
+    const d = dRes.rows[0];
+    const stats = computeDeityStats(d, stored);
+    await client.query(
+      'UPDATE user_deities SET enhancement = $2, curr_atk = $3, curr_hp = $4, curr_def = $5 WHERE user_deity_id = $1',
+      [d.user_deity_id, stored, stats.curr_atk, stats.curr_hp, stats.curr_def]
+    );
+    await logDev(client, devId, 'enhance_deity', target.id, `${d.name} → +${level}`);
+    await client.query('COMMIT');
+    return reply(message, `✅ **${d.name}** (<@${target.id}>) set to **+${level}** — ATK ${stats.curr_atk} · HP ${stats.curr_hp} · DEF ${stats.curr_def}.`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev enhancedeity]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  } finally {
+    client.release();
+  }
+}
+
+const USAGE = [
+  '**Dev commands:**',
+  '`givecredux @user <amount>` · `givebeliefshards @user <amount>`',
+  '`givechest @user <type> <amount>` · `giverelic @user <sacred|supreme> <amount>`',
+  '`ban @user` · `unban @user` · `resetplayer @user`',
+  '`enhanceweapon <weapon_id> <+level>` · `enhancedeity @user <deity name> <+level>`',
+].join('\n');
+
+/** Dispatch — caller (commandHandler mw 'dev') has already verified superuser. */
+async function execute(message, { args }) {
+  const sub = (args[0] || '').toLowerCase();
+  const devId = message.author.id;
+  switch (sub) {
+    case 'givecredux':       return giveCredux(message, args, devId);
+    case 'givebeliefshards': return giveBeliefShards(message, args, devId);
+    case 'givechest':        return giveChest(message, args, devId);
+    case 'giverelic':        return giveRelic(message, args, devId);
+    case 'ban':              return setBan(message, devId, true);
+    case 'unban':            return setBan(message, devId, false);
+    case 'resetplayer':      return resetPlayer(message, devId);
+    case 'enhanceweapon':    return enhanceWeapon(message, args, devId);
+    case 'enhancedeity':     return enhanceDeity(message, args, devId);
+    default:                 return reply(message, USAGE);
+  }
+}
+
+module.exports = { execute };
