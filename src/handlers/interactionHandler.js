@@ -14,7 +14,7 @@ const sellCmd = require('../commands/rpg/sell');
  *   create:class:<Class>:<uid>
  *   create:confirm:<Class>:<uid>
  *   create:back:<uid>
- *   bagw:<page>:<uid>
+ *   weapons:<prev|next>:<uid>:<page>
  *   deityc:<page>:<uid>
  *   enhance:attempt:<weaponId>:<uid>
  *   enhance:cancel:<weaponId>:<uid>
@@ -34,10 +34,8 @@ async function handleInteraction(interaction) {
       return;
     }
 
-    if (namespace === 'bagw') {
-      const page = parseInt(parts[1], 10);
-      const ownerId = parts[2];
-      await bagCmd.handlePage(interaction, Number.isNaN(page) ? 1 : page, ownerId);
+    if (namespace === 'weapons') {
+      await bagCmd.handleWeaponsButton(interaction);
       return;
     }
 

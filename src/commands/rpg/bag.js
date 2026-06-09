@@ -1,11 +1,17 @@
 'use strict';
 
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const {
+  ContainerBuilder,
+  SeparatorSpacingSize,
+  ButtonBuilder,
+  ButtonStyle,
+  MessageFlags,
+} = require('discord.js');
 const pool = require('../../db/pool');
-const { CHESTS } = require('../../config/dropRates');
+const { buildBagOverview, buildChestsView, getChestCounts } = require('../../engine/bagViews');
+const { emojiForDisplay } = require('../../utils/emojis');
 
-const BRAND = 0x9b59b6;
-const PAGE_SIZE = 10;
+const WEAPONS_PER_PAGE = 10;
 const TYPE_EMOJI = { Sword: '⚔️', Staff: '🪄', Gloves: '🥊', Shield: '🛡️', Bow: '🏹' };
 
 // Tier ordering for the weapons list (Supreme → Common).
@@ -14,7 +20,11 @@ const TIER_ORDER_SQL = `CASE wr.tier
   WHEN 'Rare' THEN 2 WHEN 'Common' THEN 1 ELSE 0 END`;
 
 function reply(message, payload) {
-  return message.reply({ ...payload, allowedMentions: { repliedUser: false } });
+  // parse: [] — header user-mentions must render without pinging anyone.
+  return message.reply({
+    ...payload,
+    allowedMentions: { repliedUser: false, parse: [], ...(payload.allowedMentions ?? {}) },
+  });
 }
 
 // ── crd bag (overview) ──────────────────────────────────────────────────
@@ -31,60 +41,39 @@ async function overview(message) {
     return;
   }
   const b = rows[0];
-  const embed = new EmbedBuilder()
-    .setColor(BRAND)
-    .setTitle(`${message.author.username}'s Bag`)
-    .addFields(
-      { name: 'Currencies', value: `Credux: **${Number(b.credux).toLocaleString()}** · Belief Shards: **${b.belief_shards.toLocaleString()}**`, inline: false },
-      { name: 'Chests', value:
-          `Silver: ${b.silver_chest} · Gold: ${b.gold_chest} · Boss Treasure: ${b.boss_treasure_chest} · Boss Golden: ${b.boss_golden_chest} · Supreme: ${b.supreme_chest}`,
-        inline: false },
-      { name: 'Essence', value:
-          `Epic: ${b.epic_essence} · Mythic: ${b.mythic_essence} · Legendary: ${b.legendary_essence} · Supreme: ${b.supreme_essence}`,
-        inline: false },
-    )
-    .setFooter({ text: `Sacred Relic: ${b.sacred_relics} · Supreme Relic: ${b.supreme_relics}  |  crd bag chests · crd bag weapons` });
-  await reply(message, { embeds: [embed] });
+  const data = {
+    credux: Number(b.credux),
+    beliefShards: b.belief_shards,
+    chests: {
+      sc: b.silver_chest, gc: b.gold_chest, btc: b.boss_treasure_chest,
+      bgtc: b.boss_golden_chest, supc: b.supreme_chest,
+    },
+    essence: {
+      epic: b.epic_essence, mythic: b.mythic_essence,
+      legendary: b.legendary_essence, supreme: b.supreme_essence,
+    },
+    relics: { sacred: b.sacred_relics, supreme: b.supreme_relics },
+  };
+  await reply(message, buildBagOverview(message.author, data));
 }
 
 // ── crd bag chests ──────────────────────────────────────────────────────
 async function chests(message) {
-  const { rows } = await pool.query(
-    `SELECT silver_chest, gold_chest, boss_treasure_chest, boss_golden_chest, supreme_chest
-       FROM users_bag WHERE discord_id = $1`,
-    [message.author.id]
-  );
-  if (rows.length === 0) {
+  const exists = await pool.query('SELECT 1 FROM users_bag WHERE discord_id = $1', [message.author.id]);
+  if (exists.rows.length === 0) {
     await reply(message, { content: 'You don\'t have a bag yet. Use `crd register` first.' });
     return;
   }
-  const b = rows[0];
-  // alias → column already in CHESTS; render in display order.
-  const lines = [
-    ['Silver Chest', b.silver_chest, 'sc'],
-    ['Gold Chest', b.gold_chest, 'gc'],
-    ['Boss Treasure Chest', b.boss_treasure_chest, 'btc'],
-    ['Boss Golden Chest', b.boss_golden_chest, 'bgtc'],
-    ['Supreme Chest', b.supreme_chest, 'supc'],
-  ].map(([name, count, alias]) => `**${name}**: ${count} — \`crd open ${alias}\``);
-
-  const embed = new EmbedBuilder()
-    .setColor(BRAND)
-    .setTitle(`${message.author.username}'s Chests`)
-    .setDescription(lines.join('\n'))
-    .setFooter({ text: 'Open up to 10 at once, e.g. crd open sc 10' });
-  await reply(message, { embeds: [embed] });
+  const counts = await getChestCounts(message.author.id);
+  await reply(message, await buildChestsView(message.author, counts));
 }
 
-// ── crd bag weapons (paginated) ─────────────────────────────────────────
-async function buildWeaponsPage(discordId, username, page) {
-  const countRes = await pool.query('SELECT count(*)::int AS n FROM user_weapons WHERE discord_id = $1', [discordId]);
-  const total = countRes.rows[0].n;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const p = Math.min(Math.max(1, page), totalPages);
-  const offset = (p - 1) * PAGE_SIZE;
+// ── crd bag weapons (paginated, Components V2) ──────────────────────────
+// page is 0-based (matches the weapons:<action>:<owner>:<page> customId state).
+async function fetchWeapons(discordId, page) {
+  const offset = page * WEAPONS_PER_PAGE;
 
-  const { rows } = await pool.query(
+  const { rows: weapons } = await pool.query(
     `SELECT uw.weapon_id, wr.name, wr.tier, wr.type, uw.enhancement, uw.is_locked,
             uw.curr_atk, uw.curr_hp, uw.curr_def, uw.crit,
             (uw.weapon_id = uc.equipped_weapon_id) AS equipped
@@ -94,48 +83,119 @@ async function buildWeaponsPage(discordId, username, page) {
       WHERE uw.discord_id = $1
       ORDER BY ${TIER_ORDER_SQL} DESC, uw.enhancement DESC, uw.obtained_at ASC
       LIMIT $2 OFFSET $3`,
-    [discordId, PAGE_SIZE, offset]
+    [discordId, WEAPONS_PER_PAGE, offset]
   );
 
-  const embed = new EmbedBuilder()
-    .setColor(BRAND)
-    .setTitle(`${username}'s Weapons`)
-    .setFooter({ text: `Page ${p}/${totalPages} · ${total} weapon${total !== 1 ? 's' : ''} · crd equip <id>` });
+  const countRes = await pool.query(
+    'SELECT count(*)::int AS total FROM user_weapons WHERE discord_id = $1',
+    [discordId]
+  );
 
-  if (rows.length === 0) {
-    embed.setDescription('You don\'t own any weapons.');
+  return { weapons, total: countRes.rows[0].total };
+}
+
+// Design standard (see CLAUDE.md): header → separator → body → separator →
+// help → separator → buttons, all inside one container.
+function buildWeaponsPage({ user, weapons, total, page }) {
+  const totalPages = Math.max(1, Math.ceil(total / WEAPONS_PER_PAGE));
+
+  const container = new ContainerBuilder().setAccentColor(0x5865f2);
+
+  // ── Header (real mention; callers send with allowedMentions parse: []) ──
+  container.addTextDisplayComponents((td) =>
+    td.setContent(
+      `## 🗡️ <@${user.id}>'s Weapons\n` +
+      `-# Showing **${weapons.length}** of **${total}** weapons • Page **${page + 1}/${totalPages}**`
+    )
+  );
+
+  container.addSeparatorComponents((sep) =>
+    sep.setSpacing(SeparatorSpacingSize.Small).setDivider(true)
+  );
+
+  // ── Body: weapon rows ──
+  if (weapons.length === 0) {
+    container.addTextDisplayComponents((td) =>
+      td.setContent('*No weapons found. Open some chests!*')
+    );
   } else {
-    embed.setDescription(rows.map(w => {
-      const emoji = TYPE_EMOJI[w.type] || '•';
-      const badges = `${w.equipped ? ' ✅Equipped' : ''}${w.is_locked ? ' 🔒' : ''}`;
+    const rows = weapons.map((w) => {
+      // Custom emoji from game_items.txt (display name → key); type icon fallback.
+      const icon = emojiForDisplay(w.name, TYPE_EMOJI[w.type] ?? '⚔️');
+      const badges = `${w.equipped ? ' ✅' : ''}${w.is_locked ? ' 🔒' : ''}`;
       const critTxt = Number(w.crit) > 0 ? ` · CRIT ${Number(w.crit).toFixed(1)}%` : '';
-      return `${emoji} **${w.name}** (${w.tier}) +${w.enhancement - 1}${badges}\n\`${w.weapon_id}\` · ATK ${w.curr_atk} · HP ${w.curr_hp} · DEF ${w.curr_def}${critTxt}`;
-    }).join('\n\n'));
+      // ID leads as inline code (tap-to-copy); enhancement lives on line 1.
+      return (
+        `\`${w.weapon_id}\` ${icon} **${w.name}** +${w.enhancement - 1}${badges}\n` +
+        `-# ${w.tier} • ATK ${w.curr_atk} · HP ${w.curr_hp} · DEF ${w.curr_def}${critTxt}`
+      );
+    });
+
+    container.addTextDisplayComponents((td) => td.setContent(rows.join('\n\n')));
   }
 
-  const components = [];
-  if (totalPages > 1) {
-    components.push(new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`bagw:${p - 1}:${discordId}`).setLabel('◀ Prev').setStyle(ButtonStyle.Secondary).setDisabled(p <= 1),
-      new ButtonBuilder().setCustomId(`bagw:${p + 1}:${discordId}`).setLabel('Next ▶').setStyle(ButtonStyle.Secondary).setDisabled(p >= totalPages),
-    ));
-  }
-  return { embed, components };
+  container.addSeparatorComponents((sep) =>
+    sep.setSpacing(SeparatorSpacingSize.Small).setDivider(true)
+  );
+
+  // ── Help section ──
+  container.addTextDisplayComponents((td) =>
+    td.setContent(
+      '-# 💡 `crd equip <id>` to equip • `crd enhance <id>` to forge • `crd sell <id>` to sell'
+    )
+  );
+
+  container.addSeparatorComponents((sep) =>
+    sep.setSpacing(SeparatorSpacingSize.Small).setDivider(true)
+  );
+
+  // ── Pagination buttons (state lives in the customId) ──
+  container.addActionRowComponents((row) =>
+    row.setComponents(
+      new ButtonBuilder()
+        .setCustomId(`weapons:prev:${user.id}:${page}`)
+        .setLabel('Previous')
+        .setEmoji('◀️')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(page <= 0),
+      new ButtonBuilder()
+        .setCustomId(`weapons:next:${user.id}:${page}`)
+        .setLabel('Next')
+        .setEmoji('▶️')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(page >= totalPages - 1)
+    )
+  );
+
+  return {
+    components: [container],
+    flags: MessageFlags.IsComponentsV2,
+    allowedMentions: { parse: [] },
+  };
 }
 
 async function weapons(message) {
-  const { embed, components } = await buildWeaponsPage(message.author.id, message.author.username, 1);
-  await reply(message, { embeds: [embed], components });
+  const page = 0;
+  const { weapons: rows, total } = await fetchWeapons(message.author.id, page);
+  await reply(message, buildWeaponsPage({ user: message.author, weapons: rows, total, page }));
 }
 
-// Button: bagw:<page>:<uid>
-async function handlePage(interaction, page, ownerId) {
+// Button: weapons:<prev|next>:<ownerId>:<page>
+async function handleWeaponsButton(interaction) {
+  const [, action, ownerId, pageStr] = interaction.customId.split(':');
+
   if (interaction.user.id !== ownerId) {
-    await interaction.reply({ content: 'These buttons aren\'t for you.', ephemeral: true });
-    return;
+    return interaction.reply({
+      content: 'This isn\'t your inventory view — run `crd bag weapons` yourself!',
+      flags: MessageFlags.Ephemeral,
+    });
   }
-  const { embed, components } = await buildWeaponsPage(ownerId, interaction.user.username, page);
-  await interaction.update({ embeds: [embed], components });
+
+  const currentPage = parseInt(pageStr, 10) || 0;
+  const page = action === 'next' ? currentPage + 1 : Math.max(0, currentPage - 1);
+
+  const { weapons: rows, total } = await fetchWeapons(ownerId, page);
+  await interaction.update(buildWeaponsPage({ user: interaction.user, weapons: rows, total, page }));
 }
 
 // ── dispatcher: crd bag [chests|weapons] ────────────────────────────────
@@ -146,4 +206,4 @@ async function execute(message, { args }) {
   return overview(message);
 }
 
-module.exports = { execute, handlePage };
+module.exports = { execute, handleWeaponsButton };
