@@ -1,6 +1,7 @@
 'use strict';
 
 const { getPrefix } = require('./middleware');
+const { DEV_IDS } = require('../config/config');
 const registerCmd = require('../commands/rpg/register');
 const createCmd = require('../commands/rpg/create');
 const profileCmd = require('../commands/rpg/profile');
@@ -12,10 +13,12 @@ const deityCmd = require('../commands/rpg/deity');
 const enhanceCmd = require('../commands/rpg/enhance');
 const lockCmd = require('../commands/rpg/lock');
 const sellCmd = require('../commands/rpg/sell');
+const devCmd = require('../commands/rpg/dev');
 
-// Commands with real Phase 2 implementations.
+// Commands with real implementations.
 //   mw 'ban'  → ban check only (no registration/character/activity); register needs this
 //   mw 'full' → standard runMiddleware pipeline (requiresCharacter from COMMAND_MAP)
+//   mw 'dev'  → superuser gate only (DEV_IDS); non-devs silent-ignore, no middleware
 const IMPLEMENTED = {
   register: { mw: 'ban',  run: registerCmd.execute },
   create:   { mw: 'full', run: createCmd.execute },
@@ -32,6 +35,7 @@ const IMPLEMENTED = {
   lock:     { mw: 'full', run: lockCmd.lock },
   unlock:   { mw: 'full', run: lockCmd.unlock },
   sell:     { mw: 'full', run: sellCmd.execute },
+  dev:      { mw: 'dev',  run: devCmd.execute },
 };
 
 // Command categories and their routing metadata
@@ -123,6 +127,13 @@ async function handleMessage(message, { runMiddleware, isBanned }) {
   const impl = IMPLEMENTED[command];
 
   if (impl) {
+    if (impl.mw === 'dev') {
+      // Superuser-only (§2). Non-devs get NO reply — identical to an unknown
+      // command — so dev tooling stays invisible and skips all middleware.
+      if (!DEV_IDS.includes(message.author.id)) return true;
+      await impl.run(message, { args });
+      return true;
+    }
     if (impl.mw === 'ban') {
       // register: ban check only — banned users silent-fail; no activity upsert
       // (the users row doesn't exist yet, so the FK would fail).
