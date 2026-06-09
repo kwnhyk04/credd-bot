@@ -159,12 +159,9 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
       if (char.active_deity_id == null && pendingActiveId == null) {
         pendingActiveId = userDeityId;
       }
-      // One informational "Deity Pull" row per newly-obtained deity (null
-      // currency cols — the deity itself isn't a currency movement).
-      await client.query(
-        `INSERT INTO game_logs (discord_id, action) VALUES ($1, 'Deity Pull')`,
-        [discordId]
-      );
+      // No game_logs row for a new deity: there's no column for WHICH deity, and
+      // user_deities already records acquisition + timestamp — an all-null row
+      // would carry nothing. (Acquisition is auditable via user_deities.)
     }
 
     pulls.push({
