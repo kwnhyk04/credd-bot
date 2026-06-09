@@ -19,6 +19,7 @@ dist/
 build/
 .cache/
 coverage/
+assets/cache/
 
 # OS / editor
 .DS_Store
