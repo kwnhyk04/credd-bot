@@ -1,38 +1,66 @@
 'use strict';
 
 const {
-  EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  ContainerBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
 const { isBanned } = require('../../handlers/middleware');
 
 const BRAND = 0x9b59b6;
 
-function welcomeEmbed() {
-  return new EmbedBuilder()
-    .setColor(BRAND)
-    .setTitle('Welcome to Credd, the Last Believer')
-    .setDescription(
-      '*Welcome to Credd, the home of many adventures. One of them is waiting for you.*\n\n' +
-      '*In the age before silence, the world thrived under the watch of gods and spirits. Mortals prayed, ' +
-      'offered, and remembered, and in return, the divine kept the darkness at bay.*\n\n' +
-      '*But slowly, the prayers stopped. The offerings ceased. One by one, gods faded as the last whisper of ' +
-      'their names died on human lips. Without belief, there is no power. Without power, there is no protection.*\n\n' +
-      '*The monsters came first in shadows, then in floods. The world that was once guarded by divine hands ' +
-      'crumbled into chaos. Cities fell. The faithful were scattered. And the gods were forgotten.*\n\n' +
-      '*But not all of them.*\n\n' +
-      '*Somewhere, in the ruins of a world that stopped believing, you still remember. A name. A story. A prayer. ' +
-      'That single act of remembrance is enough to pull a forgotten god back from the void — weak, faded, but alive.*\n\n' +
-      '*You are the Last Believer. And the fate of gods rests in your memory.*'
-    )
-    .addFields(
-      { name: '1. Your Warrior — `crd create character`', value: 'Create your vessel and choose your path: Swordsman, Fighter, Mage, Knight, or Archer.' },
-      { name: '2. The Forgotten Gods — `crd summon`', value: 'Perform Invocations to summon forgotten deities and carry their will into battle.' },
-      { name: '3. Your Arsenal — `crd bag`', value: 'Collect and equip weapons forged from history and myth.' },
-      { name: '4. The Battle — `crd raid`', value: 'March against the creatures that have overtaken the land.' },
-      { name: '5. Wealth of the Believer — `crd cred`', value: 'Belief Shards fuel Invocations. Sacred Relics open greater summons. Credux strengthens your weapons.' },
-    )
-    .setFooter({ text: 'Press "I Understand" to begin.' });
+const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
+
+const LORE =
+  '*Welcome to Credd, the home of many adventures. One of them is waiting for you.*\n\n' +
+  '*In the age before silence, the world thrived under the watch of gods and spirits. Mortals prayed, ' +
+  'offered, and remembered, and in return, the divine kept the darkness at bay.*\n\n' +
+  '*But slowly, the prayers stopped. The offerings ceased. One by one, gods faded as the last whisper of ' +
+  'their names died on human lips. Without belief, there is no power. Without power, there is no protection.*\n\n' +
+  '*The monsters came first in shadows, then in floods. The world that was once guarded by divine hands ' +
+  'crumbled into chaos. Cities fell. The faithful were scattered. And the gods were forgotten.*\n\n' +
+  '*But not all of them.*\n\n' +
+  '*Somewhere, in the ruins of a world that stopped believing, you still remember. A name. A story. A prayer. ' +
+  'That single act of remembrance is enough to pull a forgotten god back from the void — weak, faded, but alive.*\n\n' +
+  '*You are the Last Believer. And the fate of gods rests in your memory.*';
+
+const STEPS = [
+  ['⚔️', '1. Your Warrior — `crd create character`', 'Create your vessel and choose your path: Swordsman, Fighter, Mage, Knight, or Archer.'],
+  ['✨', '2. The Forgotten Gods — `crd summon`', 'Perform Invocations to summon forgotten deities and carry their will into battle.'],
+  ['🎒', '3. Your Arsenal — `crd bag`', 'Collect and equip weapons forged from history and myth.'],
+  ['🛡️', '4. The Battle — `crd raid`', 'March against the creatures that have overtaken the land.'],
+  ['🪙', '5. Wealth of the Believer — `crd cred`', 'Belief Shards fuel Invocations. Sacred Relics open greater summons. Credux strengthens your weapons.'],
+];
+
+// CLAUDE.md container standard: header → separator → body → separator → footer.
+function welcomePayload(userId) {
+  const steps = STEPS
+    .map(([icon, title, text]) => `${icon} **${title}**\n-# ${text}`)
+    .join('\n\n');
+
+  const container = new ContainerBuilder()
+    .setAccentColor(BRAND)
+    .addTextDisplayComponents((td) => td.setContent('## 🕯️ Welcome to Credd, the Last Believer'))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(LORE))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(steps))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent('-# Press "I Understand" to begin.'));
+
+  return {
+    components: [container, confirmRow(userId)],
+    flags: MessageFlags.IsComponentsV2,
+  };
+}
+
+// Simple one-box container for the post-click states (a CV2 message cannot be
+// edited back to classic embeds, so these stay containers — same text as before).
+function noteContainer(title, body, accent = BRAND) {
+  return new ContainerBuilder()
+    .setAccentColor(accent)
+    .addTextDisplayComponents((td) => td.setContent(`## ${title}`))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(body));
 }
 
 function confirmRow(userId) {
@@ -55,7 +83,7 @@ async function execute(message) {
     await message.reply({ content: 'You are already registered. Use `crd create character` to begin your journey.', allowedMentions: { repliedUser: false } });
     return;
   }
-  await message.reply({ embeds: [welcomeEmbed()], components: [confirmRow(discordId)], allowedMentions: { repliedUser: false } });
+  await message.reply({ ...welcomePayload(discordId), allowedMentions: { repliedUser: false } });
 }
 
 /**
@@ -83,8 +111,8 @@ async function handleConfirm(interaction, ownerId) {
     if (ins.rowCount === 0) {
       await client.query('ROLLBACK');
       await interaction.update({
-        embeds: [new EmbedBuilder().setColor(BRAND).setTitle('Already Registered').setDescription('You are already registered. Use `crd create character` to begin.')],
-        components: [],
+        components: [noteContainer('Already Registered', 'You are already registered. Use `crd create character` to begin.')],
+        flags: MessageFlags.IsComponentsV2,
       });
       return;
     }
@@ -98,8 +126,8 @@ async function handleConfirm(interaction, ownerId) {
     await client.query('ROLLBACK');
     console.error('[register] transaction failed:', err.message);
     await interaction.update({
-      embeds: [new EmbedBuilder().setColor(0xe74c3c).setTitle('Registration Failed').setDescription('Something went wrong. Please try `crd register` again.')],
-      components: [],
+      components: [noteContainer('Registration Failed', 'Something went wrong. Please try `crd register` again.', 0xe74c3c)],
+      flags: MessageFlags.IsComponentsV2,
     }).catch(() => {});
     return;
   } finally {
@@ -107,11 +135,8 @@ async function handleConfirm(interaction, ownerId) {
   }
 
   await interaction.update({
-    embeds: [new EmbedBuilder()
-      .setColor(BRAND)
-      .setTitle('Welcome, Believer')
-      .setDescription('You are now registered.\n\nNext, create your warrior with `crd create character`.')],
-    components: [],
+    components: [noteContainer('Welcome, Believer', 'You are now registered.\n\nNext, create your warrior with `crd create character`.')],
+    flags: MessageFlags.IsComponentsV2,
   });
 }
 

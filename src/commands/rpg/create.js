@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  ContainerBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
 const { isBanned } = require('../../handlers/middleware');
@@ -11,16 +11,31 @@ const { generateUniqueWeaponId } = require('../../utils/weaponId');
 
 const BRAND = 0x9b59b6;
 
-function classSelectEmbed() {
-  return new EmbedBuilder()
-    .setColor(BRAND)
-    .setTitle('Create Your Warrior')
-    .setDescription('Every believer needs a vessel. Choose the path you walk.\n\nSelect a class below to learn more.')
-    .addFields(CLASS_NAMES.map(name => ({
-      name: `${CLASSES[name].emoji} ${name}`,
-      value: `Passive: **${CLASSES[name].passiveName}**`,
-      inline: true,
-    })));
+const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
+
+// CLAUDE.md container standard: header → separator → body → separator → footer.
+// Body: one class per line (emoji + bold name + -# passive), like the bag layout.
+function classSelectPayload(userId) {
+  const classLines = CLASS_NAMES
+    .map(name => `${CLASSES[name].emoji} **${name}**\n-# Passive: ${CLASSES[name].passiveName}`)
+    .join('\n\n');
+
+  const container = new ContainerBuilder()
+    .setAccentColor(BRAND)
+    .addTextDisplayComponents((td) => td.setContent('## ⚒️ Create Your Warrior'))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) =>
+      td.setContent('*Every believer needs a vessel. Choose the path you walk.*')
+    )
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(classLines))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent('-# Select a class below to learn more.'));
+
+  return {
+    components: [container, classSelectRow(userId)],
+    flags: MessageFlags.IsComponentsV2,
+  };
 }
 
 function classSelectRow(userId) {
@@ -35,13 +50,20 @@ function classSelectRow(userId) {
   );
 }
 
-function classPreviewEmbed(className) {
+function classPreviewPayload(className, userId) {
   const cls = CLASSES[className];
-  return new EmbedBuilder()
-    .setColor(BRAND)
-    .setTitle(`${cls.emoji} ${className}`)
-    .setDescription(`*${cls.flavor}*\n\n${cls.passiveLine}`)
-    .setFooter({ text: 'Confirm your choice, or go back to pick another class.' });
+  const container = new ContainerBuilder()
+    .setAccentColor(BRAND)
+    .addTextDisplayComponents((td) => td.setContent(`## ${cls.emoji} ${className}`))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(`*${cls.flavor}*\n\n${cls.passiveLine}`))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent('-# Confirm your choice, or go back to pick another class.'));
+
+  return {
+    components: [container, previewRow(className, userId)],
+    flags: MessageFlags.IsComponentsV2,
+  };
 }
 
 function previewRow(className, userId) {
@@ -61,7 +83,7 @@ async function execute(message) {
     await message.reply({ content: 'You already have a character. Use `crd profile` to view it.', allowedMentions: { repliedUser: false } });
     return;
   }
-  await message.reply({ embeds: [classSelectEmbed()], components: [classSelectRow(message.author.id)], allowedMentions: { repliedUser: false } });
+  await message.reply({ ...classSelectPayload(message.author.id), allowedMentions: { repliedUser: false } });
 }
 
 // Button: create:class:<Class>:<userId>
@@ -74,7 +96,7 @@ async function handleClassSelect(interaction, className, ownerId) {
     await interaction.reply({ content: 'Unknown class.', ephemeral: true });
     return;
   }
-  await interaction.update({ embeds: [classPreviewEmbed(className)], components: [previewRow(className, ownerId)] });
+  await interaction.update(classPreviewPayload(className, ownerId));
 }
 
 // Button: create:back:<userId>
@@ -83,7 +105,7 @@ async function handleBack(interaction, ownerId) {
     await interaction.reply({ content: 'These buttons aren\'t for you.', ephemeral: true });
     return;
   }
-  await interaction.update({ embeds: [classSelectEmbed()], components: [classSelectRow(ownerId)] });
+  await interaction.update(classSelectPayload(ownerId));
 }
 
 // Button: create:confirm:<Class>:<userId>
@@ -110,7 +132,7 @@ async function handleConfirm(interaction, className, ownerId) {
     const reg = await client.query('SELECT 1 FROM users WHERE discord_id = $1', [discordId]);
     if (reg.rows.length === 0) {
       await client.query('ROLLBACK');
-      await interaction.update({ embeds: [errEmbed('You are not registered. Use `crd register` first.')], components: [] });
+      await interaction.update(errPayload('You are not registered. Use `crd register` first.'));
       return;
     }
 
@@ -118,7 +140,7 @@ async function handleConfirm(interaction, className, ownerId) {
     const existing = await client.query('SELECT 1 FROM user_character WHERE discord_id = $1', [discordId]);
     if (existing.rows.length > 0) {
       await client.query('ROLLBACK');
-      await interaction.update({ embeds: [errEmbed('You already have a character. Use `crd profile` to view it.')], components: [] });
+      await interaction.update(errPayload('You already have a character. Use `crd profile` to view it.'));
       return;
     }
 
@@ -127,7 +149,7 @@ async function handleConfirm(interaction, className, ownerId) {
     if (roster.rows.length === 0) {
       await client.query('ROLLBACK');
       console.error(`[create] starter weapon "${STARTER_WEAPON_NAME}" not found in weapon_roster`);
-      await interaction.update({ embeds: [errEmbed('Character creation is temporarily unavailable. Please try again later.')], components: [] });
+      await interaction.update(errPayload('Character creation is temporarily unavailable. Please try again later.'));
       return;
     }
     const weaponRosterId = roster.rows[0].weapon_roster_id;
@@ -156,29 +178,36 @@ async function handleConfirm(interaction, className, ownerId) {
     await client.query('COMMIT');
 
     const cls = CLASSES[className];
-    await interaction.update({
-      embeds: [new EmbedBuilder()
-        .setColor(0xFFD700)
-        .setTitle(`${cls.emoji} Character Created — ${className}`)
-        .setDescription(`Your journey begins, Believer.\n\n**Passive:** ${cls.passiveName}`)
-        .addFields(
-          { name: 'Starter Weapon', value: `${STARTER_WEAPON_NAME} (Common) — equipped`, inline: false },
-          { name: 'Starter Grant', value: `${GRANT_BELIEF_SHARDS.toLocaleString()} Belief Shards · ${GRANT_SILVER_CHESTS} Silver Chests`, inline: false },
+    const done = new ContainerBuilder()
+      .setAccentColor(0xFFD700)
+      .addTextDisplayComponents((td) => td.setContent(`## ${cls.emoji} Character Created — ${className}`))
+      .addSeparatorComponents(sep)
+      .addTextDisplayComponents((td) =>
+        td.setContent(
+          `Your journey begins, Believer.\n\n**Passive:** ${cls.passiveName}\n\n` +
+          `**Starter Weapon**\n-# ${STARTER_WEAPON_NAME} (Common) — equipped\n\n` +
+          `**Starter Grant**\n-# ${GRANT_BELIEF_SHARDS.toLocaleString()} Belief Shards · ${GRANT_SILVER_CHESTS} Silver Chests`
         )
-        .setFooter({ text: 'Use crd profile to view your character.' })],
-      components: [],
-    });
+      )
+      .addSeparatorComponents(sep)
+      .addTextDisplayComponents((td) => td.setContent('-# Use `crd profile` to view your character.'));
+    await interaction.update({ components: [done], flags: MessageFlags.IsComponentsV2 });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('[create] transaction failed:', err.message);
-    await interaction.update({ embeds: [errEmbed('Something went wrong creating your character. Please try `crd create character` again.')], components: [] }).catch(() => {});
+    await interaction.update(errPayload('Something went wrong creating your character. Please try `crd create character` again.')).catch(() => {});
   } finally {
     client.release();
   }
 }
 
-function errEmbed(msg) {
-  return new EmbedBuilder().setColor(0xe74c3c).setTitle('Character Creation').setDescription(msg);
+function errPayload(msg) {
+  const container = new ContainerBuilder()
+    .setAccentColor(0xe74c3c)
+    .addTextDisplayComponents((td) => td.setContent('## Character Creation'))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(msg));
+  return { components: [container], flags: MessageFlags.IsComponentsV2 };
 }
 
 module.exports = { execute, handleClassSelect, handleBack, handleConfirm };
