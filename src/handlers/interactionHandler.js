@@ -15,7 +15,8 @@ const sellCmd = require('../commands/rpg/sell');
  *   create:confirm:<Class>:<uid>
  *   create:back:<uid>
  *   weapons:<prev|next>:<uid>:<page>
- *   deityc:<page>:<uid>
+ *   deities:<prev|next>:<uid>:<page>
+ *   denhance:<attempt|cancel>:<userDeityId>:<uid>
  *   enhance:attempt:<weaponId>:<uid>
  *   enhance:cancel:<weaponId>:<uid>
  *   sell:confirm:<mode>:<arg>:<uid>
@@ -39,11 +40,22 @@ async function handleInteraction(interaction) {
       return;
     }
 
-    if (namespace === 'deityc') {
-      const page = parseInt(parts[1], 10);
-      const ownerId = parts[2];
-      await deityCmd.handlePage(interaction, Number.isNaN(page) ? 1 : page, ownerId);
+    if (namespace === 'deities') {
+      await deityCmd.handleListButton(interaction);
       return;
+    }
+
+    if (namespace === 'denhance') {
+      const userDeityId = parts[2];
+      const ownerId = parts[3];
+      if (action === 'attempt') {
+        await deityCmd.handleEnhanceAttempt(interaction, userDeityId, ownerId);
+        return;
+      }
+      if (action === 'cancel') {
+        await deityCmd.handleEnhanceCancel(interaction, userDeityId, ownerId);
+        return;
+      }
     }
 
     if (namespace === 'enhance') {
