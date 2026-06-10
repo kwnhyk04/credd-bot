@@ -283,4 +283,119 @@ async function buildResultMessage(results, balances) {
   };
 }
 
-module.exports = { renderSummonGrid, buildFlipMessage, buildResultMessage, flipGifExists };
+/* ════════════════════════════════════════════
+ * SINGLE CARD COMPOSITE — deity info view
+ * Frame inner panel is OPAQUE, so the portrait is drawn INTO the inner
+ * window on top of the frame (clipped), not under it. No name text when a
+ * portrait is present (the message header carries it); missing portrait →
+ * frame + name/rarity text exactly like the gacha cards.
+ * ══════════════════════════════════════════ */
+
+// Inner-window rect as fractions of the CROPPED card (tuned to the frame art).
+const INNER = { x: 0.155, y: 0.135, w: 0.69, h: 0.74 };
+
+// Full 10-pull grid width — info renders center their card/art on this canvas
+// so the message width matches the summon results.
+const WIDE_W = PAD * 2 + 5 * LAYOUTS[10].cardW + 4 * GAP;
+
+/**
+ * @param {{name: string, rarity: string, portraitPath: string|null}} opts
+ * @returns {Promise<Buffer>} PNG — one 340px card centered on the wide canvas
+ */
+async function renderDeityCard({ name, rarity, portraitPath }) {
+  await loadFrames();
+  const cardW = LAYOUTS[1].cardW; // 340
+  const cardH = Math.round(cardW * (SRC.h / SRC.w));
+
+  const canvas = createCanvas(WIDE_W, PAD * 2 + cardH);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // Card horizontally centered (same approach as the centered single pull).
+  const ox = Math.round((WIDE_W - cardW) / 2);
+  const oy = PAD;
+  ctx.translate(ox, oy);
+  ctx.drawImage(frames[rarity] ?? frames.Remnant, SRC.x, SRC.y, SRC.w, SRC.h, 0, 0, cardW, cardH);
+
+  let portrait = null;
+  if (portraitPath) {
+    try {
+      if (fs.existsSync(portraitPath)) portrait = await loadImage(portraitPath);
+    } catch (err) {
+      console.error(`[renderSummon] portrait load failed (${portraitPath}):`, err.message);
+    }
+  }
+
+  if (portrait) {
+    const win = {
+      x: Math.round(cardW * INNER.x),
+      y: Math.round(cardH * INNER.y),
+      w: Math.round(cardW * INNER.w),
+      h: Math.round(cardH * INNER.h),
+    };
+    // Cover-fit the portrait into the window, clipped so it never bleeds onto the frame.
+    const scale = Math.max(win.w / portrait.width, win.h / portrait.height);
+    const dw = portrait.width * scale;
+    const dh = portrait.height * scale;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(win.x, win.y, win.w, win.h);
+    ctx.clip();
+    ctx.drawImage(portrait, win.x + (win.w - dw) / 2, win.y + (win.h - dh) / 2, dw, dh);
+    ctx.restore();
+  } else {
+    // Fallback: name + rarity text like the gacha cards.
+    ctx.textAlign = 'center';
+    ctx.shadowColor = 'rgba(0,0,0,0.9)';
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetY = 2;
+    const nameY = cardH * TEXT_Y;
+    ctx.font = `bold ${Math.round(cardW * NAME_FONT_SCALE)}px sans-serif`;
+    ctx.fillStyle = NAME_COLORS[rarity] ?? '#FFFFFF';
+    ctx.fillText(name, cardW / 2, nameY, cardW * 0.82);
+    ctx.font = `${Math.round(cardW * RARITY_FONT_SCALE)}px sans-serif`;
+    ctx.fillStyle = '#B9BDCB';
+    ctx.fillText(rarity, cardW / 2, nameY + cardW * 0.105, cardW * 0.82);
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+  }
+
+  return canvas.toBuffer('image/png');
+}
+
+/**
+ * Center a standalone artwork file (weapon info) on the wide canvas with the
+ * grid background — height capped to the single-card height, aspect preserved.
+ * @returns {Promise<Buffer|null>} PNG, or null when the file can't be loaded
+ */
+async function renderCenteredArt(filePath) {
+  let img;
+  try {
+    img = await loadImage(filePath);
+  } catch (err) {
+    console.error(`[renderSummon] art load failed (${filePath}):`, err.message);
+    return null;
+  }
+  const cardH = Math.round(LAYOUTS[1].cardW * (SRC.h / SRC.w));
+  const maxW = WIDE_W - PAD * 2;
+  const scale = Math.min(cardH / img.height, maxW / img.width);
+  const dw = Math.round(img.width * scale);
+  const dh = Math.round(img.height * scale);
+
+  const canvas = createCanvas(WIDE_W, PAD * 2 + dh);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, Math.round((WIDE_W - dw) / 2), PAD, dw, dh);
+  return canvas.toBuffer('image/png');
+}
+
+module.exports = {
+  renderSummonGrid,
+  renderDeityCard,
+  renderCenteredArt,
+  buildFlipMessage,
+  buildResultMessage,
+  flipGifExists,
+  RARITY_SYMBOLS,
+};
