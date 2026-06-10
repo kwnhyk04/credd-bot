@@ -26,8 +26,12 @@
 const fs = require('fs');
 const path = require('path');
 
-// Registry lives at the project root (this file is src/utils/).
-const REGISTRY_PATH = path.join(__dirname, '..', '..', 'game_items.txt');
+// Registries live at the project root (this file is src/utils/).
+// Both files share the format and load into ONE lookup (items + deities).
+const REGISTRY_PATHS = [
+  path.join(__dirname, '..', '..', 'game_items.txt'),
+  path.join(__dirname, '..', '..', 'game_deities.txt'),
+];
 
 // ⚠️ Belief Shards icon is NOT in game_items.txt — unicode fallback shared by
 // every display (bag overview, summon footer). Once an emoji is uploaded,
@@ -69,21 +73,28 @@ function tag(name, id) {
 
 function load() {
   if (registry.size) return;
-  const raw = fs.readFileSync(REGISTRY_PATH, 'utf8');
-
-  for (const line of raw.split('\n')) {
-    const parts = line.split('|').map((s) => s.trim().replace(/^'|'$/g, ''));
-    if (parts.length !== 3) continue;            // skips header + divider rows
-    const [display, name, id] = parts;
-    if (!VALID_ID.test(id)) continue;            // only rows with a numeric ID
-    if (!VALID_NAME.test(name)) {                // malformed name → never emit it
-      console.warn(`[emojis] skipping registry row with invalid emoji name: ${JSON.stringify(name)}`);
+  for (const file of REGISTRY_PATHS) {
+    let raw;
+    try {
+      raw = fs.readFileSync(file, 'utf8');
+    } catch {
+      console.warn(`[emojis] registry file missing, skipped: ${path.basename(file)}`);
       continue;
     }
-    registry.set(name, { id, display });
-    // Index both the emoji name and the display name, plain + possessive-stripped.
-    for (const key of [norm(name), norm(display), normPossessive(display)]) {
-      if (key && !displayIndex.has(key)) displayIndex.set(key, name);
+    for (const line of raw.split('\n')) {
+      const parts = line.split('|').map((s) => s.trim().replace(/^'|'$/g, ''));
+      if (parts.length !== 3) continue;            // skips header + divider rows
+      const [display, name, id] = parts;
+      if (!VALID_ID.test(id)) continue;            // only rows with a numeric ID
+      if (!VALID_NAME.test(name)) {                // malformed name → never emit it
+        console.warn(`[emojis] skipping registry row with invalid emoji name: ${JSON.stringify(name)}`);
+        continue;
+      }
+      registry.set(name, { id, display });
+      // Index both the emoji name and the display name, plain + possessive-stripped.
+      for (const key of [norm(name), norm(display), normPossessive(display)]) {
+        if (key && !displayIndex.has(key)) displayIndex.set(key, name);
+      }
     }
   }
 }
@@ -152,29 +163,34 @@ function nearestCandidate(display) {
 }
 
 /**
- * Run every DISTINCT weapon name through the resolver; log ONE warning block
- * listing the names that would fall back to a type emoji, with the nearest
- * registry candidate where one plausibly exists.
+ * Run every DISTINCT weapon AND deity name through the resolver; log ONE
+ * warning block per roster listing the names that would fall back to a
+ * generic emoji, with the nearest registry candidate where one plausibly exists.
  */
 async function auditWeaponEmojis(pool) {
-  try {
-    const { rows } = await pool.query('SELECT DISTINCT name FROM weapon_roster ORDER BY name');
-    const misses = rows
-      .map((r) => r.name)
-      .filter((n) => !resolveName(n))
-      .map((n) => {
-        const near = nearestCandidate(n);
-        return `  - "${n}"${near ? `  (nearest registry entry: ${near})` : ''}`;
-      });
-    if (misses.length === 0) {
-      console.log('[emojis] weapon-emoji audit: all weapon names resolve.');
-    } else {
-      console.warn(
-        `[emojis] weapon-emoji audit: ${misses.length} name(s) fall back to type emoji:\n${misses.join('\n')}`
-      );
+  for (const [label, sql] of [
+    ['weapon', 'SELECT DISTINCT name FROM weapon_roster ORDER BY name'],
+    ['deity', 'SELECT DISTINCT name FROM deity_roster ORDER BY name'],
+  ]) {
+    try {
+      const { rows } = await pool.query(sql);
+      const misses = rows
+        .map((r) => r.name)
+        .filter((n) => !resolveName(n))
+        .map((n) => {
+          const near = nearestCandidate(n);
+          return `  - "${n}"${near ? `  (nearest registry entry: ${near})` : ''}`;
+        });
+      if (misses.length === 0) {
+        console.log(`[emojis] ${label}-emoji audit: all ${label} names resolve.`);
+      } else {
+        console.warn(
+          `[emojis] ${label}-emoji audit: ${misses.length} name(s) fall back to a generic emoji:\n${misses.join('\n')}`
+        );
+      }
+    } catch (err) {
+      console.warn(`[emojis] ${label}-emoji audit skipped:`, err.message);
     }
-  } catch (err) {
-    console.warn('[emojis] weapon-emoji audit skipped:', err.message);
   }
 }
 
@@ -186,6 +202,19 @@ async function auditWeaponEmojis(pool) {
 async function reconcileEmojiIds(client) {
   try {
     load();
+    // Duplicate IDs inside the registries (copy-paste errors — two names, one emoji).
+    const byId = new Map();
+    for (const [name, { id }] of registry.entries()) {
+      if (!byId.has(id)) byId.set(id, []);
+      byId.get(id).push(name);
+    }
+    const dupes = [...byId.entries()].filter(([, names]) => names.length > 1);
+    if (dupes.length > 0) {
+      console.warn(
+        `[emojis] registry has ${dupes.length} duplicated ID(s):\n` +
+        dupes.map(([id, names]) => `  - id=${id} shared by: ${names.join(', ')}`).join('\n')
+      );
+    }
     const liveIds = new Set();
     const appEmojis = await client.application.emojis.fetch().catch(() => null);
     if (appEmojis) for (const e of appEmojis.values()) liveIds.add(e.id);
