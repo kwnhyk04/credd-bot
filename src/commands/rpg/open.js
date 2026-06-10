@@ -1,25 +1,19 @@
 'use strict';
 
-const { EmbedBuilder } = require('discord.js');
 const pool = require('../../db/pool');
 const { CHESTS, CHEST_ALIASES, MAX_OPEN, rollTier, rollWeaponStats } = require('../../config/dropRates');
 const { generateUniqueWeaponId } = require('../../utils/weaponId');
 const { runSummon } = require('../../engine/summonEngine');
-const { TIER_ALIAS, TIER_COLOR: DEITY_TIER_COLOR, TIER_RANK: DEITY_TIER_RANK } = require('../../config/gachaRates');
-const { playChestAnimation, playRelicAnimation } = require('../../engine/openAnimation');
-
-const TIER_COLOR = {
-  Common: 0x95a5a6, Rare: 0x3498db, Mythic: 0x9b59b6, Legendary: 0xFFD700, Supreme: 0xe74c3c,
-};
-const TIER_RANK = { Common: 0, Rare: 1, Mythic: 2, Legendary: 3, Supreme: 4 };
-const TYPE_EMOJI = { Sword: '⚔️', Staff: '🪄', Gloves: '🥊', Shield: '🛡️', Bow: '🏹' };
+const { TIER_ALIAS } = require('../../config/gachaRates');
+const { playAnimatedOpen, buildWeaponResultPayload } = require('../../engine/chestOpen');
+const { buildResultMessage } = require('../../engine/renderSummon');
 
 // Relic gacha config (Master §6): which relic feeds how many deity rolls.
 //   sr   → 1 Sacred Relic  → 10 deity rolls (pity applies)
 //   supr → 1 Supreme Relic → 1 forced Supreme pull (does NOT touch pity)
 const RELICS = {
-  sr:   { column: 'sacred_relics',  action: 'Sacred Relic',  count: 10, forceTier: null },
-  supr: { column: 'supreme_relics', action: 'Supreme Relic', count: 1,  forceTier: 'Supreme' },
+  sr:   { column: 'sacred_relics',  action: 'Sacred Relic',  emojiName: 'sacred_relic',  count: 10, forceTier: null },
+  supr: { column: 'supreme_relics', action: 'Supreme Relic', emojiName: 'supreme_relic', count: 1,  forceTier: 'Supreme' },
 };
 
 function reply(message, content) {
@@ -29,8 +23,10 @@ function reply(message, content) {
 /**
  * Atomic chest-open core (extracted so the bag-chests Open button runs the
  * EXACT same logic as `crd open <alias>`): lock bag → validate count → roll
- * weapons + INSERT → deduct chests → game_logs → COMMIT. Behavior unchanged.
- * @returns {{ok:true, drops:object[], previous:number, remaining:number} |
+ * weapons + INSERT → deduct chests → game_logs → COMMIT. Also returns the
+ * (post-open) relic balances for the result footer.
+ * @returns {{ok:true, drops:object[], previous:number, remaining:number,
+ *            sacredRelics:number, supremeRelics:number} |
  *           {ok:false, reason:'nobag'|'insufficient'|'no_weapon_pool'|'error', have?:number}}
  */
 async function openChestsTxn(discordId, alias, amount) {
@@ -42,7 +38,8 @@ async function openChestsTxn(discordId, alias, amount) {
     await client.query('BEGIN');
 
     const bagRes = await client.query(
-      `SELECT ${col} AS count FROM users_bag WHERE discord_id = $1 FOR UPDATE`,
+      `SELECT ${col} AS count, sacred_relics, supreme_relics
+         FROM users_bag WHERE discord_id = $1 FOR UPDATE`,
       [discordId]
     );
     if (bagRes.rows.length === 0) {
@@ -96,7 +93,11 @@ async function openChestsTxn(discordId, alias, amount) {
     );
 
     await client.query('COMMIT');
-    return { ok: true, drops, previous, remaining };
+    return {
+      ok: true, drops, previous, remaining,
+      sacredRelics: bagRes.rows[0].sacred_relics,
+      supremeRelics: bagRes.rows[0].supreme_relics,
+    };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[open] transaction failed:', err.message);
@@ -104,6 +105,13 @@ async function openChestsTxn(discordId, alias, amount) {
   } finally {
     client.release();
   }
+}
+
+/** Renderer card stats line, e.g. `ATK 120 · HP 180 · DEF 70 · CRIT 3.2%`. */
+function dropStatsLine(d) {
+  const critTxt = d.crit > 0 ? ` · CRIT ${Number(d.crit).toFixed(1)}%` : '';
+  const bonus = d.bonus_dmg_pct ? ` · +${Number(d.bonus_dmg_pct)}% DMG · +${Number(d.bonus_crit_dmg_pct)}% CDMG` : '';
+  return `ATK ${d.atk} · HP ${d.hp} · DEF ${d.def}${critTxt}${bonus}`;
 }
 
 /**
@@ -114,6 +122,12 @@ async function execute(message, { args }) {
   const alias = (args[0] || '').toLowerCase();
 
   if (alias === 'sr' || alias === 'supr') {
+    // Relics open exactly one at a time (supr is a single forced pull) —
+    // reject any quantity argument instead of silently ignoring it.
+    if (args[1] !== undefined) {
+      await reply(message, `${RELICS[alias].action}s open one at a time — just \`crd open ${alias}\`.`);
+      return;
+    }
     await openRelic(message, alias);
     return;
   }
@@ -126,19 +140,23 @@ async function execute(message, { args }) {
     return;
   }
 
-  // Validate amount BEFORE the transaction (integer 1..10).
+  const chest = CHESTS[alias];
+  const limit = Math.min(chest.maxOpen ?? MAX_OPEN, MAX_OPEN);
+
+  // Validate amount BEFORE the transaction (integer 1..limit).
   const raw = args[1] ?? '1';
   if (!/^\d+$/.test(raw)) {
-    await reply(message, 'Amount must be a whole number between 1 and 10.');
+    await reply(message, `Amount must be a whole number between 1 and ${limit}.`);
     return;
   }
   const amount = parseInt(raw, 10);
-  if (amount < 1 || amount > MAX_OPEN) {
-    await reply(message, `You can open between 1 and ${MAX_OPEN} chests at a time.`);
+  if (amount < 1 || amount > limit) {
+    await reply(message, limit === 1
+      ? `${chest.action}s can only be opened one at a time.`
+      : `You can open between 1 and ${limit} ${chest.action}s at a time.`);
     return;
   }
 
-  const chest = CHESTS[alias];
   const discordId = message.author.id;
 
   const res = await openChestsTxn(discordId, alias, amount);
@@ -149,29 +167,30 @@ async function execute(message, { args }) {
     else await reply(message, 'Something went wrong opening your chest. Nothing was consumed.');
     return;
   }
-  const { drops, remaining } = res;
+  const { drops, remaining, sacredRelics, supremeRelics } = res;
 
-  // Build result embed.
-  const highest = drops.reduce((h, d) => (TIER_RANK[d.tier] > TIER_RANK[h] ? d.tier : h), 'Common');
-  const lines = drops.map(d => {
-    const emoji = TYPE_EMOJI[d.type] || '•';
-    const critTxt = d.crit > 0 ? ` · CRIT ${Number(d.crit).toFixed(1)}%` : '';
-    const bonus = d.bonus_dmg_pct ? ` · +${d.bonus_dmg_pct}% DMG/+${d.bonus_crit_dmg_pct}% CDMG` : '';
-    return `${emoji} **${d.name}** (${d.tier})\n\`${d.weaponId}\` · ATK ${d.atk} · HP ${d.hp} · DEF ${d.def}${critTxt}${bonus}`;
-  });
+  // Display layer (committed already): gif animation → weapon-grid result.
+  const items = drops.map((d) => ({
+    id: d.weaponId,
+    name: d.name,
+    tier: d.tier,
+    stats: dropStatsLine(d),
+  }));
 
-  const embed = new EmbedBuilder()
-    .setColor(TIER_COLOR[highest] || TIER_COLOR.Common)
-    .setTitle(`Opened ${amount} × ${chest.action}`)
-    .setDescription(lines.join('\n\n'))
-    .setFooter({ text: `${chest.action} remaining: ${remaining} · Equip with crd equip <id>` });
-
-  // Cosmetic frame-swap animation (post-commit). chestKey = column minus '_chest'.
-  await playChestAnimation(message, {
-    chestKey: col.replace(/_chest$/, ''),
-    highestTier: highest,
-    finalEmbed: embed,
-    frameTitle: `Opening ${amount} × ${chest.action}`,
+  await playAnimatedOpen(message, {
+    gifKey: chest.column,
+    animTitle: `Opening ${amount} × ${chest.action}…`,
+    userId: discordId,
+    buildResult: () => buildWeaponResultPayload({
+      gifKey: chest.column,
+      title: `Opened ${amount} × ${chest.action}`,
+      items,
+      sacredRelics,
+      supremeRelics,
+      remaining,
+      chestLabel: chest.action,
+      chestEmojiName: chest.column,
+    }),
   });
 }
 
@@ -179,6 +198,8 @@ async function execute(message, { args }) {
  * `crd open sr|supr` — consume one relic and run the deity gacha through the
  * shared summon engine. One atomic transaction: the relic only leaves on COMMIT
  * alongside the deity/essence/pity writes; any failure rolls back fully.
+ * Display reuses the EXISTING deity summon render (renderSummon): sr = the
+ * 10-roll card grid, supr = the single centered card.
  */
 async function openRelic(message, alias) {
   const relic = RELICS[alias];
@@ -186,12 +207,13 @@ async function openRelic(message, alias) {
   const discordId = message.author.id;
 
   const client = await pool.connect();
-  let result, relicRemaining;
+  let result, balances;
   try {
     await client.query('BEGIN');
 
     const bagRes = await client.query(
-      `SELECT ${col} AS count FROM users_bag WHERE discord_id = $1 FOR UPDATE`,
+      `SELECT ${col} AS count, sacred_relics, supreme_relics, belief_shards
+         FROM users_bag WHERE discord_id = $1 FOR UPDATE`,
       [discordId]
     );
     if (bagRes.rows.length === 0) {
@@ -206,7 +228,7 @@ async function openRelic(message, alias) {
       return;
     }
 
-    relicRemaining = previous - 1;
+    const relicRemaining = previous - 1;
     await client.query(
       `UPDATE users_bag SET ${col} = ${col} - 1 WHERE discord_id = $1`,
       [discordId]
@@ -222,6 +244,13 @@ async function openRelic(message, alias) {
     result = await runSummon(client, discordId, { count: relic.count, forceTier: relic.forceTier });
 
     await client.query('COMMIT');
+
+    // Post-open balances for the result footer.
+    balances = {
+      beliefShards: bagRes.rows[0].belief_shards,
+      sacredRelics: alias === 'sr' ? relicRemaining : bagRes.rows[0].sacred_relics,
+      supremeRelics: alias === 'supr' ? relicRemaining : bagRes.rows[0].supreme_relics,
+    };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[open] relic transaction failed:', err.message);
@@ -231,44 +260,20 @@ async function openRelic(message, alias) {
     client.release();
   }
 
-  const finalEmbed = buildRelicEmbed(message, relic, result, relicRemaining);
-  const highestTier = result.pulls.reduce(
-    (h, p) => (DEITY_TIER_RANK[p.tier] > DEITY_TIER_RANK[h] ? p.tier : h),
-    'Epic'
-  );
-  // Cosmetic frame-swap animation (post-commit): relic frames → card flip → results.
-  await playRelicAnimation(message, {
-    relicAlias: alias,
-    highestTier,
-    finalEmbed,
-    frameTitle: `Opening ${relic.action}`,
+  // Display layer (committed already): relic gif → existing deity card render.
+  // rarity must be the display alias ('Remnant'|'Awakened'|'Undying'|'Primordial').
+  const results = result.pulls.map((p) => ({
+    name: p.name,
+    rarity: TIER_ALIAS[p.tier],
+    isNew: !p.isDupe,
+  }));
+
+  await playAnimatedOpen(message, {
+    gifKey: relic.emojiName, // sacred_relic | supreme_relic
+    animTitle: `Opening ${relic.action}…`,
+    userId: discordId,
+    buildResult: () => buildResultMessage(results, balances),
   });
-}
-
-function buildRelicEmbed(message, relic, result, relicRemaining) {
-  const { pulls, summary, newActiveDeityId } = result;
-  const highest = pulls.reduce((h, p) => (DEITY_TIER_RANK[p.tier] > DEITY_TIER_RANK[h] ? p.tier : h), 'Epic');
-
-  const lines = pulls.map((p) => {
-    const star = p.isDupe ? '↻ +1 essence' : '✨ NEW';
-    return `**${p.name}** — ${TIER_ALIAS[p.tier]} *(${p.tier})* · ${p.mythology} · ${star}`;
-  });
-  const summaryLine = ['Supreme', 'Legendary', 'Mythic', 'Epic']
-    .filter((t) => summary[t] > 0)
-    .map((t) => `${TIER_ALIAS[t]} ×${summary[t]}`)
-    .join(' · ');
-
-  const embed = new EmbedBuilder()
-    .setColor(DEITY_TIER_COLOR[highest])
-    .setTitle(`Opened ${relic.action}`)
-    .setDescription(lines.join('\n'))
-    .addFields({ name: 'Summary', value: summaryLine || '—', inline: false })
-    .setFooter({ text: `${relic.action} remaining: ${relicRemaining}` });
-
-  if (newActiveDeityId != null) {
-    embed.addFields({ name: 'Active Deity', value: 'Your first deity is now equipped.', inline: false });
-  }
-  return embed;
 }
 
 module.exports = { execute, openChestsTxn };

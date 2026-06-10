@@ -237,7 +237,8 @@ function buildFlipMessage() {
  * ══════════════════════════════════════════ */
 /**
  * @param {Array<{name: string, rarity: string, isNew?: boolean}>} results
- * @param {{beliefShards: number, sacredRelics: number}} balances
+ * @param {{beliefShards: number, sacredRelics: number, supremeRelics?: number}} balances
+ *        supremeRelics is optional — only the relic-open paths show it.
  */
 async function buildResultMessage(results, balances) {
   const buffer = await renderSummonGrid(results);
@@ -272,7 +273,10 @@ async function buildResultMessage(results, balances) {
     // ── Footer (same icons as the bag overview — shared via utils/emojis) ──
     .addTextDisplayComponents((td) =>
       td.setContent(
-        `-# ${BELIEF_SHARDS_ICON} Belief Shards: **${balances.beliefShards.toLocaleString()}** ・ ${emoji('sacred_relic')} Sacred Relics: **${balances.sacredRelics.toLocaleString()}**`
+        `-# ${BELIEF_SHARDS_ICON} Belief Shards: **${balances.beliefShards.toLocaleString()}** ・ ${emoji('sacred_relic')} Sacred Relics: **${balances.sacredRelics.toLocaleString()}**` +
+        (balances.supremeRelics != null
+          ? ` ・ ${emoji('supreme_relic')} Supreme Relics: **${balances.supremeRelics.toLocaleString()}**`
+          : '')
       )
     );
 

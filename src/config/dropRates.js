@@ -6,7 +6,8 @@
  */
 
 // ── Chests ─────────────────────────────────────────────────────────────────
-// alias → { column, action, drops: [[tier, probability], …] (must sum to 1.0) }
+// alias → { column, action, drops: [[tier, probability], …] (must sum to 1.0),
+//           maxOpen? (per-chest cap, defaults to MAX_OPEN) }
 const CHESTS = {
   sc: {
     column: 'silver_chest', action: 'Silver Chest',
@@ -27,6 +28,7 @@ const CHESTS = {
   supc: {
     column: 'supreme_chest', action: 'Supreme Chest',
     drops: [['Legendary', 0.70], ['Supreme', 0.30]],
+    maxOpen: 1, // Supreme Chests open one at a time
   },
 };
 
@@ -36,7 +38,7 @@ const MAX_OPEN = 10;
 // ── Tier stat ranges (§7) ────────────────────────────────────────────────
 // [min, max] inclusive-ish (max reachable only at fraction 1.0 which rand never hits).
 const TIER_RANGES = {
-  Rare:      { atk: [25, 50],   hp: [50, 100],  def: [20, 40],   crit: [1, 5] },
+  Rare:      { atk: [50, 75],   hp: [50, 100],  def: [20, 40],   crit: [1, 5] },
   Mythic:    { atk: [100, 150], hp: [150, 200], def: [60, 80],   crit: [1, 5] },
   Legendary: { atk: [300, 400], hp: [400, 600], def: [150, 200], crit: [1, 5] },
   // Supreme handled separately (fixed).

@@ -142,7 +142,7 @@ async function buildChestsView(user, counts) {
     .addSeparatorComponents(sep)
     // ── Footer ──
     .addTextDisplayComponents((td) =>
-      td.setContent('-# 💡 Open up to 10 at once, e.g. `crd open sc 10` ・ `crd bag`')
+      td.setContent('-# 💡 Open up to 10 at once, e.g. `crd open sc 10` (Supreme: 1) ・ `crd bag`')
     );
 
   return {
