@@ -13,6 +13,7 @@ const deityCmd = require('../commands/rpg/deity');
 const enhanceCmd = require('../commands/rpg/enhance');
 const lockCmd = require('../commands/rpg/lock');
 const sellCmd = require('../commands/rpg/sell');
+const weaponCmd = require('../commands/rpg/weapon');
 const devCmd = require('../commands/rpg/dev');
 
 // Commands with real implementations.
@@ -35,6 +36,7 @@ const IMPLEMENTED = {
   lock:     { mw: 'full', run: lockCmd.lock },
   unlock:   { mw: 'full', run: lockCmd.unlock },
   sell:     { mw: 'full', run: sellCmd.execute },
+  weapon:   { mw: 'full', run: weaponCmd.execute },
   dev:      { mw: 'dev',  run: devCmd.execute },
 };
 
