@@ -89,11 +89,11 @@ async function execute(message) {
 // Button: create:class:<Class>:<userId>
 async function handleClassSelect(interaction, className, ownerId) {
   if (interaction.user.id !== ownerId) {
-    await interaction.reply({ content: 'These buttons aren\'t for you.', ephemeral: true });
+    await interaction.reply({ content: 'These buttons aren\'t for you.', flags: MessageFlags.Ephemeral });
     return;
   }
   if (!CLASSES[className]) {
-    await interaction.reply({ content: 'Unknown class.', ephemeral: true });
+    await interaction.reply({ content: 'Unknown class.', flags: MessageFlags.Ephemeral });
     return;
   }
   await interaction.update(classPreviewPayload(className, ownerId));
@@ -102,7 +102,7 @@ async function handleClassSelect(interaction, className, ownerId) {
 // Button: create:back:<userId>
 async function handleBack(interaction, ownerId) {
   if (interaction.user.id !== ownerId) {
-    await interaction.reply({ content: 'These buttons aren\'t for you.', ephemeral: true });
+    await interaction.reply({ content: 'These buttons aren\'t for you.', flags: MessageFlags.Ephemeral });
     return;
   }
   await interaction.update(classSelectPayload(ownerId));
@@ -111,15 +111,15 @@ async function handleBack(interaction, ownerId) {
 // Button: create:confirm:<Class>:<userId>
 async function handleConfirm(interaction, className, ownerId) {
   if (interaction.user.id !== ownerId) {
-    await interaction.reply({ content: 'These buttons aren\'t for you.', ephemeral: true });
+    await interaction.reply({ content: 'These buttons aren\'t for you.', flags: MessageFlags.Ephemeral });
     return;
   }
   if (!CLASS_NAMES.includes(className)) {
-    await interaction.reply({ content: 'Unknown class.', ephemeral: true });
+    await interaction.reply({ content: 'Unknown class.', flags: MessageFlags.Ephemeral });
     return;
   }
   if (await isBanned(interaction.user.id)) {
-    await interaction.reply({ content: 'You are unable to use this bot.', ephemeral: true });
+    await interaction.reply({ content: 'You are unable to use this bot.', flags: MessageFlags.Ephemeral });
     return;
   }
 

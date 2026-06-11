@@ -1,5 +1,6 @@
 'use strict';
 
+const { MessageFlags } = require('discord.js');
 const registerCmd = require('../commands/rpg/register');
 const createCmd = require('../commands/rpg/create');
 const bagCmd = require('../commands/rpg/bag');
@@ -110,7 +111,7 @@ async function handleInteraction(interaction) {
   } catch (err) {
     console.error('[interactionHandler] error:', err);
     if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply({ content: 'An unexpected error occurred.', ephemeral: true }).catch(() => {});
+      await interaction.reply({ content: 'An unexpected error occurred.', flags: MessageFlags.Ephemeral }).catch(() => {});
     }
   }
 }

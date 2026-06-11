@@ -13,6 +13,11 @@
 const pool = require('../../db/pool');
 const { computeWeaponStats } = require('../../engine/enhancement');
 const { computeDeityStats } = require('../../engine/deityEnhancement');
+const { resolveBattle, rngOf } = require('../../engine/battleEngine');
+const {
+  buildPlayerFighter, buildMobFighter, fetchMobByName, fetchRandomMob, rollMobLevel,
+} = require('../../engine/statAssembly');
+const { runBattle } = require('../../engine/battleRender');
 
 const INT_MAX = 2147483647; // INTEGER column ceiling (shards/chests/relics)
 const MENTION_RE = /^<@!?\d+>$/;
@@ -332,12 +337,66 @@ async function enhanceDeity(message, args, devId) {
   }
 }
 
+// ── crd dev battle [mob name] [seed <n>] ───────────────────────────────────
+// Phase 6 live smoke test: full engine fight rendered through battleRender.
+// NO rewards, NO game_logs, NO active_battles row, NO win/loss counters — the
+// only write is the dev_logs entry. The seed drives mob spawn/pick/level AND
+// the engine stream, so `crd dev battle seed <n>` reproduces a random battle
+// exactly (and `crd dev battle <mob name> seed <n>` a named one).
+async function devBattle(message, args, devId) {
+  const rest = args.slice(1);
+  let seed = null;
+  let mobName = null;
+  const seedIdx = rest.findIndex((t) => t.toLowerCase() === 'seed');
+  if (seedIdx !== -1) {
+    const n = Number(rest[seedIdx + 1]);
+    if (!Number.isInteger(n) || n < 0) {
+      return reply(message, 'Usage: `crd dev battle [mob name] [seed <n>]` — seed must be a non-negative integer.');
+    }
+    seed = n >>> 0;
+    mobName = rest.slice(0, seedIdx).join(' ').trim() || null;
+  } else {
+    mobName = rest.join(' ').trim() || null;
+    seed = Date.now() >>> 0;
+  }
+
+  try {
+    const fighter = await buildPlayerFighter(pool, devId);
+    if (!fighter) return reply(message, 'You have no character — `crd create character` first.');
+
+    const rng = rngOf(seed); // spawn roll + pick + level come from the seed too
+    let mobRow;
+    if (mobName) {
+      mobRow = await fetchMobByName(pool, mobName);
+      if (!mobRow) return reply(message, `No mob_roster row named "${mobName}".`);
+    } else {
+      mobRow = await fetchRandomMob(pool, rng);
+      if (!mobRow) return reply(message, 'mob_roster is empty.');
+    }
+    const level = rollMobLevel(fighter.level, rng);
+    const mob = buildMobFighter(mobRow, level);
+
+    const sim = resolveBattle(fighter, mob, { mode: 'raid', seed });
+
+    await logDev(pool, devId, 'battle', devId,
+      `vs ${mob.name} (${mobRow.mob_type} Lv${level}) seed=${seed} winner=${sim.winner} turns=${sim.rounds.length}`);
+
+    await reply(message,
+      `🎲 Dev battle: **${mob.name}** (${mobRow.mob_type}, Lv ${level}) — seed \`${seed}\`. No rewards granted.`);
+    await runBattle(message.channel, { mode: 'raid', sim });
+  } catch (err) {
+    console.error('[dev battle]', err);
+    return reply(message, 'Dev battle failed — nothing was consumed.');
+  }
+}
+
 const USAGE = [
   '**Dev commands:**',
   '`givecredux @user <amount>` · `givebeliefshards @user <amount>`',
   '`givechest @user <type> <amount>` · `giverelic @user <sacred|supreme> <amount>`',
   '`ban @user` · `unban @user` · `resetplayer @user`',
   '`enhanceweapon <weapon_id> <+level>` · `enhancedeity @user <deity name> <+level>`',
+  '`battle [mob name] [seed <n>]` — engine smoke test (no rewards)',
 ].join('\n');
 
 /** Dispatch — caller (commandHandler mw 'dev') has already verified superuser. */
@@ -354,6 +413,7 @@ async function execute(message, { args }) {
     case 'resetplayer':      return resetPlayer(message, devId);
     case 'enhanceweapon':    return enhanceWeapon(message, args, devId);
     case 'enhancedeity':     return enhanceDeity(message, args, devId);
+    case 'battle':           return devBattle(message, args, devId);
     default:                 return reply(message, USAGE);
   }
 }

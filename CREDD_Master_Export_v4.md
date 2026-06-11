@@ -183,7 +183,7 @@ NOTE: Weapons are NOT class-locked. Any class can equip any weapon.
 ### Dynamic Weapon Stats (Min/Max per Tier)
 | Tier | ATK | HP | DEF | CRIT | Bonus |
 |---|---|---|---|---|---|
-| Rare | 25–50 | 50–100 | 20–40 | 1–5% | — |
+| Rare | 50–75 | 50–100 | 20–40 | 1–5% | — |
 | Mythic | 100–150 | 150–200 | 60–80 | 1–5% | — |
 | Legendary | 300–400 | 400–600 | 150–200 | 1–5% | 25% chance on drop: BOTH +25% DMG and +25% CRIT DMG (fixed); otherwise none |
 | Supreme | Fixed 800 | Fixed 1200 | Fixed 400 | — | 50% DMG, 50% CRIT DMG (always) |
@@ -731,15 +731,15 @@ Fully removed for initial release. Planned as an end-game update.
 - No separate `crd dungeon` — dungeon IS raid
 - Battle cooldown: 10 seconds (universal, all commands)
 
-### Spawn Rates
-- 75% → Common Mob spawns
-- 25% → Elite Mob spawns
+### Spawn Rates [REBALANCED]
+- 80% → Common Mob spawns
+- 20% → Elite Mob spawns
 - Within each category: all mobs of that type have equal spawn chance
 
-### Mob Dynamic Level System
+### Mob Dynamic Level System [REBALANCED]
 - Mob Level = Player Level + random(−5 to +5)
-- Regular Mob scaling: HP +20 / ATK +8 / DEF +5 per level
-- Elite Mob scaling: HP +38 / ATK +10 / DEF +8 per level
+- Regular Mob scaling: HP +40 / ATK +15 / DEF +10 per level
+- Elite Mob scaling: HP +75 / ATK +30 / DEF +16 per level
 
 ### Battle Flow
 - Fully automatic — no player input
@@ -763,9 +763,9 @@ Fully removed for initial release. Planned as an end-game update.
 ### Raid Loot Drop Rates [REVISED]
 | Source | Credux | EXP (Combat) | Belief Shards | Chest |
 |---|---|---|---|---|
-| Mob win | 100–500 | 100–200 | 1–3 (~50%) | Silver (~50%) |
+| Mob win | 100–500 | 100–200 | 3–5 (~100%) | Silver (~30%) |
 | Mob loss | — | 50 | — | — |
-| Elite win | 600–1,000 | 300–500 | 3–5 (~100%) | Gold (~30%) |
+| Elite win | 600–1,000 | 300–500 | 8–10 (~100%) | Gold (~30%) |
 | Elite loss | — | 150 | — | — |
 
 ### Victory / Defeat
@@ -837,53 +837,53 @@ Fully removed for initial release. Planned as an end-game update.
 ### PH Mobs — Regular
 | Name | HP | ATK | DEF | CRIT | Skill |
 |---|---|---|---|---|---|
-| Dwende (Black) | 580 | 38 | 28 | 5% | Hex — 25% chance reduce player ATK -15% for 1 turn |
-| Dwende (White) | 560 | 45 | 22 | 5% | Daze — 20% chance reduce player CRIT -50% for 1 turn |
-| Amalanhig | 640 | 32 | 18 | 5% | Infectious Bite — 30% on hit: Rot 5% max HP/turn for 2 turns |
-| Amomongo | 570 | 50 | 15 | 5% | Rend — Every 3rd turn deals 150% ATK |
-| Bal-Bal | 550 | 38 | 28 | 5% | Carrion Sense — When player HP < 30%: ATK +20% |
-| Santelmo | 555 | 36 | 24 | 5% | Will-o-Wisp — 20% chance each turn: player skips next attack |
+| Black Duwende | 580 | 118 | 78 | 5% | Hex — 25% chance reduce player ATK -15% for 1 turn |
+| White Duwende | 560 | 125 | 72 | 5% | Daze — 20% chance reduce player CRIT -50% for 1 turn |
+| Amalanhig | 640 | 112 | 68 | 5% | Infectious Bite — 30% on hit: Rot 5% max HP/turn for 2 turns |
+| Amomongo | 570 | 130 | 65 | 5% | Rend — Every 3rd turn deals 150% ATK |
+| Bal-Bal | 550 | 118 | 78 | 5% | Carrion Sense — When player HP < 30%: ATK +20% |
+| Santelmo | 555 | 116 | 74 | 5% | Will-o-Wisp — 20% chance each turn: player skips next attack |
 
 ### PH Mobs — Elite
 | Name | HP | ATK | DEF | CRIT | Skill |
 |---|---|---|---|---|---|
-| Manananggal | 1,200 | 72 | 40 | 10% | Viscera Drain — Every 3 turns: drain 15% player max HP + heal self |
-| Aswang | 1,050 | 95 | 35 | 10% | Shape Shift — Every 4 turns: copy player current ATK for 2 turns |
-| Tikbalang | 1,020 | 88 | 42 | 10% | Disorientation — Every 3 turns: player ATK -20% for 1 turn |
-| Kapre | 1,250 | 70 | 38 | 10% | Smoke Cloud — Every 4 turns: player CRIT -30% and ATK -10% for 1 turn |
-| Sigbin | 1,000 | 68 | 58 | 10% | Shadow Step — 20% chance to evade any incoming attack |
-| Batibat | 1,240 | 74 | 36 | 10% | Sleep Paralysis — Every 4 turns: paralyze player 1 turn (guaranteed skip) |
+| Manananggal | 1,200 | 172 | 140 | 10% | Viscera Drain — Every 3 turns: drain 15% player max HP + heal self |
+| Aswang | 1,050 | 195 | 135 | 10% | Shape Shift — Every 4 turns: copy player current ATK for 2 turns |
+| Tikbalang | 1,020 | 188 | 142 | 10% | Disorientation — Every 3 turns: player ATK -20% for 1 turn |
+| Kapre | 1,250 | 170 | 138 | 10% | Smoke Cloud — Every 4 turns: player CRIT -30% and ATK -10% for 1 turn |
+| Sigbin | 1,000 | 168 | 158 | 10% | Shadow Step — 20% chance to evade any incoming attack |
+| Batibat | 1,240 | 174 | 136 | 10% | Sleep Paralysis — Every 4 turns: paralyze player 1 turn (guaranteed skip) |
 
 ### Norse Mobs — Regular
 | Name | HP | ATK | DEF | CRIT | Skill |
 |---|---|---|---|---|---|
-| Troll | 640 | 36 | 24 | 5% | Regeneration — Recovers 5% max HP at start of each turn |
-| Dwarves | 590 | 35 | 35 | 5% | Stone Skin — Every 4 turns: absorb next hit up to 20% max HP |
-| Dark Elves | 560 | 50 | 15 | 5% | Curse of Decay — 25% on hit: DEF -10% for 1 turn |
-| Light Elves | 580 | 38 | 27 | 5% | Radiant Strike — 20% chance: blind player (CRIT to 0% for 1 turn) |
+| Troll | 640 | 116 | 74 | 5% | Regeneration — Recovers 5% max HP at start of each turn |
+| Dwarf | 590 | 115 | 85 | 5% | Stone Skin — Every 4 turns: absorb next hit up to 20% max HP |
+| Dark Elf | 560 | 130 | 65 | 5% | Curse of Decay — 25% on hit: DEF -10% for 1 turn |
+| Light Elf | 580 | 118 | 77 | 5% | Radiant Strike — 20% chance: blind player (CRIT to 0% for 1 turn) |
 
 ### Norse Mobs — Elite
 | Name | HP | ATK | DEF | CRIT | Skill |
 |---|---|---|---|---|---|
-| Ratatoskr | 1,000 | 100 | 30 | 10% | Slander — Every 3 turns: player ATK -20% for 1 turn |
-| Fossegrim | 1,100 | 78 | 44 | 10% | Enchanting Melody — Every 4 turns: player skips next turn |
-| Nokken | 1,050 | 92 | 38 | 10% | Luring Form — Every 3 turns: player DEF -20% for 1 turn |
-| Valkyrie | 1,080 | 98 | 48 | 10% | Battle Judgment — Every 4 turns: next attack deals 200% ATK |
+| Ratatoskr | 1,000 | 200 | 130 | 10% | Slander — Every 3 turns: player ATK -20% for 1 turn |
+| Fossegrim | 1,100 | 178 | 144 | 10% | Enchanting Melody — Every 4 turns: player skips next turn |
+| Nokken | 1,050 | 192 | 138 | 10% | Luring Form — Every 3 turns: player DEF -20% for 1 turn |
+| Valkyrie | 1,080 | 198 | 148 | 10% | Battle Judgment — Every 4 turns: next attack deals 200% ATK |
 
 ### Greek Mobs — Regular
 | Name | HP | ATK | DEF | CRIT | Skill |
 |---|---|---|---|---|---|
-| Satyr | 545 | 42 | 28 | 5% | Wild Revelry — 25% chance each turn: player ATK -15% for 1 turn |
-| Harpy | 510 | 52 | 16 | 5% | Swooping Talons — Every 3rd turn: 150% ATK + DEF -10% for 1 turn |
-| Skeleton Warrior | 580 | 38 | 35 | 5% | Undying Resolve — When HP < 30%: DEF +25% for remainder of battle |
-| Lamia | 525 | 48 | 22 | 5% | Serpent Bite — 30% on hit: flat Bleed ATK×0.35/turn for 2 turns |
+| Satyr | 545 | 122 | 78 | 5% | Wild Revelry — 25% chance each turn: player ATK -15% for 1 turn |
+| Harpy | 510 | 132 | 66 | 5% | Swooping Talons — Every 3rd turn: 150% ATK + DEF -10% for 1 turn |
+| Skeleton Warrior | 580 | 118 | 85 | 5% | Undying Resolve — When HP < 30%: DEF +25% for remainder of battle |
+| Lamia | 525 | 128 | 72 | 5% | Serpent Bite — 30% on hit: flat Bleed ATK×0.35/turn for 2 turns |
 
 ### Greek Mobs — Elite
 | Name | HP | ATK | DEF | CRIT | Skill |
 |---|---|---|---|---|---|
-| Minotaur | 1,050 | 98 | 38 | 10% | Labyrinth Charge — Every 3 turns: 180% ATK. If player HP > 70%: 220% ATK |
-| Cyclops | 1,250 | 72 | 55 | 10% | Boulder Throw — Every 4 turns: 160% ATK + stun 1 turn |
-| Chimera | 1,080 | 92 | 42 | 10% | Tri-Form Assault — Rotates: Lion Claw (140% ATK) → Goat Ram (DEF -20%) → Serpent Bite (Burn ATK×0.30 for 2 turns) |
+| Minotaur | 1,050 | 198 | 138 | 10% | Labyrinth Charge — Every 3 turns: 180% ATK. If player HP > 70%: 220% ATK |
+| Cyclops | 1,250 | 172 | 155 | 10% | Boulder Throw — Every 4 turns: 160% ATK + stun 1 turn |
+| Chimera | 1,080 | 192 | 142 | 10% | Tri-Form Assault — Rotates: Lion Claw (140% ATK) → Goat Ram (DEF -20%) → Serpent Bite (Burn ATK×0.30 for 2 turns) |
 
 ---
 
@@ -2039,7 +2039,7 @@ Worked example:
 
 **Weapon stat banding** (`dropRates.js`): roll each stat within the tier range, positioned by the type's qualitative profile (§7): Lowest→bottom 20% · Low→bottom 40% · Balanced→middle 40–60% · High→top 40% · Highest→top 20%. CRIT banded the same way (Bows top of 1–5%). Supreme = fixed stats (always +50% DMG and +50% CRIT DMG, CRIT 0). Legendary = 25% chance on drop to roll BOTH +25% bonus_dmg_pct and +25% bonus_crit_dmg_pct (fixed); otherwise none. Rare/Mythic = no bonus rider.
 
-**Mob scaling** (seed in `mob_roster`): regular = HP+20 / ATK+8 / DEF+5 per level; elite = HP+38 / ATK+10 / DEF+8; boss = authored per row. Mob level = player level + random(−5..+5), clamped **[1, 55]**.
+**Mob scaling** (seed in `mob_roster`, rebalance patch): regular = HP+40 / ATK+15 / DEF+10 per level; elite = HP+75 / ATK+30 / DEF+16; boss = authored per row. Mob level = player level + random(−5..+5), clamped **[1, 55]**. Spawn roll 80% regular / 20% elite (`config/raidLoot.js`).
 
 **Casino** (`casino.js`): coin toss & dice 1.95× · baccarat player 2× / banker 1.95× (5% commission) · blackjack 6-deck, dealer stands 17, BJ pays 3:2 · slots ~90% RTP · crash ~3% edge. **Min bet 1, max bet 150,000.** Bet > balance → "Insufficient Credux."; bet ≤ 0 → invalid.
 

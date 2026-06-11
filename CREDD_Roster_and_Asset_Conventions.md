@@ -85,8 +85,8 @@ INSERT INTO mob_roster
    hp_per_level, atk_per_level, def_per_level,
    skill_key, skill_name, skill_description, immunity_tags, special_flags)
 VALUES
-  -- regular: scaling 20 / 8 / 5
-  ('Dwende (Black)', 'PH', 'regular', 580, 38, 28, 5.0,
+  -- regular (example uses pre-rebalance stats; live values per the patched §15/§35.6)
+  ('Black Duwende', 'PH', 'regular', 580, 38, 28, 5.0,
    20, 8, 5,
    'dwende_black_hex', 'Hex', '25% chance to reduce player ATK by 15% for 1 turn.',
    '[]'::jsonb, '{}'::jsonb),

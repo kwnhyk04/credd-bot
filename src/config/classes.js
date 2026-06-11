@@ -3,13 +3,13 @@
 /**
  * Class data — Master §11. Base stats + per-level scaling are hardcoded constants.
  *
- * NOTE: computeClassStats() is DISPLAY-ONLY / interim. The authoritative battle stat
- * calculator (class + weapon curr + active deity curr; CRIT cap 40% class / 45% total)
- * is a Phase 6 deliverable and will supersede this helper.
+ * NOTE: computeClassStats() is DISPLAY-ONLY. The authoritative battle stat calculator
+ * lives in src/engine/statAssembly.js (Phase 6): class + weapon curr + active deity
+ * curr; CRIT cap 40% class / 45% total. This helper stays for the profile command
+ * until the Phase 9 profile/Canvas migration (C2).
  *
- * TODO Phase 6: reconcile L50 crit rounding. §11 states Swordsman/Archer "reach exactly
- * 40% at Lv50", but base 5 + 0.7×(50-1) = 39.3%. The exact-40 wording needs the Phase 6
- * formula; for now we cap displayed class crit at 40%.
+ * L50 crit (R6 ruling): the formula stands — Swordsman/Archer reach 39.3% at Lv50;
+ * §11's "exactly 40%" is flavor text. Class crit display-caps at 40.
  */
 
 // All classes, Level 1 (§11)

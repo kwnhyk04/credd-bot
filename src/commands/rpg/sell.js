@@ -1,6 +1,6 @@
 'use strict';
 
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const pool = require('../../db/pool');
 const { SELL_PRICES, TIER_ALIASES, ALL_EXCLUDED_TIERS } = require('../../config/sellPrices');
 
@@ -135,7 +135,7 @@ async function execute(message, { args }) {
 /** Button: sell:confirm:<mode>:<arg>:<uid> — recompute the set, then delete atomically. */
 async function handleConfirm(interaction, mode, arg, ownerId) {
   if (interaction.user.id !== ownerId) {
-    await interaction.reply({ content: 'This confirmation isn\'t yours.', ephemeral: true });
+    await interaction.reply({ content: 'This confirmation isn\'t yours.', flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -207,7 +207,7 @@ async function handleConfirm(interaction, mode, arg, ownerId) {
 /** Button: sell:cancel:<uid> */
 async function handleCancel(interaction, ownerId) {
   if (interaction.user.id !== ownerId) {
-    await interaction.reply({ content: 'This confirmation isn\'t yours.', ephemeral: true });
+    await interaction.reply({ content: 'This confirmation isn\'t yours.', flags: MessageFlags.Ephemeral });
     return;
   }
   await interaction.update({ content: 'Cancelled — nothing was sold.', components: [] });

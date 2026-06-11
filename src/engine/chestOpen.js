@@ -195,7 +195,7 @@ async function playAnimatedOpen(message, { gifKey, animTitle, userId, buildResul
   collector.on('collect', async (i) => {
     if (!i.customId.startsWith('chestreplay:')) return;
     if (i.user.id !== userId) {
-      await i.reply({ content: 'Only the opener can replay this.', ephemeral: true }).catch(() => {});
+      await i.reply({ content: 'Only the opener can replay this.', flags: MessageFlags.Ephemeral }).catch(() => {});
       return;
     }
     if (replaying) { await i.deferUpdate().catch(() => {}); return; }

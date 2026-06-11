@@ -92,11 +92,11 @@ async function execute(message) {
  */
 async function handleConfirm(interaction, ownerId) {
   if (interaction.user.id !== ownerId) {
-    await interaction.reply({ content: 'These buttons aren\'t for you.', ephemeral: true });
+    await interaction.reply({ content: 'These buttons aren\'t for you.', flags: MessageFlags.Ephemeral });
     return;
   }
   if (await isBanned(interaction.user.id)) {
-    await interaction.reply({ content: 'You are unable to use this bot.', ephemeral: true });
+    await interaction.reply({ content: 'You are unable to use this bot.', flags: MessageFlags.Ephemeral });
     return;
   }
 

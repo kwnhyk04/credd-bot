@@ -1,0 +1,195 @@
+'use strict';
+
+/**
+ * STAT ASSEMBLY — Phase 6 (§35.2)
+ *
+ * Builds battle-ready fighter structs for battleEngine.resolveBattle:
+ *   - buildPlayerFighter: user_character + equipped weapon curr_* + ACTIVE deity
+ *     curr_* (additive), CRIT = class crit (cap 40) + weapon crit (total cap 45).
+ *     CRIT is NEVER scaled by weapon or deity enhancement. Weapon riders
+ *     (bonus_dmg_pct / bonus_crit_dmg_pct) are read straight off the row.
+ *   - buildMobFighter: base + per_level × level (C1 — Master §16 formula, NOT
+ *     level − 1), level clamped [1, 55]. Carries skill_key / immunity_tags /
+ *     special_flags for the engine.
+ *
+ * The ONLY SQL in Phase 6 — read-only SELECTs, no transactions, no mutations.
+ * is_available is intentionally ignored for owned rows: owned rows always fight.
+ * floor() everywhere curr stats are computed (§35.2).
+ *
+ * This module supersedes config/classes.computeClassStats for BATTLE purposes;
+ * that helper stays for display (profile) until the Phase 9 profile migration.
+ */
+
+const { CLASSES, BASE_STATS, CLASS_CRIT_CAP } = require('../config/classes');
+const { ELITE_SPAWN_CHANCE } = require('../config/raidLoot');
+
+const TOTAL_CRIT_CAP = 45.0; // §35.2 hard ceiling (class + weapon)
+const MOB_LEVEL_MIN = 1;
+const MOB_LEVEL_MAX = 55;
+
+const CLASS_PASSIVES = {
+  Swordsman: 'bleed',
+  Fighter: 'stun',
+  Mage: 'overcharge',
+  Knight: 'damage_reduction',
+  Archer: 'pierce',
+};
+
+/**
+ * Authoritative class battle stats: base + scaling × (level − 1), floored.
+ * Class crit caps at 40 (§35.2); Swordsman/Archer reach 39.3 at Lv50 (R6 —
+ * the §11 "exactly 40%" line is flavor).
+ */
+function computeClassBattleStats(className, level) {
+  const cls = CLASSES[className];
+  if (!cls) throw new Error(`Unknown class: ${className}`);
+  const steps = Math.max(1, level) - 1;
+  return {
+    hp: Math.floor(BASE_STATS.hp + cls.scaling.hp * steps),
+    atk: Math.floor(BASE_STATS.atk + cls.scaling.atk * steps),
+    def: Math.floor(BASE_STATS.def + cls.scaling.def * steps),
+    crit: Math.min(BASE_STATS.crit + cls.scaling.crit * steps, CLASS_CRIT_CAP),
+  };
+}
+
+/**
+ * Pure assembly step (§35.2 additive totals) — exported for the selftest.
+ * weapon/deity: { curr_atk, curr_hp, curr_def, crit?, bonus_dmg_pct?, bonus_crit_dmg_pct? } | null
+ */
+function assemblePlayerStats(className, level, weapon, deity) {
+  const cls = computeClassBattleStats(className, level);
+  const wCrit = weapon ? Number(weapon.crit) || 0 : 0;
+  return {
+    atk: Math.floor(cls.atk + (weapon ? weapon.curr_atk : 0) + (deity ? deity.curr_atk : 0)),
+    hp: Math.floor(cls.hp + (weapon ? weapon.curr_hp : 0) + (deity ? deity.curr_hp : 0)),
+    def: Math.floor(cls.def + (weapon ? weapon.curr_def : 0) + (deity ? deity.curr_def : 0)),
+    crit: Math.min(cls.crit + wCrit, TOTAL_CRIT_CAP),
+  };
+}
+
+/** Mob stats per C1: base + per_level × level (uniform for regular/elite/boss). */
+function computeMobStats(row, level) {
+  const lv = Math.max(MOB_LEVEL_MIN, Math.min(MOB_LEVEL_MAX, level));
+  return {
+    hp: Math.floor(row.base_hp + row.hp_per_level * lv),
+    atk: Math.floor(row.base_atk + row.atk_per_level * lv),
+    def: Math.floor(row.base_def + row.def_per_level * lv),
+    crit: Number(row.base_crit) || 0,
+  };
+}
+
+/** Mob level = player level + random(−5..+5), clamped [1, 55] (§35.6). */
+function rollMobLevel(playerLevel, rng) {
+  const offset = Math.floor(rng() * 11) - 5;
+  return Math.max(MOB_LEVEL_MIN, Math.min(MOB_LEVEL_MAX, playerLevel + offset));
+}
+
+/**
+ * Build the player fighter from live DB rows.
+ * @param {object} db  pg pool or client (read-only SELECT)
+ * @returns fighter struct or null when the user has no character.
+ */
+async function buildPlayerFighter(db, discordId) {
+  const res = await db.query(
+    `SELECT uc.class, uc.combat_level, u.username,
+            w.curr_atk  AS w_atk, w.curr_hp AS w_hp, w.curr_def AS w_def,
+            w.crit      AS w_crit, w.bonus_dmg_pct, w.bonus_crit_dmg_pct,
+            wr.name     AS weapon_name, wr.passive_key,
+            ud.curr_atk AS d_atk, ud.curr_hp AS d_hp, ud.curr_def AS d_def,
+            dr.name     AS deity_name, dr.blessing_key
+       FROM user_character uc
+       JOIN users u            ON u.discord_id = uc.discord_id
+       LEFT JOIN user_weapons w  ON w.weapon_id = uc.equipped_weapon_id
+       LEFT JOIN weapon_roster wr ON wr.weapon_roster_id = w.weapon_roster_id
+       LEFT JOIN user_deities ud ON ud.user_deity_id = uc.active_deity_id
+       LEFT JOIN deity_roster dr ON dr.deity_id = ud.deity_id
+      WHERE uc.discord_id = $1`,
+    [discordId]
+  );
+  if (res.rows.length === 0) return null;
+  const r = res.rows[0];
+
+  const weapon = r.w_atk != null
+    ? { curr_atk: r.w_atk, curr_hp: r.w_hp, curr_def: r.w_def, crit: r.w_crit }
+    : null;
+  const deity = r.d_atk != null
+    ? { curr_atk: r.d_atk, curr_hp: r.d_hp, curr_def: r.d_def }
+    : null;
+  const stats = assemblePlayerStats(r.class, r.combat_level, weapon, deity);
+
+  return {
+    name: r.username,
+    kind: 'player',
+    class: r.class,
+    classPassive: CLASS_PASSIVES[r.class],
+    level: r.combat_level,
+    atk: stats.atk,
+    hp: stats.hp,
+    def: stats.def,
+    crit: stats.crit,
+    bonusDmgPct: Number(r.bonus_dmg_pct) || 0,
+    bonusCritDmgPct: Number(r.bonus_crit_dmg_pct) || 0,
+    weaponPassiveKey: weapon ? r.passive_key : 'none',
+    weaponName: weapon ? r.weapon_name : null,
+    deityBlessingKey: deity ? r.blessing_key : 'none',
+    deityName: deity ? r.deity_name : null,
+  };
+}
+
+/** Build a mob fighter from a mob_roster row at the given level. */
+function buildMobFighter(row, level) {
+  const lv = Math.max(MOB_LEVEL_MIN, Math.min(MOB_LEVEL_MAX, level));
+  const stats = computeMobStats(row, lv);
+  return {
+    name: row.name,
+    kind: 'mob',
+    mobType: row.mob_type,
+    level: lv,
+    atk: stats.atk,
+    hp: stats.hp,
+    def: stats.def,
+    crit: stats.crit,
+    skillKey: row.skill_key || 'none',
+    skillName: row.skill_name || null,
+    immunityTags: Array.isArray(row.immunity_tags) ? row.immunity_tags : [],
+    specialFlags: row.special_flags || {},
+  };
+}
+
+/** Case-insensitive exact-name lookup in mob_roster. */
+async function fetchMobByName(db, name) {
+  const res = await db.query(
+    `SELECT * FROM mob_roster WHERE LOWER(name) = LOWER($1) LIMIT 1`,
+    [name]
+  );
+  return res.rows[0] || null;
+}
+
+/**
+ * Random raid spawn (§13: 80% regular / 20% elite via config/raidLoot —
+ * equal chance within type). Draws exactly 2 values from rng (spawn-type
+ * roll, row pick) — ORDER BY mob_id keeps the pick reproducible for a given
+ * seed against the same roster.
+ */
+async function fetchRandomMob(db, rng) {
+  const type = rng() < 1 - ELITE_SPAWN_CHANCE ? 'regular' : 'elite';
+  const res = await db.query(
+    `SELECT * FROM mob_roster WHERE mob_type = $1 ORDER BY mob_id`,
+    [type]
+  );
+  if (res.rows.length === 0) return null;
+  return res.rows[Math.floor(rng() * res.rows.length)];
+}
+
+module.exports = {
+  TOTAL_CRIT_CAP,
+  CLASS_PASSIVES,
+  computeClassBattleStats,
+  assemblePlayerStats,
+  computeMobStats,
+  rollMobLevel,
+  buildPlayerFighter,
+  buildMobFighter,
+  fetchMobByName,
+  fetchRandomMob,
+};

@@ -14,6 +14,8 @@ const enhanceCmd = require('../commands/rpg/enhance');
 const lockCmd = require('../commands/rpg/lock');
 const sellCmd = require('../commands/rpg/sell');
 const weaponCmd = require('../commands/rpg/weapon');
+const raidCmd = require('../commands/rpg/raid');
+const duelCmd = require('../commands/rpg/duel');
 const devCmd = require('../commands/rpg/dev');
 
 // Commands with real implementations.
@@ -37,8 +39,15 @@ const IMPLEMENTED = {
   unlock:   { mw: 'full', run: lockCmd.unlock },
   sell:     { mw: 'full', run: sellCmd.execute },
   weapon:   { mw: 'full', run: weaponCmd.execute },
+  raid:     { mw: 'full', run: raidCmd.execute },
+  r:        { mw: 'full', run: raidCmd.execute },
+  duel:     { mw: 'full', run: duelCmd.execute },
   dev:      { mw: 'dev',  run: devCmd.execute },
 };
+
+// Aliases that must SHARE their canonical command's cooldown bucket — without
+// this, `crd r` + `crd raid` would grant two battles inside one 10s window.
+const COOLDOWN_KEY_ALIASES = { r: 'raid' };
 
 // Command categories and their routing metadata
 // requiresCharacter: true → character middleware check runs
@@ -141,8 +150,10 @@ async function handleMessage(message, { runMiddleware, isBanned }) {
       // (the users row doesn't exist yet, so the FK would fail).
       if (await isBanned(message.author.id)) return true;
     } else {
-      // commandKey = canonical COMMAND_MAP key → per-command cooldown window.
-      const allowed = await runMiddleware(message, { requiresCharacter, commandKey: command });
+      // commandKey = canonical COMMAND_MAP key → per-command cooldown window
+      // (aliases in COOLDOWN_KEY_ALIASES share their canonical bucket).
+      const commandKey = COOLDOWN_KEY_ALIASES[command] || command;
+      const allowed = await runMiddleware(message, { requiresCharacter, commandKey });
       if (!allowed) return true;
     }
     await impl.run(message, { args });

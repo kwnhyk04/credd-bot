@@ -1,0 +1,416 @@
+'use strict';
+
+/**
+ * BATTLE RENDER — presentation/flow layer for engine battles.
+ *
+ * Pure presentation: consumes a RESOLVED sim from battleEngine.resolveBattle —
+ * the whole fight is decided before any message is sent. The embed starts at
+ * full green HP and is EDITED with a snapshot every 3 rounds (UPDATE_MS apart);
+ * the final edit shows Victory/Defeat + a [Battle Log] button (ephemeral reply
+ * with EVERY round's events, auto-paginated). The sim seed prints in the final
+ * embed footer and the Battle Log header for reproduction (`crd dev battle seed <n>`).
+ *
+ * Canvas: @napi-rs/canvas (project standard) with the bundled DejaVu Sans family
+ * (same registration as renderBagItems/weaponResultRenderer). Color emoji do NOT
+ * render in node canvas on Linux, so text glyphs drawn INSIDE the panel come from
+ * the DejaVu-confirmed set (★ ✦ ◆ ❖ •). Weapon/deity icons on the player card are
+ * the item's CUSTOM emoji image, fetched once from the Discord CDN via the
+ * game_items.txt / game_deities.txt registry (utils/emojis) and cached in-memory —
+ * a missing mapping or failed fetch falls back to the ◆/❖ glyph, never crashes.
+ *
+ * Optional `rewards` (string): rendered at the bottom of the final panel below a
+ * separator line. Phase 7's raid command passes the drop line; dev battle passes
+ * nothing. NOTE: the rewards string is drawn on canvas — use plain text / the
+ * DejaVu-safe glyph set, not unicode emoji (they render as tofu on Linux).
+ *
+ * mirror: true (duel) flips fighter 2's card — name/loadout on the RIGHT, HP on
+ * the LEFT, bar drains from the opposite side.
+ */
+
+const {
+  EmbedBuilder, AttachmentBuilder,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags,
+} = require('discord.js');
+const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+const path = require('path');
+const { emojiForDisplay } = require('../utils/emojis');
+
+const ROOT = path.join(__dirname, '..', '..');
+const FONT = 'DejaVu Sans';
+for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
+  try {
+    GlobalFonts.registerFromPath(path.join(ROOT, 'assets', 'fonts', file), FONT);
+  } catch (err) {
+    console.error(`[battleRender] font ${file} failed to register:`, err.message);
+  }
+}
+
+const UPDATE_MS = 1800; // delay between embed edits (≥1500ms — rate-limit safety)
+
+const COLORS = {
+  bg: '#1f2125', card: '#26282d', cardLine: '#36393f',
+  ally: '#43d675', enemy: '#f23f43', text: '#e7e9ec', dim: '#9aa0a8',
+};
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* ----------------------------------------------------------------------- */
+/* CUSTOM-EMOJI ICONS: registry display name → CDN image, cached in-memory. */
+/* ----------------------------------------------------------------------- */
+const emojiImageCache = new Map(); // emoji id → Promise<Image|null>
+
+function emojiIdForDisplay(displayName) {
+  if (!displayName) return null;
+  const tag = emojiForDisplay(displayName, null);
+  const m = /^<:\w+:(\d+)>$/.exec(tag || '');
+  return m ? m[1] : null;
+}
+
+/** Resolve + fetch the custom-emoji image for an item display name (or null). */
+function getEmojiImage(displayName) {
+  const id = emojiIdForDisplay(displayName);
+  if (!id) return Promise.resolve(null);
+  if (!emojiImageCache.has(id)) {
+    emojiImageCache.set(id, (async () => {
+      try {
+        const res = await fetch(`https://cdn.discordapp.com/emojis/${id}.png?size=64`);
+        if (!res.ok) return null;
+        return await loadImage(Buffer.from(await res.arrayBuffer()));
+      } catch (err) {
+        console.warn(`[battleRender] emoji image ${id} fetch failed:`, err.message);
+        return null; // cached — one failed lookup never re-fetches per frame
+      }
+    })());
+  }
+  return emojiImageCache.get(id);
+}
+
+/** Fetch all icons for a sim once, before animating. `enemy` is fighter 2's
+ *  own emoji (mob portrait for the result footer) — null until a registry
+ *  entry exists for that mob name; the footer then renders text-only. */
+async function prefetchIcons(sim) {
+  const [aw, ad, bw, bd, enemy] = await Promise.all([
+    getEmojiImage(sim.a.weapon), getEmojiImage(sim.a.deity),
+    getEmojiImage(sim.b.weapon), getEmojiImage(sim.b.deity),
+    getEmojiImage(sim.b.name),
+  ]);
+  return { a: { weapon: aw, deity: ad }, b: { weapon: bw, deity: bd }, enemy };
+}
+
+/* ----------------------------------------------------------------------- */
+/* CANVAS: the two fighter cards. mirror=true flips fighter 2 (PvP).        */
+/* ----------------------------------------------------------------------- */
+const PANEL_W = 640, CARD_H = 118, PAD = 14;
+const ICON = 14;        // weapon/deity icon edge, sized to the 12px text line
+const REWARDS_H = 34;   // footer strip height when a rewards line is present
+
+function hpColor(p) {
+  if (p > 0.5) return '#43d675';
+  if (p > 0.25) return '#f0b232';
+  return '#f23f43';
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+
+function clsLabel(f) {
+  if (f.kind === 'player') return f.cls;
+  if (f.cls === 'boss') return 'Boss';
+  if (f.cls === 'elite') return 'Elite Mob';
+  return 'Mob';
+}
+
+/**
+ * Loadout line as [icon][name]  |  [icon][name] segments. Custom-emoji images
+ * where available, ◆/❖ glyph fallback. Right-aligned (mirrored) cards read
+ * Deity | Weapon — a true mirror of the left card — and compose the same
+ * segments from a computed start x (canvas textAlign stays 'left' inside).
+ */
+function drawLoadout(ctx, f, icons, x, y, align) {
+  const segs = [];
+  const weaponSegs = () => {
+    if (icons && icons.weapon) segs.push({ img: icons.weapon });
+    else segs.push({ text: '◆' });
+    segs.push({ text: ` ${f.weapon}` });
+  };
+  const deitySegs = () => {
+    if (icons && icons.deity) segs.push({ img: icons.deity });
+    else segs.push({ text: '❖' });
+    segs.push({ text: ` ${f.deity}` });
+  };
+  if (align === 'right' && f.deity) {
+    deitySegs();
+    segs.push({ text: '  |  ' });
+    weaponSegs();
+  } else {
+    weaponSegs();
+    if (f.deity) {
+      segs.push({ text: '  |  ' });
+      deitySegs();
+    }
+  }
+  ctx.font = `12px ${FONT}`;
+  ctx.fillStyle = COLORS.dim;
+  const width = segs.reduce(
+    (w, s) => w + (s.img ? ICON : ctx.measureText(s.text).width), 0);
+  let cx = align === 'right' ? x - width : x;
+  const prevAlign = ctx.textAlign;
+  ctx.textAlign = 'left';
+  for (const s of segs) {
+    if (s.img) {
+      ctx.drawImage(s.img, cx, y - ICON + 3, ICON, ICON);
+      cx += ICON;
+    } else {
+      ctx.fillText(s.text, cx, y);
+      cx += ctx.measureText(s.text).width;
+    }
+  }
+  ctx.textAlign = prevAlign;
+}
+
+function drawCard(ctx, f, state, y, { isEnemy, mirror, icons }) {
+  const x = PAD, w = PANEL_W - PAD * 2;
+  roundRect(ctx, x, y, w, CARD_H, 10);
+  ctx.fillStyle = COLORS.card; ctx.fill();
+  ctx.strokeStyle = COLORS.cardLine; ctx.lineWidth = 1.5; ctx.stroke();
+
+  const L = x + 16, Rr = x + w - 16;
+  const nameSide = mirror ? 'right' : 'left';
+  const hpSide = mirror ? 'left' : 'right';
+  let ty = y + 26;
+
+  // row 1: name · class  |  hp text  (★/✦ — DejaVu-safe glyphs, no color emoji)
+  const marker = isEnemy ? '✦' : '★';
+  ctx.font = `bold 15px ${FONT}`;
+  ctx.fillStyle = isEnemy ? COLORS.enemy : COLORS.ally;
+  ctx.textAlign = nameSide;
+  const nameX = nameSide === 'left' ? L : Rr;
+  const nameText = `${marker} ${f.name}${f.level ? `  Lv.${f.level}` : ''}`;
+  ctx.fillText(nameText, nameX, ty);
+  const nw = ctx.measureText(nameText).width;
+  ctx.font = `13px ${FONT}`; ctx.fillStyle = COLORS.dim;
+  ctx.fillText(`· ${clsLabel(f)}`, nameSide === 'left' ? L + nw + 8 : Rr - nw - 8, ty);
+
+  ctx.font = `bold 14px ${FONT}`;
+  ctx.fillStyle = hpColor(state.hp / state.maxHp);
+  ctx.textAlign = hpSide;
+  ctx.fillText(`${state.hp} / ${state.maxHp}`, hpSide === 'left' ? L : Rr, ty);
+  ty += 22;
+
+  // row 2: loadout with emoji icons (players) / active debuffs (mobs)
+  if (f.weapon) {
+    drawLoadout(ctx, f, icons, nameX, ty, nameSide);
+  } else {
+    ctx.font = `12px ${FONT}`; ctx.fillStyle = COLORS.dim; ctx.textAlign = nameSide;
+    const tags = (state.debuffs || []).map((d) => d.tag).join(', ');
+    ctx.fillText(`Debuffs: ${tags || 'None'}`, nameX, ty);
+  }
+  ty += 16;
+
+  // hp bar (drains from the opposite side when mirrored)
+  const bw = w - 32, bx = L, bh = 9, p = Math.max(0, state.hp / state.maxHp);
+  roundRect(ctx, bx, ty, bw, bh, 4); ctx.fillStyle = '#3b3e44'; ctx.fill();
+  if (p > 0) {
+    const fillW = Math.max(bh, bw * p);
+    roundRect(ctx, mirror ? bx + bw - fillW : bx, ty, fillW, bh, 4);
+    ctx.fillStyle = hpColor(p); ctx.fill();
+  }
+  ty += 30;
+
+  // row 3: stats — mirrored cards draw from the right edge, so iterate
+  // reversed there to keep the visual reading order ATK > DEF > CRIT
+  ctx.textAlign = nameSide; ctx.fillStyle = COLORS.text;
+  const stats = [['ATK', f.atk], ['DEF', f.def], ['CRIT', `${Number(f.crit).toFixed(1)}%`]];
+  const ordered = nameSide === 'right' ? [...stats].reverse() : stats;
+  let sx = nameSide === 'left' ? L : Rr;
+  for (const [k, v] of ordered) {
+    ctx.font = `12px ${FONT}`;
+    const kw = ctx.measureText(k + ' ').width;
+    ctx.font = `bold 13px ${FONT}`;
+    const vw = ctx.measureText(String(v)).width;
+    if (nameSide === 'left') {
+      ctx.font = `12px ${FONT}`; ctx.fillStyle = COLORS.dim; ctx.fillText(k, sx, ty);
+      ctx.font = `bold 13px ${FONT}`; ctx.fillStyle = COLORS.text; ctx.fillText(String(v), sx + kw, ty);
+      sx += kw + vw + 18;
+    } else {
+      ctx.font = `bold 13px ${FONT}`; ctx.fillStyle = COLORS.text; ctx.fillText(String(v), sx, ty);
+      ctx.font = `12px ${FONT}`; ctx.fillStyle = COLORS.dim; ctx.fillText(k, sx - vw - 4, ty);
+      sx -= kw + vw + 18;
+    }
+  }
+}
+
+/**
+ * Render one snapshot frame.
+ * opts: { mirror, icons (prefetchIcons result), rewards (string|null — final
+ *         frame only; drawn under a separator at the panel bottom) }
+ */
+function renderBattlePanel(sim, snapIdx, { mirror = false, icons = null, rewards = null } = {}) {
+  const s = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
+  const H = PAD * 3 + CARD_H * 2 + (rewards ? REWARDS_H : 0);
+  const canvas = createCanvas(PANEL_W, H);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = COLORS.bg; ctx.fillRect(0, 0, PANEL_W, H);
+  drawCard(ctx, sim.a, s.a, PAD, { isEnemy: false, mirror: false, icons: icons && icons.a });
+  drawCard(ctx, sim.b, s.b, PAD * 2 + CARD_H, { isEnemy: true, mirror, icons: icons && icons.b });
+
+  if (rewards) {
+    const lineY = PAD * 3 + CARD_H * 2;
+    ctx.strokeStyle = COLORS.cardLine; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(PAD, lineY); ctx.lineTo(PANEL_W - PAD, lineY);
+    ctx.stroke();
+    // [enemy emoji] result + rewards, centered as one block
+    ctx.font = `bold 12px ${FONT}`;
+    ctx.fillStyle = COLORS.text;
+    const text = String(rewards);
+    const ICON_F = 16;
+    const icon = icons && icons.enemy;
+    const total = (icon ? ICON_F + 6 : 0) + ctx.measureText(text).width;
+    let cx = Math.max(PAD, (PANEL_W - total) / 2);
+    const baseY = lineY + 22;
+    ctx.textAlign = 'left';
+    if (icon) {
+      ctx.drawImage(icon, cx, baseY - ICON_F + 4, ICON_F, ICON_F);
+      cx += ICON_F + 6;
+    }
+    ctx.fillText(text, cx, baseY);
+  }
+  return canvas.toBuffer('image/png');
+}
+
+/* ----------------------------------------------------------------------- */
+/* EMBEDS + ANIMATION                                                       */
+/* ----------------------------------------------------------------------- */
+function battleEmbed(sim, snapIdx, { mode }) {
+  const s = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
+  const over = snapIdx >= sim.snapshots.length - 1;
+  const playerWon = sim.winner === 'a';
+  let title, color, line = null;
+  if (!over) {
+    title = mode === 'duel' ? '⚔️ Duel in Progress' : '⚔️ Raid Battle';
+    color = 0xf0b232;
+  } else if (mode === 'duel') {
+    // duels are PvP — name the winner instead of challenger-POV Victory/Defeat
+    const winner = playerWon ? sim.a : sim.b;
+    const loser = playerWon ? sim.b : sim.a;
+    title = `🏆 ${winner.name} wins the duel!`;
+    color = 0x43d675;
+    line = sim.outcome === 'cap_hp_pct'
+      ? `⚔️ *Turn cap reached — ${winner.name} wins on remaining HP%!*`
+      : `⚔️ *${winner.name} defeats ${loser.name}!*`;
+  } else {
+    // raid result line lives INSIDE the rendered panel (footer strip)
+    title = playerWon ? '🏆 Victory!' : '💀 Defeated!';
+    color = playerWon ? 0x43d675 : 0xf23f43;
+  }
+  const e = new EmbedBuilder()
+    .setColor(color)
+    .setTitle(title)
+    .setDescription(`Turn ${s.round} ${over ? ' ‎ **\`Battle Over\`**' : ''}`)
+    .setImage('attachment://battle.png');
+  if (over && line) e.addFields({ name: '​', value: line });
+  // seed intentionally NOT in the embed — it stays in the Battle Log header
+  return e;
+}
+
+function buttons() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('battle_log').setLabel('Battle Log').setEmoji('📋').setStyle(ButtonStyle.Secondary),
+  );
+}
+
+function logEmbeds(sim) {
+  // every single round — the per-turn detail the 3-turn embed skips
+  const sections = sim.rounds.map((r) => `**— TURN ${r.round} —**\n${r.events.join('\n')}`);
+  const pages = [];
+  let buf = `-# Seed: \`${sim.seed}\` · ${sim.rounds.length} turns · winner: ${sim.winner === 'a' ? sim.a.name : sim.b.name}`;
+  for (const sec of sections) {
+    if (buf.length + sec.length > 3800) { pages.push(buf); buf = ''; }
+    buf += (buf ? '\n\n' : '') + sec;
+  }
+  if (buf) pages.push(buf);
+  return pages.map((d, i) =>
+    new EmbedBuilder().setColor(0x2b2d31)
+      .setTitle(i === 0 ? '📋 Full Battle Log' : '📋 Full Battle Log (cont.)')
+      .setDescription(d));
+}
+
+/**
+ * Entry point — animates an already-resolved sim.
+ * @param {import('discord.js').TextBasedChannel} channel
+ * @param {object} opts
+ * @param {'raid'|'duel'|'boss'} opts.mode  duel mirrors fighter 2's card
+ * @param {object} opts.sim                 battleEngine.resolveBattle output
+ * @param {string} [opts.rewards]           drop line for the final panel footer
+ *                                          (raid; dev battle omits it)
+ * @param {Function} [opts.onMessage]       async (msg) — called once with the
+ *                                          battle message right after the first
+ *                                          frame is sent (active_battles row
+ *                                          message_id update). Errors swallowed.
+ */
+async function runBattle(channel, { mode, sim, rewards = null, onMessage = null }) {
+  const mirror = mode === 'duel';
+  const icons = await prefetchIcons(sim).catch(() => null);
+
+  // result + rewards line, drawn INSIDE the final panel:
+  //   "<enemy emoji> <Mob name> defeated!  Rewards: +342 Credux · ..."
+  let footer = null;
+  if (rewards != null) {
+    const playerWon = sim.winner === 'a';
+    const result = sim.outcome === 'cap_hp_pct'
+      ? (playerWon
+        ? `Turn cap — ${sim.a.name} wins on remaining HP%!`
+        : `Turn cap — ${sim.b.name} wins on remaining HP%.`)
+      : (playerWon
+        ? `${sim.b.name} defeated!`
+        : `Defeated by ${sim.b.name}...`);
+    footer = `${result}  Rewards: ${rewards}`;
+  }
+
+  const frame = (i) => {
+    const over = i >= sim.snapshots.length - 1;
+    return {
+      embeds: [battleEmbed(sim, i, { mode })],
+      files: [new AttachmentBuilder(
+        renderBattlePanel(sim, i, { mirror, icons, rewards: over ? footer : null }),
+        { name: 'battle.png' }
+      )],
+      attachments: [], // required to drop the previous panel image on edit
+      components: over ? [buttons()] : [],
+    };
+  };
+
+  const msg = await channel.send({ ...frame(0), attachments: undefined });
+  if (onMessage) {
+    try { await onMessage(msg); } catch (err) { console.warn('[battleRender] onMessage:', err.message); }
+  }
+  for (let i = 1; i < sim.snapshots.length; i++) {
+    await sleep(UPDATE_MS);
+    await msg.edit(frame(i));
+  }
+
+  const collector = msg.createMessageComponentCollector({ time: 300_000 });
+  collector.on('collect', async (i) => {
+    try {
+      if (i.customId === 'battle_log') {
+        const pages = logEmbeds(sim);
+        await i.reply({ embeds: pages.slice(0, 10), flags: MessageFlags.Ephemeral });
+        for (let p = 10; p < pages.length; p += 10) {
+          await i.followUp({ embeds: pages.slice(p, p + 10), flags: MessageFlags.Ephemeral });
+        }
+      }
+    } catch (err) {
+      console.error('[battleRender] button error:', err.message);
+    }
+  });
+  collector.on('end', () => msg.edit({ components: [] }).catch(() => {}));
+
+  return sim;
+}
+
+module.exports = { runBattle, renderBattlePanel, battleEmbed, logEmbeds, UPDATE_MS };
