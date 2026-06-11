@@ -18,10 +18,10 @@
  * game_items.txt / game_deities.txt registry (utils/emojis) and cached in-memory —
  * a missing mapping or failed fetch falls back to the ◆/❖ glyph, never crashes.
  *
- * Optional `rewards` (string): rendered at the bottom of the final panel below a
- * separator line. Phase 7's raid command passes the drop line; dev battle passes
- * nothing. NOTE: the rewards string is drawn on canvas — use plain text / the
- * DejaVu-safe glyph set, not unicode emoji (they render as tofu on Linux).
+ * Optional `rewards` (string): shown as the final embed's FOOTER (below the
+ * image, after Discord's separator) as "<mob emoji icon> <Mob> defeated!
+ * Rewards: ...". Raid passes the drop line; dev battle passes nothing. The mob
+ * emoji renders via footer iconURL (registry CDN), so no canvas glyph limits.
  *
  * mirror: true (duel) flips fighter 2's card — name/loadout on the RIGHT, HP on
  * the LEFT, bar drains from the opposite side.
@@ -85,16 +85,13 @@ function getEmojiImage(displayName) {
   return emojiImageCache.get(id);
 }
 
-/** Fetch all icons for a sim once, before animating. `enemy` is fighter 2's
- *  own emoji (mob portrait for the result footer) — null until a registry
- *  entry exists for that mob name; the footer then renders text-only. */
+/** Fetch all loadout icons for a sim once, before animating. */
 async function prefetchIcons(sim) {
-  const [aw, ad, bw, bd, enemy] = await Promise.all([
+  const [aw, ad, bw, bd] = await Promise.all([
     getEmojiImage(sim.a.weapon), getEmojiImage(sim.a.deity),
     getEmojiImage(sim.b.weapon), getEmojiImage(sim.b.deity),
-    getEmojiImage(sim.b.name),
   ]);
-  return { a: { weapon: aw, deity: ad }, b: { weapon: bw, deity: bd }, enemy };
+  return { a: { weapon: aw, deity: ad }, b: { weapon: bw, deity: bd } };
 }
 
 /* ----------------------------------------------------------------------- */
@@ -102,7 +99,6 @@ async function prefetchIcons(sim) {
 /* ----------------------------------------------------------------------- */
 const PANEL_W = 640, CARD_H = 118, PAD = 14;
 const ICON = 14;        // weapon/deity icon edge, sized to the 12px text line
-const REWARDS_H = 34;   // footer strip height when a rewards line is present
 
 function hpColor(p) {
   if (p > 0.5) return '#43d675';
@@ -245,48 +241,25 @@ function drawCard(ctx, f, state, y, { isEnemy, mirror, icons }) {
 }
 
 /**
- * Render one snapshot frame.
- * opts: { mirror, icons (prefetchIcons result), rewards (string|null — final
- *         frame only; drawn under a separator at the panel bottom) }
+ * Render one snapshot frame (the two fighter cards). The result/rewards line
+ * lives in the EMBED FOOTER (below the image, after Discord's separator), not
+ * in the canvas — embed footers don't clip and take the mob emoji as iconURL.
  */
-function renderBattlePanel(sim, snapIdx, { mirror = false, icons = null, rewards = null } = {}) {
+function renderBattlePanel(sim, snapIdx, { mirror = false, icons = null } = {}) {
   const s = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
-  const H = PAD * 3 + CARD_H * 2 + (rewards ? REWARDS_H : 0);
+  const H = PAD * 3 + CARD_H * 2;
   const canvas = createCanvas(PANEL_W, H);
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = COLORS.bg; ctx.fillRect(0, 0, PANEL_W, H);
   drawCard(ctx, sim.a, s.a, PAD, { isEnemy: false, mirror: false, icons: icons && icons.a });
   drawCard(ctx, sim.b, s.b, PAD * 2 + CARD_H, { isEnemy: true, mirror, icons: icons && icons.b });
-
-  if (rewards) {
-    const lineY = PAD * 3 + CARD_H * 2;
-    ctx.strokeStyle = COLORS.cardLine; ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(PAD, lineY); ctx.lineTo(PANEL_W - PAD, lineY);
-    ctx.stroke();
-    // [enemy emoji] result + rewards, centered as one block
-    ctx.font = `bold 12px ${FONT}`;
-    ctx.fillStyle = COLORS.text;
-    const text = String(rewards);
-    const ICON_F = 16;
-    const icon = icons && icons.enemy;
-    const total = (icon ? ICON_F + 6 : 0) + ctx.measureText(text).width;
-    let cx = Math.max(PAD, (PANEL_W - total) / 2);
-    const baseY = lineY + 22;
-    ctx.textAlign = 'left';
-    if (icon) {
-      ctx.drawImage(icon, cx, baseY - ICON_F + 4, ICON_F, ICON_F);
-      cx += ICON_F + 6;
-    }
-    ctx.fillText(text, cx, baseY);
-  }
   return canvas.toBuffer('image/png');
 }
 
 /* ----------------------------------------------------------------------- */
 /* EMBEDS + ANIMATION                                                       */
 /* ----------------------------------------------------------------------- */
-function battleEmbed(sim, snapIdx, { mode }) {
+function battleEmbed(sim, snapIdx, { mode, footer = null }) {
   const s = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
   const over = snapIdx >= sim.snapshots.length - 1;
   const playerWon = sim.winner === 'a';
@@ -314,6 +287,9 @@ function battleEmbed(sim, snapIdx, { mode }) {
     .setDescription(`Turn ${s.round} ${over ? ' ‎ **\`Battle Over\`**' : ''}`)
     .setImage('attachment://battle.png');
   if (over && line) e.addFields({ name: '​', value: line });
+  // result + rewards = embed FOOTER (renders below the image, after Discord's
+  // separator; mob emoji shows as the footer icon via iconURL)
+  if (over && footer) e.setFooter(footer);
   // seed intentionally NOT in the embed — it stays in the Battle Log header
   return e;
 }
@@ -357,8 +333,8 @@ async function runBattle(channel, { mode, sim, rewards = null, onMessage = null 
   const mirror = mode === 'duel';
   const icons = await prefetchIcons(sim).catch(() => null);
 
-  // result + rewards line, drawn INSIDE the final panel:
-  //   "<enemy emoji> <Mob name> defeated!  Rewards: +342 Credux · ..."
+  // result + rewards line as the final embed's FOOTER (after the separator,
+  // below the image): "[mob emoji] <Mob name> defeated!  Rewards: +342 Credux · ..."
   let footer = null;
   if (rewards != null) {
     const playerWon = sim.winner === 'a';
@@ -369,15 +345,17 @@ async function runBattle(channel, { mode, sim, rewards = null, onMessage = null 
       : (playerWon
         ? `${sim.b.name} defeated!`
         : `Defeated by ${sim.b.name}...`);
-    footer = `${result}  Rewards: ${rewards}`;
+    footer = { text: `${result}  Rewards: ${rewards}` };
+    const enemyEmojiId = emojiIdForDisplay(sim.b.name);
+    if (enemyEmojiId) footer.iconURL = `https://cdn.discordapp.com/emojis/${enemyEmojiId}.png`;
   }
 
   const frame = (i) => {
     const over = i >= sim.snapshots.length - 1;
     return {
-      embeds: [battleEmbed(sim, i, { mode })],
+      embeds: [battleEmbed(sim, i, { mode, footer })],
       files: [new AttachmentBuilder(
-        renderBattlePanel(sim, i, { mirror, icons, rewards: over ? footer : null }),
+        renderBattlePanel(sim, i, { mirror, icons }),
         { name: 'battle.png' }
       )],
       attachments: [], // required to drop the previous panel image on edit

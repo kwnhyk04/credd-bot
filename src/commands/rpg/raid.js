@@ -155,8 +155,8 @@ async function commitRewards(discordId, sim, mobRow, rng) {
   }
 }
 
-/** Canvas-safe rewards line (DejaVu glyphs only — no unicode emoji).
- *  runBattle prefixes "<Mob> defeated! Rewards:" / "Defeated by <Mob>... Rewards:". */
+/** Rewards line for the final embed footer — runBattle prefixes
+ *  "<Mob> defeated!  Rewards:" / "Defeated by <Mob>...  Rewards:". */
 function rewardsLine(r) {
   if (!r.won) return `+${r.exp} EXP`;
   const parts = [`+${r.credux.toLocaleString()} Credux`, `+${r.exp} EXP`];
