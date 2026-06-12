@@ -1144,9 +1144,10 @@ Condition: Boss must be killed. Player must have personally attacked that boss d
 ### Daily Embed Layout
 - Title: "📅 Daily Attendance — Day X"
 - Monthly + overall streak: "Month: X / 30 · Overall: X days"
-- Rewards received today (Credux, Belief Shards, Chest)
-- Lore line: *"The gods take note of your devotion."*
-- No footer
+>Separator
+- Rewards received today: (Credux, Belief Shards, Chest) One line each
+>Separator
+- Footer line Lore line: *"The gods take note of your devotion."*
 
 ---
 
