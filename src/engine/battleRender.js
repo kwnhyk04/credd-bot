@@ -366,11 +366,13 @@ function battleEmbed(sim, snapIdx, { mode }) {
     title = mode === 'duel' ? '⚔️ Duel in Progress' : '⚔️ Raid Battle';
     color = 0xf0b232;
   } else if (mode === 'duel') {
-    // duels are PvP — name the winner instead of challenger-POV Victory/Defeat
+    // duels are PvP — name the winner; border is keyed to the COMMAND USER
+    // (the challenger, fighter a): green when they win, red when they lose
+    // (one shared message can't show a different color per viewer)
     const winner = playerWon ? sim.a : sim.b;
     const loser = playerWon ? sim.b : sim.a;
     title = `🏆 ${winner.name} wins the duel!`;
-    color = 0x43d675;
+    color = playerWon ? 0x43d675 : 0xf23f43;
     line = sim.outcome === 'cap_hp_pct'
       ? `⚔️ *Turn cap reached — ${winner.name} wins on remaining HP%!*`
       : `⚔️ *${winner.name} defeats ${loser.name}!*`;

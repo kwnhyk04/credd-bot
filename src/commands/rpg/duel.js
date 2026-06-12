@@ -112,7 +112,7 @@ async function execute(message) {
       .setTitle('⚔️ Duel Challenge')
       .setDescription(
         `**${challenger.username}** challenges <@${target.id}> to a duel!\n` +
-        '-# Auto-battle — no EXP, no stakes, pure bragging rights. 60s to respond.'
+        '-# Auto-battle — no rewards. 60s to respond.'
       );
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('duel_accept').setLabel('Accept').setEmoji('⚔️').setStyle(ButtonStyle.Success),
