@@ -8,6 +8,7 @@ const { handleInteraction } = require('./src/handlers/interactionHandler');
 const { runMiddleware, isBanned } = require('./src/handlers/middleware');
 const { startBattleReaper } = require('./src/schedulers/battleReaper');
 const { startResetScheduler } = require('./src/schedulers/resetScheduler');
+const { startBossScheduler } = require('./src/schedulers/bossScheduler');
 const pool = require('./src/db/pool');
 const { auditWeaponEmojis, reconcileEmojiIds } = require('./src/utils/emojis');
 
@@ -25,6 +26,7 @@ client.once('ready', async () => {
   console.log(`[credd] Logged in as ${client.user.tag}`);
   await startBattleReaper();
   startResetScheduler();
+  startBossScheduler(client);
   // Emoji diagnostics (warn-only, never blocks startup).
   auditWeaponEmojis(pool);
   reconcileEmojiIds(client);

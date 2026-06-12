@@ -22,11 +22,21 @@ const pool = require('../../db/pool');
 const { resolveBattle } = require('../../engine/battleEngine');
 const { buildPlayerFighter } = require('../../engine/statAssembly');
 const { runBattle } = require('../../engine/battleRender');
+const { isBanned } = require('../../handlers/middleware');
 
 const CHALLENGE_WINDOW_MS = 60_000;
 
 function reply(message, content) {
   return message.reply({ content, allowedMentions: { repliedUser: false } });
+}
+
+/** §13.1/§35.0 conflict gate — true while the player has a live raid/boss row
+ *  (duels themselves are in-memory and never stored in active_battles). */
+async function inLiveBattle(discordId) {
+  const res = await pool.query(
+    'SELECT 1 FROM active_battles WHERE discord_id = $1', [discordId]
+  );
+  return res.rows.length > 0;
 }
 
 /** Counters + immutable log in one transaction. Rows locked in sorted-id order
@@ -46,6 +56,7 @@ async function commitDuelResult(challengerId, opponentId, sim) {
       'UPDATE user_character SET pvp_wins = pvp_wins + 1 WHERE discord_id = $1',
       [winnerId]
     );
+    // TODO Phase-rep: duel_wins daily-quest hook (winner)
     await client.query(
       'UPDATE user_character SET pvp_losses = pvp_losses + 1 WHERE discord_id = $1',
       [loserId]
@@ -76,12 +87,24 @@ async function execute(message) {
   if (target.bot) return reply(message, 'You cannot duel a bot.');
 
   try {
-    // friendly pre-check; loadouts are re-read at accept time
+    // challenger conflict gate — no challenges while mid-raid/boss
+    if (await inLiveBattle(challenger.id)) {
+      return reply(message, '⚔️ You are in a battle — finish it before challenging anyone.');
+    }
+
+    // challenged user passes the same gates: character (implies registered),
+    // not banned, not mid-battle; loadouts are re-read at accept time
     const targetCheck = await pool.query(
       'SELECT 1 FROM user_character WHERE discord_id = $1', [target.id]
     );
     if (targetCheck.rows.length === 0) {
       return reply(message, `<@${target.id}> has no character yet — they need \`crd create character\` first.`);
+    }
+    if (await isBanned(target.id)) {
+      return reply(message, `<@${target.id}> cannot be dueled right now.`);
+    }
+    if (await inLiveBattle(target.id)) {
+      return reply(message, `<@${target.id}> is in a battle — try again when it's over.`);
     }
 
     const embed = new EmbedBuilder()
@@ -123,6 +146,22 @@ async function execute(message) {
           });
           return;
         }
+
+        // re-check the conflict gate at accept time — either party may have
+        // started a raid/boss attack during the challenge window
+        const [cBusy, tBusy] = await Promise.all([
+          inLiveBattle(challenger.id), inLiveBattle(target.id),
+        ]);
+        if (cBusy || tBusy) {
+          const busyName = cBusy ? challenger.username : target.username;
+          await i.update({
+            embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6)
+              .setDescription(`⚔️ Duel cancelled — **${busyName}** is mid-battle.`)],
+            components: [],
+          });
+          return;
+        }
+        // TODO Phase-rep: duel_challenges daily-quest hook (accepted duel vs distinct opponent)
 
         // accept → battle starts immediately (no pre-battle overview, §14)
         await i.update({

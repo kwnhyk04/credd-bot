@@ -16,6 +16,7 @@ const sellCmd = require('../commands/rpg/sell');
 const weaponCmd = require('../commands/rpg/weapon');
 const raidCmd = require('../commands/rpg/raid');
 const duelCmd = require('../commands/rpg/duel');
+const bossCmd = require('../commands/rpg/boss');
 const devCmd = require('../commands/rpg/dev');
 
 // Commands with real implementations.
@@ -42,6 +43,7 @@ const IMPLEMENTED = {
   raid:     { mw: 'full', run: raidCmd.execute },
   r:        { mw: 'full', run: raidCmd.execute },
   duel:     { mw: 'full', run: duelCmd.execute },
+  boss:     { mw: 'full', run: bossCmd.execute },
   dev:      { mw: 'dev',  run: devCmd.execute },
 };
 
@@ -63,6 +65,9 @@ const COMMAND_MAP = {
   'raid':              { category: 'rpg',     requiresCharacter: true,  phase: 6 },
   'r':                 { category: 'rpg',     requiresCharacter: true,  phase: 6 },
   'duel':              { category: 'rpg',     requiresCharacter: true,  phase: 6 },
+  // boss: status view only needs registration — the ⚔️ Attack button enforces
+  // the character gate itself (buttons bypass message middleware anyway)
+  'boss':              { category: 'rpg',     requiresCharacter: false, phase: 7 },
   'summon':            { category: 'rpg',     requiresCharacter: true,  phase: 4 },
   's':                 { category: 'rpg',     requiresCharacter: true,  phase: 4 },
   'bag':               { category: 'rpg',     requiresCharacter: true,  phase: 5 },

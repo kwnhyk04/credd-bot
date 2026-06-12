@@ -18,10 +18,16 @@
  * game_items.txt / game_deities.txt registry (utils/emojis) and cached in-memory —
  * a missing mapping or failed fetch falls back to the ◆/❖ glyph, never crashes.
  *
- * Optional `rewards` (string): shown as the final embed's FOOTER (below the
- * image, after Discord's separator) as "<mob emoji icon> <Mob> defeated!
- * Rewards: ...". Raid passes the drop line; dev battle passes nothing. The mob
- * emoji renders via footer iconURL (registry CDN), so no canvas glyph limits.
+ * Optional `rewards` (object — commitRewards summary: { won, credux, exp,
+ * shards, chestLabel, leveledUp, levelFrom, levelTo }): rendered as a CANVAS
+ * strip the SAME WIDTH as the battle panel, attached to a second embed under
+ * the render on the final frame. Layout (one line each):
+ *   "<Mob> defeated!" → "Rewards Obtained:" → all rewards on one line →
+ *   "LEVEL UP! a → b" on its own line (only when it happened).
+ * Canvas (not embed text) so the strip visually matches the battle render
+ * width; credux/chest icons are the registry custom-emoji images (CDN, cached,
+ * like the loadout icons), EXP/shards use DejaVu-safe glyphs.
+ * Raid passes the summary; dev battle passes nothing.
  *
  * mirror: true (duel) flips fighter 2's card — name/loadout on the RIGHT, HP on
  * the LEFT, bar drains from the opposite side.
@@ -256,10 +262,102 @@ function renderBattlePanel(sim, snapIdx, { mirror = false, icons = null } = {}) 
   return canvas.toBuffer('image/png');
 }
 
+/**
+ * Rewards strip — same width as the battle panel, drawn under the render.
+ * r = { won, credux, exp, shards, chestLabel, leveledUp, levelFrom, levelTo }.
+ */
+async function renderRewardsPanel(sim, r) {
+  const won = sim.winner === 'a';
+  const [mobImg, creduxImg, chestImg] = await Promise.all([
+    getEmojiImage(sim.b.name),
+    won ? getEmojiImage('Credux Coin') : Promise.resolve(null),
+    won && r.chestLabel ? getEmojiImage(r.chestLabel) : Promise.resolve(null),
+  ]);
+
+  const LINE = 28;
+  const rows = 3 + (won && r.leveledUp ? 1 : 0);
+  const H = 20 + rows * LINE;
+  const canvas = createCanvas(PANEL_W, H);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = COLORS.bg;
+  ctx.fillRect(0, 0, PANEL_W, H);
+  ctx.textAlign = 'left';
+
+  const X = PAD + 6;
+  let y = 32;
+
+  // row 1 — result (mob custom emoji when the registry has one)
+  ctx.font = `bold 16px ${FONT}`;
+  ctx.fillStyle = won ? COLORS.ally : COLORS.enemy;
+  let rx = X;
+  if (mobImg) {
+    ctx.drawImage(mobImg, rx, y - 16, 18, 18);
+    rx += 24;
+  }
+  ctx.fillText(won ? `${sim.b.name} defeated!` : `Defeated by ${sim.b.name}…`, rx, y);
+  y += LINE;
+
+  // row 2 — label
+  ctx.font = `bold 13px ${FONT}`;
+  ctx.fillStyle = COLORS.text;
+  ctx.fillText('Rewards Obtained:', X, y);
+  y += LINE;
+
+  // row 3 — ALL rewards on one line (icon + value segments)
+  const ICON_R = 18;
+  const segs = [];
+  const glyph = (g, color) => segs.push({ text: g, color });
+  const text = (t, color = COLORS.text) => segs.push({ text: t, color });
+  const icon = (image, fbGlyph, fbColor) =>
+    (image ? segs.push({ img: image }) : glyph(fbGlyph, fbColor));
+  if (won) {
+    icon(creduxImg, '◉', '#f0b232');
+    text(` +${r.credux.toLocaleString()} Credux`);
+    text('   ·   ', COLORS.dim);
+    glyph('✦', '#f0b232');
+    text(` +${r.exp.toLocaleString()} EXP`);
+    if (r.shards > 0) {
+      text('   ·   ', COLORS.dim);
+      glyph('❖', '#b57edc');
+      text(` +${r.shards} Belief Shards`);
+    }
+    if (r.chestLabel) {
+      text('   ·   ', COLORS.dim);
+      icon(chestImg, '◆', COLORS.dim);
+      text(` ${r.chestLabel} ×1`);
+    }
+  } else {
+    glyph('✦', '#f0b232');
+    text(` +${r.exp.toLocaleString()} EXP`);
+  }
+  ctx.font = `14px ${FONT}`;
+  let cx = X;
+  for (const s of segs) {
+    if (s.img) {
+      ctx.drawImage(s.img, cx, y - ICON_R + 4, ICON_R, ICON_R);
+      cx += ICON_R + 2;
+    } else {
+      ctx.fillStyle = s.color || COLORS.text;
+      ctx.fillText(s.text, cx, y);
+      cx += ctx.measureText(s.text).width;
+    }
+  }
+  y += LINE;
+
+  // row 4 — LEVEL UP always on its own line
+  if (won && r.leveledUp) {
+    ctx.font = `bold 15px ${FONT}`;
+    ctx.fillStyle = '#f0b232';
+    ctx.fillText(`LEVEL UP!  ${r.levelFrom} → ${r.levelTo}`, X, y);
+  }
+
+  return canvas.toBuffer('image/png');
+}
+
 /* ----------------------------------------------------------------------- */
 /* EMBEDS + ANIMATION                                                       */
 /* ----------------------------------------------------------------------- */
-function battleEmbed(sim, snapIdx, { mode, footer = null }) {
+function battleEmbed(sim, snapIdx, { mode }) {
   const s = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
   const over = snapIdx >= sim.snapshots.length - 1;
   const playerWon = sim.winner === 'a';
@@ -277,7 +375,6 @@ function battleEmbed(sim, snapIdx, { mode, footer = null }) {
       ? `⚔️ *Turn cap reached — ${winner.name} wins on remaining HP%!*`
       : `⚔️ *${winner.name} defeats ${loser.name}!*`;
   } else {
-    // raid result line lives INSIDE the rendered panel (footer strip)
     title = playerWon ? '🏆 Victory!' : '💀 Defeated!';
     color = playerWon ? 0x43d675 : 0xf23f43;
   }
@@ -287,9 +384,8 @@ function battleEmbed(sim, snapIdx, { mode, footer = null }) {
     .setDescription(`Turn ${s.round} ${over ? ' ‎ **\`Battle Over\`**' : ''}`)
     .setImage('attachment://battle.png');
   if (over && line) e.addFields({ name: '​', value: line });
-  // result + rewards = embed FOOTER (renders below the image, after Discord's
-  // separator; mob emoji shows as the footer icon via iconURL)
-  if (over && footer) e.setFooter(footer);
+  // raid result + rewards live in a SECOND embed below this one (runBattle) —
+  // fields/description here would render above the image
   // seed intentionally NOT in the embed — it stays in the Battle Log header
   return e;
 }
@@ -322,8 +418,9 @@ function logEmbeds(sim) {
  * @param {object} opts
  * @param {'raid'|'duel'|'boss'} opts.mode  duel mirrors fighter 2's card
  * @param {object} opts.sim                 battleEngine.resolveBattle output
- * @param {string} [opts.rewards]           drop line for the final panel footer
- *                                          (raid; dev battle omits it)
+ * @param {object} [opts.rewards]           commitRewards summary for the
+ *                                          rewards strip (raid; dev battle
+ *                                          omits it) — see header comment
  * @param {Function} [opts.onMessage]       async (msg) — called once with the
  *                                          battle message right after the first
  *                                          frame is sent (active_battles row
@@ -333,31 +430,36 @@ async function runBattle(channel, { mode, sim, rewards = null, onMessage = null 
   const mirror = mode === 'duel';
   const icons = await prefetchIcons(sim).catch(() => null);
 
-  // result + rewards line as the final embed's FOOTER (after the separator,
-  // below the image): "[mob emoji] <Mob name> defeated!  Rewards: +342 Credux · ..."
-  let footer = null;
+  // rewards strip — rendered once, attached as a second embed on final frames
+  let resultEmbed = null;
+  let rewardsBuffer = null;
   if (rewards != null) {
-    const playerWon = sim.winner === 'a';
-    const result = sim.outcome === 'cap_hp_pct'
-      ? (playerWon
-        ? `Turn cap — ${sim.a.name} wins on remaining HP%!`
-        : `Turn cap — ${sim.b.name} wins on remaining HP%.`)
-      : (playerWon
-        ? `${sim.b.name} defeated!`
-        : `Defeated by ${sim.b.name}...`);
-    footer = { text: `${result}  Rewards: ${rewards}` };
-    const enemyEmojiId = emojiIdForDisplay(sim.b.name);
-    if (enemyEmojiId) footer.iconURL = `https://cdn.discordapp.com/emojis/${enemyEmojiId}.png`;
+    rewardsBuffer = await renderRewardsPanel(sim, rewards).catch((err) => {
+      console.warn('[battleRender] rewards panel:', err.message);
+      return null;
+    });
+    if (rewardsBuffer) {
+      resultEmbed = new EmbedBuilder()
+        .setColor(sim.winner === 'a' ? 0x43d675 : 0xf23f43)
+        .setImage('attachment://rewards.png');
+    }
   }
 
   const frame = (i) => {
     const over = i >= sim.snapshots.length - 1;
+    const base = battleEmbed(sim, i, { mode });
+    const showRewards = over && resultEmbed;
     return {
-      embeds: [battleEmbed(sim, i, { mode, footer })],
-      files: [new AttachmentBuilder(
-        renderBattlePanel(sim, i, { mirror, icons }),
-        { name: 'battle.png' }
-      )],
+      embeds: showRewards ? [base, resultEmbed] : [base],
+      files: [
+        new AttachmentBuilder(
+          renderBattlePanel(sim, i, { mirror, icons }),
+          { name: 'battle.png' }
+        ),
+        ...(showRewards
+          ? [new AttachmentBuilder(rewardsBuffer, { name: 'rewards.png' })]
+          : []),
+      ],
       attachments: [], // required to drop the previous panel image on edit
       components: over ? [buttons()] : [],
     };
@@ -391,4 +493,4 @@ async function runBattle(channel, { mode, sim, rewards = null, onMessage = null 
   return sim;
 }
 
-module.exports = { runBattle, renderBattlePanel, battleEmbed, logEmbeds, UPDATE_MS };
+module.exports = { runBattle, renderBattlePanel, renderRewardsPanel, battleEmbed, logEmbeds, UPDATE_MS };

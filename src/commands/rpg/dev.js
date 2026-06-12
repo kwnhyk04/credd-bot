@@ -18,6 +18,7 @@ const {
   buildPlayerFighter, buildMobFighter, fetchMobByName, fetchRandomMob, rollMobLevel,
 } = require('../../engine/statAssembly');
 const { runBattle } = require('../../engine/battleRender');
+const { spawnBoss, expireBoss, refreshLiveMessage } = require('../../engine/bossSystem');
 
 const INT_MAX = 2147483647; // INTEGER column ceiling (shards/chests/relics)
 const MENTION_RE = /^<@!?\d+>$/;
@@ -390,6 +391,88 @@ async function devBattle(message, args, devId) {
   }
 }
 
+// ── crd dev setbosshp <boss name> <hp> ─────────────────────────────────────
+// Test-enabler: set the ACTIVE boss's shared pool HP (e.g. low, so a kill +
+// reward distribution can be smoke-tested with a handful of users). Clamped
+// to [1, max_hp]; the boss name must match the live boss (sanity guard).
+async function setBossHp(message, args, devId) {
+  const rest = args.slice(1);
+  const hp = parseAmount(rest[rest.length - 1]);
+  const name = rest.slice(0, -1).join(' ').trim();
+  if (!name || hp == null) {
+    return reply(message, 'Usage: `crd dev setbosshp <boss name> <hp>` — hp ≥ 1 (kill it with an attack).');
+  }
+  const guildId = message.guild.id;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const res = await client.query(
+      `SELECT bs.spawn_id, bs.max_hp, mr.name
+         FROM boss_state bs
+         JOIN mob_roster mr ON mr.mob_id = bs.mob_id
+        WHERE bs.guild_id = $1 AND bs.status = 'active'
+        FOR UPDATE OF bs`,
+      [guildId]
+    );
+    if (res.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return reply(message, 'No active boss in this server.');
+    }
+    const boss = res.rows[0];
+    if (boss.name.toLowerCase() !== name.toLowerCase()) {
+      await client.query('ROLLBACK');
+      return reply(message, `The active boss is **${boss.name}**, not "${name}".`);
+    }
+    const clamped = Math.min(hp, Number(boss.max_hp));
+    await client.query(
+      'UPDATE boss_state SET current_hp = $3 WHERE guild_id = $1 AND spawn_id = $2',
+      [guildId, boss.spawn_id, clamped]
+    );
+    await logDev(client, devId, 'set_boss_hp', devId, `${boss.name} current_hp → ${clamped}`);
+    await client.query('COMMIT');
+    await refreshLiveMessage(message.client, guildId).catch(() => {});
+    return reply(message,
+      `✅ **${boss.name}** HP set to **${clamped.toLocaleString()}** / ${Number(boss.max_hp).toLocaleString()}.`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev setbosshp]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  } finally {
+    client.release();
+  }
+}
+
+// ── crd dev spawnboss (also: crd dev spawn boss) ───────────────────────────
+// Force-spawn the server boss, bypassing the 15-min respawn cooldown (smoke
+// test). NEVER replaces a live boss — kill it (setbosshp + attack) first. An
+// expired-but-unflipped boss is settled to 'escaped' before the spawn attempt.
+async function devSpawnBoss(message, devId) {
+  const guildId = message.guild.id;
+  try {
+    await expireBoss(message.client, guildId).catch(() => {}); // settle overdue escape first
+    const active = await pool.query(
+      `SELECT 1 FROM boss_state WHERE guild_id = $1 AND status = 'active'`, [guildId]
+    );
+    if (active.rows.length > 0) {
+      return reply(message, 'A boss is already active — kill it (`crd dev setbosshp` + attack) or wait for it to escape.');
+    }
+    // announce in the invoking channel when server_config has no boss/bot channel
+    const ok = await spawnBoss(message.client, guildId, {
+      force: true, channelId: message.channel.id,
+    });
+    if (!ok) {
+      return reply(message,
+        'Spawn failed — no registered player has been active in this server yet (server average level is needed).');
+    }
+    await logDev(pool, devId, 'spawn_boss', devId, `forced boss spawn in guild ${guildId}`);
+    return reply(message, '✅ Boss spawned (15-min cooldown bypassed).');
+  } catch (err) {
+    console.error('[dev spawnboss]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  }
+}
+
 const USAGE = [
   '**Dev commands:**',
   '`givecredux @user <amount>` · `givebeliefshards @user <amount>`',
@@ -397,6 +480,7 @@ const USAGE = [
   '`ban @user` · `unban @user` · `resetplayer @user`',
   '`enhanceweapon <weapon_id> <+level>` · `enhancedeity @user <deity name> <+level>`',
   '`battle [mob name] [seed <n>]` — engine smoke test (no rewards)',
+  '`setbosshp <boss name> <hp>` · `spawnboss` — boss smoke-test enablers',
 ].join('\n');
 
 /** Dispatch — caller (commandHandler mw 'dev') has already verified superuser. */
@@ -414,6 +498,11 @@ async function execute(message, { args }) {
     case 'enhanceweapon':    return enhanceWeapon(message, args, devId);
     case 'enhancedeity':     return enhanceDeity(message, args, devId);
     case 'battle':           return devBattle(message, args, devId);
+    case 'setbosshp':        return setBossHp(message, args, devId);
+    case 'spawnboss':        return devSpawnBoss(message, devId);
+    case 'spawn':
+      if ((args[1] || '').toLowerCase() === 'boss') return devSpawnBoss(message, devId);
+      return reply(message, USAGE);
     default:                 return reply(message, USAGE);
   }
 }

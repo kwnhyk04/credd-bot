@@ -7,6 +7,7 @@ const bagCmd = require('../commands/rpg/bag');
 const deityCmd = require('../commands/rpg/deity');
 const enhanceCmd = require('../commands/rpg/enhance');
 const sellCmd = require('../commands/rpg/sell');
+const bossSystem = require('../engine/bossSystem');
 
 /**
  * Routes button interactions by customId.
@@ -22,6 +23,8 @@ const sellCmd = require('../commands/rpg/sell');
  *   enhance:cancel:<weaponId>:<uid>
  *   sell:confirm:<mode>:<arg>:<uid>
  *   sell:cancel:<uid>
+ *   boss:<attack|log>:<guildId>   (no owner segment — any player may press;
+ *                                  bossSystem gates per-presser internally)
  */
 async function handleInteraction(interaction) {
   if (!interaction.isButton()) return;
@@ -34,6 +37,17 @@ async function handleInteraction(interaction) {
       const ownerId = parts[2];
       await registerCmd.handleConfirm(interaction, ownerId);
       return;
+    }
+
+    if (namespace === 'boss') {
+      if (action === 'attack') {
+        await bossSystem.handleAttack(interaction);
+        return;
+      }
+      if (action === 'log') {
+        await bossSystem.handleLog(interaction);
+        return;
+      }
     }
 
     if (namespace === 'weapons') {

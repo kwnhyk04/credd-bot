@@ -26,7 +26,7 @@ const {
 } = require('../../engine/statAssembly');
 const { runBattle } = require('../../engine/battleRender');
 const { RAID_LOOT } = require('../../config/raidLoot');
-const { applyCombatExp } = require('../../config/combatExp');
+const { awardCombatExp } = require('../../utils/awardCombatExp');
 
 const STALE_BATTLE_MINUTES = 5;
 
@@ -76,8 +76,10 @@ async function claimBattleSlot(discordId, channelId, sim, mobRow, level) {
 
 /**
  * Commit the battle outcome atomically: users_bag drops (lock first), then
- * user_character exp/level/counters, then the immutable raid_logs row.
- * Returns the reward summary for the panel footer.
+ * user_character exp/level/counters (via the shared awardCombatExp util —
+ * bag → character lock order, Phase-5 convention), then the game_logs audit
+ * rows (one per currency/item changed, action 'Raid'), then the immutable
+ * raid_logs row. Returns the reward summary for the panel footer.
  */
 async function commitRewards(discordId, sim, mobRow, rng) {
   const won = sim.winner === 'a';
@@ -103,15 +105,10 @@ async function commitRewards(discordId, sim, mobRow, rng) {
       'SELECT credux, belief_shards FROM users_bag WHERE discord_id = $1 FOR UPDATE',
       [discordId]
     );
-    const chRes = await client.query(
-      'SELECT combat_level, combat_exp FROM user_character WHERE discord_id = $1 FOR UPDATE',
-      [discordId]
-    );
-    if (bagRes.rows.length === 0 || chRes.rows.length === 0) {
+    if (bagRes.rows.length === 0) {
       throw new Error('player rows missing');
     }
-    const ch = chRes.rows[0];
-    const lvl = applyCombatExp(ch.combat_level, ch.combat_exp, exp);
+    const bagBefore = bagRes.rows[0];
 
     const bagUpd = await client.query(
       `UPDATE users_bag
@@ -119,16 +116,45 @@ async function commitRewards(discordId, sim, mobRow, rng) {
               belief_shards = belief_shards + $3
               ${chestCol ? `, ${chestCol} = ${chestCol} + 1` : ''}
         WHERE discord_id = $1
-        RETURNING credux, belief_shards`,
+        RETURNING credux, belief_shards${chestCol ? `, ${chestCol}` : ''}`,
       [discordId, credux, shards]
     );
+    const bagAfter = bagUpd.rows[0];
+
+    // bag → character lock order (Phase-5 convention); the util locks + levels
+    const lvl = await awardCombatExp(client, discordId, exp);
     await client.query(
       `UPDATE user_character
-          SET combat_level = $2, combat_exp = $3,
-              ${won ? 'raids_won = raids_won + 1' : 'raids_lost = raids_lost + 1'}
+          SET ${won ? 'raids_won = raids_won + 1' : 'raids_lost = raids_lost + 1'}
         WHERE discord_id = $1`,
-      [discordId, lvl.level, lvl.exp]
+      [discordId]
     );
+    // TODO Phase-rep: raid-win reputation + daily-quest hook (raid_wins)
+    // TODO Phase-rep: elite-defeat daily-quest hook (elite_defeats — won && mobRow.mob_type === 'elite')
+
+    // game_logs — one row per currency/item changed (action 'Raid')
+    if (credux > 0) {
+      await client.query(
+        `INSERT INTO game_logs (discord_id, action, previous_credux, updated_credux)
+         VALUES ($1, 'Raid', $2, $3)`,
+        [discordId, bagBefore.credux, bagAfter.credux]
+      );
+    }
+    if (shards > 0) {
+      await client.query(
+        `INSERT INTO game_logs (discord_id, action, previous_belief_shards, updated_belief_shards)
+         VALUES ($1, 'Raid', $2, $3)`,
+        [discordId, bagBefore.belief_shards, bagAfter.belief_shards]
+      );
+    }
+    if (chestCol) {
+      await client.query(
+        `INSERT INTO game_logs (discord_id, action, item_type, previous_chest_count, updated_chest_count)
+         VALUES ($1, 'Raid', $2, $3, $4)`,
+        [discordId, chestCol, bagAfter[chestCol] - 1, bagAfter[chestCol]]
+      );
+    }
+
     await client.query(
       `INSERT INTO raid_logs
          (discord_id, battle_type, enemy_name, enemy_tier, result, exp_earned,
@@ -137,15 +163,15 @@ async function commitRewards(discordId, sim, mobRow, rng) {
        VALUES ($1, 'raid', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         discordId, mobRow.name, mobRow.mob_type, won ? 'win' : 'loss',
-        exp, lvl.exp, shards, bagUpd.rows[0].belief_shards,
-        credux, bagUpd.rows[0].credux, chestCol ? CHEST_LABELS[chestCol] : null,
+        exp, lvl.newExp, shards, bagAfter.belief_shards,
+        credux, bagAfter.credux, chestCol ? CHEST_LABELS[chestCol] : null,
       ]
     );
     await client.query('COMMIT');
     return {
       won, credux, exp, shards,
       chestLabel: chestCol ? CHEST_LABELS[chestCol] : null,
-      levelFrom: ch.combat_level, levelTo: lvl.level, leveledUp: lvl.leveledUp,
+      levelFrom: lvl.previousLevel, levelTo: lvl.newLevel, leveledUp: lvl.leveledUp,
     };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
@@ -153,17 +179,6 @@ async function commitRewards(discordId, sim, mobRow, rng) {
   } finally {
     client.release();
   }
-}
-
-/** Rewards line for the final embed footer — runBattle prefixes
- *  "<Mob> defeated!  Rewards:" / "Defeated by <Mob>...  Rewards:". */
-function rewardsLine(r) {
-  if (!r.won) return `+${r.exp} EXP`;
-  const parts = [`+${r.credux.toLocaleString()} Credux`, `+${r.exp} EXP`];
-  if (r.shards > 0) parts.push(`+${r.shards} Belief Shards`);
-  if (r.chestLabel) parts.push(`${r.chestLabel}!`);
-  if (r.leveledUp) parts.push(`LEVEL UP! ${r.levelFrom} → ${r.levelTo}`);
-  return parts.join('  ·  ');
 }
 
 async function execute(message) {
@@ -189,11 +204,12 @@ async function execute(message) {
     }
 
     try {
+      // the summary object renders as battleRender's rewards strip
       const rewards = await commitRewards(discordId, sim, mobRow, rng);
       await runBattle(message.channel, {
         mode: 'raid',
         sim,
-        rewards: rewardsLine(rewards),
+        rewards,
         onMessage: (msg) => pool.query(
           'UPDATE active_battles SET message_id = $2, channel_id = $3 WHERE discord_id = $1',
           [discordId, msg.id, msg.channel.id]

@@ -156,6 +156,60 @@ function buildMobFighter(row, level) {
   };
 }
 
+/**
+ * Boss stats per §16: base + per_level × level. Bosses are EXEMPT from the
+ * §35.6 [1,55] clamp (that rule governs raid mobs only) — server avg 50 +
+ * random(1–10) may legitimately produce a level-60 boss. Defensive floor at 1.
+ */
+function computeBossStats(row, level) {
+  const lv = Math.max(1, level);
+  return {
+    hp: Math.floor(row.base_hp + row.hp_per_level * lv),
+    atk: Math.floor(row.base_atk + row.atk_per_level * lv),
+    def: Math.floor(row.base_def + row.def_per_level * lv),
+    crit: Number(row.base_crit) || 0,
+  };
+}
+
+/**
+ * Build the boss fighter for one player's attack instance:
+ * ATK/DEF/max HP from the boss_state spawn snapshot (DB-9), CRIT live from
+ * mob_roster (DB-8), and the SHARED pool as poolHp/poolMaxHp — the engine
+ * fights the player's local instance against the pool's remaining HP, so
+ * "enemy HP < X%" effects read the live pool % (§35.4).
+ */
+function buildBossFighter(row, bossState) {
+  return {
+    name: row.name,
+    kind: 'mob',
+    mobType: 'boss',
+    level: bossState.boss_level,
+    atk: bossState.scaled_atk,
+    hp: Number(bossState.max_hp),
+    def: bossState.scaled_def,
+    crit: Number(row.base_crit) || 0,
+    skillKey: row.skill_key || 'none',
+    skillName: row.skill_name || null,
+    immunityTags: Array.isArray(row.immunity_tags) ? row.immunity_tags : [],
+    specialFlags: row.special_flags || {},
+    poolHp: Number(bossState.current_hp),
+    poolMaxHp: Number(bossState.max_hp),
+  };
+}
+
+/**
+ * Random boss row — equal chance among all seeded boss rows (mob_roster has
+ * no is_available column; the RETIRE soft-delete patch covered weapon/deity
+ * rosters only). rng injectable for tests; the scheduler passes Math.random.
+ */
+async function fetchRandomBoss(db, rng) {
+  const res = await db.query(
+    `SELECT * FROM mob_roster WHERE mob_type = 'boss' ORDER BY mob_id`
+  );
+  if (res.rows.length === 0) return null;
+  return res.rows[Math.floor(rng() * res.rows.length)];
+}
+
 /** Case-insensitive exact-name lookup in mob_roster. */
 async function fetchMobByName(db, name) {
   const res = await db.query(
@@ -187,9 +241,12 @@ module.exports = {
   computeClassBattleStats,
   assemblePlayerStats,
   computeMobStats,
+  computeBossStats,
   rollMobLevel,
   buildPlayerFighter,
   buildMobFighter,
+  buildBossFighter,
   fetchMobByName,
   fetchRandomMob,
+  fetchRandomBoss,
 };
