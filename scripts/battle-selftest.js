@@ -137,25 +137,38 @@ section('4. Targeted scenarios');
   check('Mage Lv50 ATK 696', mage.atk === 10 + 14 * 49, `got ${mage.atk}`);
 }
 
-// — C1: mob formula base + per_level × level (rebalanced per-level values) —
+// — C1: mob formula base + per_level × level (live DB rows, v4.2 §15) —
 {
-  // regular post-rebalance: per-level HP 40 / ATK 15 / DEF 10
-  const row = { base_hp: 100, base_atk: 130, base_def: 80, base_crit: 2, hp_per_level: 40, atk_per_level: 15, def_per_level: 10 };
-  const s1 = computeMobStats(row, 1);
-  check('C1: level-1 regular = base + ONE increment', s1.hp === 140 && s1.atk === 145 && s1.def === 90,
+  // 1e: fixtures pinned to the authoritative live mob_roster export (supersedes the
+  // stale seed figures AND the interim §15 +500 HP column). Regular per-level 40/15/10.
+  const blackDuwende = { base_hp: 1610, base_atk: 118, base_def: 78, base_crit: 5, hp_per_level: 40, atk_per_level: 15, def_per_level: 10 };
+  const s1 = computeMobStats(blackDuwende, 1);
+  check('C1: Black Duwende Lv1 = 1650/133/88', s1.hp === 1650 && s1.atk === 133 && s1.def === 88,
     `got hp=${s1.hp} atk=${s1.atk} def=${s1.def}`);
-  // elite post-rebalance: per-level HP 75 / ATK 30 / DEF 16
-  const elite = { base_hp: 1000, base_atk: 195, base_def: 135, base_crit: 10, hp_per_level: 75, atk_per_level: 30, def_per_level: 16 };
-  const e1 = computeMobStats(elite, 1);
-  check('C1: level-1 elite = base + ONE increment', e1.hp === 1075 && e1.atk === 225 && e1.def === 151,
+  // elite per-level 75/30/16
+  const manananggal = { base_hp: 2450, base_atk: 172, base_def: 140, base_crit: 10, hp_per_level: 75, atk_per_level: 30, def_per_level: 16 };
+  const e1 = computeMobStats(manananggal, 1);
+  check('C1: Manananggal Lv1 = 2525/202/156', e1.hp === 2525 && e1.atk === 202 && e1.def === 156,
     `got hp=${e1.hp} atk=${e1.atk} def=${e1.def}`);
   // boss rows are authored and untouched by the rebalance
   const boss = { base_hp: 5000, base_atk: 400, base_def: 250, base_crit: 10, hp_per_level: 150, atk_per_level: 12, def_per_level: 8 };
   const s40 = computeMobStats(boss, 40);
   check('C1: boss Lv40 spot check', s40.hp === 11000 && s40.atk === 880 && s40.def === 570,
     `got hp=${s40.hp} atk=${s40.atk} def=${s40.def}`);
-  const sClamp = computeMobStats(row, 99);
-  check('C1: mob level clamped to 55', sClamp.hp === 100 + 40 * 55, `got ${sClamp.hp}`);
+  const sClamp = computeMobStats(blackDuwende, 99);
+  check('C1: mob level clamped to 55', sClamp.hp === 1610 + 40 * 55, `got ${sClamp.hp}`);
+}
+
+// — 1d: class base HP 500 (v4.2); per-level growth unchanged —
+{
+  for (const cls of ['Swordsman', 'Fighter', 'Mage', 'Knight', 'Archer']) {
+    const s1 = computeClassBattleStats(cls, 1);
+    check(`1d: ${cls} Lv1 HP = 500`, s1.hp === 500, `got ${s1.hp}`);
+  }
+  const knight = computeClassBattleStats('Knight', 50);
+  check('1d: Knight Lv50 HP = 500 + 15×49 = 1235', knight.hp === 1235, `got ${knight.hp}`);
+  const mage = computeClassBattleStats('Mage', 50);
+  check('1d: Mage Lv50 HP = 500 + 10×49 = 990', mage.hp === 990, `got ${mage.hp}`);
 }
 
 // — Katana ×2.30 vs base ×2.00 (forced crit, pinned variance) —
@@ -212,23 +225,102 @@ section('4. Targeted scenarios');
     `got ${dmgOf(allEvents(sImm), 'attacks')}`);
 }
 
-// — Mage Overcharge: fires at 100%, flat, cannot crit, resets —
+// — [v4.2] Mage Overcharge: fires rounds 3/6/9, flat +200%, crit fully suppressed —
 {
   const mk = () => player({ class: 'Mage', classPassive: 'overcharge' });
-  // r1: critPre .99, var .5 | mob crit .99 var .5 | r2: critPre .99, var .5
-  const sim = resolveBattle(mk(), mob({ hp: 10000 }),
-    { seed: 1, rng: scripted([0.0, 0.99, 0.5, 0.99, 0.5, 0.99, 0.5]) });
-  check('Overcharge fires round 2 = 814 (214 + 600 flat)', dmgOf(roundEvents(sim, 2), 'attacks') === 814,
-    `got ${dmgOf(roundEvents(sim, 2), 'attacks')}`);
-  check('Overcharge marker present', hasEvent(roundEvents(sim, 2), 'Overcharge'));
-  check('round 1 has no Overcharge (50%)', !hasEvent(roundEvents(sim, 1), 'Overcharge'));
-  // crit on the overcharge round: base doubles, flat rider does NOT
-  const sCrit = resolveBattle(mk(), mob({ hp: 10000 }),
-    { seed: 1, rng: scripted([0.0, 0.99, 0.5, 0.99, 0.5, 0.0, 0.5]) });
-  check('Overcharge rider cannot crit: 1028 (428 + 600)', dmgOf(roundEvents(sCrit, 2), 'attacks') === 1028,
-    `got ${dmgOf(roundEvents(sCrit, 2), 'attacks')}`);
-  // round 4 fires again after reset (rounds 3 charges to 50, round 4 → 100)
-  check('Overcharge resets then re-fires round 4', hasEvent(roundEvents(sim, 4), 'Overcharge'));
+  // raid draws/round: critPre, playerVar, mobCrit, mobVar. Round 3 = overcharge; its
+  // crit pre-roll is forced to 0.0 (would crit) to prove the crit is voided anyway.
+  const script = [0.0, /* r1 */ 0.99, 0.5, 0.99, 0.5, /* r2 */ 0.99, 0.5, 0.99, 0.5,
+    /* r3 */ 0.0, 0.5, 0.99, 0.5];
+  const sim = resolveBattle(mk(), mob({ hp: 100000 }), { seed: 1, rng: scripted(script) });
+  check('Overcharge fires round 3 = 814 (214 + 600 flat)', dmgOf(roundEvents(sim, 3), 'attacks') === 814,
+    `got ${dmgOf(roundEvents(sim, 3), 'attacks')}`);
+  check('Overcharge marker on round 3', hasEvent(roundEvents(sim, 3), 'Overcharge'));
+  check('no Overcharge on rounds 1/2', !hasEvent(roundEvents(sim, 1), 'Overcharge') && !hasEvent(roundEvents(sim, 2), 'Overcharge'));
+  // BUG FIX: the crit pre-roll succeeds (0.0) on round 3 yet the hit must NOT crit
+  check('Overcharge round 3 never crits (pre-roll latch voided)', !hasEvent(roundEvents(sim, 3), '(CRIT!)'));
+  check('round 1/2 are plain hits = 214', dmgOf(roundEvents(sim, 1), 'attacks') === 214 && dmgOf(roundEvents(sim, 2), 'attacks') === 214,
+    `r1=${dmgOf(roundEvents(sim, 1), 'attacks')} r2=${dmgOf(roundEvents(sim, 2), 'attacks')}`);
+}
+
+// — Overcharge re-fires every 3rd round (fallback-driven; not 4/5) —
+{
+  const mk = () => player({ class: 'Mage', classPassive: 'overcharge', hp: 1000000 });
+  const sim = resolveBattle(mk(), mob({ hp: 1000000, atk: 1 }), { seed: 1, rng: scripted([0.0]) });
+  check('Overcharge re-fires round 6', hasEvent(roundEvents(sim, 6), 'Overcharge'));
+  check('Overcharge re-fires round 9', hasEvent(roundEvents(sim, 9), 'Overcharge'));
+  check('no Overcharge on rounds 4/5/7/8',
+    !hasEvent(roundEvents(sim, 4), 'Overcharge') && !hasEvent(roundEvents(sim, 5), 'Overcharge')
+    && !hasEvent(roundEvents(sim, 7), 'Overcharge') && !hasEvent(roundEvents(sim, 8), 'Overcharge'));
+}
+
+// — Overcharge lost when skip-CC'd on a multiple of 3; next fires round 6 —
+{
+  // Santelmo applies a 1-turn skip on its proc; script the proc to land ONLY on round 3.
+  const mk = () => player({ class: 'Mage', classPassive: 'overcharge', hp: 100000 });
+  // draws/round (Mage + santelmo mob): critPre, santelmoProc, playerVar, mobCrit, mobVar
+  // (round 3 the player is skipped → no playerVar that round).
+  const script = [0.0,
+    /* r1 */ 0.99, 0.99, 0.5, 0.99, 0.5,
+    /* r2 */ 0.99, 0.99, 0.5, 0.99, 0.5,
+    /* r3 */ 0.99, 0.01, 0.99, 0.5,            // santelmo procs → player skips this round
+    /* r4 */ 0.99, 0.99, 0.5, 0.99, 0.5,
+    /* r5 */ 0.99, 0.99, 0.5, 0.99, 0.5,
+    /* r6 */ 0.99, 0.99, 0.5, 0.99, 0.5];
+  const sim = resolveBattle(mk(), mob({ hp: 100000, skillKey: 'santelmo_will_o_wisp' }),
+    { seed: 1, rng: scripted(script) });
+  check('skip-CC on round 3: player unable to act', hasEvent(roundEvents(sim, 3), 'unable to act'));
+  check('skip-CC on round 3: overcharge lost (no marker, no attack)',
+    !hasEvent(roundEvents(sim, 3), 'Overcharge') && !hasEvent(roundEvents(sim, 3), 'attacks'));
+  check('skip-CC: no carry-over to round 4', !hasEvent(roundEvents(sim, 4), 'Overcharge'));
+  check('skip-CC: next overcharge fires round 6', hasEvent(roundEvents(sim, 6), 'Overcharge'));
+}
+
+// — Overcharge suppresses crit even vs an auto-crit grant (Apollo round 12) —
+{
+  // Apollo grants a guaranteed crit every 4th round; round 12 is also an overcharge round
+  // (12 % 3 == 0) → suppression must win. Fallback 0.5 means no NATURAL crits (crit 20 vs
+  // pre-roll 50), so CRIT markers appear only on Apollo's rounds (4, 8, 12-suppressed).
+  const mk = () => player({ class: 'Mage', classPassive: 'overcharge', weaponPassiveKey: 'apollos_silver_bow', hp: 1000000 });
+  const sim = resolveBattle(mk(), mob({ hp: 1000000, atk: 1 }), { seed: 1, rng: scripted([0.0]) });
+  check('Apollo auto-crit lands on non-overcharge round 4', hasEvent(roundEvents(sim, 4), '(CRIT!)'));
+  check('Apollo auto-crit lands on non-overcharge round 8', hasEvent(roundEvents(sim, 8), '(CRIT!)'));
+  check('Overcharge round 12 fires', hasEvent(roundEvents(sim, 12), 'Overcharge'));
+  check('Overcharge suppresses the auto-crit on round 12', !hasEvent(roundEvents(sim, 12), '(CRIT!)'));
+}
+
+// — [v4.2] boss mode: player ALWAYS acts first; no order draw consumed —
+{
+  // first draw 0.0 feeds the round-1 crit pre-roll (NOT an order roll) → guaranteed crit,
+  // proving the order draw is skipped. If a draw had been consumed, crit pre-roll would
+  // read 0.5 (no crit). Player still leads the round.
+  const sim = resolveBattle(player(), mob({ hp: 100000, mobType: 'boss' }),
+    { mode: 'boss', seed: 1, rng: scripted([0.0, 0.5, 0.99, 0.5]) });
+  const ev = roundEvents(sim, 1);
+  const iPlayer = ev.findIndex((e) => e.includes('attacks'));
+  const iMob = ev.findIndex((e) => e.includes('strikes'));
+  check('boss mode: player acts first', iPlayer !== -1 && iMob !== -1 && iPlayer < iMob, `player@${iPlayer} mob@${iMob}`);
+  check('boss mode: no order draw (first draw = crit pre-roll → CRIT)', hasEvent(ev, '(CRIT!)'));
+  // Sleipnir first_strike still overrides → boss first even in boss mode.
+  const simS = resolveBattle(player(), mob({ hp: 100000, mobType: 'boss', specialFlags: { first_strike: true } }),
+    { mode: 'boss', seed: 1, rng: scripted([0.99, 0.99, 0.5, 0.5]) });
+  const evS = roundEvents(simS, 1);
+  const iMobS = evS.findIndex((e) => e.includes('strikes'));
+  const iPlayerS = evS.findIndex((e) => e.includes('attacks'));
+  check('boss mode: Sleipnir first_strike overrides (boss first)', iMobS !== -1 && iPlayerS !== -1 && iMobS < iPlayerS,
+    `mob@${iMobS} player@${iPlayerS}`);
+}
+
+// — [v4.2] snapshot cadence per mode (duel every round / raid odd+final / boss every 3rd) —
+{
+  // atk 0 both sides → no early kill; runs well past round 6 (sudden death starts round 30).
+  const inLoop = (sim) => new Set(sim.snapshots.filter((s) => !s.tag).map((s) => s.round));
+  const duel = inLoop(resolveBattle(player({ atk: 0, hp: 5000 }), player({ name: 'R', atk: 0, hp: 5000 }), { mode: 'duel', seed: 5 }));
+  check('snapshot duel: every round (1,2,3 present)', duel.has(1) && duel.has(2) && duel.has(3), [...duel].join(','));
+  const raid = inLoop(resolveBattle(player({ atk: 0, hp: 5000 }), mob({ atk: 0, hp: 5000 }), { mode: 'raid', seed: 5 }));
+  check('snapshot raid: odd rounds only (1,3 present; 2,4 absent)', raid.has(1) && raid.has(3) && !raid.has(2) && !raid.has(4), [...raid].join(','));
+  const boss = inLoop(resolveBattle(player({ atk: 0, hp: 5000 }), mob({ atk: 0, hp: 5000, mobType: 'boss' }), { mode: 'boss', seed: 5 }));
+  check('snapshot boss: every 3rd (3,6 present; 1,2,4 absent)', boss.has(3) && boss.has(6) && !boss.has(1) && !boss.has(2) && !boss.has(4), [...boss].join(','));
 }
 
 // — R2: Fighter class stun 1/2 turns, refresh-don't-extend —

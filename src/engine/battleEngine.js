@@ -11,10 +11,15 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * RNG DRAW ORDER (part of the contract — a seed fully determines a battle):
  *   PRE-BATTLE
- *     1. actor-order roll (1 draw; SKIPPED when the mob has special_flags.first_strike)
+ *     1. actor-order roll (1 draw; SKIPPED when the mob has special_flags.first_strike
+ *        OR when mode === 'boss' — [v4.2] the player always acts first vs a boss, so no
+ *        draw is consumed. first_strike (Sleipnir) is checked BEFORE the boss branch and
+ *        still keeps the boss first. raid/duel always consume the order draw.)
  *   PER ROUND
  *     2. pre-rolls, in actor order, for each PLAYER-kind side:
- *        a. crit pre-roll (1 draw, always — voided if the side is skip-CC'd)
+ *        a. crit pre-roll (1 draw, ALWAYS — voided if the side is skip-CC'd; also voided,
+ *           with the draw still consumed, on a Mage's overcharge round (every 3rd) where the
+ *           entire attack cannot crit — §13.1)
  *        b. class-stun pre-roll (1 draw, only if class passive is 'stun')
  *     3. passive phase (registry-internal draws, in invocation order):
  *        raid/boss → A.weapon → A.deity → mob skill (all on A's perspective)
@@ -33,14 +38,27 @@
  *   check after every registry call) → consume hydra local regen / bathala HP flag →
  *   clear consumed latches → actions in actor order → end of round: DOT ticks
  *   (death check per tick), stat-debuff expiry, sudden-death drain (round ≥ 30),
- *   snapshot every 3rd round. Hard cap round 50 (§35.3).
+ *   snapshot per mode cadence. Hard cap round 50 (§35.3).
+ *
+ * SNAPSHOT CADENCE ([v4.2], mode-dependent — the renderer's edit loop consumes
+ *   whatever arrives; the start + final snapshots are always present):
+ *     duel → every round   raid → odd rounds (1,3,5,…)   boss → every 3rd round
+ *
+ * MAGE OVERCHARGE ([v4.2], §11/§13.1): the charge accumulator is gone. On every
+ *   3rd round of the battle clock (rounds 3,6,9,…) the Mage's MAIN hit gains a flat
+ *   +200% ATK rider AND the entire attack's crit is suppressed (pre-roll latch voided,
+ *   nextAttackAutoCrit ignored). Rider hits in the same action (Labrys 2nd, Glacial Bow
+ *   extra) are NOT the overcharge attack — they keep fresh crit rolls and get no rider.
+ *   Skip-CC on a multiple of 3 → the action never runs → that overcharge is simply lost
+ *   (no carry-over); the next fires on the next multiple of 3.
  *
  * DAMAGE PIPELINE (per hit, approved plan §4):
  *   base = effATK × (1 − effDEF/(effDEF+200)) × variance(0.90–1.10)
  *   + riders (bonusDamage / enemy_bonus_damage — first hit of the action only, R4)
  *   × critMult on crit (2.0; 2.3 Katana; + bonus_crit_dmg_pct/100)
  *   × (1 + bonus_dmg_pct/100)  × 2 if nextAttackDouble
- *   + Mage Overcharge flat rider (2.0 × effATK — added after crit, cannot crit)
+ *   + Mage Overcharge flat rider on the main hit every 3rd round (2.0 × effATK — the
+ *     whole hit cannot crit; rider is flat, never multiplied by crit)
  *   → floor → defender stack (R3) → apply → death check (§35.3 first-to-0, R5)
  *
  * DEFENDER STACK (R3, fixed order):
@@ -69,8 +87,8 @@ const CRIT_MULT = 2.0;
 const KATANA_CRIT_MULT = 2.3;
 const ARCHER_PIERCE = 0.25;
 const KNIGHT_DR = 0.80;
-const OVERCHARGE_STEP = 50;
-const OVERCHARGE_RIDER = 2.0;     // +200% ATK flat, cannot crit, resets after firing
+const OVERCHARGE_EVERY = 3;       // [v4.2] fires on rounds 3, 6, 9, …
+const OVERCHARGE_RIDER = 2.0;     // +200% ATK flat on the main hit; whole attack cannot crit
 
 const SKIP_TAGS = ['stun', 'paralyze', 'freeze', 'petrify', 'charm', 'confuse', 'miss'];
 const DOT_TAGS = ['bleed', 'burn', 'hp_pct_dot'];
@@ -117,7 +135,6 @@ function resolveBattle(a, b, opts = {}) {
     skipped: false,         // skip-CC'd this round
     critRollValue: 1,       // pre-rolled crit draw for this round's main hit
     stunPreRoll: 0,         // Fighter class stun turns rolled for this round (0/1/2)
-    overcharge: 0,          // Mage charge %
     tookHitThisRound: false,
     tookHitLastRound: false,
     bathalaExtraHp: 0,      // currently-applied Bathala HP bonus
@@ -369,6 +386,12 @@ function resolveBattle(a, b, opts = {}) {
 
   // ── player attack action ───────────────────────────────────────────────────
   const playerAttack = (S, O) => {
+    // [v4.2] Mage Overcharge: on every 3rd round the MAIN hit gains a flat +200% ATK
+    // rider AND the entire attack's crit is suppressed (pre-roll latch & nextAttackAutoCrit
+    // both voided). Only the main hit qualifies — rider hits later in the same action
+    // (Labrys 2nd, Glacial Bow extra) keep their own crit rolls and get NO rider.
+    const overchargeRound = S.classPassive === 'overcharge' && shared.round % OVERCHARGE_EVERY === 0;
+
     const doHit = ({ atkScale, mainHit, critKnown }) => {
       if (result) return;
       const def = effDef(S, O, { mainHit });
@@ -388,12 +411,8 @@ function resolveBattle(a, b, opts = {}) {
       }
       dmg *= 1 + S.bonusDmgPct / 100;             // Supreme +50% flat / Legendary +25%
       if (mainHit && S.scratch.nextAttackDouble) dmg *= 2;
-      let overchargeFired = false;
-      if (mainHit && S.classPassive === 'overcharge' && S.overcharge >= 100) {
-        dmg += OVERCHARGE_RIDER * effAtk(S);      // flat, cannot crit (§13.1)
-        S.overcharge = 0;
-        overchargeFired = true;
-      }
+      const overchargeFired = mainHit && overchargeRound;
+      if (overchargeFired) dmg += OVERCHARGE_RIDER * effAtk(S); // flat, never crit (§13.1)
       dmg = Math.max(0, Math.floor(dmg));
 
       const res = applyHitToDefender(S, O, dmg, { crit });
@@ -429,8 +448,10 @@ function resolveBattle(a, b, opts = {}) {
       if (mainHit && S.flags.gungnir_full_pierce) S.flags.gungnir_full_pierce = false;
     };
 
-    // main hit (crit pre-rolled at round start; auto-crit flags can upgrade it)
-    const mainCrit = (S.critRollValue * 100 < effCritChance(S)) || S.scratch.nextAttackAutoCrit;
+    // main hit (crit pre-rolled at round start; auto-crit flags can upgrade it) —
+    // an overcharge round suppresses the crit entirely (§13.1), latch and all.
+    const mainCrit = !overchargeRound
+      && ((S.critRollValue * 100 < effCritChance(S)) || S.scratch.nextAttackAutoCrit);
     doHit({ atkScale: 1, mainHit: true, critKnown: mainCrit });
     if (result) return;
 
@@ -582,11 +603,13 @@ function resolveBattle(a, b, opts = {}) {
   // ── actor order ────────────────────────────────────────────────────────────
   let aFirst;
   if (B.specialFlags.first_strike) {
-    aFirst = false; // Sleipnir: boss takes the very first action, no roll
+    aFirst = false; // Sleipnir: boss takes the very first action (checked before mode, no roll)
   } else if (A.specialFlags.first_strike) {
     aFirst = true;
+  } else if (mode === 'boss') {
+    aFirst = true;  // [v4.2] player ALWAYS attacks first vs a boss — no order draw consumed
   } else {
-    aFirst = rng() < 0.5;
+    aFirst = rng() < 0.5; // raid/duel keep the 50/50 roll
   }
   const order = aFirst ? [A, B] : [B, A];
 
@@ -602,20 +625,17 @@ function resolveBattle(a, b, opts = {}) {
     for (const side of order) {
       side.skipped = side.debuffs.some((d) => SKIP_TAGS.includes(d.tag));
     }
-    // Mage overcharge builds on the round clock
-    for (const side of order) {
-      if (side.kind === 'player' && side.classPassive === 'overcharge') {
-        side.overcharge = Math.min(100, side.overcharge + OVERCHARGE_STEP);
-      }
-    }
 
     // 2. pre-rolls (R1) — always drawn for stream stability, voided when skip-CC'd
     for (const side of order) {
       if (side.kind !== 'player') continue;
       const O = oppOf(side);
       side.critRollValue = rng();
+      // [v4.2] a Mage's overcharge round (every 3rd) suppresses the crit entirely, so
+      // the latch reads false even though the draw is consumed (stream stability).
+      const overchargeRound = side.classPassive === 'overcharge' && round % OVERCHARGE_EVERY === 0;
       side.flags.crit_landed_this_hit =
-        !side.skipped && side.critRollValue * 100 < effCritChance(side);
+        !side.skipped && !overchargeRound && side.critRollValue * 100 < effCritChance(side);
       if (side.classPassive === 'stun') {
         const r = rng();
         side.stunPreRoll = side.skipped ? 0 : (r < 0.10 ? 2 : (r < 0.35 ? 1 : 0));
@@ -692,7 +712,15 @@ function resolveBattle(a, b, opts = {}) {
     }
 
     rounds.push({ round, events: shared.events });
-    if (!result && round % SNAPSHOT_EVERY === 0) {
+    // [v4.2] snapshot cadence is mode-dependent: duels animate every round (they end
+    // fast — HP must visibly drop per turn), raids on odd rounds, boss every 3rd. The
+    // start + final snapshots are always present regardless.
+    const snapDue = mode === 'duel'
+      ? true
+      : mode === 'raid'
+        ? round % 2 === 1
+        : round % SNAPSHOT_EVERY === 0;
+    if (!result && snapDue) {
       snapshots.push({ round, a: snapSide(A), b: snapSide(B) });
     }
   }
@@ -721,6 +749,8 @@ function resolveBattle(a, b, opts = {}) {
     level: side.in.level,
     weapon: side.in.weaponName || null,
     deity: side.in.deityName || null,
+    // mob/boss passive skill name for the render (null for players / 'none' skills)
+    skill: side.kind === 'player' ? null : (side.in.skillName || null),
     atk: side.atk, def: side.def, crit: side.crit,
     hp: side.hp, maxHp: side.maxHp,
   });

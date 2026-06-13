@@ -17,6 +17,9 @@ const weaponCmd = require('../commands/rpg/weapon');
 const raidCmd = require('../commands/rpg/raid');
 const duelCmd = require('../commands/rpg/duel');
 const bossCmd = require('../commands/rpg/boss');
+const bestowCmd = require('../commands/economy/bestow');
+const questsCmd = require('../commands/economy/quests');
+const dailyCmd = require('../commands/economy/daily');
 const devCmd = require('../commands/rpg/dev');
 
 // Commands with real implementations.
@@ -44,6 +47,10 @@ const IMPLEMENTED = {
   r:        { mw: 'full', run: raidCmd.execute },
   duel:     { mw: 'full', run: duelCmd.execute },
   boss:     { mw: 'full', run: bossCmd.execute },
+  bestow:   { mw: 'full', run: bestowCmd.execute },
+  quests:   { mw: 'full', run: questsCmd.execute },
+  quest:    { mw: 'full', run: questsCmd.execute },
+  daily:    { mw: 'full', run: dailyCmd.execute },
   dev:      { mw: 'dev',  run: devCmd.execute },
 };
 
@@ -87,6 +94,7 @@ const COMMAND_MAP = {
   'bestow':            { category: 'economy', requiresCharacter: false,  phase: 3 },
   'daily':             { category: 'economy', requiresCharacter: false,  phase: 8 },
   'quests':            { category: 'economy', requiresCharacter: false,  phase: 8 },
+  'quest':             { category: 'economy', requiresCharacter: false,  phase: 8 },
 
   // ── Casino ────────────────────────────────────────────────────────────
   'coin':              { category: 'casino',  requiresCharacter: false,  phase: 10 },

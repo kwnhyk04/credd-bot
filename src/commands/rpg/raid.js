@@ -27,6 +27,7 @@ const {
 const { runBattle } = require('../../engine/battleRender');
 const { RAID_LOOT } = require('../../config/raidLoot');
 const { awardCombatExp } = require('../../utils/awardCombatExp');
+const { progressQuests } = require('../../utils/questProgress');
 
 const STALE_BATTLE_MINUTES = 5;
 
@@ -129,8 +130,7 @@ async function commitRewards(discordId, sim, mobRow, rng) {
         WHERE discord_id = $1`,
       [discordId]
     );
-    // TODO Phase-rep: raid-win reputation + daily-quest hook (raid_wins)
-    // TODO Phase-rep: elite-defeat daily-quest hook (elite_defeats — won && mobRow.mob_type === 'elite')
+    // TODO Phase-rep: raid-win reputation award (§18) — quest hook is wired below
 
     // game_logs — one row per currency/item changed (action 'Raid')
     if (credux > 0) {
@@ -167,11 +167,22 @@ async function commitRewards(discordId, sim, mobRow, rng) {
         credux, bagAfter.credux, chestCol ? CHEST_LABELS[chestCol] : null,
       ]
     );
+
+    // daily-quest progress (§20) — bag lock already held → bag → character → quests
+    // order. Raid win → raid_wins; an elite win also progresses elite_defeats.
+    let questNotices = [];
+    if (won) {
+      const deltas = { raid_wins: 1 };
+      if (mobRow.mob_type === 'elite') deltas.elite_defeats = 1;
+      questNotices = await progressQuests(client, discordId, deltas);
+    }
+
     await client.query('COMMIT');
     return {
       won, credux, exp, shards,
       chestLabel: chestCol ? CHEST_LABELS[chestCol] : null,
       levelFrom: lvl.previousLevel, levelTo: lvl.newLevel, leveledUp: lvl.leveledUp,
+      questNotices,
     };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
@@ -210,6 +221,7 @@ async function execute(message) {
         mode: 'raid',
         sim,
         rewards,
+        notices: rewards.questNotices,
         onMessage: (msg) => pool.query(
           'UPDATE active_battles SET message_id = $2, channel_id = $3 WHERE discord_id = $1',
           [discordId, msg.id, msg.channel.id]

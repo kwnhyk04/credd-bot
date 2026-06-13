@@ -19,6 +19,8 @@ const {
 } = require('../../engine/statAssembly');
 const { runBattle } = require('../../engine/battleRender');
 const { spawnBoss, expireBoss, refreshLiveMessage } = require('../../engine/bossSystem');
+const questsCmd = require('../economy/quests');
+const dailyCmd = require('../economy/daily');
 
 const INT_MAX = 2147483647; // INTEGER column ceiling (shards/chests/relics)
 const MENTION_RE = /^<@!?\d+>$/;
@@ -473,6 +475,47 @@ async function devSpawnBoss(message, devId) {
   }
 }
 
+// ── crd dev quest  /  crd dev quest refresh <q1|q2|q3> ─────────────────────
+// Shows the dev's own quests; the refresh form bypasses the 2/day cap.
+async function devQuest(message, args, devId) {
+  const action = (args[1] || '').toLowerCase();
+  if (action === 'refresh') {
+    await logDev(pool, devId, 'quest_refresh', devId, `dev refresh ${(args[2] || '').toLowerCase()} (cap bypassed)`).catch(() => {});
+    return questsCmd.handleRefresh(message, args[2], { bypassMax: true });
+  }
+  return questsCmd.showQuests(message);
+}
+
+// ── crd dev daily @user ────────────────────────────────────────────────────
+// Grants a daily attendance claim to @user, bypassing the once-per-day lock.
+async function devDaily(message, devId) {
+  const target = message.mentions.users.first();
+  if (!target) return reply(message, 'Usage: `crd dev daily @user`');
+
+  const client = await pool.connect();
+  let result;
+  try {
+    await client.query('BEGIN');
+    result = await dailyCmd.claimDaily(client, target.id, { bypass: true });
+    if (result.status === 'ok') {
+      await logDev(client, devId, 'daily_grant', target.id,
+        `Day ${result.day}: +${result.credux} Credux, +${result.shards} shards, ${result.chestLabel} (attendance bypassed)`);
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev daily]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  } finally {
+    client.release();
+  }
+
+  if (result.status === 'missing') return reply(message, `<@${target.id}> is not registered.`);
+  return reply(message,
+    `✅ Daily granted to <@${target.id}> — Day ${result.day} (Month ${result.monthly}/30 · Overall ${result.overall}). ` +
+    `+${result.credux.toLocaleString()} Credux · +${result.shards} Belief Shards · +1 ${result.chestLabel}. (attendance bypassed)`);
+}
+
 const USAGE = [
   '**Dev commands:**',
   '`givecredux @user <amount>` · `givebeliefshards @user <amount>`',
@@ -481,6 +524,8 @@ const USAGE = [
   '`enhanceweapon <weapon_id> <+level>` · `enhancedeity @user <deity name> <+level>`',
   '`battle [mob name] [seed <n>]` — engine smoke test (no rewards)',
   '`setbosshp <boss name> <hp>` · `spawnboss` — boss smoke-test enablers',
+  '`quest` · `quest refresh <q1|q2|q3>` — view / refresh quests (cap bypassed)',
+  '`daily @user` — grant a daily claim (attendance bypassed)',
 ].join('\n');
 
 /** Dispatch — caller (commandHandler mw 'dev') has already verified superuser. */
@@ -503,6 +548,8 @@ async function execute(message, { args }) {
     case 'spawn':
       if ((args[1] || '').toLowerCase() === 'boss') return devSpawnBoss(message, devId);
       return reply(message, USAGE);
+    case 'quest':            return devQuest(message, args, devId);
+    case 'daily':            return devDaily(message, devId);
     default:                 return reply(message, USAGE);
   }
 }

@@ -103,7 +103,7 @@ async function prefetchIcons(sim) {
 /* ----------------------------------------------------------------------- */
 /* CANVAS: the two fighter cards. mirror=true flips fighter 2 (PvP).        */
 /* ----------------------------------------------------------------------- */
-const PANEL_W = 640, CARD_H = 118, PAD = 14;
+const PANEL_W = 640, CARD_H = 132, PAD = 14;
 const ICON = 14;        // weapon/deity icon edge, sized to the 12px text line
 
 function hpColor(p) {
@@ -203,15 +203,21 @@ function drawCard(ctx, f, state, y, { isEnemy, mirror, icons }) {
   ctx.fillText(`${state.hp} / ${state.maxHp}`, hpSide === 'left' ? L : Rr, ty);
   ty += 22;
 
-  // row 2: loadout with emoji icons (players) / active debuffs (mobs)
+  // row 2: loadout (players) — or the mob's passive skill (for transparency) on
+  // its own line, then active debuffs on the next line.
   if (f.weapon) {
     drawLoadout(ctx, f, icons, nameX, ty, nameSide);
+    ty += 16;
   } else {
-    ctx.font = `12px ${FONT}`; ctx.fillStyle = COLORS.dim; ctx.textAlign = nameSide;
+    ctx.textAlign = nameSide;
+    ctx.font = `12px ${FONT}`; ctx.fillStyle = COLORS.dim;
+    ctx.fillText(`Skill: ${f.skill || '—'}`, nameX, ty);
+    ty += 15;
     const tags = (state.debuffs || []).map((d) => d.tag).join(', ');
+    ctx.font = `12px ${FONT}`; ctx.fillStyle = COLORS.dim;
     ctx.fillText(`Debuffs: ${tags || 'None'}`, nameX, ty);
+    ty += 16;
   }
-  ty += 16;
 
   // hp bar (drains from the opposite side when mirrored)
   const bw = w - 32, bx = L, bh = 9, p = Math.max(0, state.hp / state.maxHp);
@@ -268,9 +274,10 @@ function renderBattlePanel(sim, snapIdx, { mirror = false, icons = null } = {}) 
  */
 async function renderRewardsPanel(sim, r) {
   const won = sim.winner === 'a';
-  const [mobImg, creduxImg, chestImg] = await Promise.all([
+  const [mobImg, creduxImg, expImg, chestImg] = await Promise.all([
     getEmojiImage(sim.b.name),
     won ? getEmojiImage('Credux Coin') : Promise.resolve(null),
+    getEmojiImage('Combat Exp'),
     won && r.chestLabel ? getEmojiImage(r.chestLabel) : Promise.resolve(null),
   ]);
 
@@ -314,7 +321,7 @@ async function renderRewardsPanel(sim, r) {
     icon(creduxImg, '◉', '#f0b232');
     text(` +${r.credux.toLocaleString()} Credux`);
     text('   ·   ', COLORS.dim);
-    glyph('✦', '#f0b232');
+    icon(expImg, '✦', '#f0b232');
     text(` +${r.exp.toLocaleString()} EXP`);
     if (r.shards > 0) {
       text('   ·   ', COLORS.dim);
@@ -327,7 +334,7 @@ async function renderRewardsPanel(sim, r) {
       text(` ${r.chestLabel} ×1`);
     }
   } else {
-    glyph('✦', '#f0b232');
+    icon(expImg, '✦', '#f0b232');
     text(` +${r.exp.toLocaleString()} EXP`);
   }
   ctx.font = `14px ${FONT}`;
@@ -427,8 +434,11 @@ function logEmbeds(sim) {
  *                                          battle message right after the first
  *                                          frame is sent (active_battles row
  *                                          message_id update). Errors swallowed.
+ * @param {string[]} [opts.notices]         completion lines (e.g. daily-quest grants)
+ *                                          shown as the message content on the FINAL
+ *                                          frame only. No-op when empty.
  */
-async function runBattle(channel, { mode, sim, rewards = null, onMessage = null }) {
+async function runBattle(channel, { mode, sim, rewards = null, onMessage = null, notices = [] }) {
   const mirror = mode === 'duel';
   const icons = await prefetchIcons(sim).catch(() => null);
 
@@ -447,11 +457,14 @@ async function runBattle(channel, { mode, sim, rewards = null, onMessage = null 
     }
   }
 
+  const noticeLine = notices.length ? notices.join('\n') : null;
+
   const frame = (i) => {
     const over = i >= sim.snapshots.length - 1;
     const base = battleEmbed(sim, i, { mode });
     const showRewards = over && resultEmbed;
     return {
+      content: over && noticeLine ? noticeLine : '',
       embeds: showRewards ? [base, resultEmbed] : [base],
       files: [
         new AttachmentBuilder(

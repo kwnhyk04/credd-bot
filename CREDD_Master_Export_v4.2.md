@@ -840,53 +840,53 @@ Fully removed for initial release. Planned as an end-game update.
 ### PH Mobs — Regular
 | Name | HP | ATK | DEF | CRIT | Skill |
 |---|---|---|---|---|---|
-| Black Duwende | 1,860 | 118 | 78 | 5% | Hex — 25% chance reduce player ATK -15% for 1 turn |
-| White Duwende | 1,820 | 125 | 72 | 5% | Daze — 20% chance reduce player CRIT -50% for 1 turn |
-| Amalanhig | 1,980 | 112 | 68 | 5% | Infectious Bite — 30% on hit: Rot 5% max HP/turn for 2 turns |
-| Amomongo | 1,840 | 130 | 65 | 5% | Rend — Every 3rd turn deals 150% ATK |
-| Bal-Bal | 1,800 | 118 | 78 | 5% | Carrion Sense — When player HP < 30%: ATK +20% |
-| Santelmo | 1,810 | 116 | 74 | 5% | Will-o-Wisp — 20% chance each turn: player skips next attack |
+| Black Duwende | 1,610 | 118 | 78 | 5% | Hex — 25% chance reduce player ATK -15% for 1 turn |
+| White Duwende | 1,570 | 125 | 72 | 5% | Daze — 20% chance reduce player CRIT -50% for 1 turn |
+| Amalanhig | 1,730 | 112 | 68 | 5% | Infectious Bite — 30% on hit: Rot 5% max HP/turn for 2 turns |
+| Amomongo | 1,590 | 130 | 65 | 5% | Rend — Every 3rd turn deals 150% ATK |
+| Bal-Bal | 1,550 | 118 | 78 | 5% | Carrion Sense — When player HP < 30%: ATK +20% |
+| Santelmo | 1,560 | 116 | 74 | 5% | Will-o-Wisp — 20% chance each turn: player skips next attack |
 
 ### PH Mobs — Elite
 | Name | HP | ATK | DEF | CRIT | Skill |
 |---|---|---|---|---|---|
-| Manananggal | 2,700 | 172 | 140 | 10% | Viscera Drain — Every 3 turns: drain 15% player max HP + heal self |
-| Aswang | 2,400 | 195 | 135 | 10% | Shape Shift — Every 4 turns: copy player current ATK for 2 turns |
-| Tikbalang | 2,340 | 188 | 142 | 10% | Disorientation — Every 3 turns: player ATK -20% for 1 turn |
-| Kapre | 2,800 | 170 | 138 | 10% | Smoke Cloud — Every 4 turns: player CRIT -30% and ATK -10% for 1 turn |
-| Sigbin | 2,300 | 168 | 158 | 10% | Shadow Step — 20% chance to evade any incoming attack |
-| Batibat | 2,780 | 174 | 136 | 10% | Sleep Paralysis — Every 4 turns: paralyze player 1 turn (guaranteed skip) |
+| Manananggal | 2,450 | 172 | 140 | 10% | Viscera Drain — Every 3 turns: drain 15% player max HP + heal self |
+| Aswang | 2,150 | 195 | 135 | 10% | Shape Shift — Every 4 turns: copy player current ATK for 2 turns |
+| Tikbalang | 2,090 | 188 | 142 | 10% | Disorientation — Every 3 turns: player ATK -20% for 1 turn |
+| Kapre | 2,550 | 170 | 138 | 10% | Smoke Cloud — Every 4 turns: player CRIT -30% and ATK -10% for 1 turn |
+| Sigbin | 2,050 | 168 | 158 | 10% | Shadow Step — 20% chance to evade any incoming attack |
+| Batibat | 2,530 | 174 | 136 | 10% | Sleep Paralysis — Every 4 turns: paralyze player 1 turn (guaranteed skip) |
 
 ### Norse Mobs — Regular
 | Name | HP | ATK | DEF | CRIT | Skill |
 |---|---|---|---|---|---|
-| Troll | 1,980 | 116 | 74 | 5% | Regeneration — Recovers 5% max HP at start of each turn |
-| Dwarf | 1,880 | 115 | 85 | 5% | Stone Skin — Every 4 turns: absorb next hit up to 20% max HP |
-| Dark Elf | 1,820 | 130 | 65 | 5% | Curse of Decay — 25% on hit: DEF -10% for 1 turn |
-| Light Elf | 1,860 | 118 | 77 | 5% | Radiant Strike — 20% chance: blind player (CRIT to 0% for 1 turn) |
+| Troll | 1,730 | 116 | 74 | 5% | Regeneration — Recovers 5% max HP at start of each turn |
+| Dwarf | 1,630 | 115 | 85 | 5% | Stone Skin — Every 4 turns: absorb next hit up to 20% max HP |
+| Dark Elf | 1,570 | 130 | 65 | 5% | Curse of Decay — 25% on hit: DEF -10% for 1 turn |
+| Light Elf | 1,610 | 118 | 77 | 5% | Radiant Strike — 20% chance: blind player (CRIT to 0% for 1 turn) |
 
 ### Norse Mobs — Elite
 | Name | HP | ATK | DEF | CRIT | Skill |
 |---|---|---|---|---|---|
-| Ratatoskr | 2,300 | 200 | 130 | 10% | Slander — Every 3 turns: player ATK -20% for 1 turn |
-| Fossegrim | 2,500 | 178 | 144 | 10% | Enchanting Melody — Every 4 turns: player skips next turn |
-| Nokken | 2,400 | 192 | 138 | 10% | Luring Form — Every 3 turns: player DEF -20% for 1 turn |
-| Valkyrie | 2,460 | 198 | 148 | 10% | Battle Judgment — Every 4 turns: next attack deals 200% ATK |
+| Ratatoskr | 2,050 | 200 | 130 | 10% | Slander — Every 3 turns: player ATK -20% for 1 turn |
+| Fossegrim | 2,250 | 178 | 144 | 10% | Enchanting Melody — Every 4 turns: player skips next turn |
+| Nokken | 2,150 | 192 | 138 | 10% | Luring Form — Every 3 turns: player DEF -20% for 1 turn |
+| Valkyrie | 2,210 | 198 | 148 | 10% | Battle Judgment — Every 4 turns: next attack deals 200% ATK |
 
 ### Greek Mobs — Regular
 | Name | HP | ATK | DEF | CRIT | Skill |
 |---|---|---|---|---|---|
-| Satyr | 1,790 | 122 | 78 | 5% | Wild Revelry — 25% chance each turn: player ATK -15% for 1 turn |
-| Harpy | 1,720 | 132 | 66 | 5% | Swooping Talons — Every 3rd turn: 150% ATK + DEF -10% for 1 turn |
-| Skeleton Warrior | 1,860 | 118 | 85 | 5% | Undying Resolve — When HP < 30%: DEF +25% for remainder of battle |
-| Lamia | 1,750 | 128 | 72 | 5% | Serpent Bite — 30% on hit: flat Bleed ATK×0.35/turn for 2 turns |
+| Satyr | 1,540 | 122 | 78 | 5% | Wild Revelry — 25% chance each turn: player ATK -15% for 1 turn |
+| Harpy | 1,470 | 132 | 66 | 5% | Swooping Talons — Every 3rd turn: 150% ATK + DEF -10% for 1 turn |
+| Skeleton Warrior | 1,610 | 118 | 85 | 5% | Undying Resolve — When HP < 30%: DEF +25% for remainder of battle |
+| Lamia | 1,500 | 128 | 72 | 5% | Serpent Bite — 30% on hit: flat Bleed ATK×0.35/turn for 2 turns |
 
 ### Greek Mobs — Elite
 | Name | HP | ATK | DEF | CRIT | Skill |
 |---|---|---|---|---|---|
-| Minotaur | 2,400 | 198 | 138 | 10% | Labyrinth Charge — Every 3 turns: 180% ATK. If player HP > 70%: 220% ATK |
-| Cyclops | 2,800 | 172 | 155 | 10% | Boulder Throw — Every 4 turns: 160% ATK + stun 1 turn |
-| Chimera | 2,460 | 192 | 142 | 10% | Tri-Form Assault — Rotates: Lion Claw (140% ATK) → Goat Ram (DEF -20%) → Serpent Bite (Burn ATK×0.30 for 2 turns) |
+| Minotaur | 2,150 | 198 | 138 | 10% | Labyrinth Charge — Every 3 turns: 180% ATK. If player HP > 70%: 220% ATK |
+| Cyclops | 2,550 | 172 | 155 | 10% | Boulder Throw — Every 4 turns: 160% ATK + stun 1 turn |
+| Chimera | 2,210 | 192 | 142 | 10% | Tri-Form Assault — Rotates: Lion Claw (140% ATK) → Goat Ram (DEF -20%) → Serpent Bite (Burn ATK×0.30 for 2 turns) |
 
 ---
 
@@ -971,7 +971,7 @@ NOTE: Huginn & Muninn removed from boss lineup.
 | Reward | Amount |
 |---|---|
 | Credux | 100,000 |
-| EXP (Combat) | 100,000 |
+| EXP (Combat) | 20,000 |
 | Boss Treasure Chest | 1× |
 | Belief Shards (participation) | 1,000 |
 
@@ -992,7 +992,7 @@ Condition: Boss must be killed. Player must have personally attacked that boss d
 | Common Mob loss | 50 |
 | Elite Mob win | 300–500 |
 | Elite Mob loss | 150 |
-| Boss (on defeat) | 100,000 |
+| Boss (on defeat) | 20,000 |
 | Duel | 0 |
 
 ### Combat EXP Requirements per Level
@@ -1156,7 +1156,8 @@ Condition: Boss must be killed. Player must have personally attacked that boss d
 ## 20. DAILY QUESTS
 
 ### Command
-- `crd quests` — view progress and rewards embed
+- `crd quest` / `crd quests` — view progress and rewards embed (3 quests labeled Q1/Q2/Q3)
+- `crd quest refresh <Q1|Q2|Q3>` — reroll one quest line; **2 refreshes per player per day** (PHT)
 - Resets at midnight PHT alongside daily
 - Independent from daily streak — purely bonus rewards, no penalty for incomplete
 
@@ -1165,6 +1166,10 @@ Condition: Boss must be killed. Player must have personally attacked that boss d
 - No duplicate quest types in same day
 - Counts randomized within range on rollover
 - Progress tracked automatically from game actions
+- [v4.2] Refresh: a refresh rerolls one line into a fresh quest of a type not currently
+  active and resets its progress. Allowance is 2/day (PHT), tracked on
+  `users.quest_refreshes_today` / `last_quest_refresh_date`. Dev `crd dev quest refresh`
+  bypasses the cap.
 
 ### Quest Pool & Count Ranges
 | Quest | Min | Max |
@@ -1896,7 +1901,7 @@ NOTE: Boss announcement channel now in `server_config.boss_announcement_channel_
 ## 31. SERVER BOSS & WORLD BOSS
 
 ### Server Boss
-- All participants on defeat: 100,000 EXP + 100,000 Credux + 1 Boss Treasure Chest
+- All participants on defeat: 20,000 EXP + 100,000 Credux + 1 Boss Treasure Chest
 - Participation reward: 1,000 Belief Shards (= 10 rolls)
 - No top-damage reward — every participant who attacked this spawn gets the same rewards on kill.
 

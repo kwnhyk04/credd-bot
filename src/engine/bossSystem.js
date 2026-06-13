@@ -52,7 +52,7 @@ const { emojiForDisplay } = require('../utils/emojis');
 const RESPAWN_COOLDOWN = '15 minutes';   // §16: spawns every 15 min after dead/escaped
 const BOSS_DURATION = '2 hours';         // v4.1: was 1h (schema comment is stale)
 const TOP_N = 15;
-const REWARD = { credux: 100_000, exp: 100_000, shards: 1_000 }; // §16 participation (+1 Boss Treasure Chest)
+const REWARD = { credux: 100_000, exp: 20_000, shards: 1_000 }; // §16 participation (+1 Boss Treasure Chest)
 const BOSS_ASSET_DIR = path.join(__dirname, '..', '..', 'assets', 'monsters', 'boss');
 
 const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
@@ -328,17 +328,19 @@ async function buildBossMessage({ state, mobRow, attackers, attackerCount, isDev
       .addTextDisplayComponents((td) => td.setContent(`-# ${lore}`));
   }
 
-  // participation rewards (§16 amounts — Credux 100k flagged & kept as authored)
+  // participation rewards (§16 amounts — Credux 100k authored; EXP 20k per v4.2 revision)
   const creduxIcon = emojiForDisplay('Credux Coin', '💰');
+  const expIcon = emojiForDisplay('Combat Exp', '✨');
   const chestIcon = emojiForDisplay('Boss Treasure Chest', '🗝️');
+  const shardIcon = emojiForDisplay('Belief Shards', '🔮');
   container
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(
       '**Participation rewards if defeated:**\n' +
-      `${creduxIcon} Credux ×100,000\n` +
-      '✨ Combat EXP ×100,000\n' +
+      `${creduxIcon} Credux ×${REWARD.credux.toLocaleString()}\n` +
+      `${expIcon} Combat EXP ×${REWARD.exp.toLocaleString()}\n` +
       `${chestIcon} Boss Treasure Chest ×1\n` +
-      '🔮 Belief Shards ×1,000'
+      `${shardIcon} Belief Shards ×${REWARD.shards.toLocaleString()}`
     ));
 
   // damage leaderboard (the HP pool lives on the status card now)

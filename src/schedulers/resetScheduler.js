@@ -2,6 +2,7 @@
 
 const cron = require('node-cron');
 const pool = require('../db/pool');
+const { rollQuestsIfMissing } = require('../utils/questProgress');
 
 /**
  * Midnight PHT (UTC+8) = 16:00 UTC daily.
@@ -29,6 +30,13 @@ function startResetScheduler() {
         WHERE last_bestow_received IS NOT NULL
       `);
 
+      // Reset daily-quest refresh allowance (lazy stale-date check also covers this)
+      await client.query(`
+        UPDATE users
+        SET quest_refreshes_today = 0
+        WHERE quest_refreshes_today <> 0
+      `);
+
       // Reset reputation EXP daily cap for all users
       await client.query(`
         UPDATE user_character
@@ -52,12 +60,50 @@ function startResetScheduler() {
     } finally {
       client.release();
     }
+
+    // Roll fresh daily quests for every player (per-user short transactions so one
+    // failure can't roll back the rest; the lazy on-demand roll is the universal
+    // backstop for anyone missed here, and ON CONFLICT makes the two paths idempotent).
+    await rollDailyQuestsForAll();
   }, {
     timezone: 'Asia/Manila',
     scheduled: true,
   });
 
   console.log('[resetScheduler] Midnight PHT reset scheduler started.');
+}
+
+/**
+ * Roll today's daily quests for every player with a character. Each user is rolled in
+ * its own short transaction (rollQuestsIfMissing is no-op when quests already exist),
+ * so a single failure never aborts the batch.
+ */
+async function rollDailyQuestsForAll() {
+  let ids = [];
+  try {
+    const { rows } = await pool.query('SELECT discord_id FROM user_character');
+    ids = rows.map((r) => r.discord_id);
+  } catch (err) {
+    console.error('[resetScheduler] quest-roll roster fetch failed:', err.message);
+    return;
+  }
+
+  let rolled = 0;
+  for (const discordId of ids) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const did = await rollQuestsIfMissing(client, discordId);
+      await client.query('COMMIT');
+      if (did) rolled += 1;
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      console.error(`[resetScheduler] quest roll failed for ${discordId}:`, err.message);
+    } finally {
+      client.release();
+    }
+  }
+  console.log(`[resetScheduler] Daily quests rolled for ${rolled}/${ids.length} players.`);
 }
 
 module.exports = { startResetScheduler };

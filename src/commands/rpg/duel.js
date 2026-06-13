@@ -10,9 +10,10 @@
  * 50/50 first-attack roll); fighter 2's card renders MIRRORED.
  *
  * Duels run IN-MEMORY (§35.0 — no active_battles row). No EXP, no Credux, no
- * drops — purely friendly. The only writes: pvp_wins/pvp_losses counters and
- * the immutable pvp_logs row (challenger/opponent damage from sim.totals).
- * Loadouts are read at ACCEPT time, not challenge time.
+ * drops from the duel itself — purely friendly. Writes: pvp_wins/pvp_losses
+ * counters, the immutable pvp_logs row (challenger/opponent damage from
+ * sim.totals), and daily-quest progress (duel_wins / duel_challenges, §20 — a
+ * completed quest still pays its own reward). Loadouts are read at ACCEPT time.
  */
 
 const {
@@ -23,6 +24,7 @@ const { resolveBattle } = require('../../engine/battleEngine');
 const { buildPlayerFighter } = require('../../engine/statAssembly');
 const { runBattle } = require('../../engine/battleRender');
 const { isBanned } = require('../../handlers/middleware');
+const { progressQuests } = require('../../utils/questProgress');
 
 const CHALLENGE_WINDOW_MS = 60_000;
 
@@ -39,8 +41,9 @@ async function inLiveBattle(discordId) {
   return res.rows.length > 0;
 }
 
-/** Counters + immutable log in one transaction. Rows locked in sorted-id order
- *  so two crossing duels can never deadlock. */
+/** Counters + immutable log + daily-quest progress in one transaction. Rows locked in
+ *  sorted-id order (users_bag → user_character, bag → character → quests order) so two
+ *  crossing duels can never deadlock. Returns completion-notice lines (may be empty). */
 async function commitDuelResult(challengerId, opponentId, sim) {
   const winnerId = sim.winner === 'a' ? challengerId : opponentId;
   const loserId = sim.winner === 'a' ? opponentId : challengerId;
@@ -48,6 +51,11 @@ async function commitDuelResult(challengerId, opponentId, sim) {
   try {
     await client.query('BEGIN');
     const lockOrder = [challengerId, opponentId].sort();
+    // bag first (quest auto-grant credits it), then character — global lock order
+    await client.query(
+      'SELECT discord_id FROM users_bag WHERE discord_id = ANY($1) ORDER BY discord_id FOR UPDATE',
+      [lockOrder]
+    );
     await client.query(
       'SELECT discord_id FROM user_character WHERE discord_id = ANY($1) ORDER BY discord_id FOR UPDATE',
       [lockOrder]
@@ -56,7 +64,6 @@ async function commitDuelResult(challengerId, opponentId, sim) {
       'UPDATE user_character SET pvp_wins = pvp_wins + 1 WHERE discord_id = $1',
       [winnerId]
     );
-    // TODO Phase-rep: duel_wins daily-quest hook (winner)
     await client.query(
       'UPDATE user_character SET pvp_losses = pvp_losses + 1 WHERE discord_id = $1',
       [loserId]
@@ -70,7 +77,26 @@ async function commitDuelResult(challengerId, opponentId, sim) {
         Math.floor(sim.totals.damageDealtToPlayer),  // damage the opponent dealt
       ]
     );
+
+    // daily-quest progress (§20): challenger gets duel_challenges (accepted + fought),
+    // the winner gets duel_wins. Merge when the challenger is the winner; progress per
+    // user in sorted-id order (bag rows already locked above).
+    // TODO Phase-rep: duel reputation award (§18) stays deferred.
+    const deltaByUser = new Map();
+    const bump = (id, type) => {
+      const d = deltaByUser.get(id) || {};
+      d[type] = (d[type] || 0) + 1;
+      deltaByUser.set(id, d);
+    };
+    bump(challengerId, 'duel_challenges');
+    bump(winnerId, 'duel_wins');
+    const notices = [];
+    for (const id of [...deltaByUser.keys()].sort()) {
+      notices.push(...await progressQuests(client, id, deltaByUser.get(id)));
+    }
+
     await client.query('COMMIT');
+    return notices;
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     throw err;
@@ -161,9 +187,8 @@ async function execute(message) {
           });
           return;
         }
-        // TODO Phase-rep: duel_challenges daily-quest hook (accepted duel vs distinct opponent)
-
-        // accept → battle starts immediately (no pre-battle overview, §14)
+        // accept → battle starts immediately (no pre-battle overview, §14). The
+        // duel_challenges / duel_wins quest progress is committed in commitDuelResult.
         await i.update({
           embeds: [EmbedBuilder.from(embed).setColor(0x43d675)
             .setDescription(`⚔️ **${target.username}** accepts! The duel begins...`)],
@@ -180,8 +205,8 @@ async function execute(message) {
         }
 
         const sim = resolveBattle(p1, p2, { mode: 'duel', seed: Date.now() >>> 0 });
-        await commitDuelResult(challenger.id, target.id, sim);
-        await runBattle(challengeMsg.channel, { mode: 'duel', sim });
+        const notices = await commitDuelResult(challenger.id, target.id, sim);
+        await runBattle(challengeMsg.channel, { mode: 'duel', sim, notices });
       } catch (err) {
         console.error('[duel]', err);
         // commit precedes render: a failure before COMMIT changed nothing; a

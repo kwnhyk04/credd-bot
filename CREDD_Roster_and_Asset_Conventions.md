@@ -85,14 +85,14 @@ INSERT INTO mob_roster
    hp_per_level, atk_per_level, def_per_level,
    skill_key, skill_name, skill_description, immunity_tags, special_flags)
 VALUES
-  -- regular (example uses pre-rebalance stats; live values per the patched §15/§35.6)
-  ('Black Duwende', 'PH', 'regular', 580, 38, 28, 5.0,
-   20, 8, 5,
+  -- regular: live v4.2 values (authoritative mob_roster export; per-level 40/15/10)
+  ('Black Duwende', 'PH', 'regular', 1610, 118, 78, 5.0,
+   40, 15, 10,
    'dwende_black_hex', 'Hex', '25% chance to reduce player ATK by 15% for 1 turn.',
    '[]'::jsonb, '{}'::jsonb),
-  -- elite: scaling 38 / 10 / 8
-  ('Manananggal', 'PH', 'elite', 1200, 72, 40, 10.0,
-   38, 10, 8,
+  -- elite: live v4.2 values (per-level 75/30/16)
+  ('Manananggal', 'PH', 'elite', 2450, 172, 140, 10.0,
+   75, 30, 16,
    'manananggal_viscera_drain', 'Viscera Drain',
    'Every 3 rounds: drains 15% of the player''s max HP and heals itself.',
    '[]'::jsonb, '{}'::jsonb);

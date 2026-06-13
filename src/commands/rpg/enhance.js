@@ -12,6 +12,7 @@ const {
   nextAttempt,
 } = require('../../engine/enhancement');
 const { emojiForDisplay, emoji } = require('../../utils/emojis');
+const { progressQuests } = require('../../utils/questProgress');
 
 // TODO Phase-rep: grant +50 reputation on enhance (§18), 5,000/day cap — wire when awardReputation
 //   is extracted to a shared util (do not duplicate cap/rollover logic)
@@ -153,6 +154,13 @@ function buildResolvedPayload(w, weaponId, discordId, result) {
 
   const enhanceEnabled = addNextSection(container, w);
 
+  // daily-quest completion notices (one -# line each), appended below the next-level block
+  if (result.questNotices && result.questNotices.length) {
+    container
+      .addSeparatorComponents(sep)
+      .addTextDisplayComponents((td) => td.setContent(result.questNotices.map((n) => `-# ${n}`).join('\n')));
+  }
+
   container
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(footerCredux(w.credux)));
@@ -263,6 +271,14 @@ async function attemptEnhance(client, discordId, weaponId) {
     [discordId, w.tier, creduxBefore, creduxAfter]
   );
 
+  // daily-quest progress (§20) — every attempt (success or fail) counts: credux_spent
+  // by the Credux cost (stored in thousands; cost is always a clean ×1,000) and
+  // weapon_enhancements by one. users_bag lock already held → bag → quests order.
+  const questNotices = await progressQuests(client, discordId, {
+    credux_spent: next.cost / 1000,
+    weapon_enhancements: 1,
+  });
+
   await client.query('COMMIT');
   return {
     status: 'done',
@@ -271,6 +287,7 @@ async function attemptEnhance(client, discordId, weaponId) {
     targetLevel: next.targetLevel,
     cost: next.cost,
     newEnhancement,
+    questNotices,
   };
 }
 

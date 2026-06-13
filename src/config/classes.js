@@ -12,8 +12,8 @@
  * §11's "exactly 40%" is flavor text. Class crit display-caps at 40.
  */
 
-// All classes, Level 1 (§11)
-const BASE_STATS = { hp: 100, atk: 10, def: 10, crit: 5.0 };
+// All classes, Level 1 (§11). [v4.2] base HP 100 → 500 (per-level growth unchanged).
+const BASE_STATS = { hp: 500, atk: 10, def: 10, crit: 5.0 };
 
 // Display cap for class CRIT (§35.2: class crit caps at 40%).
 const CLASS_CRIT_CAP = 40.0;
