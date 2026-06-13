@@ -752,8 +752,8 @@ Fully removed for initial release. Planned as an end-game update.
 
 ### Embed Layout
 - Player section: TOP — Name + Class, Weapon | Blessing: [Name] ([Deity]), HP bar (green→orange→red), HP text, ATK · DEF · CRIT
-- Enemy section: BOTTOM — Name + Type, HP bar, HP text, Stats, Active debuffs
-- Footer: Exp gain, Credux gain, Chest gain (if Win)
+- Enemy section: BOTTOM — Name + Type, [v4.2] passive **Skill** line (for transparency) then **Debuffs** line, HP bar, HP text, Stats
+- Footer: result/rewards rendered as a canvas strip below the battle render (one line each); Combat EXP uses the `combat_exp` icon
 
 ### Battle Log Details
 - Every action logged per turn: damage, crits, passive procs, debuff application/expiry
@@ -1433,7 +1433,8 @@ WHERE uw.weapon_roster_id = wr.weapon_roster_id
 | `crd bestow @user [amount]` | — | Give Credux to another player |
 | `crd cred` | `crd g` | View Credux + Belief Shards balance |
 | `crd daily` | — | Claim daily attendance reward |
-| `crd quests` | — | View daily quests and progress |
+| `crd quest` | `crd quests` | View daily quests (Q1/Q2/Q3) and progress |
+| `crd quest refresh [Q1\|Q2\|Q3]` | — | Reroll one quest line (2 refreshes/day, PHT) |
 | `crd help` | — | View command categories |
 | `crd coin toss [amount] h/t` | `crd ct` | Casino: Coin toss |
 | `crd dice roll [amount] o/e` | `crd dr` | Casino: Dice roll |
@@ -1464,6 +1465,12 @@ WHERE uw.weapon_roster_id = wr.weapon_roster_id
 | `crd dev resetplayer @user` | Full reset (logged with snapshot) |
 | `crd dev enhanceweapon [weapon ID] [+level]` | Enhance weapon to level (no cost, globally unique ID) |
 | `crd dev enhancedeity @user [deity name] [+level]` | Enhance deity to level (bypasses essence cost) |
+| `crd dev battle [mob name] [seed n]` | Engine smoke test (no rewards) |
+| `crd dev setbosshp [boss name] [hp]` | Set the live boss's HP (smoke test) |
+| `crd dev spawnboss` | Force-spawn a boss (15-min cooldown bypassed; test boss takes multiple attacks) |
+| `crd dev quest` | View own quests |
+| `crd dev quest refresh [Q1\|Q2\|Q3]` | Reroll a quest line (2/day cap bypassed) |
+| `crd dev daily @user` | Grant a daily claim (once-per-day attendance bypassed) |
 
 ---
 
@@ -1855,8 +1862,12 @@ NOTE: Boss announcement channel now in `server_config.boss_announcement_channel_
 ### Folder Structure
 ```
 /assets
-  /deities      → bathala.png, odin.png, athena.png, ...
+  /deities      → bathala.png, odin.png, athena.png, ...   [v4.2: migrated .jpg → .png]
   /weapons      → freyrs_arrow.png, glacial_bow.png, ...
+  /items        → bag.png, belief_shards.png, combat_exp.png,
+                  general_chest.png, general_essence.png, general_relic.png, ...
+  /quest icons  → quest_icon.png, quest_raid.png, quest_spend.png,
+                  quest_enhance.png, quest_duel.png, attendance.png
 ```
 
 ### Asset Status
@@ -1870,6 +1881,10 @@ NOTE: Boss announcement channel now in `server_config.boss_announcement_channel_
 | sacred_relic.png | Aged ochre ancient tablet | ✅ Ready |
 | supreme_relic.png | Fractured divine shard (rainbow) | ✅ Ready |
 | credux_coin.png | Gold coin with ornate border/flame | ✅ Ready |
+| combat_exp.png | Combat EXP icon (raid + boss reward strips) | ✅ Ready |
+| belief_shards.png · bag.png | Bot-unique bag/currency icons | ✅ Ready |
+| general_chest/essence/relic.png | Bot-unique generic bag icons | ✅ Ready |
+| quest icons (raid/spend/enhance/duel + attendance) | Per-type quest + daily-attendance art | ✅ Ready |
 | Deity gacha card flip frames | 4 tier color variants × card states | ✅ Ready |
 | Chest opening animation frames | 4 frames × 5 tiers = 20 PNGs | ✅ Ready |
 | Relic opening animation frames | Sacred: 3 frames · Supreme: 3 frames | ✅ Ready |

@@ -152,9 +152,14 @@ DB stores filenames only (roster art). Static UI/animation assets are referenced
       credux_coin.png
       sacred_relic.png
       supreme_relic.png
+      belief_shards.png  combat_exp.png  bag.png        ← bot-unique currency/UI icons
+      general_chest.png  general_essence.png  general_relic.png  ← generic bag icons
       /chests/              ← static chest icons (bag display)
           silver_chest.png  gold_chest.png  boss_treasure_chest.png
           boss_golden_chest.png  supreme_chest.png
+  "/quest icons/"          ← per-type quest + daily-attendance art (NOTE: space in dir name)
+      quest_icon.png  quest_raid.png  quest_spend.png  quest_enhance.png  quest_duel.png
+      attendance.png
   /animations/
       /gacha/               ← deity card-flip (4 tier colors + flip states)
           card_back.png
