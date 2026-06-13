@@ -82,25 +82,25 @@ function buildBagOverview(user, data) {
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
     // ── Header (real mention; reply sets allowedMentions parse: [] — no ping) ──
-    .addTextDisplayComponents((td) => td.setContent(`## 🎒 <@${user.id}>'s Bag`))
+    .addTextDisplayComponents((td) => td.setContent(`## ${emoji('bag')} <@${user.id}>'s Bag`))
     .addSeparatorComponents(sep)
-    // ── Currencies ──
+    // ── Currencies (no dedicated "general" currency icon → use the Credux coin) ──
     .addTextDisplayComponents((td) =>
       td.setContent(
-        `**🪙 Currencies**\n\n` +
+        `**${emoji('credux_coin')} Currencies**\n\n` +
         `${emoji('credux_coin')} Credux: **${(data.credux ?? 0).toLocaleString()}** ・ ` +
-        `${BELIEF_SHARDS_ICON} Belief Shards: **${(data.beliefShards ?? 0).toLocaleString()}**`
+        `${emoji('belief_shards')} Belief Shards: **${(data.beliefShards ?? 0).toLocaleString()}**`
       )
     )
     .addSeparatorComponents(sep)
     // ── Chests ──
-    .addTextDisplayComponents((td) => td.setContent(`**🧰 Chests**\n\n${chestLines}`))
+    .addTextDisplayComponents((td) => td.setContent(`**${emoji('general_chest')} Chests**\n\n${chestLines}`))
     .addSeparatorComponents(sep)
     // ── Essence ──
-    .addTextDisplayComponents((td) => td.setContent(`**🔮 Essence**\n\n${essenceLines}`))
+    .addTextDisplayComponents((td) => td.setContent(`**${emoji('general_essence')} Essence**\n\n${essenceLines}`))
     .addSeparatorComponents(sep)
     // ── Relics ──
-    .addTextDisplayComponents((td) => td.setContent(`**🏺 Relics**\n\n${relicLine}`))
+    .addTextDisplayComponents((td) => td.setContent(`**${emoji('general_relic')} Relics**\n\n${relicLine}`))
     .addSeparatorComponents(sep)
     // ── Footer: help only ──
     .addTextDisplayComponents((td) =>

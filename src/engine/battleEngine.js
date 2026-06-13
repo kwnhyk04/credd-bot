@@ -45,10 +45,11 @@
  *     duel → every round   raid → odd rounds (1,3,5,…)   boss → every 3rd round
  *
  * MAGE OVERCHARGE ([v4.2], §11/§13.1): the charge accumulator is gone. On every
- *   3rd round of the battle clock (rounds 3,6,9,…) the Mage's MAIN hit gains a flat
- *   +200% ATK rider AND the entire attack's crit is suppressed (pre-roll latch voided,
- *   nextAttackAutoCrit ignored). Rider hits in the same action (Labrys 2nd, Glacial Bow
- *   extra) are NOT the overcharge attack — they keep fresh crit rolls and get no rider.
+ *   3rd round of the battle clock (rounds 3,6,9,…) the Mage's MAIN hit gains +200% ATK
+ *   (×3, applied pre-mitigation so DEF still reduces it) AND the entire attack's crit is
+ *   suppressed (pre-roll latch voided, nextAttackAutoCrit ignored). Rider hits in the
+ *   same action (Labrys 2nd, Glacial Bow extra) are NOT the overcharge attack — they keep
+ *   fresh crit rolls and get no bonus.
  *   Skip-CC on a multiple of 3 → the action never runs → that overcharge is simply lost
  *   (no carry-over); the next fires on the next multiple of 3.
  *
@@ -56,9 +57,9 @@
  *   base = effATK × (1 − effDEF/(effDEF+200)) × variance(0.90–1.10)
  *   + riders (bonusDamage / enemy_bonus_damage — first hit of the action only, R4)
  *   × critMult on crit (2.0; 2.3 Katana; + bonus_crit_dmg_pct/100)
+ *   Mage Overcharge: main hit every 3rd round scales ATK ×3 (+200%) BEFORE mitigation
+ *     and cannot crit (§13.1) — lands ~3× a normal hit, not a raw flat spike
  *   × (1 + bonus_dmg_pct/100)  × 2 if nextAttackDouble
- *   + Mage Overcharge flat rider on the main hit every 3rd round (2.0 × effATK — the
- *     whole hit cannot crit; rider is flat, never multiplied by crit)
  *   → floor → defender stack (R3) → apply → death check (§35.3 first-to-0, R5)
  *
  * DEFENDER STACK (R3, fixed order):
@@ -88,7 +89,7 @@ const KATANA_CRIT_MULT = 2.3;
 const ARCHER_PIERCE = 0.25;
 const KNIGHT_DR = 0.80;
 const OVERCHARGE_EVERY = 3;       // [v4.2] fires on rounds 3, 6, 9, …
-const OVERCHARGE_RIDER = 2.0;     // +200% ATK flat on the main hit; whole attack cannot crit
+const OVERCHARGE_RIDER = 2.0;     // +200% ATK (×3 total) on the main hit, pre-mitigation; cannot crit
 
 const SKIP_TAGS = ['stun', 'paralyze', 'freeze', 'petrify', 'charm', 'confuse', 'miss'];
 const DOT_TAGS = ['bleed', 'burn', 'hp_pct_dot'];
@@ -386,10 +387,12 @@ function resolveBattle(a, b, opts = {}) {
 
   // ── player attack action ───────────────────────────────────────────────────
   const playerAttack = (S, O) => {
-    // [v4.2] Mage Overcharge: on every 3rd round the MAIN hit gains a flat +200% ATK
-    // rider AND the entire attack's crit is suppressed (pre-roll latch & nextAttackAutoCrit
-    // both voided). Only the main hit qualifies — rider hits later in the same action
-    // (Labrys 2nd, Glacial Bow extra) keep their own crit rolls and get NO rider.
+    // [v4.2] Mage Overcharge: on every 3rd round the MAIN hit gains +200% ATK AND the
+    // entire attack's crit is suppressed (pre-roll latch & nextAttackAutoCrit both
+    // voided). The +200% applies to ATK *before* DEF mitigation (so it lands around 3× a
+    // normal hit, NOT a raw unmitigated spike). Only the main hit qualifies — rider hits
+    // later in the same action (Labrys 2nd, Glacial Bow extra) keep their own crit rolls
+    // and get NO overcharge bonus.
     const overchargeRound = S.classPassive === 'overcharge' && shared.round % OVERCHARGE_EVERY === 0;
 
     const doHit = ({ atkScale, mainHit, critKnown }) => {
@@ -399,7 +402,10 @@ function resolveBattle(a, b, opts = {}) {
       if (critKnown != null) crit = critKnown;
       else crit = rng() * 100 < effCritChance(S); // secondary hits roll fresh
       const variance = 0.9 + rng() * 0.2;
-      let dmg = mitigated(effAtk(S) * atkScale, def) * variance;
+      // overcharge scales ATK pre-mitigation (1 + 2.0 = ×3); never crits (§13.1)
+      const overchargeFired = mainHit && overchargeRound;
+      const ocScale = overchargeFired ? (1 + OVERCHARGE_RIDER) : 1;
+      let dmg = mitigated(effAtk(S) * atkScale * ocScale, def) * variance;
       if (mainHit) {
         dmg += S.scratch.bonusDamage;             // riders ride the first hit only
         S.scratch.bonusDamage = 0;
@@ -411,8 +417,6 @@ function resolveBattle(a, b, opts = {}) {
       }
       dmg *= 1 + S.bonusDmgPct / 100;             // Supreme +50% flat / Legendary +25%
       if (mainHit && S.scratch.nextAttackDouble) dmg *= 2;
-      const overchargeFired = mainHit && overchargeRound;
-      if (overchargeFired) dmg += OVERCHARGE_RIDER * effAtk(S); // flat, never crit (§13.1)
       dmg = Math.max(0, Math.floor(dmg));
 
       const res = applyHitToDefender(S, O, dmg, { crit });
@@ -749,8 +753,9 @@ function resolveBattle(a, b, opts = {}) {
     level: side.in.level,
     weapon: side.in.weaponName || null,
     deity: side.in.deityName || null,
-    // mob/boss passive skill name for the render (null for players / 'none' skills)
+    // mob/boss passive skill name + description for the render (null for players)
     skill: side.kind === 'player' ? null : (side.in.skillName || null),
+    skillDesc: side.kind === 'player' ? null : (side.in.skillDescription || null),
     atk: side.atk, def: side.def, crit: side.crit,
     hp: side.hp, maxHp: side.maxHp,
   });

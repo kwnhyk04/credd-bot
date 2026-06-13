@@ -61,10 +61,18 @@ const BAR_EMPTY = '#3A3C43';
 const DONE_COLOR = '#43d675';
 const PROG_COLOR = '#f0b232';
 
-// Typography
-const NAME_FONT = `bold 16px "${FONT_FAMILY}"`;
-const SUB_FONT = `14px "${FONT_FAMILY}"`;
-const STATUS_FONT = `15px "${FONT_FAMILY}"`;
+// Typography (kept compact so long quest names don't collide with the status label)
+const NAME_FONT = `bold 14px "${FONT_FAMILY}"`;
+const SUB_FONT = `12px "${FONT_FAMILY}"`;
+const STATUS_FONT = `12px "${FONT_FAMILY}"`;
+
+/** Trim text with an ellipsis so it fits within maxW at the current ctx.font. */
+function fitText(ctx, text, maxW) {
+  if (maxW <= 0 || ctx.measureText(text).width <= maxW) return text;
+  let t = text;
+  while (t.length > 1 && ctx.measureText(`${t}…`).width > maxW) t = t.slice(0, -1);
+  return `${t}…`;
+}
 
 function roundRectPath(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -122,21 +130,25 @@ async function renderQuestRowsImage(quests) {
     const ti = typeIcons[i];
     if (ti) ctx.drawImage(ti, iconX, y + (ROW_H - TYPE_ICON) / 2, TYPE_ICON, TYPE_ICON);
 
-    // Line 1: "Q# · name" (left) + status glyph (right)
+    // Line 1: "Q#  name" (left, truncated to clear the status) + status (right)
     ctx.textBaseline = 'alphabetic';
+    const statusText = q.completed ? '✓ Done' : '↻ In progress';
+    ctx.font = STATUS_FONT;
+    const statusW = ctx.measureText(statusText).width;
+
     ctx.textAlign = 'left';
     ctx.font = NAME_FONT;
     ctx.fillStyle = PROG_COLOR;
     const label = `Q${i + 1}`;
-    ctx.fillText(label, textX, y + 24);
-    const lw = ctx.measureText(label).width;
+    ctx.fillText(label, textX, y + 23);
+    const nameStart = textX + ctx.measureText(label).width + 8;
     ctx.fillStyle = NAME_COLOR;
-    ctx.fillText(`  ${q.name}`, textX + lw, y + 24);
+    ctx.fillText(fitText(ctx, q.name, innerR - statusW - 14 - nameStart), nameStart, y + 23);
 
     ctx.textAlign = 'right';
     ctx.font = STATUS_FONT;
     ctx.fillStyle = q.completed ? DONE_COLOR : PROG_COLOR;
-    ctx.fillText(q.completed ? '✓ Done' : '↻ In progress', innerR, y + 24);
+    ctx.fillText(statusText, innerR, y + 23);
 
     // Line 2: progress bar + X/Y, then reward icons at the right
     const ratio = q.target > 0 ? Math.min(1, q.current / q.target) : 0;

@@ -112,6 +112,14 @@ function hpColor(p) {
   return '#f23f43';
 }
 
+/** Trim text with an ellipsis so it fits within maxW at the current ctx.font. */
+function fitText(ctx, text, maxW) {
+  if (maxW <= 0 || ctx.measureText(text).width <= maxW) return text;
+  let t = text;
+  while (t.length > 1 && ctx.measureText(`${t}…`).width > maxW) t = t.slice(0, -1);
+  return `${t}…`;
+}
+
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -209,9 +217,13 @@ function drawCard(ctx, f, state, y, { isEnemy, mirror, icons }) {
     drawLoadout(ctx, f, icons, nameX, ty, nameSide);
     ty += 16;
   } else {
+    // mob skill (name + description, fit to the card width) then active debuffs
     ctx.textAlign = nameSide;
     ctx.font = `12px ${FONT}`; ctx.fillStyle = COLORS.dim;
-    ctx.fillText(`Skill: ${f.skill || '—'}`, nameX, ty);
+    const skillStr = f.skillDesc
+      ? `Skill: ${f.skill} — ${f.skillDesc}`
+      : `Skill: ${f.skill || '—'}`;
+    ctx.fillText(fitText(ctx, skillStr, w - 32), nameX, ty);
     ty += 15;
     const tags = (state.debuffs || []).map((d) => d.tag).join(', ');
     ctx.font = `12px ${FONT}`; ctx.fillStyle = COLORS.dim;
@@ -274,10 +286,11 @@ function renderBattlePanel(sim, snapIdx, { mirror = false, icons = null } = {}) 
  */
 async function renderRewardsPanel(sim, r) {
   const won = sim.winner === 'a';
-  const [mobImg, creduxImg, expImg, chestImg] = await Promise.all([
+  const [mobImg, creduxImg, expImg, shardImg, chestImg] = await Promise.all([
     getEmojiImage(sim.b.name),
     won ? getEmojiImage('Credux Coin') : Promise.resolve(null),
     getEmojiImage('Combat Exp'),
+    won ? getEmojiImage('Belief Shards') : Promise.resolve(null),
     won && r.chestLabel ? getEmojiImage(r.chestLabel) : Promise.resolve(null),
   ]);
 
@@ -325,7 +338,7 @@ async function renderRewardsPanel(sim, r) {
     text(` +${r.exp.toLocaleString()} EXP`);
     if (r.shards > 0) {
       text('   ·   ', COLORS.dim);
-      glyph('❖', '#b57edc');
+      icon(shardImg, '❖', '#b57edc');
       text(` +${r.shards} Belief Shards`);
     }
     if (r.chestLabel) {

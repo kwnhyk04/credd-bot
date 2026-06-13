@@ -233,7 +233,9 @@ section('4. Targeted scenarios');
   const script = [0.0, /* r1 */ 0.99, 0.5, 0.99, 0.5, /* r2 */ 0.99, 0.5, 0.99, 0.5,
     /* r3 */ 0.0, 0.5, 0.99, 0.5];
   const sim = resolveBattle(mk(), mob({ hp: 100000 }), { seed: 1, rng: scripted(script) });
-  check('Overcharge fires round 3 = 814 (214 + 600 flat)', dmgOf(roundEvents(sim, 3), 'attacks') === 814,
+  // +200% ATK applied PRE-mitigation → mitigated(300×3, 80) = 642 (exactly 3× the plain
+  // hit), NOT a raw flat spike. Regression guard against the unmitigated-flat bug.
+  check('Overcharge fires round 3 = 642 (×3 ATK, mitigated)', dmgOf(roundEvents(sim, 3), 'attacks') === 642,
     `got ${dmgOf(roundEvents(sim, 3), 'attacks')}`);
   check('Overcharge marker on round 3', hasEvent(roundEvents(sim, 3), 'Overcharge'));
   check('no Overcharge on rounds 1/2', !hasEvent(roundEvents(sim, 1), 'Overcharge') && !hasEvent(roundEvents(sim, 2), 'Overcharge'));
@@ -241,6 +243,8 @@ section('4. Targeted scenarios');
   check('Overcharge round 3 never crits (pre-roll latch voided)', !hasEvent(roundEvents(sim, 3), '(CRIT!)'));
   check('round 1/2 are plain hits = 214', dmgOf(roundEvents(sim, 1), 'attacks') === 214 && dmgOf(roundEvents(sim, 2), 'attacks') === 214,
     `r1=${dmgOf(roundEvents(sim, 1), 'attacks')} r2=${dmgOf(roundEvents(sim, 2), 'attacks')}`);
+  // overcharge is exactly 3× the plain hit (linear in ATK through mitigation)
+  check('Overcharge = 3× plain hit', dmgOf(roundEvents(sim, 3), 'attacks') === 3 * dmgOf(roundEvents(sim, 1), 'attacks'));
 }
 
 // — Overcharge re-fires every 3rd round (fallback-driven; not 4/5) —

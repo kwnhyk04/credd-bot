@@ -53,6 +53,14 @@ const RESPAWN_COOLDOWN = '15 minutes';   // §16: spawns every 15 min after dead
 const BOSS_DURATION = '2 hours';         // v4.1: was 1h (schema comment is stale)
 const TOP_N = 15;
 const REWARD = { credux: 100_000, exp: 20_000, shards: 1_000 }; // §16 participation (+1 Boss Treasure Chest)
+
+// Spawn-header flavor line shown above an active boss's name (keyed by mythology).
+const BOSS_FLAVOR = {
+  PH: '🌒 *An old terror of the islands stirs…*',
+  Norse: '🌒 *An ancient dread of the nine realms awakens…*',
+  Greek: '🌒 *A monster of myth crawls into the light…*',
+  _default: '🌒 *An old terror stirs…*',
+};
 const BOSS_ASSET_DIR = path.join(__dirname, '..', '..', 'assets', 'monsters', 'boss');
 
 const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
@@ -286,10 +294,16 @@ async function fetchBossView(guildId) {
 async function buildBossMessage({ state, mobRow, attackers, attackerCount, isDev = false }) {
   const { status } = state;
 
-  // header — boss name only; terminal states get a small status subtext
-  let header = `## ${mobRow.name}`;
-  if (status === 'dead') header += '\n-# 💀 Slain by the united server — rewards distributed!';
-  else if (status === 'escaped') header += '\n-# 🌫️ Escaped — no rewards this time.';
+  // header — evocative flavor line (mythology-flavored) above the boss name; terminal
+  // states swap the flavor for a small status subtext
+  let header;
+  if (status === 'active') {
+    header = `${BOSS_FLAVOR[mobRow.mythology] || BOSS_FLAVOR._default}\n## ${mobRow.name}`;
+  } else {
+    header = `## ${mobRow.name}`;
+    if (status === 'dead') header += '\n-# 💀 Slain by the united server — rewards distributed!';
+    else if (status === 'escaped') header += '\n-# 🌫️ Escaped — no rewards this time.';
+  }
 
   const accent = status === 'active' ? 0xf0b232 : status === 'dead' ? 0x43d675 : 0x95a5a6;
   const container = new ContainerBuilder()

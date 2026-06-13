@@ -151,6 +151,7 @@ function buildMobFighter(row, level) {
     crit: stats.crit,
     skillKey: row.skill_key || 'none',
     skillName: row.skill_name || null,
+    skillDescription: row.skill_description || null,
     immunityTags: Array.isArray(row.immunity_tags) ? row.immunity_tags : [],
     specialFlags: row.special_flags || {},
   };
@@ -190,6 +191,7 @@ function buildBossFighter(row, bossState) {
     crit: Number(row.base_crit) || 0,
     skillKey: row.skill_key || 'none',
     skillName: row.skill_name || null,
+    skillDescription: row.skill_description || null,
     immunityTags: Array.isArray(row.immunity_tags) ? row.immunity_tags : [],
     specialFlags: row.special_flags || {},
     poolHp: Number(bossState.current_hp),
