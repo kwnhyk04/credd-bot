@@ -186,7 +186,8 @@ section('4. Targeted scenarios');
     `got ${dmgOf(allEvents(sN), 'attacks')}`);
 }
 
-// — Supreme riders: +50% flat always; +50% crit dmg only on crit (other source) —
+// — Supreme riders are MUTUALLY EXCLUSIVE: crit-dmg only on crit, flat-dmg only on
+//   non-crit (never both). Supreme crit caps at ×2.5, NOT ×3.75. —
 {
   // crit 0 weapon; Artemis grants the first-attack auto-crit (the "other source")
   const mk = () => player({ crit: 0, bonusDmgPct: 50, bonusCritDmgPct: 50, deityBlessingKey: 'artemis_huntress_precision' });
@@ -195,10 +196,32 @@ section('4. Targeted scenarios');
     { seed: 1, rng: scripted([0.0, 0.99, 0.5, 0.99, 0.5, 0.99, 0.5]) });
   const r1 = dmgOf(roundEvents(sim, 1), 'attacks');
   const r2 = dmgOf(roundEvents(sim, 2), 'attacks');
-  check('Supreme auto-crit hit = 803 (×2.5 ×1.5)', r1 === 803, `got ${r1}`);
+  // base hit ≈ 214; crit = ×2.5 only (no flat bonus) = 535; non-crit = ×1.5 only = 321.
+  check('Supreme crit hit = 535 (×2.5 only, no flat bonus)', r1 === 535, `got ${r1}`);
   check('Supreme non-crit hit = 321 (×1.5 only)', r2 === 321, `got ${r2}`);
+  check('crit ≈ non-crit ÷1.5 ×2.5', r1 === Math.floor((r2 / 1.5) * 2.5), `got ${r1} vs ${Math.floor((r2 / 1.5) * 2.5)}`);
   check('round 1 marked CRIT', hasEvent(roundEvents(sim, 1), '(CRIT!)'));
   check('round 2 not marked CRIT', !hasEvent(roundEvents(sim, 2), '(CRIT!)'));
+}
+
+// — Idiyanale double damage is its OWN exclusive lane: a clean ×2 that never stacks
+//   with crit or the Supreme flat bonus (no runaway ×3). Fires every 5th turn. —
+{
+  const script = [0.0]; // order → A first
+  for (let r = 0; r < 5; r++) script.push(0.99, 0.5, 0.99, 0.5); // critPre(no), Avar(1.0), mobCrit(no), mobVar
+  // plain player: the round-5 attack is exactly 2× a normal hit, tagged (Double!)
+  const simA = resolveBattle(player({ crit: 0, deityBlessingKey: 'idiyanale_persistence', hp: 1000000 }),
+    mob({ hp: 1000000, atk: 1 }), { seed: 1, rng: scripted(script) });
+  const base = dmgOf(roundEvents(simA, 1), 'attacks');
+  const r5 = dmgOf(roundEvents(simA, 5), 'attacks');
+  check('Idiyanale round 5 marked Double', hasEvent(roundEvents(simA, 5), 'Double'));
+  check('Idiyanale double = 2× a normal hit', r5 === base * 2, `got ${r5} vs ${base * 2}`);
+  // Supreme flat bonus is SUPPRESSED on a double hit → ×2, not ×3 (×2 × ×1.5).
+  const simB = resolveBattle(player({ crit: 0, bonusDmgPct: 50, deityBlessingKey: 'idiyanale_persistence', hp: 1000000 }),
+    mob({ hp: 1000000, atk: 1 }), { seed: 1, rng: scripted(script) });
+  const b1 = dmgOf(roundEvents(simB, 1), 'attacks'); // ×1.5 flat bonus
+  const b5 = dmgOf(roundEvents(simB, 5), 'attacks'); // ×2.0 double (no flat bonus)
+  check('Supreme double hit is ×2 not ×3', b5 === Math.floor((b1 / 1.5) * 2), `got ${b5} vs ${Math.floor((b1 / 1.5) * 2)}`);
 }
 
 // — Knight DR ×0.80 after mitigation —

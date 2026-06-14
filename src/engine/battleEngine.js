@@ -53,13 +53,16 @@
  *   Skip-CC on a multiple of 3 → the action never runs → that overcharge is simply lost
  *   (no carry-over); the next fires on the next multiple of 3.
  *
- * DAMAGE PIPELINE (per hit, approved plan §4):
+ * DAMAGE PIPELINE (per hit):
  *   base = effATK × (1 − effDEF/(effDEF+200)) × variance(0.90–1.10)
- *   + riders (bonusDamage / enemy_bonus_damage — first hit of the action only, R4)
- *   × critMult on crit (2.0; 2.3 Katana; + bonus_crit_dmg_pct/100)
- *   Mage Overcharge: main hit every 3rd round scales ATK ×3 (+200%) BEFORE mitigation
- *     and cannot crit (§13.1) — lands ~3× a normal hit, not a raw flat spike
- *   × (1 + bonus_dmg_pct/100)  × 2 if nextAttackDouble
+ *   then ONE mutually-exclusive multiplier lane (never compounded — no runaway ×3+):
+ *     overcharge (Mage 3rd round): effATK ×3 pre-mitigation, no crit/rider (§11/§13.1)
+ *     double (Idiyanale):          ×2, no crit/rider
+ *     crit:                        ×(2.0; 2.3 Katana; + bonus_crit_dmg_pct/100)  — crit only
+ *     non-crit:                    ×(1 + bonus_dmg_pct/100)                       — non-crit only
+ *   Supreme caps at ×2.5 on a crit / ×1.5 on a normal hit; 2.5 rises only by stacking
+ *   further crit-damage sources (§35.2). Mob "X% ATK" nukes are a clean ×(pct) and do
+ *   not also crit. (+X% ATK riders scale effATK pre-mitigation — see playerAtkMult.)
  *   → floor → defender stack (R3) → apply → death check (§35.3 first-to-0, R5)
  *
  * DEFENDER STACK (R3, fixed order):
@@ -402,27 +405,39 @@ function resolveBattle(a, b, opts = {}) {
       if (critKnown != null) crit = critKnown;
       else crit = rng() * 100 < effCritChance(S); // secondary hits roll fresh
       const variance = 0.9 + rng() * 0.2;
-      // overcharge scales ATK pre-mitigation (1 + 2.0 = ×3); never crits (§13.1)
+
+      // Damage multipliers are MUTUALLY-EXCLUSIVE lanes — they never compound past the
+      // cap (no runaway ×3+ from stacking riders on a crit). Priority:
+      //   overcharge (Mage, every 3rd): ATK ×3 pre-mitigation, no crit, no rider (§11)
+      //   double      (Idiyanale):      ×2, no crit, no rider
+      //   crit:                         ×(2.0 / 2.3 Katana + bonus_crit_dmg)  — crit-dmg riders only
+      //   non-crit:                     ×(1 + bonus_dmg)                       — flat-dmg rider only
+      // So a Supreme weapon caps at ×2.5 on a crit (was ×3.75) or ×1.5 on a normal hit;
+      // 2.5 rises only by stacking further crit-damage sources (§35.2).
       const overchargeFired = mainHit && overchargeRound;
+      const doubled = mainHit && S.scratch.nextAttackDouble && !overchargeFired;
+      const critApplied = crit && !overchargeFired && !doubled;
+
       const ocScale = overchargeFired ? (1 + OVERCHARGE_RIDER) : 1;
       let dmg = mitigated(effAtk(S) * atkScale * ocScale, def) * variance;
-      if (mainHit) {
-        dmg += S.scratch.bonusDamage;             // riders ride the first hit only
-        S.scratch.bonusDamage = 0;
-      }
-      if (crit) {
+      if (critApplied) {
         let mult = S.flags.katana ? KATANA_CRIT_MULT : CRIT_MULT;
-        mult += S.bonusCritDmgPct / 100;          // Legendary/Supreme crit-dmg rider
+        mult += S.bonusCritDmgPct / 100;          // Legendary/Supreme crit-dmg rider (crit only)
         dmg *= mult;
+      } else if (doubled) {
+        dmg *= 2;
+      } else if (!overchargeFired) {
+        dmg *= 1 + S.bonusDmgPct / 100;           // Legendary +25% / Supreme +50% flat (non-crit only)
       }
-      dmg *= 1 + S.bonusDmgPct / 100;             // Supreme +50% flat / Legendary +25%
-      if (mainHit && S.scratch.nextAttackDouble) dmg *= 2;
       dmg = Math.max(0, Math.floor(dmg));
 
-      const res = applyHitToDefender(S, O, dmg, { crit });
+      const tag = overchargeFired ? ' *(Overcharge!)*'
+        : doubled ? ' *(Double!)*'
+        : critApplied ? ' *(CRIT!)*' : '';
+      const res = applyHitToDefender(S, O, dmg, { crit: critApplied });
       shared.events.push(
         `⚔️ ${S.name} ${mainHit ? 'attacks' : 'strikes again'} for **${res.applied} DMG**` +
-        `${crit ? ' *(CRIT!)*' : ''}${overchargeFired ? ' *(Overcharge!)*' : ''}${res.negated ? ' *(evaded)*' : ''}`
+        `${tag}${res.negated ? ' *(evaded)*' : ''}`
       );
       if (result) return;
 
@@ -513,17 +528,22 @@ function resolveBattle(a, b, opts = {}) {
       ? F.enemy_atk_override
       : S.atk * (F.enemy_atk_mult || 1.0);
 
+    // A "X% ATK" nuke round (enemy_atk_mult set by the mob skill) IS the mob's big hit —
+    // it does not also crit-multiply, so a nuke stays a clean ×(pct) and never spikes to
+    // ×4 (mirrors the player overcharge/double rule). Plain rounds still crit normally.
+    const nukeRound = (F.enemy_atk_mult || 1) > 1;
     for (let i = 0; i < subHits && !result; i++) {
       const crit = rng() * 100 < S.crit;          // enemy authored crit, uncapped
+      const critApplied = crit && !nukeRound;
       const variance = 0.9 + rng() * 0.2;
       let dmg = mitigated(atkBase * subPct, effDef(S, O)) * variance;
       if (i === 0) dmg += F.enemy_bonus_damage || 0;  // rider once per round (R4)
-      if (crit) dmg *= CRIT_MULT;
+      if (critApplied) dmg *= CRIT_MULT;
       dmg = Math.max(0, Math.floor(dmg));
-      const res = applyHitToDefender(S, O, dmg, { crit });
+      const res = applyHitToDefender(S, O, dmg, { crit: critApplied });
       shared.events.push(
         `💀 ${S.name} strikes ${subHits > 1 ? `(hit ${i + 1}/${subHits}) ` : ''}for **${res.applied} DMG**` +
-        `${crit ? ' *(CRIT!)*' : ''}${res.negated ? ' *(evaded)*' : ''}`
+        `${critApplied ? ' *(CRIT!)*' : ''}${res.negated ? ' *(evaded)*' : ''}`
       );
     }
   };

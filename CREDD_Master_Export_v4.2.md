@@ -715,6 +715,12 @@ Crit Cap  = 40% class / 45% total (§35.2)
 >   multiplier, like a crit → ×X of a normal hit. "200% ATK" = ×2.0, NOT +200%.
 >
 > Both are then reduced by the defender's DEF.
+>
+> **[v4.4] Crit-vs-flat riders never compound (§35.2).** A single hit takes exactly one
+> damage lane: crit → ×(2.0 + crit-damage riders); non-crit → ×(1 + `bonus_dmg_pct`);
+> double/overcharge are their own lanes. A Supreme weapon tops out at **×2.5 on a crit**
+> (was ×3.75) or ×1.5 on a normal hit — the highest single-hit damage in the game, rising
+> only by stacking more crit-damage sources.
 
 ### Class Passives In Combat
 - Knight: Final DMG = Final DMG × 0.80 (applied after DEF mitigation)
@@ -2032,7 +2038,12 @@ Each new mythology includes: new deity roster (all tiers), new regular and elite
 - **Additive:** Total ATK/HP/DEF = class(level) + equipped weapon `curr` + **active** deity `curr`.
 - **CRIT:** total = class crit + weapon crit. Class crit caps at **40%**; total hard ceiling **45%**. Deities grant no crit.
 - **Crit multiplier ×2.0** for players and enemies. Enemy authored crit (≤30%) is uncapped. (Sole exception: a crit dealt with the **Katana** is ×2.30.)
-- **Supreme weapon:** `crit = 0`; **+50% flat DMG always**; the **+50% CRIT DMG rider applies only when a crit comes from another source** (class/deity/passive-granted).
+- **[v4.4] Damage-rider lanes are MUTUALLY EXCLUSIVE** — they never compound past the cap:
+  - On a **crit**: ×(2.0 + crit-damage riders: Katana +0.30, weapon `bonus_crit_dmg_pct`, any deity/passive crit-damage). `bonus_dmg_pct` (flat) does **NOT** apply.
+  - On a **non-crit**: ×(1 + `bonus_dmg_pct`). The crit-damage rider does **NOT** apply.
+  - **Supreme weapon** (`crit = 0`, 50% DMG + 50% CRIT DMG): a crit (from another source — class/deity/passive) = **×2.5** (was ×3.75); a normal hit = **×1.5**. The ×2.5 ceiling rises only by stacking further crit-damage sources.
+  - **Legendary** (25% / 25%): crit ×2.25, normal ×1.25.
+  - **Double damage** (Idiyanale) and **Overcharge** (Mage ×3, no crit) are their own exclusive lanes — they take no crit and no flat/crit rider on that hit. A mob "X% ATK" nuke is a clean ×(pct) and does not also crit.
 - **Rounding:** `floor()` everywhere curr stats are computed.
 
 ### 35.3 Battle Termination

@@ -736,7 +736,7 @@ const PASSIVE_REGISTRY = {
 
   'mimir_runic_knowledge': (bs) => {
     // Every 4 turns: the next attack (this round's, passives precede actions)
-    // deals 65% more damage. Self-consumes into bonusDamage per ENGINE_HOOKS.
+    // deals 65% more damage — applied as a mitigated ATK multiplier (+65% of the hit).
     if (bs.currentTurn % 4 === 0) {
       bs.flags.mimir_next_attack_bonus = 0.65;
       bs.log.push('📖 Mimir: Runic Knowledge — Next attack +65% damage!');
