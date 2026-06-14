@@ -106,9 +106,9 @@ CREATE TABLE mob_roster (
     base_atk          INTEGER      NOT NULL,
     base_def          INTEGER      NOT NULL,
     base_crit         DECIMAL(4,1) NOT NULL,
-    hp_per_level      INTEGER      NOT NULL DEFAULT 0,   -- regular 20 / elite 38 / boss = authored
-    atk_per_level     INTEGER      NOT NULL DEFAULT 0,   -- regular 8  / elite 10 / boss = authored
-    def_per_level     INTEGER      NOT NULL DEFAULT 0,   -- regular 5  / elite 8  / boss = authored
+    hp_per_level      INTEGER      NOT NULL DEFAULT 0,   -- [v4.3] regular 20 / elite 40 / boss = authored
+    atk_per_level     INTEGER      NOT NULL DEFAULT 0,   -- [v4.3] regular 8  / elite 15 / boss = authored
+    def_per_level     INTEGER      NOT NULL DEFAULT 0,   -- [v4.3] regular 5  / elite 10 / boss = authored
     skill_key         VARCHAR(50)  NOT NULL,             -- "none" allowed
     skill_name        VARCHAR(100) NOT NULL,
     skill_description TEXT         NOT NULL,

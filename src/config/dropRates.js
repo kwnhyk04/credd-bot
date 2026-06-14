@@ -37,11 +37,12 @@ const MAX_OPEN = 10;
 
 // ── Tier stat ranges (§7) ────────────────────────────────────────────────
 // [min, max] inclusive-ish (max reachable only at fraction 1.0 which rand never hits).
+// [v4.4] ranges raised (new drops only — existing user_weapons rows are NOT rewritten).
 const TIER_RANGES = {
-  Rare:      { atk: [50, 75],   hp: [50, 100],  def: [20, 40],   crit: [1, 5] },
-  Mythic:    { atk: [100, 150], hp: [150, 200], def: [60, 80],   crit: [1, 5] },
-  Legendary: { atk: [300, 400], hp: [400, 600], def: [150, 200], crit: [1, 5] },
-  // Supreme handled separately (fixed).
+  Rare:      { atk: [100, 150], hp: [100, 200], def: [50, 75],   crit: [1, 5] },
+  Mythic:    { atk: [200, 350], hp: [300, 400], def: [80, 150],  crit: [1, 5] },
+  Legendary: { atk: [500, 600], hp: [600, 800], def: [200, 300], crit: [1, 5] },
+  // Supreme handled separately (fixed 800/1200/500, crit 0, 50/50 riders — unchanged).
 };
 
 // ── Type qualitative profile (§7) ─────────────────────────────────────────
@@ -63,9 +64,9 @@ const BAND_FRACTIONS = {
   Highest:  [0.80, 1.00],
 };
 
-// Supreme fixed stats (§7/§8/§35.2).
+// Supreme fixed stats (§7/§8/§35.2). [v4.4] DEF 400 → 500 (riders/crit unchanged).
 const SUPREME_STATS = {
-  atk: 800, hp: 1200, def: 400, crit: 0.0,
+  atk: 800, hp: 1200, def: 500, crit: 0.0,
   bonus_dmg_pct: 50.00, bonus_crit_dmg_pct: 50.00,
 };
 

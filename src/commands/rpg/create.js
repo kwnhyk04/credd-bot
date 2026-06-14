@@ -1,17 +1,32 @@
 'use strict';
 
 const {
-  ContainerBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags,
+  ContainerBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  AttachmentBuilder, MessageFlags,
 } = require('discord.js');
+const fs = require('fs');
+const path = require('path');
 const pool = require('../../db/pool');
 const { isBanned } = require('../../handlers/middleware');
 const { CLASSES, CLASS_NAMES } = require('../../config/classes');
 const { STARTER_WEAPON_NAME, STARTER_WEAPON, GRANT_BELIEF_SHARDS, GRANT_SILVER_CHESTS } = require('../../config/starter');
 const { generateUniqueWeaponId } = require('../../utils/weaponId');
+const { renderPortraitCard } = require('../../engine/renderPortraitCard');
 
 const BRAND = 0x9b59b6;
 
 const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
+
+// Class art (Roster Conventions Part 4): assets/classes/{class_lowercase}.png
+// — swordsman/fighter/mage/knight/archer.
+const CLASSES_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'classes');
+
+/** Absolute path to a class image, or null if missing (caller falls back to text-only). */
+function classImageFile(className) {
+  const p = path.join(CLASSES_DIR, `${className.toLowerCase()}.png`);
+  try { if (fs.existsSync(p)) return p; } catch { /* ignore */ }
+  return null;
+}
 
 // CLAUDE.md container standard: header → separator → body → separator → footer.
 // Body: one class per line (emoji + bold name + -# passive), like the bag layout.
@@ -50,18 +65,45 @@ function classSelectRow(userId) {
   );
 }
 
-function classPreviewPayload(className, userId) {
+// Portrait card: class art on the LEFT (3:4, never cropped), flavor + passive on the
+// RIGHT. Missing art / render failure → text-only fallback, never crashes.
+async function classPreviewPayload(className, userId) {
   const cls = CLASSES[className];
-  const container = new ContainerBuilder()
-    .setAccentColor(BRAND)
-    .addTextDisplayComponents((td) => td.setContent(`## ${cls.emoji} ${className}`))
-    .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) => td.setContent(`*${cls.flavor}*\n\n${cls.passiveLine}`))
+  const attachName = `class_${className.toLowerCase()}.png`;
+
+  let file = null;
+  try {
+    const buffer = await renderPortraitCard({
+      imagePath: classImageFile(className),
+      accent: '#9b59b6',
+      title: className,
+      subtitle: `Passive: ${cls.passiveName}`,
+      sections: [
+        { body: cls.flavor },
+        { body: cls.passiveLine.replace(/\*\*/g, '') },
+      ],
+    });
+    file = new AttachmentBuilder(buffer, { name: attachName });
+  } catch (err) {
+    console.error('[create] class card render failed:', err.message);
+  }
+
+  const container = new ContainerBuilder().setAccentColor(BRAND);
+  if (file) {
+    container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(`attachment://${attachName}`)));
+  } else {
+    container
+      .addTextDisplayComponents((td) => td.setContent(`## ${cls.emoji} ${className}`))
+      .addSeparatorComponents(sep)
+      .addTextDisplayComponents((td) => td.setContent(`*${cls.flavor}*\n\n${cls.passiveLine}`));
+  }
+  container
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent('-# Confirm your choice, or go back to pick another class.'));
 
   return {
     components: [container, previewRow(className, userId)],
+    files: file ? [file] : [],
     flags: MessageFlags.IsComponentsV2,
   };
 }
@@ -96,7 +138,7 @@ async function handleClassSelect(interaction, className, ownerId) {
     await interaction.reply({ content: 'Unknown class.', flags: MessageFlags.Ephemeral });
     return;
   }
-  await interaction.update(classPreviewPayload(className, ownerId));
+  await interaction.update(await classPreviewPayload(className, ownerId));
 }
 
 // Button: create:back:<userId>
@@ -105,7 +147,8 @@ async function handleBack(interaction, ownerId) {
     await interaction.reply({ content: 'These buttons aren\'t for you.', flags: MessageFlags.Ephemeral });
     return;
   }
-  await interaction.update(classSelectPayload(ownerId));
+  // attachments: [] clears the class image carried by the preview screen.
+  await interaction.update({ ...classSelectPayload(ownerId), attachments: [] });
 }
 
 // Button: create:confirm:<Class>:<userId>
@@ -191,7 +234,7 @@ async function handleConfirm(interaction, className, ownerId) {
       )
       .addSeparatorComponents(sep)
       .addTextDisplayComponents((td) => td.setContent('-# Use `crd profile` to view your character.'));
-    await interaction.update({ components: [done], flags: MessageFlags.IsComponentsV2 });
+    await interaction.update({ components: [done], flags: MessageFlags.IsComponentsV2, attachments: [] });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('[create] transaction failed:', err.message);

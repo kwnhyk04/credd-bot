@@ -212,6 +212,14 @@ async function fetchRandomBoss(db, rng) {
   return res.rows[Math.floor(rng() * res.rows.length)];
 }
 
+/** All boss rows (for the weighted Greater/normal tier pick at spawn — §16 [v4.4]). */
+async function fetchAllBosses(db) {
+  const res = await db.query(
+    `SELECT * FROM mob_roster WHERE mob_type = 'boss' ORDER BY mob_id`
+  );
+  return res.rows;
+}
+
 /** Case-insensitive exact-name lookup in mob_roster. */
 async function fetchMobByName(db, name) {
   const res = await db.query(
@@ -251,4 +259,5 @@ module.exports = {
   fetchMobByName,
   fetchRandomMob,
   fetchRandomBoss,
+  fetchAllBosses,
 };

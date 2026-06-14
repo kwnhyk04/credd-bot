@@ -40,19 +40,21 @@
 /** Shared no-op (basic weapons, immunity-only bosses). */
 const noop = () => {};
 
-/** First player hit of the battle deals +pct ATK (one-shot flag). */
+/** First player hit of the battle deals +pct of its damage (one-shot flag).
+ *  Routed through the ATK multiplier (pre-mitigation), so the bonus is +pct of the
+ *  damage actually dealt — NOT a flat ATK-fraction that bypasses the enemy's DEF. */
 const firstHitBonus = (flagKey, pct, label) => (bs) => {
   if (!bs.flags[flagKey]) {
     bs.flags[flagKey] = true;
-    bs.bonusDamage += bs.playerATK * pct;
+    bs.playerAtkMult += pct;
     bs.log.push(label);
   }
 };
 
-/** chance → +pct ATK rider damage this round. */
+/** chance → +pct damage this round (ATK-mult lane; mitigated — see firstHitBonus). */
 const chanceRider = (chance, pct, label) => (bs) => {
   if (bs.rng() < chance) {
-    bs.bonusDamage += bs.playerATK * pct;
+    bs.playerAtkMult += pct;
     bs.log.push(label);
   }
 };
@@ -83,10 +85,11 @@ const onHitEnemyDot = (tag, pct, label) => (bs) => {
   }
 };
 
-/** +pct ATK rider while an engine-set state flag is true (stunned/bleeding). */
+/** +pct damage while an engine-set state flag is true (stunned/bleeding).
+ *  ATK-mult lane (mitigated) — +pct of the damage dealt, not a DEF-bypassing flat add. */
 const bonusVsState = (stateFlag, pct, label) => (bs) => {
   if (bs.flags[stateFlag]) {
-    bs.bonusDamage += bs.playerATK * pct;
+    bs.playerAtkMult += pct;
     bs.log.push(label);
   }
 };
@@ -120,10 +123,10 @@ const chanceFlag = (chance, flagKey, label, extrasFn) => (bs) => {
   }
 };
 
-/** Every Nth round: +pct ATK rider and/or extra effects. */
+/** Every Nth round: +pct damage and/or extra effects (ATK-mult lane; mitigated). */
 const everyNthRider = (n, pct, label, extraFn) => (bs) => {
   if (bs.currentTurn % n === 0) {
-    if (pct) bs.bonusDamage += bs.playerATK * pct;
+    if (pct) bs.playerAtkMult += pct;
     if (extraFn) extraFn(bs);
     if (label) bs.log.push(label);
   }
@@ -188,11 +191,13 @@ const everyNthPlayerDebuff = (n, specs, label) => (bs) => {
   }
 };
 
-/** Mob skill: every Nth round → enemy bonus-damage rider (+ optional extra). */
+/** Mob skill: every Nth round → enemy attack deals +pct MORE damage (+ optional extra).
+ *  ATK-mult lane (mitigated by the player's DEF): a "200% ATK" nuke lands ~3× a normal
+ *  hit, NOT a raw flat spike that ignores DEF. */
 const everyNthEnemyNuke = (n, pctOrFn, labelFn, extraFn) => (bs) => {
   if (bs.currentTurn % n === 0) {
     const pct = typeof pctOrFn === 'function' ? pctOrFn(bs) : pctOrFn;
-    bs.flags.enemy_bonus_damage = (bs.flags.enemy_bonus_damage || 0) + bs.enemyATK * pct;
+    bs.flags.enemy_atk_mult = (bs.flags.enemy_atk_mult || 1.0) * (1 + pct);
     if (extraFn) extraFn(bs);
     bs.log.push(typeof labelFn === 'function' ? labelFn(pct) : labelFn);
   }
@@ -240,7 +245,7 @@ const PASSIVE_REGISTRY = {
     // First hit +20% ATK ignoring 25% DEF (engine consumes crossbow_pierce on that hit)
     if (!bs.flags.crossbow_used) {
       bs.flags.crossbow_used = true;
-      bs.bonusDamage += bs.playerATK * 0.20;
+      bs.playerAtkMult += 0.20;
       bs.flags.crossbow_pierce = true;
       bs.log.push('🏹 Crossbow: Piercing Opener — +20% ATK, ignores 25% DEF!');
     }
@@ -359,7 +364,7 @@ const PASSIVE_REGISTRY = {
     // Stunning an enemy triggers Bash (rider). bs.flags.stun_just_applied is the
     // engine's pre-roll latch: true when this round's class-stun lands (R1).
     if (bs.flags.stun_just_applied && !bs.enemyImmune('stun')) {
-      bs.bonusDamage += bs.playerATK * 0.60;
+      bs.playerAtkMult += 0.60;
       bs.log.push('⚡ Jarngreipr: Thunder Grip — Stun triggered Bash! +60% ATK!');
     }
   },
@@ -479,7 +484,7 @@ const PASSIVE_REGISTRY = {
     // DEF +20% for the battle; every 4th turn a 150% ATK forge strike (rider)
     bs.playerDefMult += 0.20;
     if (bs.currentTurn % 4 === 0) {
-      bs.bonusDamage += bs.playerATK * 1.50;
+      bs.playerAtkMult += 1.50;
       bs.log.push('🔨 Hephaestus Hammer: Forged Armor — Forge Strike! +150% ATK!');
     }
   },
@@ -527,10 +532,10 @@ const PASSIVE_REGISTRY = {
   // ── WEAPON PASSIVES — Supreme ────────────────────────────────────────────
 
   'mjolnir': (bs) => {
-    // +20% ATK rider every turn; every 4th turn: 200% ATK crush (rider)
-    bs.bonusDamage += bs.playerATK * 0.20;
+    // +20% damage every turn; every 4th turn: +200% damage crush (ATK-mult lane, mitigated)
+    bs.playerAtkMult += 0.20;
     if (bs.currentTurn % 4 === 0) {
-      bs.bonusDamage += bs.playerATK * 2.00;
+      bs.playerAtkMult += 2.00;
       bs.log.push('⚡ Mjolnir: Crushing Force — CRUSH! +200% ATK!');
     } else {
       bs.log.push('⚡ Mjolnir: Crushing Force — +20% ATK bonus!');
@@ -553,7 +558,7 @@ const PASSIVE_REGISTRY = {
     // 30% chance OR on CRIT (pre-roll latch): +80% ATK rider + paralyze 1 turn
     const roll = bs.rng() < 0.30;
     if (roll || bs.flags.crit_landed_this_hit) {
-      bs.bonusDamage += bs.playerATK * 0.80;
+      bs.playerAtkMult += 0.80;
       if (!bs.enemyImmune('paralyze')) {
         bs.applyDebuff('paralyze', 1);
       }
@@ -562,9 +567,9 @@ const PASSIVE_REGISTRY = {
   },
 
   'trident_of_poseidon': (bs) => {
-    // Every 3rd turn: 100% ATK rider; 25% chance stun 1 turn; enemy DEF -20% 1 turn
+    // Every 3rd turn: +100% damage; 25% chance stun 1 turn; enemy DEF -20% 1 turn
     if (bs.currentTurn % 3 === 0) {
-      bs.bonusDamage += bs.playerATK * 1.00;
+      bs.playerAtkMult += 1.00;
       if (bs.rng() < 0.25 && !bs.enemyImmune('stun')) {
         bs.applyDebuff('stun', 1);
         bs.log.push('🔱 Trident of Poseidon: Tidal Wrath — +100% ATK, Stun!');
@@ -700,7 +705,8 @@ const PASSIVE_REGISTRY = {
     if (!bs.enemyImmune('burn')) {
       const burnDmg = bs.playerATK * 0.25;
       if (bs.flags.enemy_is_burning) {
-        bs.bonusDamage += burnDmg * 0.50;
+        // +50% of the burn value as bonus hit damage (= +12.5% ATK), now mitigated
+        bs.playerAtkMult += 0.25 * 0.50;
         bs.log.push('🔥 Surt: Muspell\'s Flame — Burn refreshed! +50% bonus vs burning!');
       }
       bs.applyDebuff('burn', 2, burnDmg);
@@ -736,7 +742,7 @@ const PASSIVE_REGISTRY = {
       bs.log.push('📖 Mimir: Runic Knowledge — Next attack +65% damage!');
     }
     if (bs.flags.mimir_next_attack_bonus > 0) {
-      bs.bonusDamage += bs.playerATK * bs.flags.mimir_next_attack_bonus;
+      bs.playerAtkMult += bs.flags.mimir_next_attack_bonus; // mitigated +65% of damage dealt
       bs.flags.mimir_next_attack_bonus = 0;
     }
   },
@@ -1034,7 +1040,7 @@ const PASSIVE_REGISTRY = {
     // Rotates per round: Lion (140% ATK) → Goat (player DEF -20%) → Serpent (Burn)
     const phase = (bs.currentTurn - 1) % 3;
     if (phase === 0) {
-      bs.flags.enemy_bonus_damage = (bs.flags.enemy_bonus_damage || 0) + bs.enemyATK * 1.40;
+      bs.flags.enemy_atk_mult = (bs.flags.enemy_atk_mult || 1.0) * (1 + 1.40); // mitigated +140%
       bs.log.push('🦁 Chimera: Lion Claw — 140% ATK!');
     } else if (phase === 1) {
       if (!bs.playerStatusImmune) {

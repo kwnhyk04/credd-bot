@@ -445,13 +445,31 @@ async function setBossHp(message, args, devId) {
   }
 }
 
-// ── crd dev spawnboss (also: crd dev spawn boss) ───────────────────────────
+// ── crd dev spawnboss [bossname] (also: crd dev spawn boss [bossname]) ──────
 // Force-spawn the server boss, bypassing the 15-min respawn cooldown (smoke
 // test). NEVER replaces a live boss — kill it (setbosshp + attack) first. An
 // expired-but-unflipped boss is settled to 'escaped' before the spawn attempt.
-async function devSpawnBoss(message, devId) {
+// An optional boss name forces that specific boss (e.g. test a Greater boss).
+async function devSpawnBoss(message, devId, bossName = null) {
   const guildId = message.guild.id;
   try {
+    // Validate the requested boss name up front for a clear error + valid list.
+    let canonicalName = null;
+    if (bossName) {
+      const found = await pool.query(
+        `SELECT name FROM mob_roster WHERE mob_type = 'boss' AND LOWER(name) = LOWER($1)`,
+        [bossName]
+      );
+      if (found.rows.length === 0) {
+        const all = await pool.query(
+          `SELECT name FROM mob_roster WHERE mob_type = 'boss' ORDER BY name`
+        );
+        return reply(message,
+          `No boss named "${bossName}". Valid bosses: ${all.rows.map((r) => r.name).join(', ')}.`);
+      }
+      canonicalName = found.rows[0].name;
+    }
+
     await expireBoss(message.client, guildId).catch(() => {}); // settle overdue escape first
     const active = await pool.query(
       `SELECT 1 FROM boss_state WHERE guild_id = $1 AND status = 'active'`, [guildId]
@@ -461,14 +479,16 @@ async function devSpawnBoss(message, devId) {
     }
     // announce in the invoking channel when server_config has no boss/bot channel
     const ok = await spawnBoss(message.client, guildId, {
-      force: true, channelId: message.channel.id,
+      force: true, channelId: message.channel.id, bossName: canonicalName,
     });
     if (!ok) {
       return reply(message,
         'Spawn failed — no registered player has been active in this server yet (server average level is needed).');
     }
-    await logDev(pool, devId, 'spawn_boss', devId, `forced boss spawn in guild ${guildId}`);
-    return reply(message, '✅ Boss spawned (15-min cooldown bypassed).');
+    await logDev(pool, devId, 'spawn_boss', devId,
+      `forced ${canonicalName ? `${canonicalName} ` : ''}boss spawn in guild ${guildId}`);
+    return reply(message,
+      `✅ ${canonicalName || 'Boss'} spawned (15-min cooldown bypassed).`);
   } catch (err) {
     console.error('[dev spawnboss]', err.message);
     return reply(message, 'Failed — nothing changed.');
@@ -523,7 +543,7 @@ const USAGE = [
   '`ban @user` · `unban @user` · `resetplayer @user`',
   '`enhanceweapon <weapon_id> <+level>` · `enhancedeity @user <deity name> <+level>`',
   '`battle [mob name] [seed <n>]` — engine smoke test (no rewards)',
-  '`setbosshp <boss name> <hp>` · `spawnboss` — boss smoke-test enablers',
+  '`setbosshp <boss name> <hp>` · `spawnboss [boss name]` — boss smoke-test enablers',
   '`quest` · `quest refresh <q1|q2|q3>` — view / refresh quests (cap bypassed)',
   '`daily @user` — grant a daily claim (attendance bypassed)',
 ].join('\n');
@@ -544,9 +564,11 @@ async function execute(message, { args }) {
     case 'enhancedeity':     return enhanceDeity(message, args, devId);
     case 'battle':           return devBattle(message, args, devId);
     case 'setbosshp':        return setBossHp(message, args, devId);
-    case 'spawnboss':        return devSpawnBoss(message, devId);
+    case 'spawnboss':        return devSpawnBoss(message, devId, args.slice(1).join(' ').trim() || null);
     case 'spawn':
-      if ((args[1] || '').toLowerCase() === 'boss') return devSpawnBoss(message, devId);
+      if ((args[1] || '').toLowerCase() === 'boss') {
+        return devSpawnBoss(message, devId, args.slice(2).join(' ').trim() || null);
+      }
       return reply(message, USAGE);
     case 'quest':            return devQuest(message, args, devId);
     case 'daily':            return devDaily(message, devId);

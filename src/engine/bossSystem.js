@@ -42,17 +42,20 @@ const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const pool = require('../db/pool');
 const { resolveBattle } = require('./battleEngine');
 const {
-  buildPlayerFighter, buildBossFighter, computeBossStats, fetchRandomBoss,
+  buildPlayerFighter, buildBossFighter, computeBossStats, fetchAllBosses, fetchMobByName,
 } = require('./statAssembly');
 const { logEmbeds } = require('./battleRender');
 const { awardCombatExpMany } = require('../utils/awardCombatExp');
 const { isBanned } = require('../handlers/middleware');
 const { emojiForDisplay } = require('../utils/emojis');
+const {
+  isGreaterBoss, bossRewards, rollBossChest, pickWeightedBoss, GREATER_HP_MULTIPLIER,
+} = require('../config/bosses');
 
 const RESPAWN_COOLDOWN = '15 minutes';   // §16: spawns every 15 min after dead/escaped
 const BOSS_DURATION = '2 hours';         // v4.1: was 1h (schema comment is stale)
 const TOP_N = 15;
-const REWARD = { credux: 100_000, exp: 20_000, shards: 1_000 }; // §16 participation (+1 Boss Treasure Chest)
+// §16 participation rewards come from config/bosses (bossRewards) — normal vs Greater.
 
 // Spawn-header flavor line shown above an active boss's name (keyed by mythology).
 const BOSS_FLAVOR = {
@@ -61,6 +64,8 @@ const BOSS_FLAVOR = {
   Greek: '🌒 *A monster of myth crawls into the light…*',
   _default: '🌒 *An old terror stirs…*',
 };
+// [v4.4] Greater Boss spawn header — distinct apex framing above the boss name.
+const GREATER_FLAVOR = '☠️ **GREATER BOSS** — *A world-ender awakes…*';
 const BOSS_ASSET_DIR = path.join(__dirname, '..', '..', 'assets', 'monsters', 'boss');
 
 const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
@@ -294,11 +299,14 @@ async function fetchBossView(guildId) {
 async function buildBossMessage({ state, mobRow, attackers, attackerCount, isDev = false }) {
   const { status } = state;
 
-  // header — evocative flavor line (mythology-flavored) above the boss name; terminal
-  // states swap the flavor for a small status subtext
+  const greater = isGreaterBoss(mobRow.name);
+
+  // header — evocative flavor line (mythology-flavored, or Greater apex framing) above
+  // the boss name; terminal states swap the flavor for a small status subtext
   let header;
   if (status === 'active') {
-    header = `${BOSS_FLAVOR[mobRow.mythology] || BOSS_FLAVOR._default}\n## ${mobRow.name}`;
+    const flavor = greater ? GREATER_FLAVOR : (BOSS_FLAVOR[mobRow.mythology] || BOSS_FLAVOR._default);
+    header = `${flavor}\n## ${mobRow.name}`;
   } else {
     header = `## ${mobRow.name}`;
     if (status === 'dead') header += '\n-# 💀 Slain by the united server — rewards distributed!';
@@ -342,19 +350,25 @@ async function buildBossMessage({ state, mobRow, attackers, attackerCount, isDev
       .addTextDisplayComponents((td) => td.setContent(`-# ${lore}`));
   }
 
-  // participation rewards (§16 amounts — Credux 100k authored; EXP 20k per v4.2 revision)
+  // participation rewards (§16 — normal vs Greater amounts from config/bosses)
+  const reward = bossRewards(mobRow.name);
   const creduxIcon = emojiForDisplay('Credux Coin', '💰');
   const expIcon = emojiForDisplay('Combat Exp', '✨');
   const chestIcon = emojiForDisplay('Boss Treasure Chest', '🗝️');
+  const goldChestIcon = emojiForDisplay('Boss Golden Chest', '🪙');
   const shardIcon = emojiForDisplay('Belief Shards', '🔮');
+  // Greater chest is a roll resolved at defeat — show the rule here; normal is fixed.
+  const chestLine = greater
+    ? `${chestIcon} Boss Treasure Chest ×2 *(80%)* — or ${goldChestIcon} Boss Golden Chest ×1 *(20%)*`
+    : `${chestIcon} Boss Treasure Chest ×1`;
   container
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(
-      '**Participation rewards if defeated:**\n' +
-      `${creduxIcon} Credux ×${REWARD.credux.toLocaleString()}\n` +
-      `${expIcon} Combat EXP ×${REWARD.exp.toLocaleString()}\n` +
-      `${chestIcon} Boss Treasure Chest ×1\n` +
-      `${shardIcon} Belief Shards ×${REWARD.shards.toLocaleString()}`
+      `**Participation rewards if defeated:**${greater ? '  ☠️ *Greater*' : ''}\n` +
+      `${creduxIcon} Credux ×${reward.credux.toLocaleString()}\n` +
+      `${expIcon} Combat EXP ×${reward.exp.toLocaleString()}\n` +
+      `${chestLine}\n` +
+      `${shardIcon} Belief Shards ×${reward.shards.toLocaleString()}`
     ));
 
   // damage leaderboard (the HP pool lives on the status card now)
@@ -382,13 +396,18 @@ async function buildBossMessage({ state, mobRow, attackers, attackerCount, isDev
   container
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(footerText));
+  // Attack only while active; the Log button stays on terminal states too so an
+  // attacker can still review the blow-by-blow (logCache lives until the next spawn).
+  const logBtn = new ButtonBuilder().setCustomId(`boss:log:${state.guild_id}`)
+    .setLabel('Log').setEmoji('📋').setStyle(ButtonStyle.Secondary);
   if (status === 'active') {
     container.addActionRowComponents((row) => row.setComponents(
       new ButtonBuilder().setCustomId(`boss:attack:${state.guild_id}`)
         .setLabel('Attack').setEmoji('⚔️').setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId(`boss:log:${state.guild_id}`)
-        .setLabel('Log').setEmoji('📋').setStyle(ButtonStyle.Secondary),
+      logBtn,
     ));
+  } else {
+    container.addActionRowComponents((row) => row.setComponents(logBtn));
   }
 
   return {
@@ -460,8 +479,11 @@ async function refreshLiveMessage(client, guildId) {
  * NEVER replace a live boss (status <> 'active' stays in the guard).
  * `channelId` overrides the configured announce channel (dev spawnboss posts
  * in the invoking channel when server_config has none).
+ * `bossName` (crd dev spawnboss <name>) forces a specific boss instead of the
+ * weighted pick — Greater bosses still get their 2× HP. Returns false if no boss
+ * by that name exists.
  */
-async function spawnBoss(client, guildId, { force = false, channelId = null } = {}) {
+async function spawnBoss(client, guildId, { force = false, channelId = null, bossName = null } = {}) {
   const announceChannelId = channelId || await resolveAnnounceChannelId(guildId);
   if (!announceChannelId) return false; // nowhere to announce — skip guild
 
@@ -476,13 +498,25 @@ async function spawnBoss(client, guildId, { force = false, channelId = null } = 
   const avg = avgRes.rows[0]?.avg_level;
   if (avg == null) return false; // no registered characters yet — skip
 
-  const row = await fetchRandomBoss(pool, Math.random);
-  if (!row) return false;
+  // [v4.4] forced boss (dev) by name, else the weighted tier roll (20% Greater / 80%).
+  let pick;
+  if (bossName) {
+    const named = await fetchMobByName(pool, bossName);
+    if (!named || named.mob_type !== 'boss') return false; // unknown boss name
+    pick = { row: named, greater: isGreaterBoss(named.name) };
+  } else {
+    pick = pickWeightedBoss(await fetchAllBosses(pool), Math.random);
+  }
+  if (!pick) return false;
+  const { row, greater } = pick;
 
   // §16: boss level = round(avg) + random(1–10) — NO [1,55] clamp (bosses are
   // exempt; that clamp governs raid mobs only). Defensive floor at 1.
   const level = Math.max(1, Math.round(Number(avg)) + 1 + Math.floor(Math.random() * 10));
   const stats = computeBossStats(row, level);
+  // Greater Bosses: 2× HP only (ATK/DEF/CRIT/level/skill unchanged). Bosses have no
+  // stored total-HP column, so the ×2 applies to the scaled result at spawn.
+  const maxHp = greater ? stats.hp * GREATER_HP_MULTIPLIER : stats.hp;
 
   const ins = await pool.query(
     `INSERT INTO boss_state
@@ -499,7 +533,7 @@ async function spawnBoss(client, guildId, { force = false, channelId = null } = 
      WHERE boss_state.status <> 'active'
        AND ($7 OR boss_state.expires_at <= NOW() - INTERVAL '${RESPAWN_COOLDOWN}')
      RETURNING spawn_id`,
-    [guildId, row.mob_id, level, stats.hp, stats.atk, stats.def, force]
+    [guildId, row.mob_id, level, maxHp, stats.atk, stats.def, force]
   );
   if (ins.rows.length === 0) return false; // lost the race / cooldown not over
 
@@ -536,6 +570,8 @@ async function expireBoss(client, guildId) {
 async function distributeRewards(client, guildId, spawnId) {
   const dbc = await pool.connect();
   let attackerIds = [];
+  let reward = null;
+  let chest = null;
   try {
     await dbc.query('BEGIN');
     // expires_at = NOW() anchors the 15-min respawn clock (no died_at column)
@@ -549,6 +585,14 @@ async function distributeRewards(client, guildId, spawnId) {
       await dbc.query('ROLLBACK');
       return null; // already distributed (or boss not actually down)
     }
+
+    // [v4.4] reward bundle + chest keyed off the boss's greater-ness (config/bosses —
+    // the SAME source the announcement reads, so they never disagree). The Greater
+    // chest is rolled ONCE here; every attacker receives the same outcome.
+    const nameRes = await dbc.query('SELECT name FROM mob_roster WHERE mob_id = $1', [flip.rows[0].mob_id]);
+    const bossName = nameRes.rows[0]?.name || '';
+    reward = bossRewards(bossName);
+    chest = rollBossChest(bossName, Math.random); // { column (whitelisted), qty, label }
 
     const atk = await dbc.query(
       `SELECT discord_id FROM boss_attack_log
@@ -565,17 +609,18 @@ async function distributeRewards(client, guildId, spawnId) {
           WHERE discord_id = ANY($1) ORDER BY discord_id FOR UPDATE`,
         [attackerIds]
       );
+      // chest.column is from a fixed whitelist (boss_treasure_chest / boss_golden_chest)
       const bagUpd = await dbc.query(
         `UPDATE users_bag
             SET credux = credux + $2,
                 belief_shards = belief_shards + $3,
-                boss_treasure_chest = boss_treasure_chest + 1
+                ${chest.column} = ${chest.column} + $4
           WHERE discord_id = ANY($1)
-          RETURNING discord_id, credux, belief_shards, boss_treasure_chest`,
-        [attackerIds, REWARD.credux, REWARD.shards]
+          RETURNING discord_id, credux, belief_shards, ${chest.column} AS chest_count`,
+        [attackerIds, reward.credux, reward.shards, chest.qty]
       );
 
-      await awardCombatExpMany(dbc, attackerIds, REWARD.exp);
+      await awardCombatExpMany(dbc, attackerIds, reward.exp);
 
       // game_logs — one row per currency/item per attacker (action 'Boss'),
       // before/after balances, bulk via unnest
@@ -583,11 +628,11 @@ async function distributeRewards(client, guildId, spawnId) {
       for (const r of bagUpd.rows) {
         ids.push(r.discord_id);
         newCred.push(Number(r.credux));
-        prevCred.push(Number(r.credux) - REWARD.credux);
+        prevCred.push(Number(r.credux) - reward.credux);
         newSh.push(r.belief_shards);
-        prevSh.push(r.belief_shards - REWARD.shards);
-        newCh.push(r.boss_treasure_chest);
-        prevCh.push(r.boss_treasure_chest - 1);
+        prevSh.push(r.belief_shards - reward.shards);
+        newCh.push(r.chest_count);
+        prevCh.push(r.chest_count - chest.qty);
       }
       await dbc.query(
         `INSERT INTO game_logs (discord_id, action, previous_credux, updated_credux)
@@ -603,9 +648,9 @@ async function distributeRewards(client, guildId, spawnId) {
       );
       await dbc.query(
         `INSERT INTO game_logs (discord_id, action, item_type, previous_chest_count, updated_chest_count)
-         SELECT u.id, 'Boss', 'boss_treasure_chest', u.prev, u.upd
+         SELECT u.id, 'Boss', $4, u.prev, u.upd
            FROM unnest($1::varchar[], $2::int[], $3::int[]) AS u(id, prev, upd)`,
-        [ids, prevCh, newCh]
+        [ids, prevCh, newCh, chest.column]
       );
     }
 
@@ -624,10 +669,15 @@ async function distributeRewards(client, guildId, spawnId) {
     const channelId = liveMessages.get(guildId)?.channelId || await resolveAnnounceChannelId(guildId);
     const channel = channelId ? await client.channels.fetch(channelId).catch(() => null) : null;
     if (channel) {
+      // reward/chest fall back to the boss-name lookup if distribution found no attackers
+      const r = reward || bossRewards(view.mobRow.name);
+      const c = chest || { qty: 1, label: 'Boss Treasure Chest' };
+      const greater = isGreaterBoss(view.mobRow.name);
       await channel.send({
         content:
-          `🎉 **${view.mobRow.name}** has fallen! All **${attackerIds.length}** challenger${attackerIds.length === 1 ? '' : 's'} receive: ` +
-          `${REWARD.credux.toLocaleString()} Credux · ${REWARD.exp.toLocaleString()} Combat EXP · 1× Boss Treasure Chest · ${REWARD.shards.toLocaleString()} Belief Shards.`,
+          `🎉 ${greater ? '☠️ **GREATER** ' : ''}**${view.mobRow.name}** has fallen! ` +
+          `All **${attackerIds.length}** challenger${attackerIds.length === 1 ? '' : 's'} receive: ` +
+          `${r.credux.toLocaleString()} Credux · ${r.exp.toLocaleString()} Combat EXP · ${c.qty}× ${c.label} · ${r.shards.toLocaleString()} Belief Shards.`,
         allowedMentions: { parse: [] },
       }).catch(() => {});
     }

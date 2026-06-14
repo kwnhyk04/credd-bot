@@ -2,6 +2,8 @@
 # Consolidated from all source files + all session revisions + Decision Log v1 resolutions
 # Source files: Mechanics_Updated_06012026.txt · Credd_Master_Export_v2.md · Additional_Mechanics.md
 # Database fully revised: see credd_schema_v4.sql (runnable DDL) and Technical Blueprint v4
+# v4.4 patch (06/2026): Greater Boss tier (Jotun/Fenrir/Fafnir/Hydra/Cerberus — 80/20 weighted spawn, 2× HP, richer drops: 150k credux / 30k EXP / 2× Treasure or 1× Golden chest); weapon-drop ranges raised (Rare/Mythic/Legendary up, Supreme DEF 400→500 — new drops only); profile card polish (combat-EXP line, Active Deity/Blessing split, stat icons, Combat Record heading); BUGFIX — "+X% ATK" bonus passives now DEF-mitigated (were flat post-mitigation, ~2×/~6× too strong); portrait-card layout for weapon/deity info + create-character (art left, text right); crd profile @user; crd dev spawnboss [name] (§7, §12, §16)
+# v4.3 patch (06/2026): mob per-level scaling REDUCED — regular HP+40/ATK+15/DEF+10 → HP+20/ATK+8/DEF+5, elite HP+75/ATK+30/DEF+16 → HP+40/ATK+15/DEF+10 (base stats unchanged); `crd profile` full Canvas card; quest embed fonts reduced; class art in create-character preview (§13, §35.6)
 # v4.2 patch (06/2026): class base HP 100→500; all regular/elite mob base HP +500; Overcharge reworked to every-3-turns (no crit, roll suppressed); player always first vs bosses (first_strike overrides); raid embed edits odd rounds, duel every round; bestow + quest CV2 embed layouts (§3, §11, §12, §13, §14, §15, §16, §20)
 # v4.1 patch (06/2026): boss timer 1h→2h; boss art at /assets/monsters/boss; mob rebalance — regular/elite base ATK/DEF raised, per-level scaling raised, spawn 80/20, shard drops raised, silver chest 30% (§13, §15, §35.6)
 # This is the single source of truth — upload at the start of every new thread
@@ -184,12 +186,13 @@ Common → Rare → Mythic → Legendary → Supreme
 NOTE: Weapons are NOT class-locked. Any class can equip any weapon.
 
 ### Dynamic Weapon Stats (Min/Max per Tier)
+<!-- [v4.4] ranges raised (new drops only; existing user_weapons rows unchanged). Prev: Rare 25–50/50–100/20–40, Mythic 100–150/150–200/60–80, Legendary 300–400/400–600/150–200, Supreme DEF 400 -->
 | Tier | ATK | HP | DEF | CRIT | Bonus |
 |---|---|---|---|---|---|
-| Rare | 25–50 | 50–100 | 20–40 | 1–5% | — |
-| Mythic | 100–150 | 150–200 | 60–80 | 1–5% | — |
-| Legendary | 300–400 | 400–600 | 150–200 | 1–5% | 25% chance on drop: BOTH +25% DMG and +25% CRIT DMG (fixed); otherwise none |
-| Supreme | Fixed 800 | Fixed 1200 | Fixed 400 | — | 50% DMG, 50% CRIT DMG (always) |
+| Rare | 100–150 | 100–200 | 50–75 | 1–5% | — |
+| Mythic | 200–350 | 300–400 | 80–150 | 1–5% | — |
+| Legendary | 500–600 | 600–800 | 200–300 | 1–5% | 25% chance on drop: BOTH +25% DMG and +25% CRIT DMG (fixed); otherwise none |
+| Supreme | Fixed 800 | Fixed 1200 | Fixed 500 | — | 50% DMG, 50% CRIT DMG (always) |
 
 ### Weapon Enhancement System
 - Command: `crd enhance [weapon ID]`
@@ -702,6 +705,12 @@ Final DMG = ATK × (1 − DEF/(DEF+200)) × random(0.90, 1.10)
 Crit DMG  = Final DMG × 2.0
 Crit Cap  = 40% class / 45% total (§35.2)
 ```
+> **[v4.4] "+X% ATK" bonus passives are DEF-mitigated.** A "+45% ATK" / "200% ATK" rider
+> (weapon, blessing, or mob skill — e.g. Arrow of Eros, Mjolnir crush, Valkyrie Battle
+> Judgment) scales the attacker's ATK *before* mitigation, so it adds X% of the damage
+> actually dealt — NOT a flat ATK-fraction added after DEF (the old bug let a +45% rider
+> roughly double the hit and a 200% mob nuke land ~6×). Now +45% ≈ ×1.45 of the hit and a
+> "200% ATK" nuke ≈ ×3, both reduced by the defender's DEF.
 
 ### Class Passives In Combat
 - Knight: Final DMG = Final DMG × 0.80 (applied after DEF mitigation)
@@ -741,8 +750,8 @@ Fully removed for initial release. Planned as an end-game update.
 
 ### Mob Dynamic Level System
 - Mob Level = Player Level + random(−5 to +5)
-- Regular Mob scaling: HP +40 / ATK +15 / DEF +10 per level
-- Elite Mob scaling: HP +75 / ATK +30 / DEF +16 per level
+- Regular Mob scaling: HP +20 / ATK +8 / DEF +5 per level  <!-- [v4.3] reduced from +40/+15/+10 -->
+- Elite Mob scaling: HP +40 / ATK +15 / DEF +10 per level  <!-- [v4.3] reduced from +75/+30/+16 -->
 
 ### Battle Flow
 - Fully automatic — no player input
@@ -976,6 +985,22 @@ NOTE: Huginn & Muninn removed from boss lineup.
 | Belief Shards (participation) | 1,000 |
 
 Condition: Boss must be killed. Player must have personally attacked that boss during that spawn. **All rewards are participation-only — no top-damage reward.** (Boss Golden Chest is a future World-Boss reward, not granted by the server boss.)
+
+### Greater Boss Tier [v4.4]
+Apex boss variants. The five Greater Bosses are **Jotun, Fenrir, Fafnir, Hydra, Cerberus** (matched by exact `mob_roster` name; source of truth is the `GREATER_BOSSES` set in `src/config/bosses.js`). No schema change — uses the free-form `special_flags` JSONB / code set; optional tag SQL at `scripts/tag_greater_bosses_v4_4.sql`.
+
+- **Weighted spawn:** when a boss spawns, roll the tier first — **80% normal boss / 20% Greater Boss**. The chosen tier picks uniformly among its rows present in the roster (a missing Greater name is simply skipped). This tier roll is on top of the normal boss-vs-nothing spawn cadence.
+- **Stat change — 2× HP only:** at spawn, a Greater Boss's computed `max_hp`/`current_hp` are doubled. ATK / DEF / CRIT / level / skill are unchanged.
+- **Greater drops** (participation, same model — every attacker of the spawn receives it):
+
+| Reward | Normal Boss | Greater Boss |
+|---|---|---|
+| Credux | 100,000 | **150,000** |
+| EXP (Combat) | 20,000 | **30,000** |
+| Belief Shards | 1,000 | 1,000 |
+| Chest | 1× Boss Treasure Chest | **80% → 2× Boss Treasure Chest / 20% → 1× Boss Golden Chest** (rolled once per defeat) |
+
+- **Announcement:** Greater spawns get a distinct header (`☠️ GREATER BOSS — A world-ender awakes…`) and the doubled HP shows in the pool bar; the participation-rewards block lists the Greater values. Announcement and payout both read the same `GREATER_BOSSES` set, so they never disagree.
 
 ---
 
@@ -2065,7 +2090,7 @@ Worked example:
 
 **Weapon stat banding** (`dropRates.js`): roll each stat within the tier range, positioned by the type's qualitative profile (§7): Lowest→bottom 20% · Low→bottom 40% · Balanced→middle 40–60% · High→top 40% · Highest→top 20%. CRIT banded the same way (Bows top of 1–5%). Supreme = fixed stats (always +50% DMG and +50% CRIT DMG, CRIT 0). Legendary = 25% chance on drop to roll BOTH +25% bonus_dmg_pct and +25% bonus_crit_dmg_pct (fixed); otherwise none. Rare/Mythic = no bonus rider.
 
-**Mob scaling** (seed in `mob_roster`): regular = HP+40 / ATK+15 / DEF+10 per level; elite = HP+75 / ATK+30 / DEF+16; boss = authored per row. Mob level = player level + random(−5..+5), clamped **[1, 55]**.
+**Mob scaling** (seed in `mob_roster`): regular = HP+20 / ATK+8 / DEF+5 per level; elite = HP+40 / ATK+15 / DEF+10; boss = authored per row. Mob level = player level + random(−5..+5), clamped **[1, 55]**. <!-- [v4.3] per-level growth reduced (regular was +40/+15/+10, elite was +75/+30/+16); base stats unchanged -->
 
 **Casino** (`casino.js`): coin toss & dice 1.95× · baccarat player 2× / banker 1.95× (5% commission) · blackjack 6-deck, dealer stands 17, BJ pays 3:2 · slots ~90% RTP · crash ~3% edge. **Min bet 1, max bet 150,000.** Bet > balance → "Insufficient Credux."; bet ≤ 0 → invalid.
 

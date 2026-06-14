@@ -1,14 +1,17 @@
 'use strict';
 
-const { EmbedBuilder } = require('discord.js');
+const {
+  ContainerBuilder, AttachmentBuilder, MessageFlags,
+} = require('discord.js');
 const pool = require('../../db/pool');
-const { computeClassStats } = require('../../config/classes');
+const { assemblePlayerStats } = require('../../engine/statAssembly');
+const { EXP_REQUIRED, MAX_COMBAT_LEVEL } = require('../../config/combatExp');
+const { renderProfileImage } = require('../../engine/renderProfile');
 
 const BRAND = 0x9b59b6;
-const BELIEVER_EXP_PER_LEVEL = 3000; // §18
-const TOTAL_CRIT_CAP = 45.0;         // §35.2
+const BELIEVER_EXP_PER_LEVEL = 3000; // §18 (3,000 flat per level)
 
-// §18 believer titles
+// §18 Believer Level Titles (Master §18 table).
 function believerTitle(level) {
   if (level >= 500) return 'Last Believer';
   if (level >= 200) return 'Chosen One';
@@ -20,17 +23,22 @@ function believerTitle(level) {
 }
 
 /**
- * `crd profile` / `crd stats` — read-only character embed.
- * Interim display: full Canvas profile card is Phase 9. Stats use the display-only
- * class helper (Phase 6 calculator supersedes).
+ * `crd profile [@user]` / `crd stats [@user]` — full Canvas profile card.
+ * Totals come through assemblePlayerStats — the SAME path the battle engine uses —
+ * so the displayed numbers match what actually fights. Display name + avatar are read
+ * from the target's Discord member/user, not the DB. With no mention, shows your own.
  */
 async function execute(message) {
-  const discordId = message.author.id;
+  // Target: a mentioned member/user, else the author. Member gives the server nickname.
+  const targetMember = message.mentions?.members?.first() || null;
+  const targetUser = message.mentions?.users?.first() || message.author;
+  const isOther = targetUser.id !== message.author.id;
+  const discordId = targetUser.id;
   const { rows } = await pool.query(
     `SELECT uc.class, uc.combat_level, uc.combat_exp,
             uc.believer_level, uc.believer_exp,
             uc.raids_won, uc.raids_lost, uc.pvp_wins, uc.pvp_losses,
-            wr.name  AS weapon_name, wr.tier AS weapon_tier,
+            wr.name  AS weapon_name,
             uw.enhancement AS weapon_enh,
             uw.curr_atk AS w_atk, uw.curr_hp AS w_hp, uw.curr_def AS w_def, uw.crit AS w_crit,
             dr.name  AS deity_name, dr.blessing_name, ud.enhancement AS deity_enh,
@@ -45,48 +53,89 @@ async function execute(message) {
   );
 
   if (rows.length === 0) {
-    // Should be unreachable (middleware requiresCharacter), but guard anyway.
-    await message.reply({ content: 'You don\'t have a character yet. Use `crd create character` to get started.', allowedMentions: { repliedUser: false } });
+    // For self this is unreachable (middleware requiresCharacter); for a mentioned
+    // user it's a real "they have no character" case.
+    const name = targetMember?.displayName || targetUser.globalName || targetUser.username;
+    await message.reply({
+      content: isOther
+        ? `**${name}** doesn't have a character yet.`
+        : 'You don\'t have a character yet. Use `crd create character` to get started.',
+      allowedMentions: { parse: [] },
+    });
     return;
   }
 
   const r = rows[0];
-  const cs = computeClassStats(r.class, r.combat_level);
 
-  const wAtk = r.w_atk || 0, wHp = r.w_hp || 0, wDef = r.w_def || 0;
-  const wCrit = r.w_crit != null ? Number(r.w_crit) : 0;
-  const dAtk = r.d_atk || 0, dHp = r.d_hp || 0, dDef = r.d_def || 0;
+  // Assemble totals through the engine's stat path (class + weapon curr_* + active deity curr_*).
+  const weapon = r.w_atk != null
+    ? { curr_atk: r.w_atk, curr_hp: r.w_hp, curr_def: r.w_def, crit: r.w_crit }
+    : null;
+  const deity = r.d_atk != null
+    ? { curr_atk: r.d_atk, curr_hp: r.d_hp, curr_def: r.d_def }
+    : null;
+  const stats = assemblePlayerStats(r.class, r.combat_level, weapon, deity);
 
-  const totalAtk = cs.atk + wAtk + dAtk;
-  const totalHp  = cs.hp  + wHp  + dHp;
-  const totalDef = cs.def + wDef + dDef;
-  const totalCrit = Math.min(cs.crit + wCrit, TOTAL_CRIT_CAP); // deities grant no crit (§35.2)
+  // enhancement column: 1 = +0; display level is enhancement − 1.
+  const weaponEnh = r.weapon_name ? Math.max(0, (r.weapon_enh || 1) - 1) : 0;
+  const deityEnh  = r.deity_name  ? Math.max(0, (r.deity_enh  || 1) - 1) : 0;
 
-  const weaponText = r.weapon_name
-    ? `${r.weapon_name} (${r.weapon_tier}) +${r.weapon_enh - 1}`
-    : 'None';
-  const deityText = r.deity_name
-    ? `${r.deity_name} — ${r.blessing_name} (+${r.deity_enh - 1})`
-    : 'None';
+  const combatAtCap = r.combat_level >= MAX_COMBAT_LEVEL;
 
-  const title = believerTitle(r.believer_level);
+  // Display name + avatar from the TARGET's member/user, NOT the DB.
+  const displayName = targetMember?.displayName
+    || targetUser.globalName
+    || targetUser.username;
 
-  const embed = new EmbedBuilder()
-    .setColor(BRAND)
-    .setTitle(`${message.author.username}'s Profile`)
-    .setThumbnail(message.author.displayAvatarURL())
-    .addFields(
-      { name: 'Class', value: r.class, inline: true },
-      { name: 'Combat Level', value: `Lv ${r.combat_level} · ${Number(r.combat_exp).toLocaleString()} EXP`, inline: true },
-      { name: 'Believer Level', value: `Lv ${r.believer_level} — ${title}\n${Number(r.believer_exp).toLocaleString()} / ${BELIEVER_EXP_PER_LEVEL.toLocaleString()} EXP`, inline: true },
-      { name: 'Equipped Weapon', value: weaponText, inline: false },
-      { name: 'Active Deity', value: deityText, inline: false },
-      { name: 'Total Stats', value: `⚔️ ATK ${totalAtk} · 🛡️ DEF ${totalDef} · ❤️ HP ${totalHp} · 🎯 CRIT ${totalCrit.toFixed(1)}%`, inline: false },
-      { name: 'Record', value: `Raids ${r.raids_won}W / ${r.raids_lost}L · Duels ${r.pvp_wins}W / ${r.pvp_losses}L`, inline: false },
-    )
-    .setFooter({ text: 'Stats shown are an interim view — a full profile card arrives later.' });
+  const data = {
+    displayName,
+    discordId,
+    avatarUrl: targetUser.displayAvatarURL({ extension: 'png', size: 128 }),
+    fallbackAvatarUrl: targetUser.defaultAvatarURL,
 
-  await message.reply({ embeds: [embed], allowedMentions: { repliedUser: false } });
+    believerLevel: r.believer_level,
+    believerTitle: believerTitle(r.believer_level),
+    believerExp: Number(r.believer_exp),
+    believerExpMax: BELIEVER_EXP_PER_LEVEL,
+
+    className: r.class,
+    combatLevel: r.combat_level,
+    combatExp: Number(r.combat_exp),
+    combatExpMax: combatAtCap ? null : (EXP_REQUIRED[r.combat_level] ?? null),
+
+    weaponName: r.weapon_name || null,
+    weaponEnh,
+    deityName: r.deity_name || null,
+    deityEnh,
+    blessingName: r.deity_name ? (r.blessing_name || null) : null,
+
+    atk: stats.atk,
+    hp: stats.hp,
+    def: stats.def,
+    crit: stats.crit,
+
+    records: {
+      raids: (r.raids_won || 0) + (r.raids_lost || 0),
+      raidsWon: r.raids_won || 0,
+      duels: (r.pvp_wins || 0) + (r.pvp_losses || 0),
+      duelWins: r.pvp_wins || 0,
+    },
+  };
+
+  const buffer = await renderProfileImage(data);
+  const file = new AttachmentBuilder(buffer, { name: 'profile.png' });
+
+  // Card only — no footer/help line (Screenshot #1 feedback).
+  const container = new ContainerBuilder()
+    .setAccentColor(BRAND)
+    .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL('attachment://profile.png')));
+
+  await message.reply({
+    components: [container],
+    files: [file],
+    flags: MessageFlags.IsComponentsV2,
+    allowedMentions: { repliedUser: false },
+  });
 }
 
-module.exports = { execute };
+module.exports = { execute, believerTitle };

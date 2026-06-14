@@ -15,7 +15,8 @@ const path = require('path');
 const pool = require('../../db/pool');
 const { TIER_ALIAS, TIER_COLOR, TIER_ESSENCE_COLUMN } = require('../../config/gachaRates');
 const { emojiForDisplay, emoji } = require('../../utils/emojis');
-const { renderDeityCard, RARITY_SYMBOLS } = require('../../engine/renderSummon');
+const { RARITY_SYMBOLS } = require('../../engine/renderSummon');
+const { renderPortraitCard } = require('../../engine/renderPortraitCard');
 const { computeDeityStats, nextDeityAttempt, MAX_ENHANCEMENT } = require('../../engine/deityEnhancement');
 
 // TODO Phase-rep: grant reputation on deity enhance (§18), 5,000/day cap — wire when awardReputation
@@ -202,8 +203,7 @@ async function info(message, name) {
   const alias = TIER_ALIAS[d.tier];
   const mythologyLabel = MYTHOLOGY_LABEL[d.mythology] ?? `${d.mythology} Mythology`;
 
-  // Card image: portrait composited into the tier frame (renderSummon assets).
-  // Portraits: assets/deities/<mythology dir>/<name_lowercase_underscored>.(png|jpg)
+  // Portrait: assets/deities/<mythology dir>/<name_lowercase_underscored>.(png|jpg)
   const slug = d.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
   const dir = MYTHOLOGY_DIR[d.mythology] ?? d.mythology.toLowerCase();
   let portraitPath = null;
@@ -212,55 +212,66 @@ async function info(message, name) {
     if (fs.existsSync(p)) { portraitPath = p; break; }
   }
 
-  const container = new ContainerBuilder()
-    .setAccentColor(TIER_COLOR[d.tier] ?? BRAND)
-    .addTextDisplayComponents((td) =>
-      td.setContent(
-        `## ${emojiForDisplay(d.name, '🕯️')} ${d.name} +${d.enhancement - 1}\n` +
-        `-# ${mythologyLabel} (${alias})`
-      )
-    )
-    .addSeparatorComponents(sep);
-
-  try {
-    const buffer = await renderDeityCard({ name: d.name, rarity: alias, portraitPath });
-    const file = new AttachmentBuilder(buffer, { name: 'deity_card.png' });
-    container.addMediaGalleryComponents((g) =>
-      g.addItems((item) => item.setURL('attachment://deity_card.png'))
-    );
-    container.addSeparatorComponents(sep);
-    appendInfoSections(container, d);
-    await reply(message, { components: [container], files: [file], flags: MessageFlags.IsComponentsV2 });
-  } catch (err) {
-    // Render failure → same container without the gallery (info still delivered).
-    console.error('[deity] card render failed:', err.message);
-    appendInfoSections(container, d);
-    await reply(message, { components: [container], flags: MessageFlags.IsComponentsV2 });
-  }
+  await reply(message, await buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath }));
 }
 
 const AI_DISCLAIMER = '-# Images are AI-generated interpretations and may not be accurate; used for in-game illustration only.';
 
-function appendInfoSections(container, d) {
-  // Lore section ALWAYS renders — muted placeholder when the column is empty
-  // (a DB value replaces it automatically); the AI disclaimer sits below the
-  // lore, blank-line separated, in subtext.
+/**
+ * Deity-info payload: portrait card (art LEFT, name/mythology/blessing/stats RIGHT)
+ * then lore + AI disclaimer + enhance hint as text. Mirrors the weapon-info card.
+ */
+async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath }) {
+  const accentHex = `#${(TIER_COLOR[d.tier] ?? BRAND).toString(16).padStart(6, '0')}`;
+  const sections = [
+    { heading: `Blessing — ${d.blessing_name}`, body: d.blessing_description },
+    { heading: 'Stats', body: `ATK   ${d.curr_atk}\nHP    ${d.curr_hp}\nDEF   ${d.curr_def}` },
+  ];
+
+  let file = null;
+  try {
+    const buffer = await renderPortraitCard({
+      imagePath: portraitPath,
+      accent: accentHex,
+      title: `${d.name} +${d.enhancement - 1}`,
+      subtitle: `${mythologyLabel} · ${alias}`,
+      sections,
+    });
+    file = new AttachmentBuilder(buffer, { name: 'deity_card.png' });
+  } catch (err) {
+    console.error('[deity] card render failed:', err.message);
+  }
+
   const hasLore = typeof d.lore === 'string' && d.lore.trim().length > 0;
   const loreBlock = hasLore ? `*${d.lore.trim()}*` : '-# No lore recorded yet.';
-  container
-    .addTextDisplayComponents((td) =>
-      td.setContent(
-        `**Blessing — ${d.blessing_name}**\n${d.blessing_description}\n\n` +
-        `ATK **${d.curr_atk}** · HP **${d.curr_hp}** · DEF **${d.curr_def}**`
+
+  const container = new ContainerBuilder().setAccentColor(TIER_COLOR[d.tier] ?? BRAND);
+  if (file) {
+    container
+      .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL('attachment://deity_card.png')))
+      .addSeparatorComponents(sep);
+  } else {
+    // Render failed → fall back to a text header so info is still delivered.
+    container
+      .addTextDisplayComponents((td) =>
+        td.setContent(
+          `## ${emojiForDisplay(d.name, '🕯️')} ${d.name} +${d.enhancement - 1}\n-# ${mythologyLabel} (${alias})\n\n` +
+          `**Blessing — ${d.blessing_name}**\n${d.blessing_description}\n\n` +
+          `ATK **${d.curr_atk}** · HP **${d.curr_hp}** · DEF **${d.curr_def}**`
+        )
       )
-    )
-    .addSeparatorComponents(sep)
+      .addSeparatorComponents(sep);
+  }
+  container
     .addTextDisplayComponents((td) => td.setContent(`${loreBlock}\n\n${AI_DISCLAIMER}`))
     .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) =>
-      td.setContent(`-# 💡 \`crd deity enhance ${d.name.toLowerCase()}\``)
-    );
-  return container;
+    .addTextDisplayComponents((td) => td.setContent(`-# 💡 \`crd deity enhance ${d.name.toLowerCase()}\``));
+
+  return {
+    components: [container],
+    files: file ? [file] : [],
+    flags: MessageFlags.IsComponentsV2,
+  };
 }
 
 // ── crd deity enhance <name> (forge — Part E template, essence currency) ───
@@ -595,4 +606,4 @@ async function execute(message, { args }) {
   await reply(message, { content: 'Usage: `crd deity collection` · `crd deity info <name>` · `crd deity equip <name>` · `crd deity enhance <name>`' });
 }
 
-module.exports = { execute, handleListButton, handleEnhanceAttempt, handleEnhanceCancel, appendInfoSections };
+module.exports = { execute, handleListButton, handleEnhanceAttempt, handleEnhanceCancel, buildDeityInfoPayload };

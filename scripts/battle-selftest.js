@@ -140,23 +140,25 @@ section('4. Targeted scenarios');
 // — C1: mob formula base + per_level × level (live DB rows, v4.2 §15) —
 {
   // 1e: fixtures pinned to the authoritative live mob_roster export (supersedes the
-  // stale seed figures AND the interim §15 +500 HP column). Regular per-level 40/15/10.
-  const blackDuwende = { base_hp: 1610, base_atk: 118, base_def: 78, base_crit: 5, hp_per_level: 40, atk_per_level: 15, def_per_level: 10 };
+  // stale seed figures AND the interim §15 +500 HP column).
+  // [v4.3] per-level scaling REDUCED: regular 40/15/10 → 20/8/5; elite 75/30/16 → 40/15/10.
+  // Formula is base + per_level × level (C1 — NOT level−1), so Lv1 reflects one level of growth.
+  const blackDuwende = { base_hp: 1610, base_atk: 118, base_def: 78, base_crit: 5, hp_per_level: 20, atk_per_level: 8, def_per_level: 5 };
   const s1 = computeMobStats(blackDuwende, 1);
-  check('C1: Black Duwende Lv1 = 1650/133/88', s1.hp === 1650 && s1.atk === 133 && s1.def === 88,
+  check('C1: Black Duwende Lv1 = 1630/126/83', s1.hp === 1630 && s1.atk === 126 && s1.def === 83,
     `got hp=${s1.hp} atk=${s1.atk} def=${s1.def}`);
-  // elite per-level 75/30/16
-  const manananggal = { base_hp: 2450, base_atk: 172, base_def: 140, base_crit: 10, hp_per_level: 75, atk_per_level: 30, def_per_level: 16 };
+  // elite per-level 40/15/10 [v4.3]
+  const manananggal = { base_hp: 2450, base_atk: 172, base_def: 140, base_crit: 10, hp_per_level: 40, atk_per_level: 15, def_per_level: 10 };
   const e1 = computeMobStats(manananggal, 1);
-  check('C1: Manananggal Lv1 = 2525/202/156', e1.hp === 2525 && e1.atk === 202 && e1.def === 156,
+  check('C1: Manananggal Lv1 = 2490/187/150', e1.hp === 2490 && e1.atk === 187 && e1.def === 150,
     `got hp=${e1.hp} atk=${e1.atk} def=${e1.def}`);
-  // boss rows are authored and untouched by the rebalance
+  // boss rows are authored and untouched by the rescale
   const boss = { base_hp: 5000, base_atk: 400, base_def: 250, base_crit: 10, hp_per_level: 150, atk_per_level: 12, def_per_level: 8 };
   const s40 = computeMobStats(boss, 40);
   check('C1: boss Lv40 spot check', s40.hp === 11000 && s40.atk === 880 && s40.def === 570,
     `got hp=${s40.hp} atk=${s40.atk} def=${s40.def}`);
   const sClamp = computeMobStats(blackDuwende, 99);
-  check('C1: mob level clamped to 55', sClamp.hp === 1610 + 40 * 55, `got ${sClamp.hp}`);
+  check('C1: mob level clamped to 55', sClamp.hp === 1610 + 20 * 55, `got ${sClamp.hp}`);
 }
 
 // — 1d: class base HP 500 (v4.2); per-level growth unchanged —
@@ -362,9 +364,11 @@ section('4. Targeted scenarios');
     /* r3 */ 0.99, 0.5];
   const sim = resolveBattle(mk(), mob({ hp: 50000, def: 200 }), { seed: 1, rng: scripted(script) });
   const r3 = dmgOf(roundEvents(sim, 3), 'attacks');
-  // shred 0.30 → DEF 140 → 300×(200/340)=176.47 + zeus rider 240 → 416
-  check('R8: highest-wins r3 damage = 416', r3 === 416, `got ${r3}`);
-  check('R8: not multiplicative (≠432)', r3 !== 432);
+  // [bonus-fix] zeus +80% now rides the mitigated ATK lane: effATK 300×1.80=540.
+  // shred 0.30 → DEF 140 → 540×(200/340)=317.6 → 317 (highest-wins).
+  check('R8: highest-wins r3 damage = 317', r3 === 317, `got ${r3}`);
+  // multiplicative def_down (0.30,0.20→0.44) would give DEF 112 → 540×(200/312)=346.
+  check('R8: not multiplicative (≠346)', r3 !== 346);
 }
 
 // — def_down immunity blocks ALL sources including the laevateinn stack —
@@ -374,8 +378,8 @@ section('4. Targeted scenarios');
     { seed: 1, rng: scripted([0.0, 0.99, 0.5, 0.99, 0.5, 0.99, 0.5, 0.99, 0.5, 0.99, 0.5]) });
   check('def_down-immune: no Sundering Flame stacks', !hasEvent(allEvents(sim), 'Sundering Flame'));
   const r3 = dmgOf(roundEvents(sim, 3), 'attacks');
-  // unshredded DEF 200 → 300×(200/400)=150 + 240 rider = 390
-  check('def_down-immune r3 damage = 390', r3 === 390, `got ${r3}`);
+  // [bonus-fix] DEF 200 unshredded, zeus +80% mitigated: effATK 540 → 540×(200/400)=270
+  check('def_down-immune r3 damage = 270', r3 === 270, `got ${r3}`);
 }
 
 // — R9: Babaylan ATK +100% only on a non-empty cleanse —

@@ -9,15 +9,17 @@ const {
 const fs = require('fs');
 const path = require('path');
 const pool = require('../../db/pool');
-const { emojiForDisplay, resolveName } = require('../../utils/emojis');
-const { renderCenteredArt } = require('../../engine/renderSummon');
+const { resolveName } = require('../../utils/emojis');
+const { renderPortraitCard } = require('../../engine/renderPortraitCard');
 
 const AI_DISCLAIMER = '-# Images are AI-generated interpretations and may not be accurate; used for in-game illustration only.';
 
 const TIER_COLOR = {
   Common: 0x95a5a6, Rare: 0x3498db, Mythic: 0x9b59b6, Legendary: 0xFFD700, Supreme: 0xe74c3c,
 };
-const TYPE_EMOJI = { Sword: '⚔️', Staff: '🪄', Gloves: '🥊', Shield: '🛡️', Bow: '🏹' };
+const TIER_HEX = {
+  Common: '#95a5a6', Rare: '#3498db', Mythic: '#9b59b6', Legendary: '#FFD700', Supreme: '#e74c3c',
+};
 
 const WEAPONS_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'weapons');
 
@@ -45,55 +47,52 @@ function artworkPath(weaponName) {
 }
 
 /**
- * Build the weapon-info container (exported for tests). `artName` = attachment
- * filename to reference in the gallery, or null to skip the gallery section.
+ * Build the weapon-info payload: a single portrait card (art LEFT, name/tier/stats/
+ * passive RIGHT) followed by lore + the AI disclaimer + action hints as text.
  */
-function buildInfoContainer(w, weaponId, artName) {
-  const icon = emojiForDisplay(w.name, TYPE_EMOJI[w.type] ?? '⚔️');
-  const container = new ContainerBuilder()
-    .setAccentColor(TIER_COLOR[w.tier] ?? TIER_COLOR.Common)
-    .addTextDisplayComponents((td) =>
-      td.setContent(`## ${icon} ${w.name} +${w.enhancement - 1}\n-# ${w.tier}`)
-    )
-    .addSeparatorComponents(sep);
-
-  if (artName) {
-    container
-      .addMediaGalleryComponents((g) =>
-        g.addItems((item) => item.setURL(`attachment://${artName}`))
-      )
-      .addSeparatorComponents(sep);
+async function buildInfoPayload(w, weaponId) {
+  const hasPassive = w.passive_name && w.passive_name.toLowerCase() !== 'none';
+  const statLines = [
+    `ATK   ${w.curr_atk}`,
+    `HP    ${w.curr_hp}`,
+    `DEF   ${w.curr_def}`,
+  ];
+  if (Number(w.crit) > 0) statLines.push(`CRIT  ${Number(w.crit).toFixed(1)}%`);
+  if (w.bonus_dmg_pct) {
+    statLines.push(`Bonus +${Number(w.bonus_dmg_pct)}% DMG / +${Number(w.bonus_crit_dmg_pct)}% CRIT DMG`);
   }
 
-  // Stats first, then the Passive section. Lore section ALWAYS renders —
-  // muted placeholder when the column is empty (a DB value replaces it
-  // automatically); the AI disclaimer sits below the lore, blank-line separated.
-  const hasPassive = w.passive_name && w.passive_name.toLowerCase() !== 'none';
-  const passiveBlock = hasPassive
-    ? `**Passive — ${w.passive_name}**\n${w.passive_description}`
-    : '**Passive**\n*No passive.*';
-  const critTxt = Number(w.crit) > 0 ? ` · CRIT **${Number(w.crit).toFixed(1)}%**` : '';
-  const bonusLine = w.bonus_dmg_pct
-    ? `\n-# Bonus: +${Number(w.bonus_dmg_pct)}% DMG · +${Number(w.bonus_crit_dmg_pct)}% CRIT DMG`
-    : '';
-  const statsBlock =
-    `ATK **${w.curr_atk}** · HP **${w.curr_hp}** · DEF **${w.curr_def}**${critTxt}${bonusLine}` +
-    `\n\n${passiveBlock}`;
+  const sections = [
+    { heading: 'Stats', body: statLines.join('\n') },
+    hasPassive
+      ? { heading: `Passive — ${w.passive_name}`, body: w.passive_description }
+      : { heading: 'Passive', body: 'No passive.', dim: true },
+  ];
 
-  container
-    .addTextDisplayComponents((td) => td.setContent(statsBlock))
+  const buffer = await renderPortraitCard({
+    imagePath: artworkPath(w.name),
+    accent: TIER_HEX[w.tier] || TIER_HEX.Common,
+    title: `${w.name} +${w.enhancement - 1}`,
+    subtitle: w.tier,
+    sections,
+  });
+  const file = new AttachmentBuilder(buffer, { name: 'weapon_card.png' });
+
+  const container = new ContainerBuilder()
+    .setAccentColor(TIER_COLOR[w.tier] ?? TIER_COLOR.Common)
+    .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL('attachment://weapon_card.png')))
     .addSeparatorComponents(sep);
 
   const hasLore = typeof w.lore === 'string' && w.lore.trim().length > 0;
   const loreBlock = hasLore ? `*${w.lore.trim()}*` : '-# No lore recorded yet.';
   container
     .addTextDisplayComponents((td) => td.setContent(`${loreBlock}\n\n${AI_DISCLAIMER}`))
-    .addSeparatorComponents(sep);
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) =>
+      td.setContent(`-# 💡 \`crd enhance ${weaponId}\` ・ \`crd equip ${weaponId}\``)
+    );
 
-  container.addTextDisplayComponents((td) =>
-    td.setContent(`-# 💡 \`crd enhance ${weaponId}\` ・ \`crd equip ${weaponId}\``)
-  );
-  return container;
+  return { components: [container], files: [file], flags: MessageFlags.IsComponentsV2 };
 }
 
 // ── crd weapon info <weapon_id> ─────────────────────────────────────────────
@@ -118,22 +117,9 @@ async function info(message, weaponId) {
     await reply(message, { content: 'You don\'t own a weapon with that ID.' });
     return;
   }
-  const w = rows[0];
 
-  // Artwork centered on the wide grid canvas (skipped when missing/unloadable).
-  const files = [];
-  let artName = null;
-  const art = artworkPath(w.name);
-  if (art) {
-    const buffer = await renderCenteredArt(art);
-    if (buffer) {
-      artName = 'weapon_art.png';
-      files.push(new AttachmentBuilder(buffer, { name: artName }));
-    }
-  }
-
-  const container = buildInfoContainer(w, weaponId, artName);
-  await reply(message, { components: [container], files, flags: MessageFlags.IsComponentsV2 });
+  const payload = await buildInfoPayload(rows[0], weaponId);
+  await reply(message, payload);
 }
 
 // ── dispatcher: crd weapon info <id> ────────────────────────────────────────
@@ -143,4 +129,4 @@ async function execute(message, { args }) {
   await reply(message, { content: 'Usage: `crd weapon info <weapon_id>`' });
 }
 
-module.exports = { execute, buildInfoContainer };
+module.exports = { execute, buildInfoPayload };

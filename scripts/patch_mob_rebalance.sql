@@ -8,6 +8,11 @@
 --
 -- Column names verified against credd_schema_v4.sql mob_roster:
 --   base_atk, base_def, hp_per_level, atk_per_level, def_per_level, mob_type
+--
+-- ⚠️ SUPERSEDED (per-level only) by scripts/patch_mob_scaling_v9.sql [v4.3]:
+--   the per-level values set below (regular 40/15/10, elite 75/30/16) are later
+--   REDUCED to regular 20/8/5, elite 40/15/10. The base_atk/base_def bumps here
+--   still stand. Apply this patch first, then v9, for a fresh-DB == live-DB result.
 -- =====================================================================
 
 BEGIN;

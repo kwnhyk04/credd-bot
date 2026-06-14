@@ -44,11 +44,11 @@ async function getQuestIcon(type) {
 
 // Layout
 const W = 560;
-const ROW_H = 70;
-const GAP = 10;
+const ROW_H = 60;
+const GAP = 9;
 const PAD = 12;
 const RADIUS = 12;
-const ICON = 20;
+const ICON = 17;
 const BAR_SEGMENTS = 10;
 
 // Colors (near Discord dark)
@@ -61,10 +61,11 @@ const BAR_EMPTY = '#3A3C43';
 const DONE_COLOR = '#43d675';
 const PROG_COLOR = '#f0b232';
 
-// Typography (kept compact so long quest names don't collide with the status label)
-const NAME_FONT = `bold 14px "${FONT_FAMILY}"`;
-const SUB_FONT = `12px "${FONT_FAMILY}"`;
-const STATUS_FONT = `12px "${FONT_FAMILY}"`;
+// Typography (kept compact — matches the bag render density; long quest names
+// truncate via fitText so they never collide with the status label)
+const NAME_FONT = `bold 12px "${FONT_FAMILY}"`;
+const SUB_FONT = `10px "${FONT_FAMILY}"`;
+const STATUS_FONT = `10px "${FONT_FAMILY}"`;
 
 /** Trim text with an ellipsis so it fits within maxW at the current ctx.font. */
 function fitText(ctx, text, maxW) {
@@ -114,12 +115,12 @@ async function renderQuestRowsImage(quests) {
   const shardIcon = await getEmojiIcon('belief_shards');
   const typeIcons = await Promise.all(quests.map((q) => getQuestIcon(q.type)));
 
-  const TYPE_ICON = 34;
+  const TYPE_ICON = 28;
   for (let i = 0; i < quests.length; i++) {
     const q = quests[i];
     const y = PAD + i * (ROW_H + GAP);
     const iconX = PAD + 12;
-    const textX = iconX + TYPE_ICON + 12;
+    const textX = iconX + TYPE_ICON + 11;
     const innerR = W - PAD - 14;
 
     roundRectPath(ctx, PAD, y, W - PAD * 2, ROW_H, RADIUS);
@@ -140,31 +141,31 @@ async function renderQuestRowsImage(quests) {
     ctx.font = NAME_FONT;
     ctx.fillStyle = PROG_COLOR;
     const label = `Q${i + 1}`;
-    ctx.fillText(label, textX, y + 23);
-    const nameStart = textX + ctx.measureText(label).width + 8;
+    ctx.fillText(label, textX, y + 21);
+    const nameStart = textX + ctx.measureText(label).width + 7;
     ctx.fillStyle = NAME_COLOR;
-    ctx.fillText(fitText(ctx, q.name, innerR - statusW - 14 - nameStart), nameStart, y + 23);
+    ctx.fillText(fitText(ctx, q.name, innerR - statusW - 14 - nameStart), nameStart, y + 21);
 
     ctx.textAlign = 'right';
     ctx.font = STATUS_FONT;
     ctx.fillStyle = q.completed ? DONE_COLOR : PROG_COLOR;
-    ctx.fillText(statusText, innerR, y + 23);
+    ctx.fillText(statusText, innerR, y + 21);
 
     // Line 2: progress bar + X/Y, then reward icons at the right
     const ratio = q.target > 0 ? Math.min(1, q.current / q.target) : 0;
-    const barY = y + 40;
-    const barW = 150;
-    drawBar(ctx, textX, barY, barW, 12, ratio);
+    const barY = y + 35;
+    const barW = 140;
+    drawBar(ctx, textX, barY, barW, 10, ratio);
 
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.font = SUB_FONT;
     ctx.fillStyle = SUB_COLOR;
     const progText = `${q.current.toLocaleString()}/${q.target.toLocaleString()}`;
-    ctx.fillText(progText, textX + barW + 10, barY + 6);
+    ctx.fillText(progText, textX + barW + 10, barY + 5);
 
     // Reward, right-aligned: <icon> N  <icon> N
-    const midY = barY + 6;
+    const midY = barY + 5;
     let rx = innerR;
     // shards (rightmost)
     ctx.textAlign = 'right';
