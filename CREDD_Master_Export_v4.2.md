@@ -705,12 +705,16 @@ Final DMG = ATK × (1 − DEF/(DEF+200)) × random(0.90, 1.10)
 Crit DMG  = Final DMG × 2.0
 Crit Cap  = 40% class / 45% total (§35.2)
 ```
-> **[v4.4] "+X% ATK" bonus passives are DEF-mitigated.** A "+45% ATK" / "200% ATK" rider
-> (weapon, blessing, or mob skill — e.g. Arrow of Eros, Mjolnir crush, Valkyrie Battle
-> Judgment) scales the attacker's ATK *before* mitigation, so it adds X% of the damage
-> actually dealt — NOT a flat ATK-fraction added after DEF (the old bug let a +45% rider
-> roughly double the hit and a 200% mob nuke land ~6×). Now +45% ≈ ×1.45 of the hit and a
-> "200% ATK" nuke ≈ ×3, both reduced by the defender's DEF.
+> **[v4.4] ATK-scaling bonus passives are DEF-mitigated.** Bonus riders (weapon, blessing,
+> or mob skill) scale the attacker's ATK *before* mitigation instead of adding a flat
+> ATK-fraction after DEF (the old bug let a +45% rider roughly double a hit and a "200%"
+> mob nuke land ~6×). Two label conventions:
+> - **Player "+X% bonus ATK"** (e.g. Arrow of Eros +45%, Mjolnir crush) = *additional* X%
+>   on top → ×(1+X) of the hit. +45% ≈ ×1.45.
+> - **Mob "X% ATK" nuke** (e.g. Valkyrie Battle Judgment 200%, Harpy 150%) = *total*
+>   multiplier, like a crit → ×X of a normal hit. "200% ATK" = ×2.0, NOT +200%.
+>
+> Both are then reduced by the defender's DEF.
 
 ### Class Passives In Combat
 - Knight: Final DMG = Final DMG × 0.80 (applied after DEF mitigation)

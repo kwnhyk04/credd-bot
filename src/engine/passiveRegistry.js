@@ -191,13 +191,13 @@ const everyNthPlayerDebuff = (n, specs, label) => (bs) => {
   }
 };
 
-/** Mob skill: every Nth round → enemy attack deals +pct MORE damage (+ optional extra).
- *  ATK-mult lane (mitigated by the player's DEF): a "200% ATK" nuke lands ~3× a normal
- *  hit, NOT a raw flat spike that ignores DEF. */
+/** Mob skill: every Nth round → the enemy attack deals pct× ATK as its TOTAL damage
+ *  (mitigated by the player's DEF). pct is the whole multiplier, like a crit: "200% ATK"
+ *  = ×2.0 of a normal hit (NOT +200% on top), "150% ATK" = ×1.5, etc. */
 const everyNthEnemyNuke = (n, pctOrFn, labelFn, extraFn) => (bs) => {
   if (bs.currentTurn % n === 0) {
     const pct = typeof pctOrFn === 'function' ? pctOrFn(bs) : pctOrFn;
-    bs.flags.enemy_atk_mult = (bs.flags.enemy_atk_mult || 1.0) * (1 + pct);
+    bs.flags.enemy_atk_mult = (bs.flags.enemy_atk_mult || 1.0) * pct;
     if (extraFn) extraFn(bs);
     bs.log.push(typeof labelFn === 'function' ? labelFn(pct) : labelFn);
   }
@@ -1040,7 +1040,7 @@ const PASSIVE_REGISTRY = {
     // Rotates per round: Lion (140% ATK) → Goat (player DEF -20%) → Serpent (Burn)
     const phase = (bs.currentTurn - 1) % 3;
     if (phase === 0) {
-      bs.flags.enemy_atk_mult = (bs.flags.enemy_atk_mult || 1.0) * (1 + 1.40); // mitigated +140%
+      bs.flags.enemy_atk_mult = (bs.flags.enemy_atk_mult || 1.0) * 1.40; // 140% ATK total (mitigated)
       bs.log.push('🦁 Chimera: Lion Claw — 140% ATK!');
     } else if (phase === 1) {
       if (!bs.playerStatusImmune) {
