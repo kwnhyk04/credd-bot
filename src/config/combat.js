@@ -25,8 +25,9 @@ const CRIT_MULT = 2.0;
 // takes no damage-% rider). [v4.4] lowered from ×3.0 → ×2.5.
 const OVERCHARGE_MULT = 2.5;
 
-// Idiyanale "double damage": its own fixed lane (cannot crit, no rider).
-const DOUBLE_MULT = 2.0;
+// Idiyanale "double damage" is a GUARANTEED crit-level hit (base CRIT_MULT) that DOES
+// take the damage-% rider — so Supreme + double = ×2.5, Supreme + deity 50% + double =
+// ×3.0. Handled in the engine by feeding crit=true into hitMultiplier (no separate const).
 
 // Per-tier weapon damage-% riders (the only damage bonus a drop carries now).
 const TIER_DAMAGE_PCT = { Legendary: 25, Supreme: 50 };
@@ -46,7 +47,6 @@ function hitMultiplier(crit, damagePct) {
 module.exports = {
   CRIT_MULT,
   OVERCHARGE_MULT,
-  DOUBLE_MULT,
   TIER_DAMAGE_PCT,
   KATANA_DAMAGE_PCT,
   hitMultiplier,

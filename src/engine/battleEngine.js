@@ -57,12 +57,12 @@
  *   base = effATK × (1 − effDEF/(effDEF+200)) × variance(0.90–1.10)
  *   then exactly one multiplier:
  *     overcharge (Mage 3rd round): ×2.5 fixed, no crit, no rider
- *     double (Idiyanale):          ×2.0 fixed, no crit, no rider
- *     otherwise:                   ×((crit ? 2.0 : 1) + damage%/100)
- *   damage% = weapon bonusDmgPct + procced sources (Katana +30, future deity blessings via
- *   scratch.damageBonusPct), summed additively and applied to crit AND non-crit. Supreme
- *   50% → ×1.5 / ×2.5; Supreme 50% + deity 50% (proc) → ×2.0 / ×3.0. Mob "X% ATK" nukes
- *   are a clean ×(pct) and do
+ *     otherwise:                   ×((critLevel ? 2.0 : 1) + damage%/100)
+ *   critLevel = a rolled crit OR a Double (Idiyanale, a guaranteed crit-level hit that DOES
+ *   take the rider). damage% = weapon bonusDmgPct + procced sources (Katana +30, future
+ *   deity blessings via scratch.damageBonusPct), summed additively, applied to crit AND
+ *   non-crit. Supreme 50% → ×1.5 / ×2.5; Supreme + double → ×2.5; Supreme + deity 50% (proc)
+ *   → ×2.0 / ×3.0. Mob "X% ATK" nukes are a clean ×(pct) and do
  *   not also crit. (+X% ATK riders scale effATK pre-mitigation — see playerAtkMult.)
  *   → floor → defender stack (R3) → apply → death check (§35.3 first-to-0, R5)
  *
@@ -82,7 +82,7 @@
  */
 
 const PASSIVE_REGISTRY = require('./passiveRegistry');
-const { CRIT_MULT, OVERCHARGE_MULT, DOUBLE_MULT, hitMultiplier } = require('../config/combat');
+const { CRIT_MULT, OVERCHARGE_MULT, hitMultiplier } = require('../config/combat');
 
 const MAX_ROUNDS = 50;
 const SUDDEN_DEATH_FROM = 30;     // both lose 10% max HP at end of every round ≥ 30
@@ -408,22 +408,21 @@ function resolveBattle(a, b, opts = {}) {
       // Damage multiplier — ONE unified rule (§35.2 / config/combat). The damage-% bonus
       // (weapon bonusDmgPct + procced sources via scratch.damageBonusPct, e.g. Katana or a
       // deity) stacks additively and applies to BOTH crit and non-crit:
-      //   hit = base × ((crit ? 2.0 : 1.0) + damage%/100)
-      // Supreme 50% → ×1.5 / ×2.5; Supreme 50% + deity 50% (proc) → ×2.0 / ×3.0.
-      // Overcharge (Mage 3rd round) and Double (Idiyanale) are their own fixed lanes —
-      // a flat total multiplier, no crit, no rider.
+      //   hit = base × ((critLevel ? 2.0 : 1.0) + damage%/100)
+      // Double (Idiyanale) is a GUARANTEED crit-level hit — same 2.0 base + damage%, so it
+      // stacks with the rider (Supreme + double → ×2.5; Supreme + deity 50% + double → ×3.0).
+      // Overcharge (Mage 3rd round) is its own fixed lane: ×2.5, no crit, no rider.
       const overchargeFired = mainHit && overchargeRound;
       const doubled = mainHit && S.scratch.nextAttackDouble && !overchargeFired;
       const critApplied = crit && !overchargeFired && !doubled;
+      const critLevel = critApplied || doubled; // double = guaranteed crit-level multiplier
 
       let dmg = mitigated(effAtk(S) * atkScale, def) * variance;
       if (overchargeFired) {
         dmg *= OVERCHARGE_MULT;                   // ×2.5 fixed
-      } else if (doubled) {
-        dmg *= DOUBLE_MULT;                        // ×2.0 fixed
       } else {
         const damagePct = S.bonusDmgPct + S.scratch.damageBonusPct;
-        dmg *= hitMultiplier(critApplied, damagePct);
+        dmg *= hitMultiplier(critLevel, damagePct);
       }
       dmg = Math.max(0, Math.floor(dmg));
 

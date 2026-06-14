@@ -718,8 +718,9 @@ Crit Cap  = 40% class / 45% total (§35.2)
 >
 > **[v4.4] Unified damage-% rule (§35.2 / `config/combat.js`).** One `damage %` stat (no
 > separate crit-damage stat) stacks additively and applies to crit AND non-crit:
-> `hit = base × ((crit ? 2.0 : 1) + Σ damage%/100)`. Supreme 50% → ×1.5 / ×2.5; Supreme
-> 50% + deity 50% (proc) → ×2.0 / ×3.0. Overcharge ×2.5, double ×2.0 are fixed no-crit lanes.
+> `hit = base × ((critLevel ? 2.0 : 1) + Σ damage%/100)`. Supreme 50% → ×1.5 / ×2.5; Supreme
+> 50% + deity 50% (proc) → ×2.0 / ×3.0. Double (Idiyanale) is a guaranteed crit-level hit
+> that takes the rider (Supreme + double → ×2.5); Overcharge is a fixed ×2.5 no-crit lane.
 
 ### Class Passives In Combat
 - Knight: Final DMG = Final DMG × 0.80 (applied after DEF mitigation)
@@ -2042,7 +2043,8 @@ Each new mythology includes: new deity roster (all tiers), new regular and elite
   - `damage %` sums the weapon's `bonus_dmg_pct` + any procced source (Katana **+30%**; a future deity blessing's damage % applies only while it procs).
   - **Supreme** (50%): ×1.5 normal / **×2.5 crit**. **Legendary** (25%): ×1.25 / ×2.25. Katana (+30%): ×1.3 / ×2.3.
   - **Stacking, only while procced:** Supreme 50% **+ deity 50%** → ×2.0 normal / **×3.0 crit**. When the deity isn't procced it's just Supreme (×1.5 / ×2.5).
-  - **Overcharge** (Mage, every 3rd round): fixed **×2.5** ([v4.4], was ×3), cannot crit, no rider. **Double damage** (Idiyanale): fixed **×2.0**, no crit, no rider. A mob "X% ATK" nuke is a clean ×(pct) and does not also crit. These three are their own fixed lanes.
+  - **Double damage** (Idiyanale) is a **guaranteed crit-level hit** that **takes the damage % rider**: ×(2.0 + damage%/100). Plain → ×2.0; Supreme 50% + double → **×2.5**; Supreme + deity 50% + double → ×3.0.
+  - **Overcharge** (Mage, every 3rd round): fixed **×2.5** ([v4.4], was ×3), cannot crit, no rider — its own lane. A mob "X% ATK" nuke is a clean ×(pct) and does not also crit.
   - `bonus_crit_dmg_pct` (DB column) is **deprecated/unused** — left null on new drops; existing rows are ignored by the engine.
 - **Rounding:** `floor()` everywhere curr stats are computed.
 

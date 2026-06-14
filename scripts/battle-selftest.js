@@ -204,24 +204,24 @@ section('4. Targeted scenarios');
   check('round 2 not marked CRIT', !hasEvent(roundEvents(sim, 2), '(CRIT!)'));
 }
 
-// — Idiyanale double damage is its OWN exclusive lane: a clean ×2 that never stacks
-//   with crit or the Supreme flat bonus (no runaway ×3). Fires every 5th turn. —
+// — Idiyanale double is a GUARANTEED crit-level hit that TAKES the damage% rider:
+//   ×2.0 base + damage%. So plain → ×2.0; Supreme 50% + double → ×2.5. Fires every 5th turn. —
 {
   const script = [0.0]; // order → A first
   for (let r = 0; r < 5; r++) script.push(0.99, 0.5, 0.99, 0.5); // critPre(no), Avar(1.0), mobCrit(no), mobVar
-  // plain player: the round-5 attack is exactly 2× a normal hit, tagged (Double!)
+  // plain player: the round-5 attack is ×2.0 (crit-level base, no rider), tagged (Double!)
   const simA = resolveBattle(player({ crit: 0, deityBlessingKey: 'idiyanale_persistence', hp: 1000000 }),
     mob({ hp: 1000000, atk: 1 }), { seed: 1, rng: scripted(script) });
   const base = dmgOf(roundEvents(simA, 1), 'attacks');
   const r5 = dmgOf(roundEvents(simA, 5), 'attacks');
   check('Idiyanale round 5 marked Double', hasEvent(roundEvents(simA, 5), 'Double'));
   check('Idiyanale double = 2× a normal hit', r5 === base * 2, `got ${r5} vs ${base * 2}`);
-  // Supreme flat bonus is SUPPRESSED on a double hit → ×2, not ×3 (×2 × ×1.5).
+  // Supreme 50% STACKS with the double → ×2.5 (2.0 + 0.5), proportional to the ×1.5 normal.
   const simB = resolveBattle(player({ crit: 0, bonusDmgPct: 50, deityBlessingKey: 'idiyanale_persistence', hp: 1000000 }),
     mob({ hp: 1000000, atk: 1 }), { seed: 1, rng: scripted(script) });
-  const b1 = dmgOf(roundEvents(simB, 1), 'attacks'); // ×1.5 flat bonus
-  const b5 = dmgOf(roundEvents(simB, 5), 'attacks'); // ×2.0 double (no flat bonus)
-  check('Supreme double hit is ×2 not ×3', b5 === Math.floor((b1 / 1.5) * 2), `got ${b5} vs ${Math.floor((b1 / 1.5) * 2)}`);
+  const b1 = dmgOf(roundEvents(simB, 1), 'attacks'); // ×1.5 (normal + 50%)
+  const b5 = dmgOf(roundEvents(simB, 5), 'attacks'); // ×2.5 (double 2.0 + 50%)
+  check('Supreme + double stacks to ×2.5', b5 === Math.floor((b1 / 1.5) * 2.5), `got ${b5} vs ${Math.floor((b1 / 1.5) * 2.5)}`);
 }
 
 // — [v4.4] Unified damage %: the weapon's durable bonusDmgPct and a procced source
