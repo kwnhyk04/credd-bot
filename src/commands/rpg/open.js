@@ -110,7 +110,7 @@ async function openChestsTxn(discordId, alias, amount) {
 /** Renderer card stats line, e.g. `ATK 120 · HP 180 · DEF 70 · CRIT 3.2%`. */
 function dropStatsLine(d) {
   const critTxt = d.crit > 0 ? ` · CRIT ${Number(d.crit).toFixed(1)}%` : '';
-  const bonus = d.bonus_dmg_pct ? ` · +${Number(d.bonus_dmg_pct)}% DMG · +${Number(d.bonus_crit_dmg_pct)}% CDMG` : '';
+  const bonus = d.bonus_dmg_pct ? ` · +${Number(d.bonus_dmg_pct)}% DMG` : '';
   return `ATK ${d.atk} · HP ${d.hp} · DEF ${d.def}${critTxt}${bonus}`;
 }
 

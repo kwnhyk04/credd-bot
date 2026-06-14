@@ -64,13 +64,15 @@ const BAND_FRACTIONS = {
   Highest:  [0.80, 1.00],
 };
 
-// Supreme fixed stats (§7/§8/§35.2). [v4.4] DEF 400 → 500 (riders/crit unchanged).
+// Supreme fixed stats (§7/§8/§35.2). [v4.4] DEF 400 → 500; crit-damage rider removed —
+// the unified model uses a single damage % (50%), so bonus_crit_dmg_pct is left null.
 const SUPREME_STATS = {
   atk: 800, hp: 1200, def: 500, crit: 0.0,
-  bonus_dmg_pct: 50.00, bonus_crit_dmg_pct: 50.00,
+  bonus_dmg_pct: 50.00, bonus_crit_dmg_pct: null,
 };
 
-// Legendary bonus rider (revised): 25% chance → BOTH +25% (fixed).
+// Legendary bonus rider: 25% chance → +25% damage % (single unified stat — no separate
+// crit-damage rider as of [v4.4]).
 const LEGENDARY_BONUS_CHANCE = 0.25;
 const LEGENDARY_BONUS_VALUE = 25.00;
 
@@ -116,11 +118,11 @@ function rollWeaponStats(tier, type) {
   const def = Math.floor(bandedValue(range.def, profile.def));
   const crit = Math.round(bandedValue(range.crit, profile.crit) * 10) / 10; // 1 decimal
 
+  // [v4.4] single unified damage % — no separate crit-damage rider (left null).
   let bonus_dmg_pct = null;
-  let bonus_crit_dmg_pct = null;
+  const bonus_crit_dmg_pct = null;
   if (tier === 'Legendary' && Math.random() < LEGENDARY_BONUS_CHANCE) {
     bonus_dmg_pct = LEGENDARY_BONUS_VALUE;
-    bonus_crit_dmg_pct = LEGENDARY_BONUS_VALUE;
   }
 
   return { atk, hp, def, crit, bonus_dmg_pct, bonus_crit_dmg_pct };

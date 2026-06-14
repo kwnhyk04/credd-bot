@@ -59,7 +59,7 @@ async function buildInfoPayload(w, weaponId) {
   ];
   if (Number(w.crit) > 0) statLines.push(`CRIT  ${Number(w.crit).toFixed(1)}%`);
   if (w.bonus_dmg_pct) {
-    statLines.push(`Bonus +${Number(w.bonus_dmg_pct)}% DMG / +${Number(w.bonus_crit_dmg_pct)}% CRIT DMG`);
+    statLines.push(`Bonus +${Number(w.bonus_dmg_pct)}% DMG`);
   }
 
   const sections = [

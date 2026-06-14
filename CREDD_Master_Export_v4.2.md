@@ -191,8 +191,8 @@ NOTE: Weapons are NOT class-locked. Any class can equip any weapon.
 |---|---|---|---|---|---|
 | Rare | 100–150 | 100–200 | 50–75 | 1–5% | — |
 | Mythic | 200–350 | 300–400 | 80–150 | 1–5% | — |
-| Legendary | 500–600 | 600–800 | 200–300 | 1–5% | 25% chance on drop: BOTH +25% DMG and +25% CRIT DMG (fixed); otherwise none |
-| Supreme | Fixed 800 | Fixed 1200 | Fixed 500 | — | 50% DMG, 50% CRIT DMG (always) |
+| Legendary | 500–600 | 600–800 | 200–300 | 1–5% | 25% chance on drop: +25% damage (fixed); otherwise none |
+| Supreme | Fixed 800 | Fixed 1200 | Fixed 500 | — | +50% damage (always) |
 
 ### Weapon Enhancement System
 - Command: `crd enhance [weapon ID]`
@@ -317,7 +317,7 @@ NOTE: Weapons are NOT class-locked. Any class can equip any weapon.
 **Swords**
 | Weapon | Passive |
 |---|---|
-| Katana | CRIT deals +30% bonus damage on top of the ×2.0 crit (i.e. ×2.30 on a crit) |
+| Katana | +30% damage [v4.4 unified] — ×1.30 on a normal hit, ×2.30 on a crit |
 | Gladius | 30% chance to deal +50% bonus ATK |
 | Scimitar | Each consecutive hit +3% ATK, stacking up to 15% |
 
@@ -716,11 +716,10 @@ Crit Cap  = 40% class / 45% total (§35.2)
 >
 > Both are then reduced by the defender's DEF.
 >
-> **[v4.4] Crit-vs-flat riders never compound (§35.2).** A single hit takes exactly one
-> damage lane: crit → ×(2.0 + crit-damage riders); non-crit → ×(1 + `bonus_dmg_pct`);
-> double/overcharge are their own lanes. A Supreme weapon tops out at **×2.5 on a crit**
-> (was ×3.75) or ×1.5 on a normal hit — the highest single-hit damage in the game, rising
-> only by stacking more crit-damage sources.
+> **[v4.4] Unified damage-% rule (§35.2 / `config/combat.js`).** One `damage %` stat (no
+> separate crit-damage stat) stacks additively and applies to crit AND non-crit:
+> `hit = base × ((crit ? 2.0 : 1) + Σ damage%/100)`. Supreme 50% → ×1.5 / ×2.5; Supreme
+> 50% + deity 50% (proc) → ×2.0 / ×3.0. Overcharge ×2.5, double ×2.0 are fixed no-crit lanes.
 
 ### Class Passives In Combat
 - Knight: Final DMG = Final DMG × 0.80 (applied after DEF mitigation)
@@ -2037,13 +2036,14 @@ Each new mythology includes: new deity roster (all tiers), new regular and elite
 ### 35.2 Stat Aggregation & CRIT
 - **Additive:** Total ATK/HP/DEF = class(level) + equipped weapon `curr` + **active** deity `curr`.
 - **CRIT:** total = class crit + weapon crit. Class crit caps at **40%**; total hard ceiling **45%**. Deities grant no crit.
-- **Crit multiplier ×2.0** for players and enemies. Enemy authored crit (≤30%) is uncapped. (Sole exception: a crit dealt with the **Katana** is ×2.30.)
-- **[v4.4] Damage-rider lanes are MUTUALLY EXCLUSIVE** — they never compound past the cap:
-  - On a **crit**: ×(2.0 + crit-damage riders: Katana +0.30, weapon `bonus_crit_dmg_pct`, any deity/passive crit-damage). `bonus_dmg_pct` (flat) does **NOT** apply.
-  - On a **non-crit**: ×(1 + `bonus_dmg_pct`). The crit-damage rider does **NOT** apply.
-  - **Supreme weapon** (`crit = 0`, 50% DMG + 50% CRIT DMG): a crit (from another source — class/deity/passive) = **×2.5** (was ×3.75); a normal hit = **×1.5**. The ×2.5 ceiling rises only by stacking further crit-damage sources.
-  - **Legendary** (25% / 25%): crit ×2.25, normal ×1.25.
-  - **Double damage** (Idiyanale) and **Overcharge** (Mage ×3, no crit) are their own exclusive lanes — they take no crit and no flat/crit rider on that hit. A mob "X% ATK" nuke is a clean ×(pct) and does not also crit.
+- **Crit multiplier ×2.0** for players and enemies. Enemy authored crit (≤30%) is uncapped.
+- **[v4.4] ONE unified damage-% rule** (see `src/config/combat.js`). There is **no separate crit-damage stat** — every damage bonus is a single `damage %` that stacks **additively** and applies to **both** crit and non-crit:
+  - `hitMultiplier = (crit ? 2.0 : 1.0) + Σ(damage %)/100`
+  - `damage %` sums the weapon's `bonus_dmg_pct` + any procced source (Katana **+30%**; a future deity blessing's damage % applies only while it procs).
+  - **Supreme** (50%): ×1.5 normal / **×2.5 crit**. **Legendary** (25%): ×1.25 / ×2.25. Katana (+30%): ×1.3 / ×2.3.
+  - **Stacking, only while procced:** Supreme 50% **+ deity 50%** → ×2.0 normal / **×3.0 crit**. When the deity isn't procced it's just Supreme (×1.5 / ×2.5).
+  - **Overcharge** (Mage, every 3rd round): fixed **×2.5** ([v4.4], was ×3), cannot crit, no rider. **Double damage** (Idiyanale): fixed **×2.0**, no crit, no rider. A mob "X% ATK" nuke is a clean ×(pct) and does not also crit. These three are their own fixed lanes.
+  - `bonus_crit_dmg_pct` (DB column) is **deprecated/unused** — left null on new drops; existing rows are ignored by the engine.
 - **Rounding:** `floor()` everywhere curr stats are computed.
 
 ### 35.3 Battle Termination
@@ -2103,7 +2103,7 @@ Worked example:
 
 **Quest reward buckets** (`questPool.js`): Raid wins 3–5→(3k,5)/6–8→(6k,10)/9–10→(10k,15) · Elite defeats 2–3→(5k,8)/4–5→(10k,15) · Credux spent 5k–20k→(4k,5)/21k–50k→(9k,12) · Weapon enhancements 2–3→(4k,5)/4–5→(8k,10) · Duel wins 1→(5k,8)/2–3→(12k,18) · Duel challenges 2–3→(3k,5)/4–5→(6k,10). Rewards auto-credit on completion. Duel quests count **accepted duels vs distinct opponents** only.
 
-**Weapon stat banding** (`dropRates.js`): roll each stat within the tier range, positioned by the type's qualitative profile (§7): Lowest→bottom 20% · Low→bottom 40% · Balanced→middle 40–60% · High→top 40% · Highest→top 20%. CRIT banded the same way (Bows top of 1–5%). Supreme = fixed stats (always +50% DMG and +50% CRIT DMG, CRIT 0). Legendary = 25% chance on drop to roll BOTH +25% bonus_dmg_pct and +25% bonus_crit_dmg_pct (fixed); otherwise none. Rare/Mythic = no bonus rider.
+**Weapon stat banding** (`dropRates.js`): roll each stat within the tier range, positioned by the type's qualitative profile (§7): Lowest→bottom 20% · Low→bottom 40% · Balanced→middle 40–60% · High→top 40% · Highest→top 20%. CRIT banded the same way (Bows top of 1–5%). Supreme = fixed stats (always +50% damage, CRIT 0). Legendary = 25% chance on drop to roll +25% damage (`bonus_dmg_pct`, fixed); otherwise none. Rare/Mythic = no bonus rider. [v4.4] `bonus_crit_dmg_pct` is deprecated (left null) — the unified §35.2 damage % replaces it.
 
 **Mob scaling** (seed in `mob_roster`): regular = HP+20 / ATK+8 / DEF+5 per level; elite = HP+40 / ATK+15 / DEF+10; boss = authored per row. Mob level = player level + random(−5..+5), clamped **[1, 55]**. <!-- [v4.3] per-level growth reduced (regular was +40/+15/+10, elite was +75/+30/+16); base stats unchanged -->
 

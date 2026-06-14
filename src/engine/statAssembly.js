@@ -6,8 +6,9 @@
  * Builds battle-ready fighter structs for battleEngine.resolveBattle:
  *   - buildPlayerFighter: user_character + equipped weapon curr_* + ACTIVE deity
  *     curr_* (additive), CRIT = class crit (cap 40) + weapon crit (total cap 45).
- *     CRIT is NEVER scaled by weapon or deity enhancement. Weapon riders
- *     (bonus_dmg_pct / bonus_crit_dmg_pct) are read straight off the row.
+ *     CRIT is NEVER scaled by weapon or deity enhancement. The weapon's unified
+ *     damage % (bonus_dmg_pct) is read straight off the row (bonus_crit_dmg_pct
+ *     is deprecated as of [v4.4] — §35.2).
  *   - buildMobFighter: base + per_level × level (C1 — Master §16 formula, NOT
  *     level − 1), level clamped [1, 55]. Carries skill_key / immunity_tags /
  *     special_flags for the engine.
@@ -127,8 +128,7 @@ async function buildPlayerFighter(db, discordId) {
     hp: stats.hp,
     def: stats.def,
     crit: stats.crit,
-    bonusDmgPct: Number(r.bonus_dmg_pct) || 0,
-    bonusCritDmgPct: Number(r.bonus_crit_dmg_pct) || 0,
+    bonusDmgPct: Number(r.bonus_dmg_pct) || 0,   // unified damage % (§35.2); bonus_crit_dmg_pct deprecated
     weaponPassiveKey: weapon ? r.passive_key : 'none',
     weaponName: weapon ? r.weapon_name : null,
     deityBlessingKey: deity ? r.blessing_key : 'none',

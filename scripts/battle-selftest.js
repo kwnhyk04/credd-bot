@@ -224,6 +224,22 @@ section('4. Targeted scenarios');
   check('Supreme double hit is ×2 not ×3', b5 === Math.floor((b1 / 1.5) * 2), `got ${b5} vs ${Math.floor((b1 / 1.5) * 2)}`);
 }
 
+// — [v4.4] Unified damage %: the weapon's durable bonusDmgPct and a procced source
+//   (Katana +30 via scratch) STACK ADDITIVELY and apply to BOTH crit and non-crit.
+//   50% + 30% = 80% → ×1.8 normal / ×2.8 crit. (No separate crit-damage stat.) —
+{
+  const mk = () => player({ bonusDmgPct: 50, weaponPassiveKey: 'katana' }); // 50 + 30 = 80%
+  const sN = resolveBattle(mk(), mob({ hp: 100000 }), { seed: 1, rng: scripted([0.0, 0.99, 0.5, 0.99, 0.5]) });
+  const sC = resolveBattle(mk(), mob({ hp: 100000 }), { seed: 1, rng: scripted([0.0, 0.0, 0.5, 0.99, 0.5]) });
+  const n = dmgOf(roundEvents(sN, 1), 'attacks');
+  const c = dmgOf(roundEvents(sC, 1), 'attacks');
+  const sP = resolveBattle(player(), mob({ hp: 100000 }), { seed: 1, rng: scripted([0.0, 0.99, 0.5, 0.99, 0.5]) });
+  const base = dmgOf(roundEvents(sP, 1), 'attacks'); // plain non-crit, no bonus
+  check('damage% stack non-crit = base ×1.8', n === Math.floor(base * 1.8), `got ${n} vs ${Math.floor(base * 1.8)}`);
+  check('damage% stack crit = base ×2.8', c === Math.floor(base * 2.8), `got ${c} vs ${Math.floor(base * 2.8)}`);
+  check('round not crit-only: bonus applies to non-crit too', n > base, `n=${n} base=${base}`);
+}
+
 // — Knight DR ×0.80 after mitigation —
 {
   // order .9 → mob first; critPre(A) .99; mob crit .99, var .5; A var .5 (kills hp-1 mob)
@@ -250,7 +266,7 @@ section('4. Targeted scenarios');
     `got ${dmgOf(allEvents(sImm), 'attacks')}`);
 }
 
-// — [v4.2] Mage Overcharge: fires rounds 3/6/9, flat +200%, crit fully suppressed —
+// — Mage Overcharge: fires rounds 3/6/9, fixed ×2.5 ([v4.4], was ×3), crit suppressed —
 {
   const mk = () => player({ class: 'Mage', classPassive: 'overcharge' });
   // raid draws/round: critPre, playerVar, mobCrit, mobVar. Round 3 = overcharge; its
@@ -258,9 +274,8 @@ section('4. Targeted scenarios');
   const script = [0.0, /* r1 */ 0.99, 0.5, 0.99, 0.5, /* r2 */ 0.99, 0.5, 0.99, 0.5,
     /* r3 */ 0.0, 0.5, 0.99, 0.5];
   const sim = resolveBattle(mk(), mob({ hp: 100000 }), { seed: 1, rng: scripted(script) });
-  // +200% ATK applied PRE-mitigation → mitigated(300×3, 80) = 642 (exactly 3× the plain
-  // hit), NOT a raw flat spike. Regression guard against the unmitigated-flat bug.
-  check('Overcharge fires round 3 = 642 (×3 ATK, mitigated)', dmgOf(roundEvents(sim, 3), 'attacks') === 642,
+  // ×2.5 fixed total multiplier (no crit, no rider) → 214 × 2.5 = 535.
+  check('Overcharge fires round 3 = 535 (×2.5)', dmgOf(roundEvents(sim, 3), 'attacks') === 535,
     `got ${dmgOf(roundEvents(sim, 3), 'attacks')}`);
   check('Overcharge marker on round 3', hasEvent(roundEvents(sim, 3), 'Overcharge'));
   check('no Overcharge on rounds 1/2', !hasEvent(roundEvents(sim, 1), 'Overcharge') && !hasEvent(roundEvents(sim, 2), 'Overcharge'));
@@ -268,8 +283,8 @@ section('4. Targeted scenarios');
   check('Overcharge round 3 never crits (pre-roll latch voided)', !hasEvent(roundEvents(sim, 3), '(CRIT!)'));
   check('round 1/2 are plain hits = 214', dmgOf(roundEvents(sim, 1), 'attacks') === 214 && dmgOf(roundEvents(sim, 2), 'attacks') === 214,
     `r1=${dmgOf(roundEvents(sim, 1), 'attacks')} r2=${dmgOf(roundEvents(sim, 2), 'attacks')}`);
-  // overcharge is exactly 3× the plain hit (linear in ATK through mitigation)
-  check('Overcharge = 3× plain hit', dmgOf(roundEvents(sim, 3), 'attacks') === 3 * dmgOf(roundEvents(sim, 1), 'attacks'));
+  // overcharge is exactly 2.5× the plain hit (linear in ATK through mitigation)
+  check('Overcharge = 2.5× plain hit', dmgOf(roundEvents(sim, 3), 'attacks') === Math.floor(2.5 * dmgOf(roundEvents(sim, 1), 'attacks')));
 }
 
 // — Overcharge re-fires every 3rd round (fallback-driven; not 4/5) —

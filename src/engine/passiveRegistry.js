@@ -23,8 +23,9 @@
  *   - bs.enemyImmune(tag) gates all enemy-targeted debuffs
  *
  * bs scratch fields (reset by the engine every round, per ENGINE_HOOKS §1):
- *   bonusDamage, bonusIncomingDmgMult (0 = normal, additive delta), playerAtkMult,
- *   playerDefMult, ignoreDefPct, nextAttackAutoCrit, nextAttackDouble, log.
+ *   damageBonusPct (proc-granted damage %, summed with the weapon's bonusDmgPct),
+ *   bonusIncomingDmgMult (0 = normal, additive delta), playerAtkMult, playerDefMult,
+ *   ignoreDefPct, nextAttackAutoCrit, nextAttackDouble, log.
  * bs.flags.* persists for the whole battle (except the engine-managed per-round
  * derived flags — see battleEngine.js round-start reset list).
  *
@@ -254,8 +255,8 @@ const PASSIVE_REGISTRY = {
   // ── WEAPON PASSIVES — Mythic ─────────────────────────────────────────────
 
   'katana': (bs) => {
-    // CRIT multiplier becomes ×2.30 instead of ×2.00 — engine reads bs.flags.katana
-    bs.flags.katana = true;
+    // +30% damage (unified §35.2). Applies to crit AND non-crit: ×1.30 normal / ×2.30 crit.
+    bs.damageBonusPct += 30;
   },
 
   'gladius': chanceRider(0.30, 0.50,

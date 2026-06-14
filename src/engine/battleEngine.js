@@ -45,23 +45,24 @@
  *     duel → every round   raid → odd rounds (1,3,5,…)   boss → every 3rd round
  *
  * MAGE OVERCHARGE ([v4.2], §11/§13.1): the charge accumulator is gone. On every
- *   3rd round of the battle clock (rounds 3,6,9,…) the Mage's MAIN hit gains +200% ATK
- *   (×3, applied pre-mitigation so DEF still reduces it) AND the entire attack's crit is
- *   suppressed (pre-roll latch voided, nextAttackAutoCrit ignored). Rider hits in the
- *   same action (Labrys 2nd, Glacial Bow extra) are NOT the overcharge attack — they keep
- *   fresh crit rolls and get no bonus.
+ *   3rd round of the battle clock (rounds 3,6,9,…) the Mage's MAIN hit is a fixed ×2.5
+ *   ([v4.4], was ×3) AND the entire attack's crit is suppressed (pre-roll latch voided,
+ *   nextAttackAutoCrit ignored), with no damage-% rider. Rider hits in the same action
+ *   (Labrys 2nd, Glacial Bow extra) are NOT the overcharge attack — they keep fresh crit
+ *   rolls and the normal multiplier.
  *   Skip-CC on a multiple of 3 → the action never runs → that overcharge is simply lost
  *   (no carry-over); the next fires on the next multiple of 3.
  *
- * DAMAGE PIPELINE (per hit):
+ * DAMAGE PIPELINE (per hit) — ONE unified rule (§35.2 / config/combat):
  *   base = effATK × (1 − effDEF/(effDEF+200)) × variance(0.90–1.10)
- *   then ONE mutually-exclusive multiplier lane (never compounded — no runaway ×3+):
- *     overcharge (Mage 3rd round): effATK ×3 pre-mitigation, no crit/rider (§11/§13.1)
- *     double (Idiyanale):          ×2, no crit/rider
- *     crit:                        ×(2.0; 2.3 Katana; + bonus_crit_dmg_pct/100)  — crit only
- *     non-crit:                    ×(1 + bonus_dmg_pct/100)                       — non-crit only
- *   Supreme caps at ×2.5 on a crit / ×1.5 on a normal hit; 2.5 rises only by stacking
- *   further crit-damage sources (§35.2). Mob "X% ATK" nukes are a clean ×(pct) and do
+ *   then exactly one multiplier:
+ *     overcharge (Mage 3rd round): ×2.5 fixed, no crit, no rider
+ *     double (Idiyanale):          ×2.0 fixed, no crit, no rider
+ *     otherwise:                   ×((crit ? 2.0 : 1) + damage%/100)
+ *   damage% = weapon bonusDmgPct + procced sources (Katana +30, future deity blessings via
+ *   scratch.damageBonusPct), summed additively and applied to crit AND non-crit. Supreme
+ *   50% → ×1.5 / ×2.5; Supreme 50% + deity 50% (proc) → ×2.0 / ×3.0. Mob "X% ATK" nukes
+ *   are a clean ×(pct) and do
  *   not also crit. (+X% ATK riders scale effATK pre-mitigation — see playerAtkMult.)
  *   → floor → defender stack (R3) → apply → death check (§35.3 first-to-0, R5)
  *
@@ -81,18 +82,16 @@
  */
 
 const PASSIVE_REGISTRY = require('./passiveRegistry');
+const { CRIT_MULT, OVERCHARGE_MULT, DOUBLE_MULT, hitMultiplier } = require('../config/combat');
 
 const MAX_ROUNDS = 50;
 const SUDDEN_DEATH_FROM = 30;     // both lose 10% max HP at end of every round ≥ 30
 const SUDDEN_DEATH_PCT = 0.10;
 const SNAPSHOT_EVERY = 3;
 const MITIGATION_K = 200;         // §12: 1 − DEF/(DEF+200)
-const CRIT_MULT = 2.0;
-const KATANA_CRIT_MULT = 2.3;
 const ARCHER_PIERCE = 0.25;
 const KNIGHT_DR = 0.80;
 const OVERCHARGE_EVERY = 3;       // [v4.2] fires on rounds 3, 6, 9, …
-const OVERCHARGE_RIDER = 2.0;     // +200% ATK (×3 total) on the main hit, pre-mitigation; cannot crit
 
 const SKIP_TAGS = ['stun', 'paralyze', 'freeze', 'petrify', 'charm', 'confuse', 'miss'];
 const DOT_TAGS = ['bleed', 'burn', 'hp_pct_dot'];
@@ -123,8 +122,7 @@ function resolveBattle(a, b, opts = {}) {
     name: f.name,
     hp: f.hp, maxHp: f.hp,
     atk: f.atk, def: f.def, crit: Number(f.crit) || 0,
-    bonusDmgPct: Number(f.bonusDmgPct) || 0,
-    bonusCritDmgPct: Number(f.bonusCritDmgPct) || 0,
+    bonusDmgPct: Number(f.bonusDmgPct) || 0,   // unified damage % from the weapon (§35.2)
     classPassive: f.classPassive || null,
     weaponPassiveKey: f.weaponPassiveKey || 'none',
     deityBlessingKey: f.deityBlessingKey || 'none',
@@ -207,8 +205,10 @@ function resolveBattle(a, b, opts = {}) {
     get log() { return shared.events; },
     get playerStatusImmune() { return self.statusImmune; },
     set playerStatusImmune(v) { self.statusImmune = !!v; },
-    get bonusDamage() { return self.scratch.bonusDamage; },
-    set bonusDamage(v) { self.scratch.bonusDamage = v; },
+    // proc-granted damage % (Katana, future deity blessings) — summed with the weapon's
+    // durable bonusDmgPct; resets each round (only active while the source procs). §35.2
+    get damageBonusPct() { return self.scratch.damageBonusPct; },
+    set damageBonusPct(v) { self.scratch.damageBonusPct = v; },
     get bonusIncomingDmgMult() { return self.scratch.bonusIncomingDmgMult; },
     set bonusIncomingDmgMult(v) { self.scratch.bonusIncomingDmgMult = v; },
     get playerAtkMult() { return self.scratch.playerAtkMult; },
@@ -390,12 +390,11 @@ function resolveBattle(a, b, opts = {}) {
 
   // ── player attack action ───────────────────────────────────────────────────
   const playerAttack = (S, O) => {
-    // [v4.2] Mage Overcharge: on every 3rd round the MAIN hit gains +200% ATK AND the
-    // entire attack's crit is suppressed (pre-roll latch & nextAttackAutoCrit both
-    // voided). The +200% applies to ATK *before* DEF mitigation (so it lands around 3× a
-    // normal hit, NOT a raw unmitigated spike). Only the main hit qualifies — rider hits
-    // later in the same action (Labrys 2nd, Glacial Bow extra) keep their own crit rolls
-    // and get NO overcharge bonus.
+    // Mage Overcharge: on every 3rd round the MAIN hit is a fixed ×2.5 ([v4.4], was ×3)
+    // AND the entire attack's crit is suppressed (pre-roll latch & nextAttackAutoCrit both
+    // voided), with no damage-% rider. Only the main hit qualifies — rider hits later in
+    // the same action (Labrys 2nd, Glacial Bow extra) keep their own crit rolls and the
+    // normal multiplier.
     const overchargeRound = S.classPassive === 'overcharge' && shared.round % OVERCHARGE_EVERY === 0;
 
     const doHit = ({ atkScale, mainHit, critKnown }) => {
@@ -406,28 +405,25 @@ function resolveBattle(a, b, opts = {}) {
       else crit = rng() * 100 < effCritChance(S); // secondary hits roll fresh
       const variance = 0.9 + rng() * 0.2;
 
-      // Damage multipliers are MUTUALLY-EXCLUSIVE lanes — they never compound past the
-      // cap (no runaway ×3+ from stacking riders on a crit). Priority:
-      //   overcharge (Mage, every 3rd): ATK ×3 pre-mitigation, no crit, no rider (§11)
-      //   double      (Idiyanale):      ×2, no crit, no rider
-      //   crit:                         ×(2.0 / 2.3 Katana + bonus_crit_dmg)  — crit-dmg riders only
-      //   non-crit:                     ×(1 + bonus_dmg)                       — flat-dmg rider only
-      // So a Supreme weapon caps at ×2.5 on a crit (was ×3.75) or ×1.5 on a normal hit;
-      // 2.5 rises only by stacking further crit-damage sources (§35.2).
+      // Damage multiplier — ONE unified rule (§35.2 / config/combat). The damage-% bonus
+      // (weapon bonusDmgPct + procced sources via scratch.damageBonusPct, e.g. Katana or a
+      // deity) stacks additively and applies to BOTH crit and non-crit:
+      //   hit = base × ((crit ? 2.0 : 1.0) + damage%/100)
+      // Supreme 50% → ×1.5 / ×2.5; Supreme 50% + deity 50% (proc) → ×2.0 / ×3.0.
+      // Overcharge (Mage 3rd round) and Double (Idiyanale) are their own fixed lanes —
+      // a flat total multiplier, no crit, no rider.
       const overchargeFired = mainHit && overchargeRound;
       const doubled = mainHit && S.scratch.nextAttackDouble && !overchargeFired;
       const critApplied = crit && !overchargeFired && !doubled;
 
-      const ocScale = overchargeFired ? (1 + OVERCHARGE_RIDER) : 1;
-      let dmg = mitigated(effAtk(S) * atkScale * ocScale, def) * variance;
-      if (critApplied) {
-        let mult = S.flags.katana ? KATANA_CRIT_MULT : CRIT_MULT;
-        mult += S.bonusCritDmgPct / 100;          // Legendary/Supreme crit-dmg rider (crit only)
-        dmg *= mult;
+      let dmg = mitigated(effAtk(S) * atkScale, def) * variance;
+      if (overchargeFired) {
+        dmg *= OVERCHARGE_MULT;                   // ×2.5 fixed
       } else if (doubled) {
-        dmg *= 2;
-      } else if (!overchargeFired) {
-        dmg *= 1 + S.bonusDmgPct / 100;           // Legendary +25% / Supreme +50% flat (non-crit only)
+        dmg *= DOUBLE_MULT;                        // ×2.0 fixed
+      } else {
+        const damagePct = S.bonusDmgPct + S.scratch.damageBonusPct;
+        dmg *= hitMultiplier(critApplied, damagePct);
       }
       dmg = Math.max(0, Math.floor(dmg));
 
@@ -569,7 +565,7 @@ function resolveBattle(a, b, opts = {}) {
   // ── round-start bookkeeping ────────────────────────────────────────────────
   const resetScratch = (side) => {
     side.scratch = {
-      bonusDamage: 0,
+      damageBonusPct: 0,
       bonusIncomingDmgMult: 0,
       playerAtkMult: 0,
       playerDefMult: 0,
