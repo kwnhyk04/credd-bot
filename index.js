@@ -30,6 +30,8 @@ client.once('ready', async () => {
   // Emoji diagnostics (warn-only, never blocks startup).
   auditWeaponEmojis(pool);
   reconcileEmojiIds(client);
+  // Pre-pad the fixed casino assets so the first spin isn't slow (background, non-blocking).
+  require('./src/casino/casinoRender').prewarm();
 });
 
 client.on('messageCreate', async (message) => {

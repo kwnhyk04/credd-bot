@@ -751,7 +751,7 @@ Fully removed for initial release. Planned as an end-game update.
 ### Commands
 - `crd raid` / `crd r` — starts battle vs. mob or elite mob
 - No separate `crd dungeon` — dungeon IS raid
-- Battle cooldown: 10 seconds (universal, all commands)
+- `crd raid` cooldown: **25 seconds** (anti-spam) <!-- [v4.8] was 10s -->; most other commands 10s, all casino 25s (see Cooldowns)
 
 ### Spawn Rates
 - 80% → Common Mob spawns
@@ -766,7 +766,8 @@ Fully removed for initial release. Planned as an end-game update.
 ### Battle Flow
 - Fully automatic — no player input
 - Turn-based with HP bars
-- Embed updates on ODD rounds (1, 3, 5, …) + final state  [v4.2: was every 2–3 turns]
+- Embed updates on rounds **1, 4, 7, 10, …** (every 3rd from round 1) + final state  <!-- [v4.8] was odd rounds 1,3,5,… -->
+  - Worst-case raid animation (round-50 cap): 17 in-loop snapshots + start + final = 19 frames → 18 × 1.8s ≈ **32.4s** (was ~46.8s)
 - After battle ends: 📋 Battle Log button appears
 
 ### Embed Layout
@@ -787,7 +788,7 @@ Fully removed for initial release. Planned as an end-game update.
 |---|---|---|---|---|
 | Mob win | 100–500 | 100–200 | 3–5 (100%) | Silver (~30%) |
 | Mob loss | — | 50 | — | — |
-| Elite win | 600–1,000 | 300–500 | 8–10 (~100%) | Gold (~30%) |
+| Elite win | 600–1,000 | 300–500 | 8–10 (~100%) | Gold (~50%) | <!-- [v4.6] elite gold 30%→50% -->
 | Elite loss | — | 150 | — | — |
 
 ### Victory / Defeat
@@ -838,7 +839,7 @@ Fully removed for initial release. Planned as an end-game update.
 ### Duel Embed Layout
 - Player 1 (Top): Name + Class, Weapon | Blessing, HP bar, HP text, ATK · DEF · CRIT
 - Player 2 (Bottom): Same as Player 1
-- Embed updates EVERY round (duels end quickly — show HP drop per turn)  [v4.2: was every 2–3 turns]
+- Embed updates on rounds **1, 4, 7, 10, …** (every 3rd from round 1) + final state  <!-- [v4.8] was every round -->
 - 📋 Battle Log button after battle ends
 - Victory: border Gold, title "🏆 [Winner] Wins!"
 - Defeat: border Red
@@ -1008,7 +1009,7 @@ Apex boss variants. The five Greater Bosses are **Jotun, Fenrir, Fafnir, Hydra, 
 | Credux | 100,000 | **150,000** |
 | EXP (Combat) | 20,000 | **30,000** |
 | Belief Shards | 1,000 | 1,000 |
-| Chest | 1× Boss Treasure Chest | **80% → 2× Boss Treasure Chest / 20% → 1× Boss Golden Chest** (rolled once per defeat) |
+| Chest | 1× Boss Treasure Chest | **80% → 2× Boss Treasure Chest / 20% → 1× Boss Golden Chest** ([v4.6] rolled ONCE at spawn, fixed for that fight, shown in the spawn announcement) |
 
 - **Announcement:** Greater spawns get a distinct header (`☠️ GREATER BOSS — A world-ender awakes…`) and the doubled HP shows in the pool bar; the participation-rewards block lists the Greater values. Announcement and payout both read the same `GREATER_BOSSES` set, so they never disagree.
 
@@ -1417,6 +1418,119 @@ WHERE uw.weapon_roster_id = wr.weapon_roster_id
 - All bets in Credux
 - All activity logged in `casino_logs`
 
+### Mechanics [v4.5] — BUILD (Phase 10, authoritative)
+
+**Core principles.** All randomness is decided on the backend BEFORE anything renders; the
+embed only visualizes a settled result. Every draw uses a single crypto-backed RNG
+(`crypto.randomInt`), never `Math.random`. **Virtual economy: all wins pay 100% of the stated
+multiplier — no house edge, no baccarat commission, no payout shaving.** Entry gate: a
+registered account with sufficient Credux (a created *character* is NOT required). Per-command
+**25s cooldown for every casino game** (anti-spam) <!-- [v4.8] was 10s -->. Currency: `users_bag.credux`.
+
+**Max bets.** 150,000 for every game **except crash = 25,000**.
+
+| Game | Header | Win condition | Multiplier |
+|---|---|---|---|
+| Coin Toss | Coin of Fates | match Heads (**Aeternvm**) / Tails (**Obscvrvm**), true 50/50 | 2× |
+| Dice Roll | Trial of the Ancients | two independent d6; total parity matches odd/even | 2× |
+| Baccarat | The Oracle's Table | bet side wins; **tie → push** (bet returned); no commission | 2× |
+| Blackjack | The Sacred XXI | beat dealer; dealer hits to 17 (stands soft 17); bust = loss; natural 21 = normal 2× | 2× (push returns bet) |
+| Slot Machine | The Vault of Relics | three matching faces on the payline | see ladder |
+| Crash | The Ascension | cash out before the ascension collapses | see curve |
+
+**Suit mapping (cards) [v4.6]:** Pegasus = Clubs, Trident = Spades, Laurel = Hearts, Hammer =
+Diamonds (display names are title-cased slugs). Card assets are STATIC PNGs at
+`assets/casino/cards/img/{suit}_{rank}.png` (e.g. `pegasus_a.png`, `trident_10.png`); dealer hole
+card `card_back.png`. Baccarat points A=1 / 2–9 pip / 10·J·Q·K=0 (score = Σ mod 10); blackjack
+A=1 or 11 (best). **[v4.7]** each round deals from a single 52-card deck **without replacement**
+(`cardDeck.newDeck(rng).draw()`), so a hand can never hold the same suit+rank twice (e.g. two
+Hammer 6s); the first draw is uniform over 52, keeping rank/suit distributions flat. A baccarat
+hand (≤6 cards) or blackjack hand never exhausts the deck, so single-deck-per-round is the model.
+(Suit slugs + assets unchanged from [v4.6].)
+
+**Render.** SPIN frames show the animated GIFs padded to a fixed canvas via `sharp` (coin one,
+dice two, slot three reels). RESULT frames are composited on canvas (`@napi-rs/canvas`) as a small
+CENTERED image strip plus a CENTERED win/lose banner (Discord text can't be centered, so the
+banner is drawn). Cards render as one small centered card-strip per hand (avoids the media-gallery
+mosaic that oversized 3+ items). The **slot spin is one composited animated
+strip** (`imagePad.reelStripGif` joins the 3 reels into a single one-line GIF, cached — Discord
+would otherwise mosaic 3 gallery items as 1-big-2-small). The GIF→PNG swap uses fixed waits
+**[v4.7]**: coin reveal at **4.5s** (pulled −0.5s from the prior effective ~5.0s so it lands on the
+intended mark); dice roll 0–2s, reveal at **2.5s**; slot reveal at **9s** so all three staggered
+reels fully land first (measured longest reel ≈ 8.1s, clearing 9s by ~0.9s). Settlement/balance
+update fires at the reveal, not before. Result text is tiny and auto-shrinks to never overflow;
+cards are composited as-is — **[v4.7]** no rank-text overlay (the PNG art already shows the rank);
+crash uses compact fonts.
+**Baccarat is a sequential reveal:** deal four face-down `card_back` cards (Player 2, Banker 2),
+then flip one at a time in baccarat order — Player 1st, Banker 1st, Player 2nd, Banker 2nd —
+editing the message in place (~0.75s/flip); any third card is dealt face-down then flipped the same
+way; final frame shows all face-up + scores + verdict. Settlement is computed up front (locks funds
++ outcome) but the new balance is shown only on the final frame. The dealer hole / face-down backs
+load `cards/img/card_back.png`. **Blackjack** hands are card-strips (active = hole hidden; final = revealed
++ centered banner). Crash body is a drawn panel (compact fonts). Result assets: coin
+`coin/{heads|tails}.png`, dice `dice/face_{n}.png`, cards `cards/img/{suit}_{rank}.png`
+([v4.6] static PNG), slot faces `slots/{face}_face.png`. Separators divide header/body and the
+player↔banker / dealer↔player sections. Fixed (non-card) padded GIFs + durations are pre-warmed at
+startup. Deps: `sharp` (GIF padding/duration), `@napi-rs/canvas` (result strips + crash panel).
+
+**Slot ladder** (highest-prize-first; each rung an independent crypto roll at its own
+probability; first hit wins and stops; miss every rung → a non-winning combo that is never
+three-of-a-kind):
+
+| Rung | Face | Probability | Payout |
+|---|---|---|---|
+| 1 | Wings | 1% | ×20 |
+| 2 | Trident | 5% | ×10 |
+| 3 | Skull | 10% | ×5 |
+| 4 | Lightning | 30% | ×2 |
+| 5 | Horus | 30% | ×1.5 |
+| — | (lose) | remainder | — |
+
+<!-- [v4.7] Lightning & Horus lowered 50%→30% each; net win rate ≈ 58.52% (was ≈ 78.84%). Multipliers unchanged. -->
+
+
+Reels stagger via GIF length: reel 1 `slots/3s/` (3s), reel 2 `slots/4s/` (4s), reel 3
+`slots/5s/` (5s); filenames `{3s|4s|5s}_{face}_{n}.gif` (horus_1, lightning_2, skull_3,
+trident_4, wings_5). Fractional multipliers floor the gross payout.
+
+**Crash progression** (each push rolls the crash chance FIRST; survive → lock the cash-out
+multiplier; crash → lose the already-debited bet and the crash point shown is that push's
+multiplier):
+
+| Push | Crash chance | Cash-out multiplier |
+|---|---|---|
+| 1 | 20% | 1.45× |
+| 2 | 25% | 2.10× |
+| 3 | 30% | 3.05× |
+| 4 | 35% | 4.42× |
+| 5 | 40% | 6.40× |
+| 6 | 45% | 9.28× |
+
+**Extension past push 6:** crash chance = `min(75, 15 + 5·push)` (push 7 = 50%, push 8 = 55%, …
+capped at **75%**); cash-out multiplier = `round2(9.28 · 1.45^(push−6))` (push 7 ≈ 13.46×, push
+8 ≈ 19.51×, …) — the ×1.45 geometric step reproduces the published rows. **60s inactivity →
+AUTO-CASH-OUT** at the current safe multiplier (player-friendly).
+
+**The money path.** *Instant games* (coin, dice, baccarat, slot): outcome computed first, then
+ONE atomic transaction settles the NET (`credux += payout − bet`, guarded `WHERE credux ≥ bet`);
+the stake is never debited separately. *Stateful games* (blackjack, crash): the bet is DEBITED
+up front (locks funds against double-spend; one active session per user, enforced in memory),
+and the full payout is CREDITED on resolution; a restart mid-session leaves the bet debited =
+a loss. `casino_logs.result` is binary (`win`/`loss`): logged `win` iff `payout > 0`, so a push
+(stake returned, net 0) logs as `win` with `payout = bet`. `payout` is always the GROSS returned.
+
+**`casino_logs.metadata` (JSONB) per game:**
+- coin_toss: `{ pick, result }`
+- dice_roll: `{ pick, d1, d2, sum, parity }`
+- baccarat: `{ pick, winner, pScore, bScore, push }`
+- blackjack: `{ outcome, player_value, dealer_value, player:[ranks], dealer:[ranks] }`
+- slot_machine: `{ reels:[face×3], face, mult }`
+- crash: `{ pushes, crashed, multiplier, crash_point }`
+
+> Supersedes the §35-era draft note ("coin/dice 1.95×, baccarat 5% commission, BJ 3:2, slots
+> ~90% RTP, crash ~3% edge"): under the [v4.5] virtual-economy rule there is no edge or
+> commission and all even-money wins pay a clean 2×.
+
 ---
 
 ## 25. HELP SYSTEM [REVISED]
@@ -1511,8 +1625,11 @@ WHERE uw.weapon_roster_id = wr.weapon_roster_id
 
 ## 27. COMMAND BEHAVIOR
 
-### Universal Cooldown
-- All commands: 10 seconds cooldown, no exceptions
+### Per-Command Cooldowns <!-- [v4.8] was universal 10s -->
+- `crd raid` → **25 seconds** (anti-spam)
+- All casino games (coin toss, dice roll, baccarat, blackjack, slot machine, crash) → **25 seconds** (anti-spam)
+- Everything else (bag, open, summon, weapon/deity info, equip, enhance, profile, cred, bestow, daily, quests, duel, …) → **10 seconds**
+- Per-command windows (compound key per user); buttons are NOT cooldown-gated. Config: `src/config/cooldowns.js`.
 
 ### Error Messages (Plain text only — no embed)
 - *"You are not registered. Use `crd register` to get started."*

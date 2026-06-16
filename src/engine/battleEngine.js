@@ -731,14 +731,12 @@ function resolveBattle(a, b, opts = {}) {
     }
 
     rounds.push({ round, events: shared.events });
-    // [v4.2] snapshot cadence is mode-dependent: duels animate every round (they end
-    // fast — HP must visibly drop per turn), raids on odd rounds, boss every 3rd. The
-    // start + final snapshots are always present regardless.
-    const snapDue = mode === 'duel'
-      ? true
-      : mode === 'raid'
-        ? round % 2 === 1
-        : round % SNAPSHOT_EVERY === 0;
+    // [v4.8] snapshot cadence is mode-dependent: raid + duel snapshot on rounds 1,4,7,10,…
+    // (every 3rd starting at 1 — fewer edits, shorter animation), boss every 3rd (3,6,9…).
+    // The start + final snapshots are always present regardless.
+    const snapDue = (mode === 'duel' || mode === 'raid')
+      ? (round - 1) % 3 === 0
+      : round % SNAPSHOT_EVERY === 0;
     if (!result && snapDue) {
       snapshots.push({ round, a: snapSide(A), b: snapSide(B) });
     }

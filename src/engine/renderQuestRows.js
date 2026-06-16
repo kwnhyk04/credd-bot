@@ -63,9 +63,10 @@ const PROG_COLOR = '#f0b232';
 
 // Typography (kept compact — matches the bag render density; long quest names
 // truncate via fitText so they never collide with the status label)
-const NAME_FONT = `bold 12px "${FONT_FAMILY}"`;
-const SUB_FONT = `10px "${FONT_FAMILY}"`;
-const STATUS_FONT = `10px "${FONT_FAMILY}"`;
+// [v4.8] tightened a touch further for a denser, cleaner look.
+const NAME_FONT = `bold 11px "${FONT_FAMILY}"`;
+const SUB_FONT = `9px "${FONT_FAMILY}"`;
+const STATUS_FONT = `9px "${FONT_FAMILY}"`;
 
 /** Trim text with an ellipsis so it fits within maxW at the current ctx.font. */
 function fitText(ctx, text, maxW) {

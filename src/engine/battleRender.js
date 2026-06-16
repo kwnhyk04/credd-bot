@@ -120,6 +120,39 @@ function fitText(ctx, text, maxW) {
   return `${t}…`;
 }
 
+/**
+ * Word-wrap `text` to lines that each fit within maxW at the current ctx.font ([v4.8] — the mob
+ * skill line wraps instead of truncating). Splits on spaces; a single over-long word is kept on
+ * its own line rather than broken. Caller must set ctx.font before measuring/drawing.
+ */
+function wrapText(ctx, text, maxW) {
+  if (maxW <= 0) return [text];
+  const lines = [];
+  let cur = '';
+  for (const word of String(text).split(' ')) {
+    const test = cur ? `${cur} ${word}` : word;
+    if (!cur || ctx.measureText(test).width <= maxW) cur = test;
+    else { lines.push(cur); cur = word; }
+  }
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [text];
+}
+
+const SKILL_FONT_PX = 12;
+const SKILL_LINE_H = 14; // line advance for a wrapped skill line
+
+/** The mob's skill string (or '—'). Pure — used for both measuring and drawing. */
+function skillString(f) {
+  return f.skillDesc ? `Skill: ${f.skill} — ${f.skillDesc}` : `Skill: ${f.skill || '—'}`;
+}
+
+/** Extra wrapped skill lines beyond the first for a fighter card (0 for players / single-line). */
+function skillExtraLines(measureCtx, f, cardW) {
+  if (f.weapon) return 0; // players show a loadout, not a skill line
+  measureCtx.font = `${SKILL_FONT_PX}px ${FONT}`;
+  return Math.max(0, wrapText(measureCtx, skillString(f), cardW - 32).length - 1);
+}
+
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -182,9 +215,9 @@ function drawLoadout(ctx, f, icons, x, y, align) {
   ctx.textAlign = prevAlign;
 }
 
-function drawCard(ctx, f, state, y, { isEnemy, mirror, icons }) {
+function drawCard(ctx, f, state, y, { isEnemy, mirror, icons, cardH = CARD_H }) {
   const x = PAD, w = PANEL_W - PAD * 2;
-  roundRect(ctx, x, y, w, CARD_H, 10);
+  roundRect(ctx, x, y, w, cardH, 10);
   ctx.fillStyle = COLORS.card; ctx.fill();
   ctx.strokeStyle = COLORS.cardLine; ctx.lineWidth = 1.5; ctx.stroke();
 
@@ -217,14 +250,13 @@ function drawCard(ctx, f, state, y, { isEnemy, mirror, icons }) {
     drawLoadout(ctx, f, icons, nameX, ty, nameSide);
     ty += 16;
   } else {
-    // mob skill (name + description, fit to the card width) then active debuffs
+    // mob skill (name + description) — [v4.8] WRAP to the next line(s) instead of truncating,
+    // then active debuffs. The card height was grown by the caller to fit the extra lines.
     ctx.textAlign = nameSide;
-    ctx.font = `12px ${FONT}`; ctx.fillStyle = COLORS.dim;
-    const skillStr = f.skillDesc
-      ? `Skill: ${f.skill} — ${f.skillDesc}`
-      : `Skill: ${f.skill || '—'}`;
-    ctx.fillText(fitText(ctx, skillStr, w - 32), nameX, ty);
-    ty += 15;
+    ctx.font = `${SKILL_FONT_PX}px ${FONT}`; ctx.fillStyle = COLORS.dim;
+    const skillLines = wrapText(ctx, skillString(f), w - 32);
+    for (const line of skillLines) { ctx.fillText(line, nameX, ty); ty += SKILL_LINE_H; }
+    ty += 1;
     const tags = (state.debuffs || []).map((d) => d.tag).join(', ');
     ctx.font = `12px ${FONT}`; ctx.fillStyle = COLORS.dim;
     ctx.fillText(`Debuffs: ${tags || 'None'}`, nameX, ty);
@@ -271,12 +303,17 @@ function drawCard(ctx, f, state, y, { isEnemy, mirror, icons }) {
  */
 function renderBattlePanel(sim, snapIdx, { mirror = false, icons = null } = {}) {
   const s = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
-  const H = PAD * 3 + CARD_H * 2;
+  // [v4.8] grow a card's height when its (mob) skill line wraps, so nothing overlaps the bar/stats.
+  const measure = createCanvas(8, 8).getContext('2d');
+  const cardW = PANEL_W - PAD * 2;
+  const cardAH = CARD_H + skillExtraLines(measure, sim.a, cardW) * SKILL_LINE_H;
+  const cardBH = CARD_H + skillExtraLines(measure, sim.b, cardW) * SKILL_LINE_H;
+  const H = PAD * 3 + cardAH + cardBH;
   const canvas = createCanvas(PANEL_W, H);
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = COLORS.bg; ctx.fillRect(0, 0, PANEL_W, H);
-  drawCard(ctx, sim.a, s.a, PAD, { isEnemy: false, mirror: false, icons: icons && icons.a });
-  drawCard(ctx, sim.b, s.b, PAD * 2 + CARD_H, { isEnemy: true, mirror, icons: icons && icons.b });
+  drawCard(ctx, sim.a, s.a, PAD, { isEnemy: false, mirror: false, icons: icons && icons.a, cardH: cardAH });
+  drawCard(ctx, sim.b, s.b, PAD * 2 + cardAH, { isEnemy: true, mirror, icons: icons && icons.b, cardH: cardBH });
   return canvas.toBuffer('image/png');
 }
 

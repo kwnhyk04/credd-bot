@@ -8,6 +8,8 @@ const deityCmd = require('../commands/rpg/deity');
 const enhanceCmd = require('../commands/rpg/enhance');
 const sellCmd = require('../commands/rpg/sell');
 const bossSystem = require('../engine/bossSystem');
+const blackjackCmd = require('../commands/casino/blackjack');
+const crashCmd = require('../commands/casino/crash');
 
 /**
  * Routes button interactions by customId.
@@ -25,6 +27,8 @@ const bossSystem = require('../engine/bossSystem');
  *   sell:cancel:<uid>
  *   boss:<attack|log>:<guildId>   (no owner segment — any player may press;
  *                                  bossSystem gates per-presser internally)
+ *   bj:<hit|stand>:<uid>          (casino blackjack — bettor-gated, session-locked)
+ *   crash:<push|cashout>:<uid>    (casino crash — bettor-gated, session-locked)
  */
 async function handleInteraction(interaction) {
   if (!interaction.isButton()) return;
@@ -48,6 +52,16 @@ async function handleInteraction(interaction) {
         await bossSystem.handleLog(interaction);
         return;
       }
+    }
+
+    if (namespace === 'bj') {
+      await blackjackCmd.handleButton(interaction, action, parts[2]);
+      return;
+    }
+
+    if (namespace === 'crash') {
+      await crashCmd.handleButton(interaction, action, parts[2]);
+      return;
     }
 
     if (namespace === 'weapons') {

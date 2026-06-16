@@ -2,12 +2,13 @@
 
 const pool = require('../db/pool');
 const { replyError } = require('../utils/errorHandler');
+const { cooldownMs } = require('../config/cooldowns');
 
 // In-memory cooldown store: "discord_id:commandKey" → timestamp of last use.
-// Compound key gives each command its own independent 10s window (per-user,
-// across guilds); `crd bag` no longer gates `crd enhance`.
+// Compound key gives each command its own independent window (per-user, across
+// guilds); `crd bag` no longer gates `crd enhance`. The window length is
+// per-command ([v4.8] raid/casino 25s, else 10s) — see config/cooldowns.js.
 const cooldowns = new Map();
-const COOLDOWN_MS = 10_000;
 
 // In-memory prefix cache: guild_id → prefix string
 const prefixCache = new Map();
@@ -143,18 +144,19 @@ async function runMiddleware(message, { requiresCharacter = false, commandKey = 
     }
   }
 
-  // ── 5. 10-second cooldown (per user PER COMMAND) ──────────────────────────
+  // ── 5. Cooldown (per user PER COMMAND; window is per-command — [v4.8]) ─────
   // Compound key → each command has its own window; subcommand args are NOT
   // part of the key (canonical command identifier only).
+  const windowMs = cooldownMs(commandKey);
   const cooldownKey = `${discordId}:${commandKey}`;
   const now = Date.now();
   const last = cooldowns.get(cooldownKey) ?? 0;
   const elapsed = now - last;
-  if (elapsed < COOLDOWN_MS) {
-    const remainingMs = COOLDOWN_MS - elapsed;
-    // Future expiry instant = last successful use + the 10s window (NOT "now", NOT start).
+  if (elapsed < windowMs) {
+    const remainingMs = windowMs - elapsed;
+    // Future expiry instant = last successful use + the window (NOT "now", NOT start).
     // Discord relative timestamp counts down client-side — one message, no edits.
-    const readyAt = Math.floor((last + COOLDOWN_MS) / 1000); // SECONDS (10-digit), future
+    const readyAt = Math.floor((last + windowMs) / 1000); // SECONDS (10-digit), future
     const sent = await message
       .reply({ content: `You're on cooldown — ready <t:${readyAt}:R>.`, allowedMentions: { repliedUser: false } })
       .catch(() => null);

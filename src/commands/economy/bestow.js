@@ -23,6 +23,7 @@ const {
 } = require('discord.js');
 const pool = require('../../db/pool');
 const { isBanned } = require('../../handlers/middleware');
+const { emoji } = require('../../utils/emojis');
 
 // TODO Phase-rep: grant +50 reputation to the sender on a successful bestow (§18) —
 //   wire when awardReputation is extracted to a shared util (cap/rollover lives there).
@@ -48,8 +49,9 @@ function reply(message, content) {
 
 /** The myth-flavored bestow line with the amount + an exact Discord timestamp. */
 function bestowLine(senderName, receiverName, amount, unixSeconds) {
+  // [v4.8] credux icon before the amount (icon-before-amount convention).
   return `✨ By the will of the gods, **${senderName}** bestows ` +
-    `**${amount.toLocaleString()} Credux** upon **${receiverName}**. Sealed <t:${unixSeconds}:F>.`;
+    `${emoji('credux_coin')} **${amount.toLocaleString()} Credux** upon **${receiverName}**. Sealed <t:${unixSeconds}:F>.`;
 }
 
 /** Confirm card (CV2): header → sep → myth line → sep → RMT warning (+ buttons). */

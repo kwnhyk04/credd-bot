@@ -21,9 +21,27 @@
  * disagrees with what actually fights.
  */
 
+const path = require('path');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const { getEmojiIcon, FONT_FAMILY } = require('./renderBagItems');
 const { resolveName } = require('../utils/emojis');
+
+/* ── Background template ([v4.6]) ───────────────────────────────────────────
+ * The profile card is drawn on top of a template image. TEMPLATE_FILE is a single
+ * swappable constant — the planned SUPPORTER phase will pick a per-user template
+ * (believer_/cbeliever_/eternal_) without restructuring this renderer. A faint scrim
+ * keeps text legible over arbitrary art. If the template is missing, fall back to the
+ * old flat dark background at the native 600-wide layout. */
+const TEMPLATE_DIR = path.join(__dirname, '..', '..', 'assets', 'profile');
+const TEMPLATE_FILE = 'default_template.png';
+const SCRIM = 'rgba(18,19,22,0.50)';
+let templateCache;
+function loadTemplate() {
+  if (templateCache === undefined) {
+    templateCache = loadImage(path.join(TEMPLATE_DIR, TEMPLATE_FILE)).catch(() => null);
+  }
+  return templateCache;
+}
 
 /* ── Layout ─────────────────────────────────────────────────────────────── */
 const W = 600;
@@ -124,25 +142,38 @@ async function loadAvatar(avatarUrl, fallbackUrl) {
  * @returns {Promise<Buffer>} PNG
  */
 async function renderProfileImage(d) {
-  // Pre-fetch images (avatar + weapon/deity/combat-exp icons) before laying out.
-  const [avatar, weaponIcon, deityIcon, expIcon] = await Promise.all([
+  // Pre-fetch images (template + avatar + weapon/deity/combat-exp icons) before laying out.
+  const [template, avatar, weaponIcon, deityIcon, expIcon] = await Promise.all([
+    loadTemplate(),
     loadAvatar(d.avatarUrl, d.fallbackAvatarUrl),
     d.weaponName ? getEmojiIcon(resolveName(d.weaponName) || '') : Promise.resolve(null),
     d.deityName ? getEmojiIcon(resolveName(d.deityName) || '') : Promise.resolve(null),
     getEmojiIcon('combat_exp'),
   ]);
 
-  // ── Measure total height (header + body + records + footer) ──
+  // ── Measure the layout (600-wide design space) ──
   const headerH = PAD + AVATAR + 14;
   const bodyH = 230;            // class, combat-exp, weapon hdr+val, deity hdr+val+blessing, stats hdr+val
   const recordsH = 110;         // "Combat Record" heading + boxed cells
   const footerH = 30;
-  const H = headerH + 12 + bodyH + 12 + recordsH + 12 + footerH;
+  const layoutH = headerH + 12 + bodyH + 12 + recordsH + 12 + footerH;
 
-  const canvas = createCanvas(W, H);
+  // Canvas = template size when present; otherwise the flat 600×layoutH fallback. The whole
+  // 600-wide layout is scaled to the template height and centered, so positions below are
+  // authored once in design space and the transform maps them onto the template.
+  const canvas = createCanvas(template ? template.width : W, template ? template.height : layoutH);
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = BG;
-  ctx.fillRect(0, 0, W, H);
+  if (template) {
+    ctx.drawImage(template, 0, 0, template.width, template.height);
+    ctx.fillStyle = SCRIM;
+    ctx.fillRect(0, 0, template.width, template.height);
+    const s = template.height / layoutH;
+    ctx.translate((template.width - W * s) / 2, 0);
+    ctx.scale(s, s);
+  } else {
+    ctx.fillStyle = BG;
+    ctx.fillRect(0, 0, W, layoutH);
+  }
   ctx.textBaseline = 'alphabetic';
 
   let y = PAD;

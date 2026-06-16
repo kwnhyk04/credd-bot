@@ -22,6 +22,7 @@ const {
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const pool = require('../../db/pool');
 const { emojiForDisplay } = require('../../utils/emojis');
 
@@ -30,12 +31,27 @@ const ACCENT = 0xf0b232;
 const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 const BANNER_PATH = path.join(__dirname, '..', '..', '..', 'assets', 'quest icons', 'attendance.png');
-let bannerBuf; // cached
+// [v4.8] The raw attendance icon rendered at full media-gallery width (oversized). Composite it
+// smaller and centered on a transparent panel so it reads as a proportional badge on the card.
+const ICON_MAX_H = 132;
+const PANEL_W = 420;
+const PANEL_H = ICON_MAX_H + 16;
+let bannerPromise; // cached Promise<Buffer|null>
 function banner() {
-  if (bannerBuf !== undefined) return bannerBuf;
-  try { bannerBuf = fs.existsSync(BANNER_PATH) ? fs.readFileSync(BANNER_PATH) : null; }
-  catch { bannerBuf = null; }
-  return bannerBuf;
+  if (bannerPromise !== undefined) return bannerPromise;
+  bannerPromise = (async () => {
+    try {
+      if (!fs.existsSync(BANNER_PATH)) return null;
+      const img = await loadImage(BANNER_PATH);
+      const scale = Math.min((PANEL_W - 16) / img.width, ICON_MAX_H / img.height);
+      const w = img.width * scale, h = img.height * scale;
+      const canvas = createCanvas(PANEL_W, PANEL_H);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, (PANEL_W - w) / 2, (PANEL_H - h) / 2, w, h);
+      return canvas.toBuffer('image/png');
+    } catch { return null; }
+  })();
+  return bannerPromise;
 }
 
 function reply(message, payload) {
@@ -134,14 +150,14 @@ async function claimDaily(client, discordId, { bypass = false } = {}) {
 }
 
 /** CV2 reward card (§19 layout). */
-function buildDailyPayload(result) {
+async function buildDailyPayload(result) {
   const creduxIcon = emojiForDisplay('Credux Coin', '💰');
   const shardIcon = emojiForDisplay('Belief Shards', '🔮');
   const chestIcon = emojiForDisplay(result.chestLabel, '🎁');
 
   const container = new ContainerBuilder().setAccentColor(ACCENT);
   const files = [];
-  const buf = banner();
+  const buf = await banner();
   if (buf) {
     files.push(new AttachmentBuilder(buf, { name: 'attendance.png' }));
     container.addMediaGalleryComponents((g) =>
@@ -186,7 +202,7 @@ async function execute(message) {
       content: `⏳ You already claimed today (Day ${result.monthly}). Come back after midnight PHT.`,
     });
   }
-  return reply(message, buildDailyPayload(result));
+  return reply(message, await buildDailyPayload(result));
 }
 
 module.exports = { execute, claimDaily, dailyReward, buildDailyPayload };

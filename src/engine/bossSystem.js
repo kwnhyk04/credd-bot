@@ -74,6 +74,10 @@ const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 const liveMessages = new Map();  // guildId → { channelId, messageId }
 const logCache = new Map();      // `${spawnId}:${discordId}` → sim
 const currentSpawn = new Map();  // guildId → spawnId (for logCache purging)
+// [v4.6] Greater Boss chest rolled ONCE at spawn, keyed by spawn_id — the single source of
+// truth shared by the announcement and the defeat payout (they can never disagree). In-memory
+// only (no schema change); a restart loses it and chestForSpawn re-rolls for that spawn.
+const greaterChests = new Map(); // spawnId → { column, qty, label }
 // spawn_ids created by `crd dev spawnboss` — the daily/once-per-spawn attack
 // rules are BYPASSED for these (multi-attack smoke testing). Regular scheduler
 // spawns keep every rule. In-memory: a restart reverts a test boss to normal
@@ -86,8 +90,20 @@ function rememberSpawn(guildId, spawnId) {
     for (const key of logCache.keys()) {
       if (key.startsWith(`${old}:`)) logCache.delete(key);
     }
+    greaterChests.delete(old);
   }
   currentSpawn.set(guildId, spawnId);
+}
+
+/**
+ * [v4.6] The chest outcome for a spawn — the ONE place announcement and payout agree.
+ * Normal bosses → deterministic 1× Boss Treasure Chest. Greater bosses → rolled 80/20 ONCE
+ * and cached by spawn_id, so every read (announcement, every attacker's payout) is identical.
+ */
+function chestForSpawn(spawnId, bossName) {
+  if (!isGreaterBoss(bossName)) return rollBossChest(bossName, Math.random); // fixed 1× treasure
+  if (!greaterChests.has(spawnId)) greaterChests.set(spawnId, rollBossChest(bossName, Math.random));
+  return greaterChests.get(spawnId);
 }
 
 /* ── boss art (slug per Roster & Asset Conventions Part 1) ──────────────── */
@@ -357,10 +373,12 @@ async function buildBossMessage({ state, mobRow, attackers, attackerCount, isDev
   const chestIcon = emojiForDisplay('Boss Treasure Chest', '🗝️');
   const goldChestIcon = emojiForDisplay('Boss Golden Chest', '🪙');
   const shardIcon = emojiForDisplay('Belief Shards', '🔮');
-  // Greater chest is a roll resolved at defeat — show the rule here; normal is fixed.
-  const chestLine = greater
-    ? `${chestIcon} Boss Treasure Chest ×2 *(80%)* — or ${goldChestIcon} Boss Golden Chest ×1 *(20%)*`
-    : `${chestIcon} Boss Treasure Chest ×1`;
+  // [v4.6] Greater chest is rolled ONCE at spawn — show the ACTUAL chest this fight awards
+  // (not the 80/20 rule), keyed off the same source the payout uses so they never disagree.
+  const spawnChest = chestForSpawn(state.spawn_id, mobRow.name);
+  const spawnChestIcon = spawnChest.column === 'boss_golden_chest' ? goldChestIcon : chestIcon;
+  // [v4.8] drop the "(this fight)" qualifier — redundant; rewards are understood to be this boss's.
+  const chestLine = `${spawnChestIcon} ${spawnChest.label} ×${spawnChest.qty}`;
   container
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(
@@ -592,7 +610,8 @@ async function distributeRewards(client, guildId, spawnId) {
     const nameRes = await dbc.query('SELECT name FROM mob_roster WHERE mob_id = $1', [flip.rows[0].mob_id]);
     const bossName = nameRes.rows[0]?.name || '';
     reward = bossRewards(bossName);
-    chest = rollBossChest(bossName, Math.random); // { column (whitelisted), qty, label }
+    // [v4.6] the chest fixed at spawn — same outcome the announcement showed, paid to all.
+    chest = chestForSpawn(spawnId, bossName); // { column (whitelisted), qty, label }
 
     const atk = await dbc.query(
       `SELECT discord_id FROM boss_attack_log

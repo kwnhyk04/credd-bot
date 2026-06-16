@@ -18,9 +18,16 @@ const raidCmd = require('../commands/rpg/raid');
 const duelCmd = require('../commands/rpg/duel');
 const bossCmd = require('../commands/rpg/boss');
 const bestowCmd = require('../commands/economy/bestow');
+const credCmd = require('../commands/economy/cred');
 const questsCmd = require('../commands/economy/quests');
 const dailyCmd = require('../commands/economy/daily');
 const devCmd = require('../commands/rpg/dev');
+const coinCmd = require('../commands/casino/coin');
+const diceCmd = require('../commands/casino/dice');
+const baccaratCmd = require('../commands/casino/baccarat');
+const blackjackCmd = require('../commands/casino/blackjack');
+const slotCmd = require('../commands/casino/slot');
+const crashCmd = require('../commands/casino/crash');
 
 // Commands with real implementations.
 //   mw 'ban'  → ban check only (no registration/character/activity); register needs this
@@ -48,15 +55,34 @@ const IMPLEMENTED = {
   duel:     { mw: 'full', run: duelCmd.execute },
   boss:     { mw: 'full', run: bossCmd.execute },
   bestow:   { mw: 'full', run: bestowCmd.execute },
+  cred:     { mw: 'full', run: credCmd.execute },
+  g:        { mw: 'full', run: credCmd.execute },
   quests:   { mw: 'full', run: questsCmd.execute },
   quest:    { mw: 'full', run: questsCmd.execute },
   daily:    { mw: 'full', run: dailyCmd.execute },
   dev:      { mw: 'dev',  run: devCmd.execute },
+
+  // ── Casino (Phase 10) — mw 'full' (registration gate); requiresCharacter:false ──
+  coin:      { mw: 'full', run: coinCmd.execute },
+  ct:        { mw: 'full', run: coinCmd.execute },
+  dice:      { mw: 'full', run: diceCmd.execute },
+  dr:        { mw: 'full', run: diceCmd.execute },
+  baccarat:  { mw: 'full', run: baccaratCmd.execute },
+  bac:       { mw: 'full', run: baccaratCmd.execute },
+  blackjack: { mw: 'full', run: blackjackCmd.execute },
+  bj:        { mw: 'full', run: blackjackCmd.execute },
+  slot:      { mw: 'full', run: slotCmd.execute },
+  sm:        { mw: 'full', run: slotCmd.execute },
+  crash:     { mw: 'full', run: crashCmd.execute },
 };
 
 // Aliases that must SHARE their canonical command's cooldown bucket — without
 // this, `crd r` + `crd raid` would grant two battles inside one 10s window.
-const COOLDOWN_KEY_ALIASES = { r: 'raid' };
+const COOLDOWN_KEY_ALIASES = {
+  r: 'raid',
+  g: 'cred',
+  ct: 'coin', dr: 'dice', bac: 'baccarat', bj: 'blackjack', sm: 'slot',
+};
 
 // Command categories and their routing metadata
 // requiresCharacter: true → character middleware check runs

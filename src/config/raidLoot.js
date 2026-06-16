@@ -34,7 +34,7 @@ const RAID_LOOT = {
       shards: [8, 10],         // was 3–5
       shardChance: 1.0,
       chest: 'gold_chest',
-      chestChance: 0.30,
+      chestChance: 0.50,       // [v4.6] elite gold chest 30% → 50%
     },
     loss: { exp: 150 },
   },
