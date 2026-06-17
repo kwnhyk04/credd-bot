@@ -215,6 +215,13 @@ async function execute(message) {
     }
 
     try {
+      // Plain-text intro naming the mob (RenderTweaks Tweak 3) — sent before the battle render.
+      const introText = mobRow.mob_type === 'elite'
+        ? `⚠️ You ventured too deep — **${mobRow.name}** emerges from the shadows...`
+        : `You ran into the territory of **${mobRow.name}**...`;
+      await message.channel.send({ content: introText, allowedMentions: { parse: [] } })
+        .catch(() => {});
+
       // the summary object renders as battleRender's rewards strip
       const rewards = await commitRewards(discordId, sim, mobRow, rng);
       await runBattle(message.channel, {

@@ -49,7 +49,7 @@ const { awardCombatExpMany } = require('../utils/awardCombatExp');
 const { isBanned } = require('../handlers/middleware');
 const { emojiForDisplay } = require('../utils/emojis');
 const {
-  isGreaterBoss, bossRewards, rollBossChest, pickWeightedBoss, GREATER_HP_MULTIPLIER,
+  isGreaterBoss, bossRewards, rollBossChest, hpMultiplierForChest, pickWeightedBoss,
 } = require('../config/bosses');
 
 const RESPAWN_COOLDOWN = '15 minutes';   // §16: spawns every 15 min after dead/escaped
@@ -532,9 +532,13 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
   // exempt; that clamp governs raid mobs only). Defensive floor at 1.
   const level = Math.max(1, Math.round(Number(avg)) + 1 + Math.floor(Math.random() * 10));
   const stats = computeBossStats(row, level);
-  // Greater Bosses: 2× HP only (ATK/DEF/CRIT/level/skill unchanged). Bosses have no
-  // stored total-HP column, so the ×2 applies to the scaled result at spawn.
-  const maxHp = greater ? stats.hp * GREATER_HP_MULTIPLIER : stats.hp;
+  // [RenderTweaks] Greater Bosses: HP multiplier is tied to the chest rolled at spawn —
+  // Golden chest (rare 20%) → 3× HP, Treasure chest → 2× HP. Roll the chest ONCE here so the
+  // HP and the payout/announcement share the same outcome; the same object is stashed in
+  // greaterChests below (keyed by the DB-generated spawn_id) so chestForSpawn never re-rolls.
+  // Bosses have no stored total-HP column, so the multiplier applies to the scaled result.
+  const spawnChest = greater ? rollBossChest(row.name, Math.random) : null;
+  const maxHp = greater ? stats.hp * hpMultiplierForChest(spawnChest) : stats.hp;
 
   const ins = await pool.query(
     `INSERT INTO boss_state
@@ -554,6 +558,11 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
     [guildId, row.mob_id, level, maxHp, stats.atk, stats.def, force]
   );
   if (ins.rows.length === 0) return false; // lost the race / cooldown not over
+
+  // [RenderTweaks] Stash the chest rolled above against the new spawn_id so the HP mult,
+  // announcement, and payout all read the SAME outcome — chestForSpawn returns this without
+  // re-rolling. (Normal bosses keep their lazy deterministic 1× Treasure roll.)
+  if (spawnChest) greaterChests.set(ins.rows[0].spawn_id, spawnChest);
 
   if (force) devSpawns.add(ins.rows[0].spawn_id); // test boss: attack rules bypassed
   rememberSpawn(guildId, ins.rows[0].spawn_id);

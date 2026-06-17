@@ -1,14 +1,11 @@
 'use strict';
 
-const {
-  ContainerBuilder, AttachmentBuilder, MessageFlags,
-} = require('discord.js');
+const { AttachmentBuilder } = require('discord.js');
 const pool = require('../../db/pool');
 const { assemblePlayerStats } = require('../../engine/statAssembly');
 const { EXP_REQUIRED, MAX_COMBAT_LEVEL } = require('../../config/combatExp');
 const { renderProfileImage } = require('../../engine/renderProfile');
 
-const BRAND = 0x9b59b6;
 const BELIEVER_EXP_PER_LEVEL = 3000; // §18 (3,000 flat per level)
 
 // §18 Believer Level Titles (Master §18 table).
@@ -29,9 +26,10 @@ function believerTitle(level) {
  * from the target's Discord member/user, not the DB. With no mention, shows your own.
  */
 async function execute(message) {
-  // Target: a mentioned member/user, else the author. Member gives the server nickname.
-  const targetMember = message.mentions?.members?.first() || null;
-  const targetUser = message.mentions?.users?.first() || message.author;
+  // Target: a mentioned/option user, else the author. Member gives the server nickname.
+  // [v4.9] ctx.getMention works on both the prefix (@mention) and slash (user option) paths.
+  const targetUser = message.getMention(0) || message.author;
+  const targetMember = message.guild?.members?.cache?.get(targetUser.id) || null;
   const isOther = targetUser.id !== message.author.id;
   const discordId = targetUser.id;
   const { rows } = await pool.query(
@@ -125,15 +123,9 @@ async function execute(message) {
   const buffer = await renderProfileImage(data);
   const file = new AttachmentBuilder(buffer, { name: 'profile.png' });
 
-  // Card only — no footer/help line (Screenshot #1 feedback).
-  const container = new ContainerBuilder()
-    .setAccentColor(BRAND)
-    .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL('attachment://profile.png')));
-
+  // Image only — no embed/container wrapper (RenderTweaks Tweak 2).
   await message.reply({
-    components: [container],
     files: [file],
-    flags: MessageFlags.IsComponentsV2,
     allowedMentions: { repliedUser: false },
   });
 }

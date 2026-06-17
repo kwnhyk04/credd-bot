@@ -17,7 +17,8 @@
 const GREATER_BOSSES = new Set(['Jotun', 'Fenrir', 'Fafnir', 'Hydra', 'Cerberus']);
 
 const GREATER_SPAWN_CHANCE = 0.20;       // 20% Greater / 80% normal (tier roll on top of spawn cadence)
-const GREATER_HP_MULTIPLIER = 2;         // Greater Bosses get 2× the scaled max HP (HP only)
+const GREATER_HP_MULTIPLIER = 2;         // Treasure-chest Greater Boss: 2× the scaled max HP (HP only)
+const GREATER_HP_GOLDEN_MULTIPLIER = 3;  // [RenderTweaks] Golden-chest Greater Boss: 3× HP (rarer + tankier)
 const GREATER_CHEST_GOLDEN_CHANCE = 0.20; // Greater chest: 20% → 1× Boss Golden Chest, else 2× Boss Treasure
 
 // §16 participation rewards (every attacker of the spawn receives these).
@@ -50,6 +51,18 @@ function rollBossChest(name, rng = Math.random) {
 }
 
 /**
+ * [RenderTweaks] HP multiplier for a Greater Boss derived from the chest rolled at spawn:
+ * a Boss Golden Chest (the rare 20% outcome) → 3× HP; the common Boss Treasure Chest → 2× HP.
+ * The chest is rolled ONCE at spawn (rollBossChest) and drives both this HP mult and the
+ * payout, so the rarer chest is also the tankier fight.
+ */
+function hpMultiplierForChest(chest) {
+  return chest && chest.column === 'boss_golden_chest'
+    ? GREATER_HP_GOLDEN_MULTIPLIER
+    : GREATER_HP_MULTIPLIER;
+}
+
+/**
  * Pick a boss row with the weighted tier roll: 20% Greater / 80% normal, then
  * uniform within the chosen pool. Falls back to the other pool if one is empty so
  * a missing Greater seed (or an all-Greater roster) never crashes. Returns
@@ -71,11 +84,13 @@ module.exports = {
   GREATER_BOSSES,
   GREATER_SPAWN_CHANCE,
   GREATER_HP_MULTIPLIER,
+  GREATER_HP_GOLDEN_MULTIPLIER,
   GREATER_CHEST_GOLDEN_CHANCE,
   NORMAL_REWARD,
   GREATER_REWARD,
   isGreaterBoss,
   bossRewards,
   rollBossChest,
+  hpMultiplierForChest,
   pickWeightedBoss,
 };
