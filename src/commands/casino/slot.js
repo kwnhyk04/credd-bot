@@ -23,8 +23,7 @@ async function execute(message, { args }) {
   });
   if (settle.status !== 'ok') return flow.reply(message, flow.settleErrorText(settle));
 
-  // Reels stagger; [v4.7] hold the result reveal to 9s so all three reels fully land first
-  // (measured longest reel ≈ 8.1s). Reveal delay lives in render.WAIT.slot.
+  // Reels stagger; reveal just after the third reel lands. Delay lives in render.WAIT.slot.
   const spin = await render.buildSlot({ phase: 'spin', uid, bet: v.amount, outcome, balance: settle.before });
   await flow.twoPhase(
     message, spin,

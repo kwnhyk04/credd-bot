@@ -88,8 +88,14 @@ async function buildReelStrip(reelPaths, { tile, gap, panelW, step }) {
     frames.push(await sharp({ create: { width: panelW, height: tile + 4, channels: 4, background: transparent } }).composite(comps).png().toBuffer());
   }
   const longest = Math.max(...meta.map((m) => (m.delay || []).reduce((a, b) => a + (b || 0), 0)));
-  const delay = Math.max(20, Math.round((longest || 3000) / frames.length));
-  return sharp(frames, { join: { animated: true } }).gif({ delay }).toBuffer();
+  const longestIndex = meta.findIndex((m) => (m.delay || []).reduce((a, b) => a + (b || 0), 0) === longest);
+  const sourceDelays = meta[longestIndex]?.delay || [];
+  const delays = frames.map((_, i) => {
+    const start = i * step;
+    const bucket = sourceDelays.slice(start, start + step).reduce((a, b) => a + (b || 0), 0);
+    return Math.max(20, bucket || Math.round((longest || 3000) / frames.length));
+  });
+  return sharp(frames, { join: { animated: true } }).gif({ delay: delays }).toBuffer();
 }
 
 function reelStripGif(reelPaths, { tile = 92, gap = 14, panelW = 460, step = 2 } = {}) {

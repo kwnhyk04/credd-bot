@@ -18,7 +18,7 @@ const imagePad = require('./imagePad');
 const canvas = require('./casinoCanvas');
 const { COLORS } = canvas;
 const { SLOT_FACE_INDEX } = require('./payoutTables');
-const { cardFile, BACK_FILE, blackjackValue } = require('./cardDeck');
+const { BACK_FILE, blackjackValue } = require('./cardDeck');
 
 const CASINO_DIR = path.join(__dirname, '..', '..', 'assets', 'casino');
 
@@ -38,7 +38,6 @@ const coinGif = (r) => path.join(CASINO_DIR, 'coin', `flip_${r}.gif`);
 const coinPng = (r) => path.join(CASINO_DIR, 'coin', `${r}.png`);
 const diceGif = (n) => path.join(CASINO_DIR, 'dice', `dice_roll_${n}.gif`);
 const dicePng = (n) => path.join(CASINO_DIR, 'dice', `face_${n}.png`);
-const cardPng = (c) => path.join(CASINO_DIR, 'cards', 'img', cardFile(c));
 const cardBack = path.join(CASINO_DIR, 'cards', 'img', BACK_FILE); // [fix] back lives in img/ alongside faces
 const slotReelGif = (i, face) => path.join(CASINO_DIR, 'slots', ['3s', '4s', '5s'][i], `${['3s', '4s', '5s'][i]}_${face}_${SLOT_FACE_INDEX[face]}.gif`);
 const slotFacePng = (face) => path.join(CASINO_DIR, 'slots', `${face}_face.png`);
@@ -70,7 +69,8 @@ function bannerLine(kind, game, { net, bet, extra } = {}) {
   return `${extra || flavor.loss} — ${fmt(bet)} Credux lost`;
 }
 const bannerColor = (kind) => (kind === 'win' ? COLORS.green : kind === 'push' ? COLORS.grey : COLORS.red);
-const cardPaths = (hand) => hand.map(cardPng);
+// Pass card objects straight through — casinoCanvas.cardStrip composites each face (CardRender).
+const cardEntries = (hand) => hand;
 
 /* ───────────────────────── COIN TOSS ───────────────────────── */
 async function buildCoin({ phase, uid, bet, pick, outcome, balance }) {
@@ -136,8 +136,9 @@ async function buildBaccarat({ uid, bet, pick, player, banker, outcome, result, 
   head(c, '## 🃏 The Oracle\'s Table', `-# <@${uid}> bet **${fmt(bet)}** Credux on **${cap(pick)}**`);
   c.addSeparatorComponents(sep);
 
-  // Face-up for the first `shown` cards, face-down card_back for the rest (staged reveal).
-  const faceOrBack = (hand, shown) => hand.map((card, i) => (i < shown ? cardPng(card) : cardBack));
+  // Face-up for the first `shown` cards (card object → composited face), face-down
+  // card_back path for the rest (staged reveal).
+  const faceOrBack = (hand, shown) => hand.map((card, i) => (i < shown ? card : cardBack));
   const pShown = result ? player.length : (pReveal || 0);
   const bShown = result ? banker.length : (bReveal || 0);
 
@@ -180,15 +181,15 @@ async function buildBlackjack({ mode, uid, bet, session, balance }) {
   c.addSeparatorComponents(sep);
 
   const dealerCards = session.revealed
-    ? cardPaths(session.dealer)
-    : [cardPng(session.dealer[0]), cardBack];
+    ? cardEntries(session.dealer)
+    : [session.dealer[0], cardBack];
   const dealerScore = session.revealed ? String(blackjackValue(session.dealer)) : `${blackjackValue([session.dealer[0]])} + ?`;
   const files = [];
   c.addTextDisplayComponents((td) => td.setContent(`**DEALER** — Score ${dealerScore}`));
   files.push(att(await canvas.cardStrip(dealerCards), 'bj_d.png')); galleryOne(c, 'bj_d.png');
   c.addSeparatorComponents(sep);
   c.addTextDisplayComponents((td) => td.setContent(`**YOU** — Score ${blackjackValue(session.player)}`));
-  files.push(att(await canvas.cardStrip(cardPaths(session.player)), 'bj_y.png')); galleryOne(c, 'bj_y.png');
+  files.push(att(await canvas.cardStrip(cardEntries(session.player)), 'bj_y.png')); galleryOne(c, 'bj_y.png');
 
   const components = [c];
   if (final) {
@@ -276,10 +277,10 @@ async function buildCrash({ uid, bet, session, balance }) {
 
 /**
  * Result-swap waits (ms). [v4.7] coin reveal pulled −0.5s so it lands on the intended 4.5s mark
- * (was effectively ~5.0s); slot reveal held to 9s so all three staggered reels fully land first
- * (measured longest reel ≈ 8.1s, so 9s clears it by ~0.9s). Dice unchanged (roll 0–2s, reveal 2.5s).
+ * (was effectively ~5.0s); slot reveal lands just after the third reel stops. Dice unchanged
+ * (roll 0–2s, reveal 2.5s).
  */
-const WAIT = { coin: 4000, dice: 2500, slot: 9000 };
+const WAIT = { coin: 4000, dice: 2500, slot: 6000 };
 
 /** Warm fixed (non-card) padded assets so the first spin isn't slow. */
 function prewarm() {
