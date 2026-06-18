@@ -5,15 +5,15 @@
  * every non-default value; everything else uses DEFAULT_COOLDOWN_MS. Keyed by the CANONICAL
  * command key (middleware resolves aliases via COOLDOWN_KEY_ALIASES before looking up here).
  *
- *   raid            → 25s (anti-spam)
- *   all casino      → 25s (coin, dice, baccarat, blackjack, slot, crash — anti-spam)
+ *   raid            → 10s (anti-spam)
+ *   all casino      → 10s (coin, dice, baccarat, blackjack, slot, crash — anti-spam)
  *   everything else → 10s
  *
  * Buttons are NOT cooldown-gated (unchanged).
  */
 
 const DEFAULT_COOLDOWN_MS = 10_000;
-const LONG_COOLDOWN_MS = 25_000;
+const LONG_COOLDOWN_MS = 10_000;
 
 const PER_COMMAND_MS = {
   raid: LONG_COOLDOWN_MS,

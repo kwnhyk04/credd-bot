@@ -5,7 +5,7 @@
  *
  * Pure presentation: consumes a RESOLVED sim from battleEngine.resolveBattle —
  * the whole fight is decided before any message is sent. The embed starts at
- * full green HP and is EDITED with a snapshot every 3 rounds (UPDATE_MS apart);
+ * full green HP and is EDITED with the engine's snapshot cadence (UPDATE_MS apart);
  * the final edit shows Victory/Defeat + a [Battle Log] button (ephemeral reply
  * with EVERY round's events, auto-paginated). The sim seed prints in the final
  * embed footer and the Battle Log header for reproduction (`crd dev battle seed <n>`).

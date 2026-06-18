@@ -355,14 +355,14 @@ section('4. Targeted scenarios');
     `mob@${iMobS} player@${iPlayerS}`);
 }
 
-// — [v4.8] snapshot cadence per mode (raid + duel on rounds 1,4,7,10,… / boss every 3rd) —
+// — [v4.8] snapshot cadence per mode (raid + duel on rounds 1,4,16,… / boss every 3rd) —
 {
-  // atk 0 both sides → no early kill; runs well past round 7 (sudden death starts round 30).
+  // atk 0 both sides → no early kill; runs well past round 16 (sudden death starts round 30).
   const inLoop = (sim) => new Set(sim.snapshots.filter((s) => !s.tag).map((s) => s.round));
   const duel = inLoop(resolveBattle(player({ atk: 0, hp: 5000 }), player({ name: 'R', atk: 0, hp: 5000 }), { mode: 'duel', seed: 5 }));
-  check('snapshot duel: rounds 1,4,7 present; 2,3 absent', duel.has(1) && duel.has(4) && duel.has(7) && !duel.has(2) && !duel.has(3), [...duel].join(','));
+  check('snapshot duel: rounds 1,4,16 present; 2,3,5 absent', duel.has(1) && duel.has(4) && duel.has(16) && !duel.has(2) && !duel.has(3) && !duel.has(5), [...duel].join(','));
   const raid = inLoop(resolveBattle(player({ atk: 0, hp: 5000 }), mob({ atk: 0, hp: 5000 }), { mode: 'raid', seed: 5 }));
-  check('snapshot raid: rounds 1,4,7 present; 2,3 absent', raid.has(1) && raid.has(4) && raid.has(7) && !raid.has(2) && !raid.has(3), [...raid].join(','));
+  check('snapshot raid: rounds 1,4,16 present; 2,3,5 absent', raid.has(1) && raid.has(4) && raid.has(16) && !raid.has(2) && !raid.has(3) && !raid.has(5), [...raid].join(','));
   const boss = inLoop(resolveBattle(player({ atk: 0, hp: 5000 }), mob({ atk: 0, hp: 5000, mobType: 'boss' }), { mode: 'boss', seed: 5 }));
   check('snapshot boss: every 3rd (3,6 present; 1,2,4 absent)', boss.has(3) && boss.has(6) && !boss.has(1) && !boss.has(2) && !boss.has(4), [...boss].join(','));
 }

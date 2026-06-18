@@ -42,7 +42,7 @@
  *
  * SNAPSHOT CADENCE ([v4.2], mode-dependent — the renderer's edit loop consumes
  *   whatever arrives; the start + final snapshots are always present):
- *     duel → every round   raid → odd rounds (1,3,5,…)   boss → every 3rd round
+ *     duel/raid → rounds 1,4,16,…   boss → every 3rd round
  *
  * MAGE OVERCHARGE ([v4.2], §11/§13.1): the charge accumulator is gone. On every
  *   3rd round of the battle clock (rounds 3,6,9,…) the Mage's MAIN hit is a fixed ×2.5
@@ -95,6 +95,13 @@ const OVERCHARGE_EVERY = 3;       // [v4.2] fires on rounds 3, 6, 9, …
 
 const SKIP_TAGS = ['stun', 'paralyze', 'freeze', 'petrify', 'charm', 'confuse', 'miss'];
 const DOT_TAGS = ['bleed', 'burn', 'hp_pct_dot'];
+
+function isPowerOfFourRound(round) {
+  if (round < 1) return false;
+  let n = round;
+  while (n > 1 && n % 4 === 0) n /= 4;
+  return n === 1;
+}
 
 /** Seeded LCG in [0,1). Same generator the renderer's replay relies on. */
 function rngOf(seed) {
@@ -731,11 +738,11 @@ function resolveBattle(a, b, opts = {}) {
     }
 
     rounds.push({ round, events: shared.events });
-    // [v4.8] snapshot cadence is mode-dependent: raid + duel snapshot on rounds 1,4,7,10,…
-    // (every 3rd starting at 1 — fewer edits, shorter animation), boss every 3rd (3,6,9…).
+    // [v4.8] snapshot cadence is mode-dependent: raid + duel snapshot on rounds 1,4,16,…
+    // (multiplying the previous snapshot turn by 4), boss every 3rd (3,6,9…).
     // The start + final snapshots are always present regardless.
     const snapDue = (mode === 'duel' || mode === 'raid')
-      ? (round - 1) % 3 === 0
+      ? isPowerOfFourRound(round)
       : round % SNAPSHOT_EVERY === 0;
     if (!result && snapDue) {
       snapshots.push({ round, a: snapSide(A), b: snapSide(B) });
