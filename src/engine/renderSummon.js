@@ -25,7 +25,7 @@ const {
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const fs = require('fs');
 const path = require('path');
-const { emoji, BELIEF_SHARDS_ICON } = require('../utils/emojis');
+const { emoji } = require('../utils/emojis');
 const { getEmojiIcon } = require('./renderBagItems');
 const { TIER_ALIAS, TIER_ESSENCE_COLUMN } = require('../config/gachaRates');
 
@@ -273,7 +273,7 @@ async function buildResultMessage(results, balances) {
     // ── Footer (same icons as the bag overview — shared via utils/emojis) ──
     .addTextDisplayComponents((td) =>
       td.setContent(
-        `-# ${BELIEF_SHARDS_ICON} Belief Shards: **${balances.beliefShards.toLocaleString()}** ・ ${emoji('sacred_relic')} Sacred Relics: **${balances.sacredRelics.toLocaleString()}**` +
+        `-# ${emoji('belief_shards')} Belief Shards: **${balances.beliefShards.toLocaleString()}** ・ ${emoji('sacred_relic')} Sacred Relics: **${balances.sacredRelics.toLocaleString()}**` +
         (balances.supremeRelics != null
           ? ` ・ ${emoji('supreme_relic')} Supreme Relics: **${balances.supremeRelics.toLocaleString()}**`
           : '')

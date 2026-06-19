@@ -8,8 +8,6 @@
  *   2. Promise.all([build result payload, play-once delay])
  *   3. EDIT the same message into the result container (attachments: [] drops
  *      the old gif — required or discord.js keeps it attached)
- *   4. Replay button (opener-only) re-attaches the gif, waits, then swaps back
- *      to the SAME pre-rendered result. Never re-rolls.
  *
  * The result payload is caller-supplied (weapon grid via buildWeaponResultPayload,
  * or renderSummon's deity container for relics) so both paths share one runner.
@@ -17,9 +15,6 @@
 
 const {
   ContainerBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   AttachmentBuilder,
   SeparatorSpacingSize,
   MessageFlags,
@@ -31,7 +26,6 @@ const { emoji } = require('../utils/emojis');
 
 const ANIM_DIR = path.join(__dirname, '..', '..', 'assets', 'animations', 'chests');
 const ANIMATION_MS = 3000; // matches the ~2.5s GIFs + buffer
-const REPLAY_WINDOW_MS = 120_000;
 
 // gifKey (users_bag column / relic kind) → gif filename in assets/animations/chests
 const CHEST_GIFS = {
@@ -141,10 +135,9 @@ async function buildWeaponResultPayload(p) {
  * @param {object} opts
  * @param {string}   opts.gifKey        key of CHEST_GIFS
  * @param {string}   opts.animTitle     header for the animation phase
- * @param {string}   opts.userId        restricts Replay to the opener
  * @param {Function} opts.buildResult   async () => { components, files } (CV2, no flags)
  */
-async function playAnimatedOpen(message, { gifKey, animTitle, userId, buildResult }) {
+async function playAnimatedOpen(message, { gifKey, animTitle, buildResult }) {
   const gifName = CHEST_GIFS[gifKey];
   if (!gifName) throw new Error(`playAnimatedOpen: unknown gifKey ${gifKey}`);
   const gifOnDisk = fs.existsSync(path.join(ANIM_DIR, gifName));
@@ -166,16 +159,8 @@ async function playAnimatedOpen(message, { gifKey, animTitle, userId, buildResul
     if (!result) result = await buildResult();
   }
 
-  const replayRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`chestreplay:${gifKey}:${userId}`)
-      .setLabel('Replay')
-      .setEmoji('🔁')
-      .setStyle(ButtonStyle.Secondary)
-  );
-
-  const resultPayload = (withReplay) => ({
-    components: withReplay ? [...result.components, replayRow] : result.components,
+  const resultPayload = () => ({
+    components: result.components,
     files: result.files,
     attachments: [], // required: drops the previous gif/grid attachment
     flags: MessageFlags.IsComponentsV2,
@@ -183,39 +168,10 @@ async function playAnimatedOpen(message, { gifKey, animTitle, userId, buildResul
   });
 
   if (msg) {
-    await msg.edit(resultPayload(gifOnDisk));
+    await msg.edit(resultPayload());
   } else {
-    msg = await message.reply(resultPayload(gifOnDisk));
+    msg = await message.reply(resultPayload());
   }
-  if (!gifOnDisk) return msg;
-
-  // Replay: same animation, then swap back to the SAME pre-rendered results.
-  const collector = msg.createMessageComponentCollector({ time: REPLAY_WINDOW_MS });
-  let replaying = false;
-  collector.on('collect', async (i) => {
-    if (!i.customId.startsWith('chestreplay:')) return;
-    if (i.user.id !== userId) {
-      await i.reply({ content: 'Only the opener can replay this.', flags: MessageFlags.Ephemeral }).catch(() => {});
-      return;
-    }
-    if (replaying) { await i.deferUpdate().catch(() => {}); return; }
-    replaying = true;
-    try {
-      await i.deferUpdate();
-      const anim = animationPayload(gifKey, animTitle);
-      await msg.edit({ components: anim.components, files: anim.files, attachments: [] });
-      await sleep(ANIMATION_MS);
-      await msg.edit(resultPayload(true));
-    } catch (err) {
-      console.error('[chestOpen] replay failed:', err.message);
-      await msg.edit(resultPayload(true)).catch(() => {});
-    } finally {
-      replaying = false;
-    }
-  });
-  collector.on('end', () => {
-    msg.edit({ components: result.components }).catch(() => {});
-  });
   return msg;
 }
 

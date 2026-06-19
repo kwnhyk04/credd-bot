@@ -2,6 +2,7 @@
 # Consolidated from all source files + all session revisions + Decision Log v1 resolutions
 # Source files: Mechanics_Updated_06012026.txt · Credd_Master_Export_v2.md · Additional_Mechanics.md
 # Database fully revised: see credd_schema_v4.sql (runnable DDL) and Technical Blueprint v4
+# v4.5 balance patch (06/2026): raid chest drops adjusted (regular Silver 30%→20%, elite Gold 50%→30%); mob dynamic level now player + random(−2..+15); regular scaling set to HP+30/ATK+15/DEF+10 and elite scaling to HP+50/ATK+35/DEF+20 per level; all boss base HP +50,000 (§13, §15, §16, §35.6)
 # v4.4 patch (06/2026): Greater Boss tier (Jotun/Fenrir/Fafnir/Hydra/Cerberus — 80/20 weighted spawn, 2× HP, richer drops: 150k credux / 30k EXP / 2× Treasure or 1× Golden chest); weapon-drop ranges raised (Rare/Mythic/Legendary up, Supreme DEF 400→500 — new drops only); profile card polish (combat-EXP line, Active Deity/Blessing split, stat icons, Combat Record heading); BUGFIX — "+X% ATK" bonus passives now DEF-mitigated (were flat post-mitigation, ~2×/~6× too strong); portrait-card layout for weapon/deity info + create-character (art left, text right); crd profile @user; crd dev spawnboss [name] (§7, §12, §16)
 # v4.3 patch (06/2026): mob per-level scaling REDUCED — regular HP+40/ATK+15/DEF+10 → HP+20/ATK+8/DEF+5, elite HP+75/ATK+30/DEF+16 → HP+40/ATK+15/DEF+10 (base stats unchanged); `crd profile` full Canvas card; quest embed fonts reduced; class art in create-character preview (§13, §35.6)
 # v4.2 patch (06/2026): class base HP 100→500; all regular/elite mob base HP +500; Overcharge reworked to every-3-turns (no crit, roll suppressed); player always first vs bosses (first_strike overrides); raid embed edits odd rounds, duel every round; bestow + quest CV2 embed layouts (§3, §11, §12, §13, §14, §15, §16, §20)
@@ -759,9 +760,9 @@ Fully removed for initial release. Planned as an end-game update.
 - Within each category: all mobs of that type have equal spawn chance
 
 ### Mob Dynamic Level System
-- Mob Level = Player Level + random(−5 to +5)
-- Regular Mob scaling: HP +20 / ATK +8 / DEF +5 per level  <!-- [v4.3] reduced from +40/+15/+10 -->
-- Elite Mob scaling: HP +40 / ATK +15 / DEF +10 per level  <!-- [v4.3] reduced from +75/+30/+16 -->
+- Mob Level = Player Level + random(−2 to +15)
+- Regular Mob scaling: HP +30 / ATK +15 / DEF +10 per level
+- Elite Mob scaling: HP +50 / ATK +35 / DEF +20 per level
 
 ### Battle Flow
 - Fully automatic — no player input
@@ -786,9 +787,9 @@ Fully removed for initial release. Planned as an end-game update.
 ### Raid Loot Drop Rates [REVISED]
 | Source | Credux | EXP (Combat) | Belief Shards | Chest |
 |---|---|---|---|---|
-| Mob win | 100–500 | 100–200 | 3–5 (100%) | Silver (~30%) |
+| Mob win | 100–500 | 100–200 | 3–5 (100%) | Silver (~20%) |
 | Mob loss | — | 50 | — | — |
-| Elite win | 600–1,000 | 300–500 | 8–10 (~100%) | Gold (~50%) | <!-- [v4.6] elite gold 30%→50% -->
+| Elite win | 600–1,000 | 300–500 | 8–10 (~100%) | Gold (~30%) |
 | Elite loss | — | 150 | — | — |
 
 ### Victory / Defeat
@@ -967,25 +968,25 @@ NOTE: Huginn & Muninn removed from boss lineup.
 ### PH Boss Roster
 | Boss | Base HP | Base ATK | Base DEF | CRIT | HP+/Lv | ATK+/Lv | DEF+/Lv |
 |---|---|---|---|---|---|---|---|
-| Berberoka | 15,000 | 720 | 400 | 8% | +300 | +22 | +15 |
-| Bungisngis | 12,000 | 1,000 | 250 | 10% | +250 | +30 | +10 |
-| Anggitay | 13,000 | 765 | 320 | 12% | +270 | +24 | +12 |
-| Dalaketnon | 13,500 | 855 | 350 | 20% | +280 | +25 | +12 |
+| Berberoka | 65,000 | 720 | 400 | 8% | +300 | +22 | +15 |
+| Bungisngis | 62,000 | 1,000 | 250 | 10% | +250 | +30 | +10 |
+| Anggitay | 63,000 | 765 | 320 | 12% | +270 | +24 | +12 |
+| Dalaketnon | 63,500 | 855 | 350 | 20% | +280 | +25 | +12 |
 
 ### Norse Boss Roster
 | Boss | Base HP | Base ATK | Base DEF | CRIT | HP+/Lv | ATK+/Lv | DEF+/Lv | Special |
 |---|---|---|---|---|---|---|---|---|
-| Jotun | 18,000 | 765 | 380 | 5% | +350 | +22 | +14 | Highest HP |
-| Fenrir | 13,000 | 1,100 | 280 | 25% | +260 | +32 | +10 | Highest ATK |
-| Fafnir | 16,000 | 792 | 550 | 8% | +320 | +23 | +18 | Highest DEF |
-| Sleipnir | 12,000 | 1,050 | 300 | 30% | +240 | +30 | +12 | Always attacks first |
+| Jotun | 68,000 | 765 | 380 | 5% | +350 | +22 | +14 | Highest HP |
+| Fenrir | 63,000 | 1,100 | 280 | 25% | +260 | +32 | +10 | Highest ATK |
+| Fafnir | 66,000 | 792 | 550 | 8% | +320 | +23 | +18 | Highest DEF |
+| Sleipnir | 62,000 | 1,050 | 300 | 30% | +240 | +30 | +12 | Always attacks first |
 
 ### Greek Boss Roster
 | Boss | Base HP | Base ATK | Base DEF | CRIT | HP+/Lv | ATK+/Lv | DEF+/Lv | Special |
 |---|---|---|---|---|---|---|---|---|
-| Cerberus | 14,000 | 880 | 300 | 15% | +280 | +26 | +12 | Attacks twice per turn (60% ATK each, both can crit) |
-| Hydra | 17,000 | 745 | 420 | 10% | +340 | +22 | +14 | Regenerates 5% max HP every 3rd turn (per-instance; only NET damage commits to the shared pool) |
-| Medusa | 13,500 | 820 | 330 | 20% | +265 | +24 | +12 | Stone Stare — Every 3rd turn: Petrify player 1 turn, then the counter resets |
+| Cerberus | 64,000 | 880 | 300 | 15% | +280 | +26 | +12 | Attacks twice per turn (60% ATK each, both can crit) |
+| Hydra | 67,000 | 745 | 420 | 10% | +340 | +22 | +14 | Regenerates 5% max HP every 3rd turn (per-instance; only NET damage commits to the shared pool) |
+| Medusa | 63,500 | 820 | 330 | 20% | +265 | +24 | +12 | Stone Stare — Every 3rd turn: Petrify player 1 turn, then the counter resets |
 
 ### Boss Rewards
 | Reward | Amount |
@@ -2224,7 +2225,7 @@ Worked example:
 
 **Weapon stat banding** (`dropRates.js`): roll each stat within the tier range, positioned by the type's qualitative profile (§7): Lowest→bottom 20% · Low→bottom 40% · Balanced→middle 40–60% · High→top 40% · Highest→top 20%. CRIT banded the same way (Bows top of 1–5%). Supreme = fixed stats (always +50% damage, CRIT 0). Legendary = 25% chance on drop to roll +25% damage (`bonus_dmg_pct`, fixed); otherwise none. Rare/Mythic = no bonus rider. [v4.4] `bonus_crit_dmg_pct` is deprecated (left null) — the unified §35.2 damage % replaces it.
 
-**Mob scaling** (seed in `mob_roster`): regular = HP+20 / ATK+8 / DEF+5 per level; elite = HP+40 / ATK+15 / DEF+10; boss = authored per row. Mob level = player level + random(−5..+5), clamped **[1, 55]**. <!-- [v4.3] per-level growth reduced (regular was +40/+15/+10, elite was +75/+30/+16); base stats unchanged -->
+**Mob scaling** (seed in `mob_roster`): regular = HP+30 / ATK+15 / DEF+10 per level; elite = HP+50 / ATK+35 / DEF+20; boss = authored per row with all base HP values increased by 50,000. Mob level = player level + random(−2..+15), clamped **[1, 55]**.
 
 **Casino** (`casino.js`): coin toss & dice 1.95× · baccarat player 2× / banker 1.95× (5% commission) · blackjack 6-deck, dealer stands 17, BJ pays 3:2 · slots ~90% RTP · crash ~3% edge. **Min bet 1, max bet 150,000.** Bet > balance → "Insufficient Credux."; bet ≤ 0 → invalid.
 

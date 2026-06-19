@@ -23,7 +23,7 @@ const {
   MessageFlags,
 } = require('discord.js');
 const pool = require('../db/pool');
-const { emoji, BELIEF_SHARDS_ICON } = require('../utils/emojis');
+const { emoji } = require('../utils/emojis');
 const { renderBagItemsImage } = require('./renderBagItems');
 
 /* ════════════════════════════════════════════

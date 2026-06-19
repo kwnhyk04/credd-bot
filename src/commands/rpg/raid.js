@@ -3,7 +3,7 @@
 /**
  * `crd raid` / `crd r` — PvE raid vs a random mob (Master §13, Phase 7).
  *
- * Flow: spawn (80/20 via config/raidLoot, level = player ± 5 clamp [1,55]) →
+ * Flow: spawn (80/20 via config/raidLoot, level = player -2..+15 clamp [1,55]) →
  * battleEngine.resolveBattle (whole fight decided up-front) → rewards committed
  * in ONE transaction driven by sim.winner → battleRender animation with the
  * rewards line on the final panel. Rewards land even if Discord rendering

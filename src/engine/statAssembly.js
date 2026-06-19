@@ -79,9 +79,9 @@ function computeMobStats(row, level) {
   };
 }
 
-/** Mob level = player level + random(−5..+5), clamped [1, 55] (§35.6). */
+/** Mob level = player level + random(−2..+15), clamped [1, 55] (§35.6). */
 function rollMobLevel(playerLevel, rng) {
-  const offset = Math.floor(rng() * 11) - 5;
+  const offset = Math.floor(rng() * 18) - 2;
   return Math.max(MOB_LEVEL_MIN, Math.min(MOB_LEVEL_MAX, playerLevel + offset));
 }
 

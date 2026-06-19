@@ -33,10 +33,9 @@ const REGISTRY_PATHS = [
   path.join(__dirname, '..', '..', 'game_deities.txt'),
 ];
 
-// ⚠️ Belief Shards icon is NOT in game_items.txt — unicode fallback shared by
-// every display (bag overview, summon footer). Once an emoji is uploaded,
-// replace with: emoji('belief_shard')
-const BELIEF_SHARDS_ICON = '💠';
+// Belief Shards lives in game_items.txt as `belief_shards`; keep this legacy
+// export aligned for older callers, but prefer emoji('belief_shards') in new code.
+const BELIEF_SHARDS_ICON = '<:belief_shards:1515278565112025128>';
 
 // Explicit display-name → emoji-name overrides for stubborn mismatches
 // (registry display names that diverge from the DB roster names).
