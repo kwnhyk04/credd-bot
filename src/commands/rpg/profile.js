@@ -126,7 +126,7 @@ async function execute(message) {
   const data = {
     displayName,
     discordId,
-    avatarUrl: targetUser.displayAvatarURL({ extension: 'png', size: 128 }),
+    avatarUrl: targetUser.displayAvatarURL({ extension: 'png', size: 512 }),
     fallbackAvatarUrl: targetUser.defaultAvatarURL,
 
     believerLevel: r.believer_level,

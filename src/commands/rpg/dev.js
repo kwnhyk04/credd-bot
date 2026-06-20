@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
 /**
  * `crd dev <subcommand>` — superuser test-enabler suite (Master §2, §26).
  *
@@ -24,7 +27,7 @@ const dailyCmd = require('../economy/daily');
 const ent = require('../../engine/supporterEntitlements');
 const { grantTokens } = require('../../engine/supporterTokens');
 const { buildShopPage } = require('../../engine/skinShopViews');
-const { DIRS } = require('../../config/cosmetics');
+const { DIRS, SKINS_DIR } = require('../../config/cosmetics');
 
 const INT_MAX = 2147483647; // INTEGER column ceiling (shards/chests/relics)
 const MENTION_RE = /^<@!?\d+>$/;
@@ -558,24 +561,27 @@ async function devUse(message, args, devId) {
 
   // Whole-set overrides (founder / per-user tester folder) ────────────────────
   if (kind === 'founderskin' || kind === 'skin') {
-    let targetId = devId;
     let folder = DIRS.founder;
     let label = 'founder';
     if (kind === 'skin') {
-      targetId = (args[2] || '').replace(/[<@!>]/g, '').trim();
-      if (!/^\d{5,}$/.test(targetId)) return reply(message, 'Usage: `crd dev use skin <discord_id>`');
-      folder = `${DIRS.testers}/${targetId}`;
-      label = `testers/${targetId}`;
+      const folderId = (args[2] || '').replace(/[<@!>]/g, '').trim();
+      if (!/^\d{5,}$/.test(folderId)) return reply(message, 'Usage: `crd dev use skin <discord_id>`');
+      folder = `${DIRS.testers}/${folderId}`;
+      label = `testers/${folderId}`;
+    }
+    const folderPath = path.join(SKINS_DIR, ...folder.split('/'));
+    if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
+      return reply(message, `Skin folder not found: \`assets/skins/${folder}\`.`);
     }
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       for (const cat of ['profile', 'battle', 'battle_result', 'summon']) {
-        await ent.setOverrideTx(client, targetId, cat, folder);
+        await ent.setOverrideTx(client, devId, cat, folder);
       }
-      await logDev(client, devId, 'use_skin_set', targetId, `override all categories → ${label}`);
+      await logDev(client, devId, 'use_skin_set', devId, `override all categories → ${label}`);
       await client.query('COMMIT');
-      return reply(message, `✅ Equipped **${label}** set on <@${targetId}> (all categories). Run a render to preview.`);
+      return reply(message, `✅ Equipped **${label}** on <@${devId}> (all categories). Run a render to preview.`);
     } catch (err) {
       await client.query('ROLLBACK').catch(() => {});
       console.error('[dev use set]', err.message);
@@ -591,10 +597,20 @@ async function devUse(message, args, devId) {
   const segs = arg.split('_').filter(Boolean);
   const suffix = segs[segs.length - 1];                 // <catletter><increment>, e.g. p1
   const tierLetter = segs.length > 1 ? segs[0] : null;  // optional disambiguator
+  if (!/^[pbrs]\d+$/.test(suffix) || (tierLetter && !/^[bce]$/.test(tierLetter))) {
+    return reply(message, USE_USAGE);
+  }
 
-  const params = ['%\\_' + suffix, category];
-  let where = 'cosmetic_key LIKE $1 AND category = $2 AND is_active = true AND is_base = false';
-  if (tierLetter) { params.push(tierLetter + '\\_%'); where += ' AND cosmetic_key LIKE $3'; }
+  // Match the final `_p1`/`_b2` token exactly. The previous LIKE pattern depended on
+  // backslash escaping and failed on some PostgreSQL string settings.
+  const params = [category, suffix];
+  let where = `category = $1
+    AND RIGHT(LOWER(cosmetic_key), LENGTH($2) + 1) = '_' || LOWER($2)
+    AND is_active = true AND is_base = false`;
+  if (tierLetter) {
+    params.push(tierLetter);
+    where += ` AND SPLIT_PART(LOWER(cosmetic_key), '_', 1) = LOWER($3)`;
+  }
   const { rows } = await pool.query(`SELECT * FROM cosmetic_catalog WHERE ${where} ORDER BY cosmetic_key`, params);
   if (rows.length === 0) return reply(message, `No ${category} skin matches \`${arg}\`.`);
   const skin = rows[0];
