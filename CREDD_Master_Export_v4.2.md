@@ -1788,7 +1788,7 @@ Enhancement 5 (+4) = ×1.20  |  Enhancement 10 (+9)  = ×1.70
 | `last_pull_date` | Most recent pull date for this specific deity |
 | UNIQUE | `(discord_id, deity_id)` — one owned row per deity |
 
-> `duplicate_count` is REMOVED. Owning a deity is binary; duplicate pulls convert to tier essence (Epic/Mythic/Legendary/Supreme essence) stored in `users_bag`. Enhancement spends essence.
+> `duplicate_count` is REMOVED. Owning a deity is binary; duplicate pulls convert to tier essence stored in `users_bag`: +1 essence for Epic/Mythic duplicates and +5 essence for Legendary/Supreme duplicates. Enhancement spends essence.
 
 **Deity Enhancement Formula:**
 ```
@@ -2173,7 +2173,7 @@ Each new mythology includes: new deity roster (all tiers), new regular and elite
 ### 35.0 v4 Resolution Summary
 - Weapon enhancement uses the **boost table** (non-linear, ×2.00 at +10); the linear ×0.05 formula is removed.
 - Deity enhancement is **uniform +10%/level**; no dominant/non-dominant stat.
-- Duplicates → **tier essence** (Epic/Mythic/Legendary/Supreme); no per-deity duplicate counter.
+- Duplicates → **tier essence** (+1 Epic/Mythic; +5 Legendary/Supreme); no per-deity duplicate counter.
 - Starter weapon = real roster row **Initiate's Blade**; creation grants **1,000 shards + 10 silver chests** (once, at creation).
 - Pity resets on **any** Legendary or Supreme pull.
 - Duels run **in-memory**; raids/bosses persist in `active_battles`.

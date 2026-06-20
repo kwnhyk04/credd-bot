@@ -263,7 +263,7 @@ Stored enhancement 11 → display +10 → ×2.00 (full double)
 | `obtained_at` | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | First pull date |
 | `last_pull_date` | DATE | NOT NULL | Most recent pull date for this specific deity |
 
-> `duplicate_count` is **removed** (GACHA-2). Pulling a deity you already own grants +1 essence of that deity's tier instead. Enhancement spends essence (see deityEnhancement.js), uniform +10%/level on all three stats.
+> `duplicate_count` is **removed** (GACHA-2). Pulling a deity you already own grants essence of that deity's tier instead: +1 for Epic/Mythic, +5 for Legendary/Supreme. Enhancement spends essence (see deityEnhancement.js), uniform +10%/level on all three stats.
 
 **Indexes:**
 - PRIMARY KEY on `user_deity_id`

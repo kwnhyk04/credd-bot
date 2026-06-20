@@ -28,8 +28,13 @@ const ALLOWED_SUMMON_COUNTS = [1, 5, 10];
 const MAX_PULLS = 10;
 
 // ── Duplicate → tier essence (Blueprint line 266; Master §35.0 line 1957) ──
-// Pulling an owned deity grants +1 essence of that deity's tier.
-const ESSENCE_PER_DUPLICATE = 1;
+// Epic/Mythic duplicates grant +1 essence; rarer Legendary/Supreme duplicates grant +5.
+const ESSENCE_PER_DUPLICATE = Object.freeze({
+  Epic: 1,
+  Mythic: 1,
+  Legendary: 5,
+  Supreme: 5,
+});
 const TIER_ESSENCE_COLUMN = {
   Epic: 'epic_essence',
   Mythic: 'mythic_essence',

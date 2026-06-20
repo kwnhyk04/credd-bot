@@ -266,6 +266,7 @@ async function openRelic(message, alias) {
     name: p.name,
     rarity: TIER_ALIAS[p.tier],
     isNew: !p.isDupe,
+    essence: p.essence,
   }));
 
   await playAnimatedOpen(message, {

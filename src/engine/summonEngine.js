@@ -12,7 +12,7 @@
  *
  * Atomicity guarantees (all within the caller's txn):
  *   - new deity      → INSERT user_deities (enh 1, curr = base)
- *   - duplicate      → +1 <tier>_essence in users_bag
+ *   - duplicate      → tier-based essence in users_bag (+1 Epic/Mythic, +5 Legendary/Supreme)
  *   - pity           → advanced/reset per roll; relic-forced tiers leave it as-is
  *   - active_deity   → auto-set to the FIRST new deity if the player had none
  *   - reputation     → +10/pull (5,000/day PHT cap), believer level roll-up
@@ -138,13 +138,14 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
     const d = deityRes.rows[0];
 
     const isDupe = ownedSet.has(d.deity_id);
+    const essenceGained = isDupe ? ESSENCE_PER_DUPLICATE[tier] : 0;
     let userDeityId = null;
 
     if (isDupe) {
-      // Duplicate → +ESSENCE_PER_DUPLICATE of the deity's tier essence.
+      // Duplicate → the configured amount of the deity's tier essence.
       // Only the running balance is updated here; the consolidated per-tier
       // essence log row is written once after the loop.
-      essence[TIER_ESSENCE_COLUMN[tier]] += ESSENCE_PER_DUPLICATE;
+      essence[TIER_ESSENCE_COLUMN[tier]] += essenceGained;
     } else {
       // New deity → INSERT (enhancement 1 ⇒ curr = base, floor is identity).
       const ins = await client.query(
@@ -171,6 +172,7 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
       mythology: d.mythology,
       blessingName: d.blessing_name,
       isDupe,
+      essence: essenceGained,
       userDeityId,
     });
   }

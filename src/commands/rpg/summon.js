@@ -85,6 +85,7 @@ async function execute(message, { args }) {
     name: p.name,
     rarity: TIER_ALIAS[p.tier],
     isNew: !p.isDupe,
+    essence: p.essence,
   }));
   const balances = { beliefShards: shardsRemaining, sacredRelics };
 
@@ -103,7 +104,9 @@ async function execute(message, { args }) {
     // Display-only failure: the pulls are committed — always tell the player.
     console.error('[summon] display failed:', err.message);
     if (sent) await sent.delete().catch(() => {});
-    const lines = result.pulls.map((p) => `${p.name} — ${TIER_ALIAS[p.tier]}${p.isDupe ? ' (+1 essence)' : ' (NEW)'}`);
+    const lines = result.pulls.map((p) =>
+      `${p.name} — ${TIER_ALIAS[p.tier]}${p.isDupe ? ` (+${p.essence} essence)` : ' (NEW)'}`
+    );
     await message.reply({
       content: `✨ Invocation complete:\n${lines.join('\n')}\nBelief Shards: ${shardsRemaining.toLocaleString()}`,
       allowedMentions: { repliedUser: false },
