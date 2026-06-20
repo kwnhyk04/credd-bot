@@ -467,6 +467,20 @@ function repointLiveMessage(guildId, msg) {
 }
 
 /**
+ * [Jun-2026 §8] Delete the tracked live boss message and forget it. Used when the spawn
+ * countdown reaches 0 (escape) so the expired "Next spawn" card doesn't linger in the
+ * channel. Already-deleted / missing-message (Unknown Message) is swallowed.
+ */
+async function deleteLiveMessage(client, guildId) {
+  const ref = liveMessages.get(guildId);
+  liveMessages.delete(guildId);
+  if (!ref) return;
+  const channel = await client.channels.fetch(ref.channelId).catch(() => null);
+  const msg = channel ? await channel.messages.fetch(ref.messageId).catch(() => null) : null;
+  if (msg) await msg.delete().catch(() => {}); // Unknown Message / already gone → ignore
+}
+
+/**
  * Re-render the tracked message from fresh DB state; ANY edit/fetch failure
  * (deleted message, restart-empty Map) → fresh message + repoint.
  */
@@ -573,7 +587,8 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
   return true;
 }
 
-/** Flip an overdue active boss to 'escaped' (atomic) and final-edit the message. */
+/** Flip an overdue active boss to 'escaped' (atomic). [Jun-2026 §8] The countdown message is
+ *  DELETED at 0s rather than left as an expired "Next spawn" card. */
 async function expireBoss(client, guildId) {
   const res = await pool.query(
     `UPDATE boss_state SET status = 'escaped'
@@ -582,7 +597,7 @@ async function expireBoss(client, guildId) {
     [guildId]
   );
   if (res.rows.length === 0) return false;
-  await refreshLiveMessage(client, guildId);
+  await deleteLiveMessage(client, guildId).catch(() => {});
   return true;
 }
 

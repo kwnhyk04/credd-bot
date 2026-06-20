@@ -533,20 +533,21 @@ const PASSIVE_REGISTRY = {
   // ── WEAPON PASSIVES — Supreme ────────────────────────────────────────────
 
   'mjolnir': (bs) => {
-    // +20% damage every turn; every 4th turn: +200% damage crush (ATK-mult lane, mitigated)
-    bs.playerAtkMult += 0.20;
-    if (bs.currentTurn % 4 === 0) {
+    // [Jun-2026 §4] +30% damage every turn; every 3rd turn: +200% damage crush
+    // (ATK-mult lane, mitigated). Was +20% / every 4th.
+    bs.playerAtkMult += 0.30;
+    if (bs.currentTurn % 3 === 0) {
       bs.playerAtkMult += 2.00;
       bs.log.push('⚡ Mjolnir: Crushing Force — CRUSH! +200% ATK!');
     } else {
-      bs.log.push('⚡ Mjolnir: Crushing Force — +20% ATK bonus!');
+      bs.log.push('⚡ Mjolnir: Crushing Force — +30% ATK bonus!');
     }
   },
 
   'gungnir': (bs) => {
-    // Ignores 40% DEF; 30% chance pierce ALL DEF; on pierce: enemy DEF -25% 1 turn
+    // [Jun-2026 §4] Ignores 40% DEF; 10% chance (was 30%) pierce ALL DEF; on pierce: enemy DEF -25% 1 turn
     if (0.40 > bs.ignoreDefPct) bs.ignoreDefPct = 0.40;
-    if (bs.rng() < 0.30) {
+    if (bs.rng() < 0.10) {
       bs.flags.gungnir_full_pierce = true; // engine zeroes enemy DEF for this hit
       if (!bs.enemyImmune('def_down')) {
         bs.applyDebuff('def_down', 1, 0.25);
@@ -556,22 +557,22 @@ const PASSIVE_REGISTRY = {
   },
 
   'thunderbolt_of_zeus': (bs) => {
-    // 30% chance OR on CRIT (pre-roll latch): +80% ATK rider + paralyze 1 turn
+    // [Jun-2026 §4] 30% chance OR on CRIT (pre-roll latch): +100% ATK rider (was +80%) + paralyze 1 turn
     const roll = bs.rng() < 0.30;
     if (roll || bs.flags.crit_landed_this_hit) {
-      bs.playerAtkMult += 0.80;
+      bs.playerAtkMult += 1.00;
       if (!bs.enemyImmune('paralyze')) {
         bs.applyDebuff('paralyze', 1);
       }
-      bs.log.push('⚡ Thunderbolt of Zeus: Divine Thunder — +80% ATK + Paralyze!');
+      bs.log.push('⚡ Thunderbolt of Zeus: Divine Thunder — +100% ATK + Paralyze!');
     }
   },
 
   'trident_of_poseidon': (bs) => {
-    // Every 3rd turn: +100% damage; 25% chance stun 1 turn; enemy DEF -20% 1 turn
-    if (bs.currentTurn % 3 === 0) {
+    // [Jun-2026 §4] Every 2nd turn (was 3rd): +100% damage; 30% chance stun 1 turn (was 25%); enemy DEF -20% 1 turn
+    if (bs.currentTurn % 2 === 0) {
       bs.playerAtkMult += 1.00;
-      if (bs.rng() < 0.25 && !bs.enemyImmune('stun')) {
+      if (bs.rng() < 0.30 && !bs.enemyImmune('stun')) {
         bs.applyDebuff('stun', 1);
         bs.log.push('🔱 Trident of Poseidon: Tidal Wrath — +100% ATK, Stun!');
       } else {
@@ -587,12 +588,19 @@ const PASSIVE_REGISTRY = {
   // ── DEITY BLESSINGS — Philippine ─────────────────────────────────────────
 
   'bathala_divine_vessel': (bs) => {
-    // All stats +20% for the first 3 turns (HP part is engine-applied via flag)
-    if (bs.currentTurn <= 3) {
-      bs.playerAtkMult += 0.20;
-      bs.playerDefMult += 0.20;
-      bs.flags.bathala_hp_bonus = true; // engine resets this each round and re-checks
-    }
+    // [Jun-2026 §4] FULL REWORK. At the start of each turn (before attacking) add +15% to
+    // ATK and DEF, stacking ADDITIVELY up to +105% (7 stacks; cap reached on turn 7, held at
+    // cap thereafter). Implemented additive-on-base (base × (1 + 0.15 × stacks), stacks ≤ 7),
+    // NOT compounding. This is a self-buff window, NOT a debuff — it is unaffected by the
+    // 1-turn rule and is never cleansed off Bathala. HP scales with the stack too: the engine
+    // grows max + current HP to base × (1 + frac) via bathala_hp_fraction (heals as it ramps).
+    if (!bs.flags.bathala_stacks) bs.flags.bathala_stacks = 0;
+    if (bs.flags.bathala_stacks < 7) bs.flags.bathala_stacks += 1;
+    const frac = 0.15 * bs.flags.bathala_stacks; // 0.15 → 1.05
+    bs.playerAtkMult += frac;
+    bs.playerDefMult += frac;
+    bs.flags.bathala_hp_fraction = frac; // engine applies the matching HP ramp
+    bs.log.push(`🌅 Bathala: Divine Vessel — Divine ramp +${Math.round(frac * 100)}% ATK/DEF/HP!`);
   },
 
   'sidapa_deaths_reprieve': (bs) => {
@@ -790,11 +798,12 @@ const PASSIVE_REGISTRY = {
 
   // ── DEITY BLESSINGS — Greek ──────────────────────────────────────────────
 
-  'zeus_thunder_sovereign': everyNthRider(3, 0.80, null, (bs) => {
+  // [Jun-2026 §4] +100% ATK (was +80%); unchanged: every 3rd turn, enemy DEF -20% for 1 turn.
+  'zeus_thunder_sovereign': everyNthRider(3, 1.00, null, (bs) => {
     if (!bs.enemyImmune('def_down')) {
       bs.applyDebuff('def_down', 1, 0.20);
     }
-    bs.log.push('⚡ Zeus: Thunder Sovereign — +80% ATK! Enemy DEF -20%!');
+    bs.log.push('⚡ Zeus: Thunder Sovereign — +100% ATK! Enemy DEF -20%!');
   }),
 
   'ares_blood_frenzy': stackingAtk('ares_stack', 0.08, 0.40, 2),
@@ -1057,10 +1066,10 @@ const PASSIVE_REGISTRY = {
   },
 
   'hydra_regen': (bs) => {
-    // Every 3rd turn: regen 5% max HP on the LOCAL instance only (engine applies;
-    // the shared boss pool is never healed — only NET damage commits)
+    // [Jun-2026 §4] Every 3rd turn: regen 1% max HP (was 5%) on the LOCAL instance only
+    // (engine applies; the shared boss pool is never healed — only NET damage commits)
     if (bs.currentTurn % 3 === 0) {
-      const regen = Math.floor(bs.enemyMaxHP * 0.05);
+      const regen = Math.floor(bs.enemyMaxHP * 0.01);
       bs.flags.hydra_local_regen = regen;
       bs.log.push(`🐉 Hydra: Regeneration — Local regen ${regen} HP (shared pool unaffected)!`);
     }

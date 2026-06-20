@@ -184,7 +184,10 @@ function resolveBattle(a, b, opts = {}) {
       ex.turnsLeft = Math.max(ex.turnsLeft, turns);
       ex.value = Math.max(ex.value, value);
     } else {
-      side.debuffs.push({ tag, turnsLeft: turns, value });
+      // [Jun-2026 §2] `armed:false` — a skip-CC applied THIS round is directional and only
+      // gates the recipient's NEXT turn; the round-start arming pass flips it true so it can
+      // be consumed then. It never cancels an action already due this round (no deadlock).
+      side.debuffs.push({ tag, turnsLeft: turns, value, armed: false });
     }
   };
   const sideImmune = (side, tag) => {
@@ -553,11 +556,11 @@ function resolveBattle(a, b, opts = {}) {
   const act = (S) => {
     if (result) return;
     const O = oppOf(S);
-    // Skip-CC is evaluated at ACTION time (§35.1: a skip-CC blocks the afflicted
-    // actor's single next action — including CCs applied earlier this same round,
-    // in the passive phase or by the opponent's attack). Consumes one charge from
-    // every active skip tag.
-    const skipTags = S.debuffs.filter((d) => SKIP_TAGS.includes(d.tag));
+    // [Jun-2026 §2] Skip-CC gates only on ARMED tags — CC that was active at the START of this
+    // round (i.e. applied on a PREVIOUS turn). CC procced THIS round is unarmed → directional,
+    // gating only the recipient's NEXT turn, never cancelling an action already due this round.
+    // Two opposing CC passives can no longer pre-emptively lock each other in the same round.
+    const skipTags = S.debuffs.filter((d) => SKIP_TAGS.includes(d.tag) && d.armed);
     if (skipTags.length > 0) {
       for (const d of skipTags) d.turnsLeft -= 1;
       S.debuffs = S.debuffs.filter((d) => d.turnsLeft > 0);
@@ -584,7 +587,7 @@ function resolveBattle(a, b, opts = {}) {
     side.flags.enemy_atk_mult = undefined;
     side.flags.enemy_def_mult = undefined;
     side.flags.enemy_atk_override = null;
-    side.flags.bathala_hp_bonus = false;
+    side.flags.bathala_hp_fraction = 0; // [Jun-2026 §4] registry re-sets the ramp each round
     // input latches (engine-set, read by the registry this round)
     side.tookHitLastRound = side.tookHitThisRound;
     side.tookHitThisRound = false;
@@ -599,15 +602,16 @@ function resolveBattle(a, b, opts = {}) {
   };
 
   const applyBathala = (side) => {
-    if (side.flags.bathala_hp_bonus && side.bathalaExtraHp === 0) {
-      const extra = Math.floor(side.in.hp * 0.20);
-      side.bathalaExtraHp = extra;
-      side.maxHp += extra;
-      setHp(side, side.hp + extra);
-    } else if (!side.flags.bathala_hp_bonus && side.bathalaExtraHp > 0) {
-      side.maxHp -= side.bathalaExtraHp;
-      side.bathalaExtraHp = 0;
-      setHp(side, side.hp); // clamp back to the restored max
+    // [Jun-2026 §4] HP ramps with the Bathala stack: target bonus = floor(base maxHP × frac),
+    // where frac is the registry's per-round ramp (0.15 → 1.05). As the bonus grows, max AND
+    // current HP rise together (heals as it ramps — patch assumption); if it ever shrinks,
+    // current is re-clamped to the lowered max.
+    const target = Math.floor(side.in.hp * (side.flags.bathala_hp_fraction || 0));
+    const delta = target - side.bathalaExtraHp;
+    if (delta !== 0) {
+      side.maxHp += delta;
+      side.bathalaExtraHp = target;
+      setHp(side, side.hp + (delta > 0 ? delta : 0)); // grow heals; shrink just re-clamps
     }
   };
 
@@ -648,8 +652,16 @@ function resolveBattle(a, b, opts = {}) {
     // 1. round start: scratch + latches
     for (const side of order) resetScratch(side);
     for (const side of order) setInputFlags(side);
+    // [Jun-2026 §2] ARM the skip-CC carried in from PREVIOUS rounds. Only an armed CC gates
+    // an action this round; CC procced later this round (passive phase / the opponent's
+    // attack) stays unarmed → it can't cancel an action already due, and can't deadlock two
+    // opposing CC passives. side.skipped (armed CC present) voids this side's pre-rolls.
     for (const side of order) {
-      side.skipped = side.debuffs.some((d) => SKIP_TAGS.includes(d.tag));
+      let armedCC = false;
+      for (const d of side.debuffs) {
+        if (SKIP_TAGS.includes(d.tag)) { d.armed = true; armedCC = true; }
+      }
+      side.skipped = armedCC;
     }
 
     // 2. pre-rolls (R1) — always drawn for stream stability, voided when skip-CC'd

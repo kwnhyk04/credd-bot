@@ -134,7 +134,7 @@ section('4. Targeted scenarios');
   const tot = assemblePlayerStats('Archer', 50, { curr_atk: 0, curr_hp: 0, curr_def: 0, crit: 10 }, null);
   check('total crit hard cap 45', Math.abs(tot.crit - 45) < 1e-9, `got ${tot.crit}`);
   const mage = computeClassBattleStats('Mage', 50);
-  check('Mage Lv50 ATK 696', mage.atk === 10 + 14 * 49, `got ${mage.atk}`);
+  check('Mage Lv50 ATK 5250', mage.atk === 350 + 100 * 49, `got ${mage.atk}`);
 }
 
 // — C1: mob formula base + per_level × level (live DB rows, v4.2 §15) —
@@ -161,16 +161,20 @@ section('4. Targeted scenarios');
   check('C1: mob level clamped to 55', sClamp.hp === 1610 + 30 * 55, `got ${sClamp.hp}`);
 }
 
-// — 1d: class base HP 500 (v4.2); per-level growth unchanged —
+// — [Jun-2026 §1] per-class distinct base + scaling (no uniform base anymore) —
 {
-  for (const cls of ['Swordsman', 'Fighter', 'Mage', 'Knight', 'Archer']) {
+  const L1_HP = { Swordsman: 700, Fighter: 850, Mage: 600, Knight: 1000, Archer: 600 };
+  for (const cls of Object.keys(L1_HP)) {
     const s1 = computeClassBattleStats(cls, 1);
-    check(`1d: ${cls} Lv1 HP = 500`, s1.hp === 500, `got ${s1.hp}`);
+    check(`§1: ${cls} Lv1 HP = ${L1_HP[cls]}`, s1.hp === L1_HP[cls], `got ${s1.hp}`);
   }
-  const knight = computeClassBattleStats('Knight', 50);
-  check('1d: Knight Lv50 HP = 500 + 15×49 = 1235', knight.hp === 1235, `got ${knight.hp}`);
-  const mage = computeClassBattleStats('Mage', 50);
-  check('1d: Mage Lv50 HP = 500 + 10×49 = 990', mage.hp === 990, `got ${mage.hp}`);
+  const L50_HP = { Swordsman: 5845, Fighter: 6730, Mage: 5010, Knight: 8350, Archer: 5745 };
+  for (const cls of Object.keys(L50_HP)) {
+    const stats = computeClassBattleStats(cls, 50);
+    check(`§1: ${cls} Lv50 HP includes +50 HP/Lv`, stats.hp === L50_HP[cls], `got ${stats.hp}`);
+  }
+  // crit caps: Swordsman/Archer reach 39.3 at L50; Knight flat 5.0 (0 growth)
+  check('§1: Swordsman Lv50 crit 39.3', Math.abs(computeClassBattleStats('Swordsman', 50).crit - 39.3) < 1e-9);
 }
 
 // — Katana ×2.30 vs base ×2.00 (forced crit, pinned variance) —
@@ -298,22 +302,24 @@ section('4. Targeted scenarios');
     && !hasEvent(roundEvents(sim, 7), 'Overcharge') && !hasEvent(roundEvents(sim, 8), 'Overcharge'));
 }
 
-// — Overcharge lost when skip-CC'd on a multiple of 3; next fires round 6 —
+// — [Jun-2026 §2] Overcharge lost when skip-CC GATES round 3 (CC procs round 2, gates the
+//   NEXT turn); a proc on the overcharge round itself does NOT cancel that round. —
 {
-  // Santelmo applies a 1-turn skip on its proc; script the proc to land ONLY on round 3.
+  // Santelmo applies a 1-turn skip on its proc; script the proc to land on round 2 so the
+  // gate falls on round 3 (the overcharge round). draws/round (Mage + santelmo mob):
+  // critPre, santelmoProc, playerVar, mobCrit, mobVar (a skipped round drops playerVar).
   const mk = () => player({ class: 'Mage', classPassive: 'overcharge', hp: 100000 });
-  // draws/round (Mage + santelmo mob): critPre, santelmoProc, playerVar, mobCrit, mobVar
-  // (round 3 the player is skipped → no playerVar that round).
   const script = [0.0,
     /* r1 */ 0.99, 0.99, 0.5, 0.99, 0.5,
-    /* r2 */ 0.99, 0.99, 0.5, 0.99, 0.5,
-    /* r3 */ 0.99, 0.01, 0.99, 0.5,            // santelmo procs → player skips this round
+    /* r2 */ 0.99, 0.01, 0.5, 0.99, 0.5,       // santelmo procs → gates player's r3
+    /* r3 */ 0.99, 0.99, 0.99, 0.5,            // player skipped (no playerVar this round)
     /* r4 */ 0.99, 0.99, 0.5, 0.99, 0.5,
     /* r5 */ 0.99, 0.99, 0.5, 0.99, 0.5,
     /* r6 */ 0.99, 0.99, 0.5, 0.99, 0.5];
   const sim = resolveBattle(mk(), mob({ hp: 100000, skillKey: 'santelmo_will_o_wisp' }),
     { seed: 1, rng: scripted(script) });
-  check('skip-CC on round 3: player unable to act', hasEvent(roundEvents(sim, 3), 'unable to act'));
+  check('directional: player ACTS round 2 (the CC proc round)', hasEvent(roundEvents(sim, 2), 'attacks'));
+  check('skip-CC gates round 3: player unable to act', hasEvent(roundEvents(sim, 3), 'unable to act'));
   check('skip-CC on round 3: overcharge lost (no marker, no attack)',
     !hasEvent(roundEvents(sim, 3), 'Overcharge') && !hasEvent(roundEvents(sim, 3), 'attacks'));
   check('skip-CC: no carry-over to round 4', !hasEvent(roundEvents(sim, 4), 'Overcharge'));
@@ -367,28 +373,32 @@ section('4. Targeted scenarios');
   check('snapshot boss: every 3rd (3,6 present; 1,2,4 absent)', boss.has(3) && boss.has(6) && !boss.has(1) && !boss.has(2) && !boss.has(4), [...boss].join(','));
 }
 
-// — R2: Fighter class stun 1/2 turns, refresh-don't-extend —
+// — R2 + [Jun-2026 §2]: Fighter class stun 1/2 turns gates the mob's NEXT turn(s),
+//   refresh-don't-extend. The stun is applied on the player's r1 hit, so the mob still
+//   ACTS r1 (directional CC never cancels an action already due) and is gated AFTER. —
 {
   const mkF = () => player({ class: 'Fighter', classPassive: 'stun' });
-  // 2-turn stun on the 10% band (r < 0.10): skips rounds 1+2, mob first acts round 3
+  // 2-turn stun on the 10% band (r1 stunPre < 0.10): mob acts r1, then skips r2+r3, acts r4.
+  // Minimal script (order, r1 critPre 0.99, r1 stunPre 0.05); fallback 0.5 means no further stuns.
   const s2 = resolveBattle(mkF(), mob({ hp: 100000 }),
-    { seed: 1, rng: scripted([0.0, 0.99, 0.05, 0.5, /* r2 */ 0.99, 0.99, 0.5, /* r3 */ 0.99, 0.99, 0.5, 0.99, 0.5]) });
-  check('R2: 2-turn stun — mob skips r1', hasEvent(roundEvents(s2, 1), 'unable to act'));
+    { seed: 1, rng: scripted([0.0, 0.99, 0.05]) });
+  check('R2: 2-turn stun — mob ACTS r1 (CC is directional, gates next turn)', hasEvent(roundEvents(s2, 1), 'strikes'));
   check('R2: 2-turn stun — mob skips r2', hasEvent(roundEvents(s2, 2), 'unable to act'));
-  check('R2: mob acts round 3', hasEvent(roundEvents(s2, 3), 'strikes'));
-  // re-proc a 2-turn stun in r2 → refresh to max(1,2)=2 → skips r1–r3, acts r4
-  // (extend semantics would stack to 3 remaining and delay to round 5)
+  check('R2: 2-turn stun — mob skips r3', hasEvent(roundEvents(s2, 3), 'unable to act'));
+  check('R2: mob acts round 4', hasEvent(roundEvents(s2, 4), 'strikes'));
+  // re-proc a 2-turn stun in r2 (player's r2 hit) → refresh to max(remaining,2)=2 → still
+  // skips r2+r3, acts r4 (extend semantics would stack to 3 and delay to r5).
   const sR = resolveBattle(mkF(), mob({ hp: 100000 }),
-    { seed: 1, rng: scripted([0.0, 0.99, 0.05, 0.5, /* r2 */ 0.99, 0.05, 0.5, /* r3 */ 0.99, 0.99, 0.5, /* r4 */ 0.99, 0.99, 0.5, 0.99, 0.5]) });
+    { seed: 1, rng: scripted([0.0, 0.99, 0.05, 0.5, 0.99, 0.5, /* r2 */ 0.99, 0.05]) });
   check('R2 refresh: skips r3', hasEvent(roundEvents(sR, 3), 'unable to act'));
   check('R2 refresh-not-extend: acts r4', hasEvent(roundEvents(sR, 4), 'strikes'));
-  // 1-turn band (0.10 ≤ r < 0.35)
+  // 1-turn band (0.10 ≤ r < 0.35): mob acts r1, skips r2, acts r3.
   const s1 = resolveBattle(mkF(), mob({ hp: 100000 }),
-    { seed: 1, rng: scripted([0.0, 0.99, 0.20, 0.5, /* r2 */ 0.99, 0.99, 0.5, 0.99, 0.5]) });
-  check('R2: 1-turn stun — skips r1 only', hasEvent(roundEvents(s1, 1), 'unable to act') && hasEvent(roundEvents(s1, 2), 'strikes'));
-  // stun-immune boss: no stun, mob acts round 1
+    { seed: 1, rng: scripted([0.0, 0.99, 0.20]) });
+  check('R2: 1-turn stun — skips r2 only', hasEvent(roundEvents(s1, 1), 'strikes') && hasEvent(roundEvents(s1, 2), 'unable to act') && hasEvent(roundEvents(s1, 3), 'strikes'));
+  // stun-immune boss: no stun ever, mob acts round 1
   const sImm = resolveBattle(mkF(), mob({ hp: 100000, immunityTags: ['stun'] }),
-    { seed: 1, rng: scripted([0.0, 0.99, 0.05, 0.5, 0.99, 0.5]) });
+    { seed: 1, rng: scripted([0.0, 0.99, 0.05]) });
   check('R2: stun negated vs stun-immune', hasEvent(roundEvents(sImm, 1), 'strikes'));
 }
 
@@ -402,11 +412,11 @@ section('4. Targeted scenarios');
     /* r3 */ 0.99, 0.5];
   const sim = resolveBattle(mk(), mob({ hp: 50000, def: 200 }), { seed: 1, rng: scripted(script) });
   const r3 = dmgOf(roundEvents(sim, 3), 'attacks');
-  // [bonus-fix] zeus +80% now rides the mitigated ATK lane: effATK 300×1.80=540.
-  // shred 0.30 → DEF 140 → 540×(200/340)=317.6 → 317 (highest-wins).
-  check('R8: highest-wins r3 damage = 317', r3 === 317, `got ${r3}`);
-  // multiplicative def_down (0.30,0.20→0.44) would give DEF 112 → 540×(200/312)=346.
-  check('R8: not multiplicative (≠346)', r3 !== 346);
+  // [Jun-2026 §4] zeus now +100%: effATK 300×2.00=600. shred 0.30 → DEF 140 →
+  // 600×(200/340)=352.9 → 352 (highest-wins).
+  check('R8: highest-wins r3 damage = 352', r3 === 352, `got ${r3}`);
+  // multiplicative def_down (0.30,0.20→0.44) would give DEF 112 → 600×(200/312)=384.
+  check('R8: not multiplicative (≠384)', r3 !== 384);
 }
 
 // — def_down immunity blocks ALL sources including the laevateinn stack —
@@ -416,8 +426,8 @@ section('4. Targeted scenarios');
     { seed: 1, rng: scripted([0.0, 0.99, 0.5, 0.99, 0.5, 0.99, 0.5, 0.99, 0.5, 0.99, 0.5]) });
   check('def_down-immune: no Sundering Flame stacks', !hasEvent(allEvents(sim), 'Sundering Flame'));
   const r3 = dmgOf(roundEvents(sim, 3), 'attacks');
-  // [bonus-fix] DEF 200 unshredded, zeus +80% mitigated: effATK 540 → 540×(200/400)=270
-  check('def_down-immune r3 damage = 270', r3 === 270, `got ${r3}`);
+  // [Jun-2026 §4] DEF 200 unshredded, zeus +100% mitigated: effATK 600 → 600×(200/400)=300
+  check('def_down-immune r3 damage = 300', r3 === 300, `got ${r3}`);
 }
 
 // — R9: Babaylan ATK +100% only on a non-empty cleanse —
@@ -560,13 +570,13 @@ section('4. Targeted scenarios');
   check('expRequired covers exactly levels 1..49', Object.keys(EXP_REQUIRED).length === 49 && MAX_COMBAT_LEVEL === 50);
   const a = applyCombatExp(1, 0, 100);
   check('exp: 1→2 at exactly 100', a.level === 2 && a.exp === 0 && a.leveledUp, JSON.stringify(a));
-  const b = applyCombatExp(1, 0, 650);
-  check('exp: multi-level 1→4 (100+200+350)', b.level === 4 && b.exp === 0, JSON.stringify(b));
+  const b = applyCombatExp(1, 0, 850);
+  check('exp: multi-level 1→4 (100+250+500)', b.level === 4 && b.exp === 0, JSON.stringify(b));
   const c = applyCombatExp(1, 50, 100);
   check('exp: within-level carry (50+100 → L2, 50 over)', c.level === 2 && c.exp === 50, JSON.stringify(c));
-  const d = applyCombatExp(10, 0, 3999);
-  check('exp: no level below threshold (10→11 needs 4000)', d.level === 10 && d.exp === 3999 && !d.leveledUp, JSON.stringify(d));
-  const e = applyCombatExp(49, 0, 5000000);
+  const d = applyCombatExp(10, 0, 11999);
+  check('exp: no level below threshold (10→11 needs 12000)', d.level === 10 && d.exp === 11999 && !d.leveledUp, JSON.stringify(d));
+  const e = applyCombatExp(49, 0, 15000000);
   check('exp: 49→50 cap reached', e.level === 50 && e.exp === 0, JSON.stringify(e));
   const f = applyCombatExp(50, 0, 999999);
   check('exp: level 50 never levels further', f.level === 50 && !f.leveledUp, JSON.stringify(f));

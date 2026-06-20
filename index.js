@@ -5,7 +5,9 @@ const { BOT_TOKEN } = require('./src/config/config');
 const { setupGlobalErrorHandlers } = require('./src/utils/errorHandler');
 const { handleMessage } = require('./src/handlers/commandHandler');
 const { handleInteraction } = require('./src/handlers/interactionHandler');
+const { handleSlash } = require('./src/events/interactionCreate');
 const { runMiddleware, isBanned } = require('./src/handlers/middleware');
+const guildConfig = require('./src/handlers/guildConfigCache');
 const { startBattleReaper } = require('./src/schedulers/battleReaper');
 const { startResetScheduler } = require('./src/schedulers/resetScheduler');
 const { startBossScheduler } = require('./src/schedulers/bossScheduler');
@@ -24,6 +26,13 @@ const client = new Client({
 
 client.once('ready', async () => {
   console.log(`[credd] Logged in as ${client.user.tag}`);
+  // Load per-guild config (prefix + channel ids) once — middleware reads from this cache (§1.2).
+  try {
+    const n = await guildConfig.loadAll();
+    console.log(`[credd] Loaded server_config for ${n} guild(s).`);
+  } catch (err) {
+    console.error('[credd] server_config cache load failed:', err.message);
+  }
   await startBattleReaper();
   startResetScheduler();
   startBossScheduler(client);
@@ -52,7 +61,9 @@ client.on('messageCreate', async (message) => {
 
 client.on('interactionCreate', async (interaction) => {
   try {
-    await handleInteraction(interaction);
+    // Slash commands → the Phase-11 slash path; buttons/components → the existing handler.
+    if (interaction.isChatInputCommand()) await handleSlash(interaction);
+    else await handleInteraction(interaction);
   } catch (err) {
     console.error('[interactionCreate] Unhandled error:', err);
   }

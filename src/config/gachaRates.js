@@ -6,13 +6,14 @@
  * [REVISED]" + "Deity Gacha Pity".
  */
 
-// ── Tier roll weights (Master §4, lines 97–100) ────────────────────────────
-// Epic 69% · Mythic 25% · Legendary 5% · Supreme 1% — must sum to 1.0.
+// ── Tier roll weights (Master §4 / [Jun-2026 patch §5]) ────────────────────
+// Epic 64.5% · Mythic 30% · Legendary 5% · Supreme 0.5% — must sum to 1.0.
+// (Was 69/25/5/1; the patch shifts weight from Epic→Mythic and halves Supreme.)
 const TIER_WEIGHTS = [
-  ['Epic', 0.69],
-  ['Mythic', 0.25],
+  ['Epic', 0.645],
+  ['Mythic', 0.30],
   ['Legendary', 0.05],
-  ['Supreme', 0.01],
+  ['Supreme', 0.005],
 ];
 
 // ── Pity (Master §4 "Deity Gacha Pity" + §35.0) ────────────────────────────

@@ -162,7 +162,7 @@ async function performBestow(senderId, receiverId, amount) {
 
 async function execute(message, { args }) {
   const sender = message.author;
-  const receiver = message.mentions.users.first();
+  const receiver = message.getMention(0); // [v4.9] prefix @mention or slash user option
 
   if (!receiver) return reply(message, 'Usage: `crd bestow @user <amount>`');
   if (receiver.id === sender.id) return reply(message, 'You cannot bestow Credux to yourself.');

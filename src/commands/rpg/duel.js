@@ -27,9 +27,27 @@ const { isBanned } = require('../../handlers/middleware');
 const { progressQuests } = require('../../utils/questProgress');
 
 const CHALLENGE_WINDOW_MS = 60_000;
+const MAX_DUEL_LEVEL = 50; // [Jun-2026 §3] current max combat level
 
 function reply(message, content) {
   return message.reply({ content, allowedMentions: { repliedUser: false } });
+}
+
+/**
+ * [Jun-2026 §3] Parse an optional trailing level argument from the duel command.
+ * Accepts `level 50`, `level50`, `lvl 50`, `lvl50` (case-insensitive, space optional);
+ * the slash path injects a canonical `level<N>` token. Returns:
+ *   null        — no level argument (each duelist fights at their own combat_level)
+ *   number      — a valid normalized level in [1, 50]
+ *   'invalid'   — a level token was present but out of range
+ */
+function parseDuelLevel(args) {
+  const joined = (args || []).join(' ');
+  const m = /(?:level|lvl)\s*0*(\d{1,3})/i.exec(joined);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isInteger(n) || n < 1 || n > MAX_DUEL_LEVEL) return 'invalid';
+  return n;
 }
 
 /** §13.1/§35.0 conflict gate — true while the player has a live raid/boss row
@@ -107,10 +125,16 @@ async function commitDuelResult(challengerId, opponentId, sim) {
 
 async function execute(message) {
   const challenger = message.author;
-  const target = message.mentions.users.first();
+  const target = message.getMention(0); // [v4.9] prefix @mention or slash user option
   if (!target) return reply(message, 'Usage: `crd duel @user`');
   if (target.id === challenger.id) return reply(message, 'You cannot duel yourself.');
   if (target.bot) return reply(message, 'You cannot duel a bot.');
+
+  // [Jun-2026 §3] optional `level N` normalization (class-stat component only; gear unchanged).
+  const duelLevel = parseDuelLevel(message.args);
+  if (duelLevel === 'invalid') {
+    return reply(message, `Level must be between 1 and ${MAX_DUEL_LEVEL}. Example: \`crd duel @user level 50\`.`);
+  }
 
   try {
     // challenger conflict gate — no challenges while mid-raid/boss
@@ -138,6 +162,7 @@ async function execute(message) {
       .setTitle('⚔️ Duel Challenge')
       .setDescription(
         `**${challenger.username}** challenges <@${target.id}> to a duel!\n` +
+        (duelLevel != null ? `-# ⚖️ Both fight at **Level ${duelLevel}** (gear unchanged).\n` : '') +
         '-# Auto-battle — no rewards. 60s to respond.'
       );
     const row = new ActionRowBuilder().addComponents(
@@ -195,9 +220,11 @@ async function execute(message) {
           components: [],
         });
 
+        // [Jun-2026 §3] when a level was given, recompute BOTH sides' class-stat component at N
+        // (weapon + deity curr stats still apply as owned; nothing persisted).
         const [p1, p2] = await Promise.all([
-          buildPlayerFighter(pool, challenger.id),
-          buildPlayerFighter(pool, target.id),
+          buildPlayerFighter(pool, challenger.id, { levelOverride: duelLevel }),
+          buildPlayerFighter(pool, target.id, { levelOverride: duelLevel }),
         ]);
         if (!p1 || !p2) {
           await challengeMsg.channel.send('Duel cancelled — a duelist no longer has a character.');

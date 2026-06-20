@@ -2,6 +2,7 @@
 # Consolidated from all source files + all session revisions + Decision Log v1 resolutions
 # Source files: Mechanics_Updated_06012026.txt · Credd_Master_Export_v2.md · Additional_Mechanics.md
 # Database fully revised: see credd_schema_v4.sql (runnable DDL) and Technical Blueprint v4
+# Jun-2026 balance & bugfix patch: per-class base stats + scaling — distinct class identities (§1/§11, no migration); combat turn-order fix — procced skip-CC is directional and gates only the recipient's NEXT turn, two opposing CC passives no longer deadlock (§2/§35.1); `crd duel @user [level N]` normalizes both duelists' class-stat component to level 1–50 (gear unchanged, nothing persisted) (§3/§14); passive retune — Gungnir 30%→10%, Mjolnir +20%/4th→+30%/3rd, Trident 3rd→2nd & stun 25%→30%, Thunderbolt 80%→100%, Zeus 80%→100%, Bathala reworked to +15%→+105% ramping self-buff, Hydra 5%→1% (§4); deity gacha rates 64.5/30/5/0.5 (§5); combat-EXP curve rescaled (anti auto-grind, strictly increasing, no 40→41 dip, ~127M to L50) (§6/§17); category "?" → ephemeral weapon-drop-rate-per-box embed (§7); boss spawn-countdown message deleted at 0s (§8)
 # v4.5 balance patch (06/2026): raid chest drops adjusted (regular Silver 30%→20%, elite Gold 50%→30%); mob dynamic level now player + random(−2..+15); regular scaling set to HP+30/ATK+15/DEF+10 and elite scaling to HP+50/ATK+35/DEF+20 per level; all boss base HP +50,000 (§13, §15, §16, §35.6)
 # v4.4 patch (06/2026): Greater Boss tier (Jotun/Fenrir/Fafnir/Hydra/Cerberus — 80/20 weighted spawn, 2× HP, richer drops: 150k credux / 30k EXP / 2× Treasure or 1× Golden chest); weapon-drop ranges raised (Rare/Mythic/Legendary up, Supreme DEF 400→500 — new drops only); profile card polish (combat-EXP line, Active Deity/Blessing split, stat icons, Combat Record heading); BUGFIX — "+X% ATK" bonus passives now DEF-mitigated (were flat post-mitigation, ~2×/~6× too strong); portrait-card layout for weapon/deity info + create-character (art left, text right); crd profile @user; crd dev spawnboss [name] (§7, §12, §16)
 # v4.3 patch (06/2026): mob per-level scaling REDUCED — regular HP+40/ATK+15/DEF+10 → HP+20/ATK+8/DEF+5, elite HP+75/ATK+30/DEF+16 → HP+40/ATK+15/DEF+10 (base stats unchanged); `crd profile` full Canvas card; quest embed fonts reduced; class art in create-character preview (§13, §35.6)
@@ -100,10 +101,12 @@
 ### Deity Drop Rates [REVISED]
 | Tier | Display Name | Rate |
 |---|---|---|
-| Epic | Remnant | 69% |
-| Mythic | Awakened | 25% |
+| Epic | Remnant | 64.5% |
+| Mythic | Awakened | 30% |
 | Legendary | Undying | 5% |
-| Supreme | Primordial | 1% |
+| Supreme | Primordial | 0.5% |
+
+<!-- [Jun-2026 §5] was 69 / 25 / 5 / 1; weight shifted Epic→Mythic, Supreme halved. Sum = 100.0%. Pity unchanged (forced Legendary at 500; reset on any Legendary/Supreme). -->
 
 ### Deity Gacha Pity
 - 500 rolls → Guaranteed Legendary (Undying) deity
@@ -457,10 +460,10 @@ NOTE: Weapons are NOT class-locked. Any class can equip any weapon.
 
 | Weapon | Mythology | Passive |
 |---|---|---|
-| Mjolnir | Norse | Crushing Force — Every turn +20% ATK bonus; every 4th turn: 200% ATK crush |
-| Gungnir | Norse | Never Misses — Ignores 40% DEF; 30% chance pierce ALL DEF (zero mitigation); enemy DEF -25% for 1 turn on pierce |
-| Thunderbolt of Zeus | Greek | Divine Thunder — 30% chance: 80% ATK bonus + paralyze 1 turn. Auto-triggers on CRIT |
-| Trident of Poseidon | Greek | Tidal Wrath — Every 3rd turn: 100% ATK bonus; 25% chance stun 1 turn; enemy DEF -20% for 1 turn |
+| Mjolnir | Norse | Crushing Force — Every turn +30% ATK bonus; every 3rd turn: 200% ATK crush  [Jun-2026 §4: was +20% / every 4th] |
+| Gungnir | Norse | Never Misses — Ignores 40% DEF; 10% chance pierce ALL DEF (zero mitigation); enemy DEF -25% for 1 turn on pierce  [Jun-2026 §4: was 30%] |
+| Thunderbolt of Zeus | Greek | Divine Thunder — 30% chance: 100% ATK bonus + paralyze 1 turn. Auto-triggers on CRIT  [Jun-2026 §4: was 80%] |
+| Trident of Poseidon | Greek | Tidal Wrath — Every 2nd turn: 100% ATK bonus; 30% chance stun 1 turn; enemy DEF -20% for 1 turn  [Jun-2026 §4: was every 3rd / 25% stun] |
 
 ---
 
@@ -552,7 +555,7 @@ NOTE: No CRIT stats from deities. War/battle deities receive higher ATK. All Ble
 ### PH Myths — Supreme
 | Name | HP | ATK | DEF | Identity | Blessing |
 |---|---|---|---|---|---|
-| Bathala | 1,640 | 650 | 355 | Creator — dominant HP & ATK | Divine Vessel — All stats +20% for first 3 turns |
+| Bathala | 1,640 | 650 | 355 | Creator — dominant HP & ATK | Divine Vessel — At the start of each turn (before attacking) +15% ATK/DEF/HP, stacking additively up to +105% (7 stacks; cap on turn 7, held after). Self-buff, never cleansed.  [Jun-2026 §4: full rework, was "all stats +20% for first 3 turns"] |
 
 ### PH Myths — Legendary
 | Name | HP | ATK | DEF | Identity | Blessing |
@@ -612,7 +615,7 @@ NOTE: No CRIT stats from deities. War/battle deities receive higher ATK. All Ble
 ### Greek Myths — Supreme
 | Name | HP | ATK | DEF | Identity | Blessing |
 |---|---|---|---|---|---|
-| Zeus | 1,620 | 640 | 380 | King — strong all-stats, ATK lean | Thunder Sovereign — Every 3rd turn: 80% ATK bonus + enemy DEF -20% for 1 turn |
+| Zeus | 1,620 | 640 | 380 | King — strong all-stats, ATK lean | Thunder Sovereign — Every 3rd turn: 100% ATK bonus + enemy DEF -20% for 1 turn  [Jun-2026 §4: was 80%] |
 
 ### Greek Myths — Legendary
 | Name | HP | ATK | DEF | Identity | Blessing |
@@ -642,21 +645,28 @@ NOTE: No CRIT stats from deities. War/battle deities receive higher ATK. All Ble
 
 ## 11. CLASSES
 
-### Base Stats (All Classes — Level 1)
-HP: 500 | ATK: 10 | DEF: 10 | CRIT: 5%  [v4.2: base HP was 100]
+### Base Stats (Per Class — Level 1)  [Jun-2026 §1: each class now has a DISTINCT base; the old uniform HP 500 / ATK 10 / DEF 10 / CRIT 5% is retired]
+| Class | HP | ATK | DEF | CRIT |
+|---|---|---|---|---|
+| Swordsman | 700 | 225 | 225 | 5% |
+| Fighter | 850 | 300 | 150 | 1% |
+| Mage | 600 | 350 | 100 | 1% |
+| Knight | 1000 | 200 | 300 | 5% |
+| Archer | 600 | 300 | 150 | 5% |
 - MP removed temporarily (returns with skill system)
 - Speed removed permanently
+- No `user_character` stat columns exist — ATK/HP/DEF/CRIT are computed at runtime from class + level, so this table auto-applies to every existing player (no migration).
 
-### Level-Up Scaling Per Level
+### Level-Up Scaling Per Level  [Jun-2026 §1]
 | Stat | Swordsman | Fighter | Mage | Knight | Archer |
 |---|---|---|---|---|---|
-| HP + | +10 | +12 | +10 | +15 | +10 |
-| ATK + | +10 | +12 | +14 | +6 | +14 |
-| DEF + | +10 | +6 | +6 | +10 | +6 |
+| HP + | +105 | +120 | +90 | +150 | +105 |
+| ATK + | +55 | +70 | +100 | +30 | +85 |
+| DEF + | +55 | +25 | +25 | +50 | +25 |
 | CRIT + | +0.7% | +0.5% | +0.5% | +0% | +0.7% |
 
-**ATK Hierarchy at Level 50:** Mage = Archer > Fighter > Swordsman > Knight
-**CRIT Cap:** class crit caps at 40% (Swordsman & Archer reach exactly 40% at Lv50); total class+weapon crit hard ceiling = **45%** (§35.2). Knight has 0% CRIT growth (compensated by passive).
+**ATK Hierarchy at Level 50:** Mage > Archer > Fighter > Swordsman > Knight
+**CRIT Cap:** class crit caps at 40% (Swordsman & Archer reach **39.3%** at Lv50 — the 40% cap is a safety clamp, not normally hit); total class+weapon crit hard ceiling = **45%** (§35.2). Knight has 0% CRIT growth (flat 5%, compensated by passive).
 
 ### Class Passives
 | Class | Passive | Mechanic |
@@ -762,7 +772,7 @@ Fully removed for initial release. Planned as an end-game update.
 ### Mob Dynamic Level System
 - Mob Level = Player Level + random(−2 to +15)
 - Regular Mob scaling: HP +30 / ATK +15 / DEF +10 per level
-- Elite Mob scaling: HP +50 / ATK +35 / DEF +20 per level
+- Elite Mob scaling: HP +40 / ATK +25 / DEF +15 per level
 
 ### Battle Flow
 - Fully automatic — no player input
@@ -985,7 +995,7 @@ NOTE: Huginn & Muninn removed from boss lineup.
 | Boss | Base HP | Base ATK | Base DEF | CRIT | HP+/Lv | ATK+/Lv | DEF+/Lv | Special |
 |---|---|---|---|---|---|---|---|---|
 | Cerberus | 64,000 | 880 | 300 | 15% | +280 | +26 | +12 | Attacks twice per turn (60% ATK each, both can crit) |
-| Hydra | 67,000 | 745 | 420 | 10% | +340 | +22 | +14 | Regenerates 5% max HP every 3rd turn (per-instance; only NET damage commits to the shared pool) |
+| Hydra | 67,000 | 745 | 420 | 10% | +340 | +22 | +14 | Regenerates 1% max HP every 3rd turn (per-instance; only NET damage commits to the shared pool)  [Jun-2026 §4: was 5%] |
 | Medusa | 63,500 | 820 | 330 | 20% | +265 | +24 | +12 | Stone Stare — Every 3rd turn: Petrify player 1 turn, then the counter resets |
 
 ### Boss Rewards
@@ -1038,69 +1048,69 @@ Apex boss variants. The five Greater Bosses are **Jotun, Fenrir, Fafnir, Hydra, 
 | Level | EXP Required | Total EXP |
 |---|---|---|
 | 1→2 | 100 | 100 |
-| 2→3 | 200 | 300 |
-| 3→4 | 350 | 650 |
-| 4→5 | 500 | 1,150 |
-| 5→6 | 700 | 1,850 |
-| 6→7 | 1,000 | 2,850 |
-| 7→8 | 1,400 | 4,250 |
-| 8→9 | 1,900 | 6,150 |
-| 9→10 | 2,500 | 8,650 |
-| 10→11 | 4,000 | 12,650 |
-| 11→12 | 6,000 | 18,650 |
-| 12→13 | 8,500 | 27,150 |
-| 13→14 | 11,500 | 38,650 |
-| 14→15 | 15,000 | 53,650 |
-| 15→16 | 19,500 | 73,150 |
-| 16→17 | 25,000 | 98,150 |
-| 17→18 | 32,000 | 130,150 |
-| 18→19 | 40,000 | 170,150 |
-| 19→20 | 50,000 | 220,150 |
+| 2→3 | 250 | 350 |
+| 3→4 | 500 | 850 |
+| 4→5 | 900 | 1,750 |
+| 5→6 | 1,500 | 3,250 |
+| 6→7 | 2,400 | 5,650 |
+| 7→8 | 3,700 | 9,350 |
+| 8→9 | 5,500 | 14,850 |
+| 9→10 | 8,000 | 22,850 |
+| 10→11 | 12,000 | 34,850 |
+| 11→12 | 17,000 | 51,850 |
+| 12→13 | 24,000 | 75,850 |
+| 13→14 | 33,000 | 108,850 |
+| 14→15 | 45,000 | 153,850 |
+| 15→16 | 60,000 | 213,850 |
+| 16→17 | 80,000 | 293,850 |
+| 17→18 | 105,000 | 398,850 |
+| 18→19 | 135,000 | 533,850 |
+| 19→20 | 175,000 | 708,850 |
 
 **Tier 2 — Dedicated (Levels 21–30)**
 | Level | EXP Required | Total EXP |
 |---|---|---|
-| 20→21 | 60,000 | 280,150 |
-| 21→22 | 75,000 | 355,150 |
-| 22→23 | 90,000 | 445,150 |
-| 23→24 | 110,000 | 555,150 |
-| 24→25 | 130,000 | 685,150 |
-| 25→26 | 155,000 | 840,150 |
-| 26→27 | 180,000 | 1,020,150 |
-| 27→28 | 210,000 | 1,230,150 |
-| 28→29 | 245,000 | 1,475,150 |
-| 29→30 | 280,000 | 1,755,150 |
+| 20→21 | 215,000 | 923,850 |
+| 21→22 | 265,000 | 1,188,850 |
+| 22→23 | 325,000 | 1,513,850 |
+| 23→24 | 395,000 | 1,908,850 |
+| 24→25 | 475,000 | 2,383,850 |
+| 25→26 | 565,000 | 2,948,850 |
+| 26→27 | 670,000 | 3,618,850 |
+| 27→28 | 790,000 | 4,408,850 |
+| 28→29 | 925,000 | 5,333,850 |
+| 29→30 | 1,080,000 | 6,413,850 |
 
 **Tier 3 — Veteran (Levels 31–40)**
 | Level | EXP Required | Total EXP |
 |---|---|---|
-| 30→31 | 350,000 | 2,105,150 |
-| 31→32 | 430,000 | 2,535,150 |
-| 32→33 | 520,000 | 3,055,150 |
-| 33→34 | 620,000 | 3,675,150 |
-| 34→35 | 730,000 | 4,405,150 |
-| 35→36 | 850,000 | 5,255,150 |
-| 36→37 | 980,000 | 6,235,150 |
-| 37→38 | 1,120,000 | 7,355,150 |
-| 38→39 | 1,270,000 | 8,625,150 |
-| 39→40 | 1,430,000 | 10,055,150 |
+| 30→31 | 1,250,000 | 7,663,850 |
+| 31→32 | 1,450,000 | 9,113,850 |
+| 32→33 | 1,680,000 | 10,793,850 |
+| 33→34 | 1,950,000 | 12,743,850 |
+| 34→35 | 2,250,000 | 14,993,850 |
+| 35→36 | 2,600,000 | 17,593,850 |
+| 36→37 | 3,000,000 | 20,593,850 |
+| 37→38 | 3,450,000 | 24,043,850 |
+| 38→39 | 3,950,000 | 27,993,850 |
+| 39→40 | 4,500,000 | 32,493,850 |
 
 **Tier 4 — Endgame (Levels 41–50)**
 | Level | EXP Required | Total EXP |
 |---|---|---|
-| 40→41 | 800,000 | 10,855,150 |
-| 41→42 | 1,000,000 | 11,855,150 |
-| 42→43 | 1,200,000 | 13,055,150 |
-| 43→44 | 1,500,000 | 14,555,150 |
-| 44→45 | 1,800,000 | 16,355,150 |
-| 45→46 | 2,200,000 | 18,555,150 |
-| 46→47 | 2,700,000 | 21,255,150 |
-| 47→48 | 3,300,000 | 24,555,150 |
-| 48→49 | 4,000,000 | 28,555,150 |
-| 49→50 | 5,000,000 | 33,555,150 |
+| 40→41 | 5,100,000 | 37,593,850 |
+| 41→42 | 5,800,000 | 43,393,850 |
+| 42→43 | 6,600,000 | 49,993,850 |
+| 43→44 | 7,500,000 | 57,493,850 |
+| 44→45 | 8,500,000 | 65,993,850 |
+| 45→46 | 9,600,000 | 75,593,850 |
+| 46→47 | 10,800,000 | 86,393,850 |
+| 47→48 | 12,100,000 | 98,493,850 |
+| 48→49 | 13,500,000 | 111,993,850 |
+| 49→50 | 15,000,000 | 126,993,850 |
 
-**Total EXP to Level 50: ~33.5 Million**
-**Timeline:** Level 20 in 1–2 weeks · Level 50 in ~12 months hardcore grind
+**Total EXP to Level 50: ~127 Million** (was ~33.5M before the Jun-2026 anti auto-grind rescale)
+**Timeline:** Level 20 in ~1–2 weeks · curve raised most in early/mid game so auto-grinders no longer blow through Tier 1
 
 ---
 
@@ -1632,6 +1642,34 @@ a loss. `casino_logs.result` is binary (`win`/`loss`): logged `win` iff `payout 
 - Everything else (bag, open, summon, weapon/deity info, equip, enhance, profile, cred, bestow, daily, quests, duel, …) → **10 seconds**
 - Per-command windows (compound key per user); buttons are NOT cooldown-gated. Config: `src/config/cooldowns.js`.
 
+## 28. PHASE 11 — HELP · ADMIN · CUSTOM PREFIX · SLASH COMMANDS  [v4.9]
+
+**Custom prefix.** The bot accepts TWO triggers at once: `crd` (permanent, every server) and the
+guild's `server_config.prefix` (when set and ≠ `crd`). `crd` always wins resolution, so `crd bag`
+works even when the custom prefix is `c`. All `server_config` rows load once at startup into an
+in-memory `guildConfigCache` (prefix + bot/announcement/boss channel ids); middleware reads prefix
+and bot-channel from the cache (no per-command DB hit). `crd admin set*` UPSERTs `server_config`
+AND updates the cache in the same code path (no stale reads).
+
+**`crd admin` (Manage Server only; plain-text error otherwise).** `setprefix [1–5 alnum, not crd]`,
+`setbotchannel`, `setannouncementchannel`, `setbosschannel` (UPSERT + cache), and read-only `stats`
+(registered players / active in 7 days / avg combat level of active, from `user_guild_activity ⋈
+user_character`).
+
+**`crd help [category]`** — categorized embed (no Canvas); a 🛠️ Developer section is appended only
+for `DEV_IDS`. Optional category filter: `account|battle|casino|gacha|inventory|economy|admin`.
+
+**Aliases.** Single source of truth `src/config/aliases.js` (e.g. `ct → coin toss`, `b → bag`,
+`sl`/`sm → slot machine`, `g → cred`); expanded to the canonical token stream before routing.
+
+**Slash commands.** Every non-dev command has a `/slash` equivalent (`src/commands/slashDefinitions.js`);
+dev commands do NOT. A `CommandContext` adapter (`src/utils/commandContext.js`) lets every handler
+run unchanged on both the prefix and slash paths. Each slash command carries an **arg-assembler**
+that rebuilds the exact canonical token array (incl. literal subcommand tokens like `toss`/`info`).
+Slash flow: middleware first (rejections are ephemeral) → `deferReply` → same handler as prefix.
+Bot-channel rejection on slash is ephemeral. Register with `node scripts/deploy-commands.js`
+(`CLIENT_ID` + optional `GUILD_IDS` in `.env`). Static check: `node scripts/help-selftest.js`.
+
 ### Error Messages (Plain text only — no embed)
 - *"You are not registered. Use `crd register` to get started."*
 - *"You don't have a character yet. Use `crd create character` to get started."*
@@ -2149,8 +2187,10 @@ Each new mythology includes: new deity roster (all tiers), new regular and elite
 
 **Durations (uniform — keeps the engine simple):**
 - **CC + stat debuffs** (`stun`, `paralyze`, `freeze`, `petrify`, `charm`, `confuse`, `miss`, `atk_down`, `def_down`, `crit_down`) last **exactly 1 turn** — they expire after the afflicted actor's next turn. A skip-CC makes the afflicted actor miss its single next action.
+- **Skip-CC turn order** ([Jun-2026 §2] — deadlock fix): a procced skip-CC (`stun`/`freeze`/`paralyze`/`petrify`/`charm`/`confuse`) is **directional** (attacker → defender) and only gates the recipient's **NEXT** turn — it can never cancel an action already due this round, and never re-locks the actor itself. The first-attack-roll winner lands the first CC but the loser still takes its own first action (it is not pre-stunned). Two opposing CC passives (e.g. Thor stun vs Skadi freeze) therefore can no longer deadlock a round into "neither can act." Engine: a CC applied during a round is *unarmed*; the round-start arming pass flips CC carried in from a previous round to *armed*, and only an armed CC gates an action.
 - **Damage-over-time** (`bleed`, `burn`, HP%-DOTs) ticks for **2 turns** (two ticks); a new application **refreshes** (does not stack) — highest-value source wins per §13.1.
-- **Timed self-buff windows** written "for the first N turns" / "for N turns" on a self-buff (Bathala "all stats +20% for first 3 turns", Battersea "DEF +25% for first 2 turns", Freya "ATK +15% for 2 turns") apply for those rounds as authored — they are not debuffs and are unaffected by the 1-turn rule.
+- **Timed self-buff windows** written "for the first N turns" / "for N turns" on a self-buff (Battersea "DEF +25% for first 2 turns", Freya "ATK +15% for 2 turns") apply for those rounds as authored — they are not debuffs and are unaffected by the 1-turn rule.
+- **Bathala Divine Vessel** ([Jun-2026 §4]) is a *ramping* self-buff: at the start of each turn (step 1 of the turn sequence, before attacking) it adds +15% ATK/DEF/HP, stacking additively to a +105% cap (7 stacks; reached on turn 7, held thereafter). HP scales too — max and current rise together (heals as it ramps). Not a debuff; never cleansed off Bathala, unaffected by the 1-turn rule.
 
 ### 35.2 Stat Aggregation & CRIT
 - **Additive:** Total ATK/HP/DEF = class(level) + equipped weapon `curr` + **active** deity `curr`.
@@ -2199,7 +2239,7 @@ The registry is one flat object keyed by `passive_key` / `blessing_key` / `skill
 | `surt_muspells_flame` | Surt (Leg) | Every attack applies `burn` (25% ATK, 2 ticks); +50% vs already-burning |
 | `habagat_monsoon_fury` | Habagat (Epic) | Every turn, 25% chance: storm strike for +50% ATK bonus damage |
 | `baldur_invulnerability` | Baldur (Myth) | Once/battle, the first turn Baldur is debuffed or below 50% HP: cleanse all debuffs + heal 10% max HP |
-| `hydra_regen` | Hydra (boss) | Every 3rd turn, regen 5% max HP **on the player's local instance only**; only NET damage commits to the shared pool (the shared pool is never healed) |
+| `hydra_regen` | Hydra (boss) | Every 3rd turn, regen 1% max HP **on the player's local instance only**; only NET damage commits to the shared pool (the shared pool is never healed)  [Jun-2026 §4: was 5%] |
 | `stone_stare` | Medusa (boss) | Every 3rd turn: petrify player 1 turn, then reset the counter (no stacking) |
 
 Worked example:

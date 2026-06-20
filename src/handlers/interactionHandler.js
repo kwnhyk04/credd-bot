@@ -4,6 +4,7 @@ const { MessageFlags } = require('discord.js');
 const registerCmd = require('../commands/rpg/register');
 const createCmd = require('../commands/rpg/create');
 const bagCmd = require('../commands/rpg/bag');
+const bagViews = require('../engine/bagViews');
 const deityCmd = require('../commands/rpg/deity');
 const enhanceCmd = require('../commands/rpg/enhance');
 const sellCmd = require('../commands/rpg/sell');
@@ -66,6 +67,11 @@ async function handleInteraction(interaction) {
 
     if (namespace === 'weapons') {
       await bagCmd.handleWeaponsButton(interaction);
+      return;
+    }
+
+    if (namespace === 'chests' && action === 'rates') {
+      await bagViews.handleChestRatesButton(interaction);
       return;
     }
 

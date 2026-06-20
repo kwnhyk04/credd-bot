@@ -20,11 +20,18 @@ const {
   ContainerBuilder,
   SeparatorSpacingSize,
   AttachmentBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
   MessageFlags,
 } = require('discord.js');
 const pool = require('../db/pool');
 const { emoji } = require('../utils/emojis');
 const { renderBagItemsImage } = require('./renderBagItems');
+const { CHESTS: CHEST_DROPS } = require('../config/dropRates');
+
+// [Jun-2026 §7] help_icon custom emoji for the interactive "?" on the chests view.
+const HELP_ICON = { id: '1517665553261662370', name: 'help_icon' };
 
 /* ════════════════════════════════════════════
  * CONFIG
@@ -53,6 +60,14 @@ const RELICS = [
 ];
 
 const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
+
+function buildDropRatesButton(ownerId) {
+  return new ButtonBuilder()
+    .setCustomId(`chests:rates:${ownerId}`)
+    .setEmoji(HELP_ICON)
+    .setLabel('Drop rates')
+    .setStyle(ButtonStyle.Secondary);
+}
 
 /* ════════════════════════════════════════════
  * CRD BAG — overview
@@ -94,7 +109,10 @@ function buildBagOverview(user, data) {
     )
     .addSeparatorComponents(sep)
     // ── Chests ──
-    .addTextDisplayComponents((td) => td.setContent(`**${emoji('general_chest')} Chests**\n\n${chestLines}`))
+    .addSectionComponents((section) => section
+      .addTextDisplayComponents((td) => td.setContent(`**${emoji('general_chest')} Chests**`))
+      .setButtonAccessory(buildDropRatesButton(user.id)))
+    .addTextDisplayComponents((td) => td.setContent(chestLines))
     .addSeparatorComponents(sep)
     // ── Essence ──
     .addTextDisplayComponents((td) => td.setContent(`**${emoji('general_essence')} Essence**\n\n${essenceLines}`))
@@ -133,7 +151,9 @@ async function buildChestsView(user, counts) {
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
     // ── Header (real mention; payload carries allowedMentions parse: []) ──
-    .addTextDisplayComponents((td) => td.setContent(`## 🧰 <@${user.id}>'s Chests`))
+    .addSectionComponents((section) => section
+      .addTextDisplayComponents((td) => td.setContent(`## ${emoji('bag')} <@${user.id}>'s Chests`))
+      .setButtonAccessory(buildDropRatesButton(user.id)))
     .addSeparatorComponents(sep)
     // ── Body: rendered boxed rows ──
     .addMediaGalleryComponents((g) =>
@@ -151,6 +171,48 @@ async function buildChestsView(user, counts) {
     flags: MessageFlags.IsComponentsV2,
     allowedMentions: { parse: [] },
   };
+}
+
+/* ════════════════════════════════════════════
+ * [Jun-2026 §7] WEAPON DROP RATES PER BOX — ephemeral embed
+ * Sourced LIVE from config/dropRates.CHESTS so the numbers never drift from the
+ * real roll table. Each chest lists its weapon-tier percentage breakdown.
+ * ══════════════════════════════════════════ */
+function buildDropRatesEmbed() {
+  const embed = new EmbedBuilder()
+    .setColor(ACCENT)
+    .setTitle(`${emoji('bag')} Weapon Drop Rates per Box`)
+    .setDescription('-# Weapon tier odds for each chest, straight from the live drop table.');
+
+  for (const [code, def] of Object.entries(CHEST_DROPS)) {
+    const chest = CHESTS.find((item) => item.code === code);
+    const lines = def.drops
+      .map(([tier, p]) => `${tier}: **${(p * 100).toFixed(p * 100 % 1 === 0 ? 0 : 1)}%**`)
+      .join('\n');
+    embed.addFields({
+      name: `${emoji(chest?.emojiName)} ${def.action}`,
+      value: lines,
+      inline: true,
+    });
+  }
+  return embed;
+}
+
+/** Button `chests:rates:<ownerId>` — owner-only ephemeral drop-rate embed. */
+async function handleChestRatesButton(interaction) {
+  const ownerId = interaction.customId.split(':')[2];
+  if (ownerId && interaction.user.id !== ownerId) {
+    await interaction.reply({
+      content: 'This isn\'t your bag view — run `crd bag` yourself!',
+      flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
+    return;
+  }
+
+  await interaction.reply({
+    embeds: [buildDropRatesEmbed()],
+    flags: MessageFlags.Ephemeral,
+  }).catch(() => {});
 }
 
 /** Read chest + relic counts for the view (DB → { sc, gc, btc, bgtc, supc, sacred, supreme }). */
@@ -173,4 +235,7 @@ async function getChestCounts(discordId) {
   };
 }
 
-module.exports = { buildBagOverview, buildChestsView, getChestCounts, CHESTS };
+module.exports = {
+  buildBagOverview, buildChestsView, getChestCounts, CHESTS,
+  buildDropRatesEmbed, handleChestRatesButton,
+};

@@ -35,7 +35,7 @@ async function execute(message) {
     const { state } = view;
     const now = Date.now();
     if (state.status === 'active' && new Date(state.expires_at).getTime() > now) {
-      const sent = await message.channel.send(buildBossMessage(view));
+      const sent = await message.channel.send(await buildBossMessage(view));
       repointLiveMessage(message.guild.id, sent);
       return;
     }

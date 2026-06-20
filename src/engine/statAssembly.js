@@ -21,7 +21,7 @@
  * that helper stays for display (profile) until the Phase 9 profile migration.
  */
 
-const { CLASSES, BASE_STATS, CLASS_CRIT_CAP } = require('../config/classes');
+const { CLASSES, CLASS_CRIT_CAP } = require('../config/classes');
 const { ELITE_SPAWN_CHANCE } = require('../config/raidLoot');
 
 const TOTAL_CRIT_CAP = 45.0; // §35.2 hard ceiling (class + weapon)
@@ -37,7 +37,8 @@ const CLASS_PASSIVES = {
 };
 
 /**
- * Authoritative class battle stats: base + scaling × (level − 1), floored.
+ * Authoritative class battle stats: per-class base + scaling × (level − 1), floored
+ * ([Jun-2026 patch §1] — each class has a distinct base now; see config/classes).
  * Class crit caps at 40 (§35.2); Swordsman/Archer reach 39.3 at Lv50 (R6 —
  * the §11 "exactly 40%" line is flavor).
  */
@@ -46,10 +47,10 @@ function computeClassBattleStats(className, level) {
   if (!cls) throw new Error(`Unknown class: ${className}`);
   const steps = Math.max(1, level) - 1;
   return {
-    hp: Math.floor(BASE_STATS.hp + cls.scaling.hp * steps),
-    atk: Math.floor(BASE_STATS.atk + cls.scaling.atk * steps),
-    def: Math.floor(BASE_STATS.def + cls.scaling.def * steps),
-    crit: Math.min(BASE_STATS.crit + cls.scaling.crit * steps, CLASS_CRIT_CAP),
+    hp: Math.floor(cls.base.hp + cls.scaling.hp * steps),
+    atk: Math.floor(cls.base.atk + cls.scaling.atk * steps),
+    def: Math.floor(cls.base.def + cls.scaling.def * steps),
+    crit: Math.min(cls.base.crit + cls.scaling.crit * steps, CLASS_CRIT_CAP),
   };
 }
 
@@ -88,9 +89,14 @@ function rollMobLevel(playerLevel, rng) {
 /**
  * Build the player fighter from live DB rows.
  * @param {object} db  pg pool or client (read-only SELECT)
+ * @param {object} [opts]
+ * @param {number|null} [opts.levelOverride]  [Jun-2026 patch §3] `crd duel @user level N` —
+ *   temporarily recompute the CLASS-level stat component (base + scaling) at level N
+ *   (clamped [1,50]); equipped weapon + active deity curr stats still apply as owned.
+ *   Nothing is persisted — combat_level in the DB is untouched.
  * @returns fighter struct or null when the user has no character.
  */
-async function buildPlayerFighter(db, discordId) {
+async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) {
   const res = await db.query(
     `SELECT uc.class, uc.combat_level, u.username,
             w.curr_atk  AS w_atk, w.curr_hp AS w_hp, w.curr_def AS w_def,
@@ -116,14 +122,18 @@ async function buildPlayerFighter(db, discordId) {
   const deity = r.d_atk != null
     ? { curr_atk: r.d_atk, curr_hp: r.d_hp, curr_def: r.d_def }
     : null;
-  const stats = assemblePlayerStats(r.class, r.combat_level, weapon, deity);
+  // [Jun-2026 patch §3] duel level-normalization recomputes ONLY the class component at N.
+  const effLevel = levelOverride != null
+    ? Math.max(MOB_LEVEL_MIN, Math.min(50, Math.floor(levelOverride)))
+    : r.combat_level;
+  const stats = assemblePlayerStats(r.class, effLevel, weapon, deity);
 
   return {
     name: r.username,
     kind: 'player',
     class: r.class,
     classPassive: CLASS_PASSIVES[r.class],
-    level: r.combat_level,
+    level: effLevel,
     atk: stats.atk,
     hp: stats.hp,
     def: stats.def,

@@ -1,7 +1,10 @@
 'use strict';
 
-const { getPrefix } = require('./middleware');
 const { DEV_IDS } = require('../config/config');
+const { MessageContext } = require('../utils/commandContext');
+const guildConfig = require('./guildConfigCache');
+const ALIASES = require('../config/aliases');
+
 const registerCmd = require('../commands/rpg/register');
 const createCmd = require('../commands/rpg/create');
 const profileCmd = require('../commands/rpg/profile');
@@ -22,6 +25,8 @@ const credCmd = require('../commands/economy/cred');
 const questsCmd = require('../commands/economy/quests');
 const dailyCmd = require('../commands/economy/daily');
 const devCmd = require('../commands/rpg/dev');
+const helpCmd = require('../commands/help');
+const adminCmd = require('../commands/admin');
 const coinCmd = require('../commands/casino/coin');
 const diceCmd = require('../commands/casino/dice');
 const baccaratCmd = require('../commands/casino/baccarat');
@@ -29,8 +34,9 @@ const blackjackCmd = require('../commands/casino/blackjack');
 const slotCmd = require('../commands/casino/slot');
 const crashCmd = require('../commands/casino/crash');
 
-// Commands with real implementations.
-//   mw 'ban'  → ban check only (no registration/character/activity); register needs this
+// Implemented commands, keyed by CANONICAL command (first token). Shorthands route here via
+// config/aliases.js (expanded before lookup), so no direct alias keys live in this map.
+//   mw 'ban'  → ban check only (register needs this; the users row doesn't exist yet)
 //   mw 'full' → standard runMiddleware pipeline (requiresCharacter from COMMAND_MAP)
 //   mw 'dev'  → superuser gate only (DEV_IDS); non-devs silent-ignore, no middleware
 const IMPLEMENTED = {
@@ -39,11 +45,9 @@ const IMPLEMENTED = {
   profile:  { mw: 'full', run: profileCmd.execute },
   stats:    { mw: 'full', run: profileCmd.execute },
   bag:      { mw: 'full', run: bagCmd.execute },
-  b:        { mw: 'full', run: bagCmd.execute },
   open:     { mw: 'full', run: openCmd.execute },
   equip:    { mw: 'full', run: equipCmd.execute },
   summon:   { mw: 'full', run: summonCmd.execute },
-  s:        { mw: 'full', run: summonCmd.execute },
   deity:    { mw: 'full', run: deityCmd.execute },
   enhance:  { mw: 'full', run: enhanceCmd.execute },
   lock:     { mw: 'full', run: lockCmd.lock },
@@ -51,164 +55,121 @@ const IMPLEMENTED = {
   sell:     { mw: 'full', run: sellCmd.execute },
   weapon:   { mw: 'full', run: weaponCmd.execute },
   raid:     { mw: 'full', run: raidCmd.execute },
-  r:        { mw: 'full', run: raidCmd.execute },
   duel:     { mw: 'full', run: duelCmd.execute },
   boss:     { mw: 'full', run: bossCmd.execute },
   bestow:   { mw: 'full', run: bestowCmd.execute },
   cred:     { mw: 'full', run: credCmd.execute },
-  g:        { mw: 'full', run: credCmd.execute },
   quests:   { mw: 'full', run: questsCmd.execute },
   quest:    { mw: 'full', run: questsCmd.execute },
   daily:    { mw: 'full', run: dailyCmd.execute },
+  help:     { mw: 'full', run: helpCmd.execute },
+  admin:    { mw: 'full', run: adminCmd.execute },
   dev:      { mw: 'dev',  run: devCmd.execute },
 
-  // ── Casino (Phase 10) — mw 'full' (registration gate); requiresCharacter:false ──
+  // ── Casino (Phase 10) — requiresCharacter:false (registration gate only) ──
   coin:      { mw: 'full', run: coinCmd.execute },
-  ct:        { mw: 'full', run: coinCmd.execute },
   dice:      { mw: 'full', run: diceCmd.execute },
-  dr:        { mw: 'full', run: diceCmd.execute },
   baccarat:  { mw: 'full', run: baccaratCmd.execute },
-  bac:       { mw: 'full', run: baccaratCmd.execute },
   blackjack: { mw: 'full', run: blackjackCmd.execute },
-  bj:        { mw: 'full', run: blackjackCmd.execute },
   slot:      { mw: 'full', run: slotCmd.execute },
-  sm:        { mw: 'full', run: slotCmd.execute },
   crash:     { mw: 'full', run: crashCmd.execute },
 };
 
-// Aliases that must SHARE their canonical command's cooldown bucket — without
-// this, `crd r` + `crd raid` would grant two battles inside one 10s window.
-const COOLDOWN_KEY_ALIASES = {
-  r: 'raid',
-  g: 'cred',
-  ct: 'coin', dr: 'dice', bac: 'baccarat', bj: 'blackjack', sm: 'slot',
-};
-
-// Command categories and their routing metadata
-// requiresCharacter: true → character middleware check runs
-// phase: which phase implements this
+// requiresCharacter source, keyed by canonical command. true → character middleware check runs.
 const COMMAND_MAP = {
-  // ── Registration (no middleware — available to all) ────────────────────
-  'register':          { category: 'rpg',     requiresCharacter: false, phase: 2 },
-  'create':            { category: 'rpg',     requiresCharacter: false, phase: 2 }, // crd create character
-
-  // ── RPG ───────────────────────────────────────────────────────────────
-  'profile':           { category: 'rpg',     requiresCharacter: true,  phase: 9 },
-  'stats':             { category: 'rpg',     requiresCharacter: true,  phase: 9 },
-  'raid':              { category: 'rpg',     requiresCharacter: true,  phase: 6 },
-  'r':                 { category: 'rpg',     requiresCharacter: true,  phase: 6 },
-  'duel':              { category: 'rpg',     requiresCharacter: true,  phase: 6 },
-  // boss: status view only needs registration — the ⚔️ Attack button enforces
-  // the character gate itself (buttons bypass message middleware anyway)
-  'boss':              { category: 'rpg',     requiresCharacter: false, phase: 7 },
-  'summon':            { category: 'rpg',     requiresCharacter: true,  phase: 4 },
-  's':                 { category: 'rpg',     requiresCharacter: true,  phase: 4 },
-  'bag':               { category: 'rpg',     requiresCharacter: true,  phase: 5 },
-  'b':                 { category: 'rpg',     requiresCharacter: true,  phase: 5 },
-  'open':              { category: 'rpg',     requiresCharacter: true,  phase: 5 },
-  'equip':             { category: 'rpg',     requiresCharacter: true,  phase: 5 },
-  'enhance':           { category: 'rpg',     requiresCharacter: true,  phase: 5 },
-  'lock':              { category: 'rpg',     requiresCharacter: true,  phase: 5 },
-  'unlock':            { category: 'rpg',     requiresCharacter: true,  phase: 5 },
-  'sell':              { category: 'rpg',     requiresCharacter: true,  phase: 5 },
-  'deity':             { category: 'rpg',     requiresCharacter: true,  phase: 4 },
-  'weapon':            { category: 'rpg',     requiresCharacter: true,  phase: 5 },
-
-  // ── Economy ───────────────────────────────────────────────────────────
-  'cred':              { category: 'economy', requiresCharacter: false,  phase: 3 },
-  'g':                 { category: 'economy', requiresCharacter: false,  phase: 3 },
-  'bestow':            { category: 'economy', requiresCharacter: false,  phase: 3 },
-  'daily':             { category: 'economy', requiresCharacter: false,  phase: 8 },
-  'quests':            { category: 'economy', requiresCharacter: false,  phase: 8 },
-  'quest':             { category: 'economy', requiresCharacter: false,  phase: 8 },
-
-  // ── Casino ────────────────────────────────────────────────────────────
-  'coin':              { category: 'casino',  requiresCharacter: false,  phase: 10 },
-  'ct':                { category: 'casino',  requiresCharacter: false,  phase: 10 },
-  'dice':              { category: 'casino',  requiresCharacter: false,  phase: 10 },
-  'dr':                { category: 'casino',  requiresCharacter: false,  phase: 10 },
-  'baccarat':          { category: 'casino',  requiresCharacter: false,  phase: 10 },
-  'bac':               { category: 'casino',  requiresCharacter: false,  phase: 10 },
-  'blackjack':         { category: 'casino',  requiresCharacter: false,  phase: 10 },
-  'bj':                { category: 'casino',  requiresCharacter: false,  phase: 10 },
-  'slot':              { category: 'casino',  requiresCharacter: false,  phase: 10 },
-  'sm':                { category: 'casino',  requiresCharacter: false,  phase: 10 },
-  'crash':             { category: 'casino',  requiresCharacter: false,  phase: 10 },
-
-  // ── Admin ─────────────────────────────────────────────────────────────
-  'admin':             { category: 'admin',   requiresCharacter: false,  phase: 11 },
-
-  // ── Dev (superuser only) ──────────────────────────────────────────────
-  'dev':               { category: 'dev',     requiresCharacter: false,  phase: 3 },
-
-  // ── Help ──────────────────────────────────────────────────────────────
-  'help':              { category: 'help',    requiresCharacter: false,  phase: 11 },
+  register:  { requiresCharacter: false },
+  create:    { requiresCharacter: false },
+  profile:   { requiresCharacter: true },
+  stats:     { requiresCharacter: true },
+  raid:      { requiresCharacter: true },
+  duel:      { requiresCharacter: true },
+  boss:      { requiresCharacter: false }, // status view; Attack button enforces the gate itself
+  summon:    { requiresCharacter: true },
+  bag:       { requiresCharacter: true },
+  open:      { requiresCharacter: true },
+  equip:     { requiresCharacter: true },
+  enhance:   { requiresCharacter: true },
+  lock:      { requiresCharacter: true },
+  unlock:    { requiresCharacter: true },
+  sell:      { requiresCharacter: true },
+  deity:     { requiresCharacter: true },
+  weapon:    { requiresCharacter: true },
+  cred:      { requiresCharacter: false },
+  bestow:    { requiresCharacter: false },
+  daily:     { requiresCharacter: false },
+  quests:    { requiresCharacter: false },
+  quest:     { requiresCharacter: false },
+  help:      { requiresCharacter: false },
+  admin:     { requiresCharacter: false },
+  coin:      { requiresCharacter: false },
+  dice:      { requiresCharacter: false },
+  baccarat:  { requiresCharacter: false },
+  blackjack: { requiresCharacter: false },
+  slot:      { requiresCharacter: false },
+  crash:     { requiresCharacter: false },
+  dev:       { requiresCharacter: false },
 };
 
-/**
- * Parse a raw message into { prefix, command, args } or null if not a bot command.
- */
-async function parseMessage(message) {
-  if (message.author.bot || !message.guild) return null;
-  const prefix = await getPrefix(message.guild.id);
-  const content = message.content.trim();
-  if (!content.toLowerCase().startsWith(prefix.toLowerCase())) return null;
-
-  const withoutPrefix = content.slice(prefix.length).trim();
-  const parts = withoutPrefix.split(/\s+/);
-  const command = parts[0]?.toLowerCase();
-  const args = parts.slice(1);
-  return { prefix, command, args };
+/** Resolve which trigger a message starts with: 'crd' always wins; else the guild prefix. */
+function resolvePrefix(content, guildPrefix) {
+  const lower = content.toLowerCase();
+  const list = ['crd'];
+  if (guildPrefix && guildPrefix.toLowerCase() !== 'crd') list.push(guildPrefix);
+  for (const p of list) {
+    if (lower.startsWith(p.toLowerCase())) return p;
+  }
+  return null;
 }
 
 /**
- * Handle an incoming message.
- * Returns true if a command was matched and processed.
+ * Parse a raw message into { command, args } (canonical) or null if not a bot command.
+ * Accepts BOTH `crd` (permanent) and the guild's custom prefix; expands a leading alias.
+ */
+function parseMessage(message) {
+  if (message.author.bot || !message.guild) return null;
+  const guildPrefix = guildConfig.getPrefix(message.guild.id);
+  const content = message.content.trim();
+  const prefix = resolvePrefix(content, guildPrefix);
+  if (!prefix) return null;
+
+  let parts = content.slice(prefix.length).trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return null;
+
+  // Alias expansion (single source of truth — config/aliases.js). `ct 500 h` → `coin toss 500 h`.
+  const aliasKey = parts[0].toLowerCase();
+  if (ALIASES[aliasKey]) parts = [...ALIASES[aliasKey].split(' '), ...parts.slice(1)];
+
+  return { command: parts[0].toLowerCase(), args: parts.slice(1) };
+}
+
+/**
+ * Handle an incoming prefix message. Returns true if a command was matched and processed.
  */
 async function handleMessage(message, { runMiddleware, isBanned }) {
-  const parsed = await parseMessage(message);
+  const parsed = parseMessage(message);
   if (!parsed) return false;
 
   const { command, args } = parsed;
-  const entry = COMMAND_MAP[command];
-  if (!entry) return false;
-
-  const { requiresCharacter, phase } = entry;
   const impl = IMPLEMENTED[command];
+  if (!impl) return false;
 
-  if (impl) {
-    if (impl.mw === 'dev') {
-      // Superuser-only (§2). Non-devs get NO reply — identical to an unknown
-      // command — so dev tooling stays invisible and skips all middleware.
-      if (!DEV_IDS.includes(message.author.id)) return true;
-      await impl.run(message, { args });
-      return true;
-    }
-    if (impl.mw === 'ban') {
-      // register: ban check only — banned users silent-fail; no activity upsert
-      // (the users row doesn't exist yet, so the FK would fail).
-      if (await isBanned(message.author.id)) return true;
-    } else {
-      // commandKey = canonical COMMAND_MAP key → per-command cooldown window
-      // (aliases in COOLDOWN_KEY_ALIASES share their canonical bucket).
-      const commandKey = COOLDOWN_KEY_ALIASES[command] || command;
-      const allowed = await runMiddleware(message, { requiresCharacter, commandKey });
-      if (!allowed) return true;
-    }
-    await impl.run(message, { args });
+  const ctx = new MessageContext(message, args);
+  const requiresCharacter = COMMAND_MAP[command]?.requiresCharacter ?? false;
+
+  if (impl.mw === 'dev') {
+    // Superuser-only (§2). Non-devs get NO reply (invisible), skipping all middleware.
+    if (!DEV_IDS.includes(ctx.userId)) return true;
+    await impl.run(ctx, { args: ctx.args });
     return true;
   }
-
-  // Not yet implemented → run the full middleware pipeline, then stub reply.
-  const allowed = await runMiddleware(message, { requiresCharacter, commandKey: command });
-  if (!allowed) return true;
-
-  await message.reply({
-    content: `Not implemented (Phase ${phase})`,
-    allowedMentions: { repliedUser: false },
-  });
-
+  if (impl.mw === 'ban') {
+    if (await isBanned(ctx.userId)) return true;
+  } else {
+    const allowed = await runMiddleware(ctx, { requiresCharacter, commandKey: command });
+    if (!allowed) return true;
+  }
+  await impl.run(ctx, { args: ctx.args });
   return true;
 }
 
-module.exports = { handleMessage, parseMessage, COMMAND_MAP };
+module.exports = { handleMessage, parseMessage, COMMAND_MAP, IMPLEMENTED };

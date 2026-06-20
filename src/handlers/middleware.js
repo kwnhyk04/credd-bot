@@ -1,58 +1,22 @@
 'use strict';
 
 const pool = require('../db/pool');
-const { replyError } = require('../utils/errorHandler');
 const { cooldownMs } = require('../config/cooldowns');
+const guildConfig = require('./guildConfigCache');
 
 // In-memory cooldown store: "discord_id:commandKey" → timestamp of last use.
-// Compound key gives each command its own independent window (per-user, across
-// guilds); `crd bag` no longer gates `crd enhance`. The window length is
-// per-command ([v4.8] raid/casino 25s, else 10s) — see config/cooldowns.js.
+// Compound key gives each command its own independent window (per-user, across guilds).
+// Window length is per-command; config currently resolves commands to 10s windows.
 const cooldowns = new Map();
-
-// In-memory prefix cache: guild_id → prefix string
-const prefixCache = new Map();
-const DEFAULT_PREFIX = 'crd';
-
-/**
- * Load a guild's prefix from the DB (or return cached value).
- * Falls back to DEFAULT_PREFIX on any error or if not configured.
- */
-async function getPrefix(guildId) {
-  if (prefixCache.has(guildId)) return prefixCache.get(guildId);
-  try {
-    const { rows } = await pool.query(
-      'SELECT prefix FROM server_config WHERE guild_id = $1',
-      [guildId]
-    );
-    const prefix = rows[0]?.prefix ?? DEFAULT_PREFIX;
-    prefixCache.set(guildId, prefix);
-    return prefix;
-  } catch {
-    return DEFAULT_PREFIX;
-  }
-}
-
-/**
- * Invalidate cached prefix for a guild (call after setprefix command succeeds).
- */
-function invalidatePrefixCache(guildId) {
-  prefixCache.delete(guildId);
-}
 
 /**
  * Lightweight ban check by discord id. Returns true if the user IS banned.
- * Used by `crd register` (which skips the full pipeline) and by button
- * interactions (which bypass message middleware entirely).
- * Fails CLOSED: on DB error, returns true (treat as banned / block) so a
- * hiccup never lets a write through unchecked.
+ * Used by `crd register` (which skips the full pipeline) and by button interactions.
+ * Fails CLOSED: on DB error, returns true (block) so a hiccup never lets a write through.
  */
 async function isBanned(discordId) {
   try {
-    const { rows } = await pool.query(
-      'SELECT is_banned FROM users WHERE discord_id = $1',
-      [discordId]
-    );
+    const { rows } = await pool.query('SELECT is_banned FROM users WHERE discord_id = $1', [discordId]);
     return rows[0]?.is_banned === true;
   } catch (err) {
     console.error('[middleware] isBanned error:', err.message);
@@ -60,93 +24,73 @@ async function isBanned(discordId) {
   }
 }
 
+/** Plain-text middleware error (§27 — no embeds). Ephemeral on the slash path only. */
+function mwError(ctx, text) {
+  return ctx.reply({ content: text, ephemeral: ctx.isSlash }).catch(() => {});
+}
+
 /**
- * Middleware pipeline — runs before every RPG/economy/casino/admin/dev command.
- *
- * Order (Blueprint §4):
- *   1. Ban check
- *   2. Registration check
- *   3. Character check  (RPG commands only — pass requiresCharacter = true)
- *   4. Bot-channel check
- *   5. 10-second cooldown (per user, per command — compound key)
+ * Middleware pipeline — runs before every RPG/economy/casino/admin command, on BOTH the prefix
+ * and slash paths (it consumes a CommandContext). Order (Blueprint §4):
+ *   1. Ban check  2. Registration check  3. Character check (requiresCharacter)
+ *   4. Bot-channel check (from guildConfigCache — no DB hit)  5. Per-command cooldown
  *   6. UPSERT user_guild_activity
- *
- * Returns true if the command should proceed, false if it was blocked.
+ * Returns true if the command should proceed, false if blocked.
  */
-async function runMiddleware(message, { requiresCharacter = false, commandKey = '' } = {}) {
-  const discordId = message.author.id;
-  const guildId   = message.guild?.id;
+async function runMiddleware(ctx, { requiresCharacter = false, commandKey = '' } = {}) {
+  const discordId = ctx.userId;
+  const guildId = ctx.guildId;
 
   // ── 1. Ban check ─────────────────────────────────────────────────────────
   try {
-    const { rows } = await pool.query(
-      'SELECT is_banned FROM users WHERE discord_id = $1',
-      [discordId]
-    );
+    const { rows } = await pool.query('SELECT is_banned FROM users WHERE discord_id = $1', [discordId]);
     if (rows[0]?.is_banned) return false; // silent fail for banned users
   } catch (err) {
     console.error('[middleware] ban check error:', err.message);
-    await replyError(message, 'An internal error occurred. Please try again.');
+    await mwError(ctx, 'An internal error occurred. Please try again.');
     return false;
   }
 
   // ── 2. Registration check ────────────────────────────────────────────────
   let isRegistered = false;
   try {
-    const { rows } = await pool.query(
-      'SELECT 1 FROM users WHERE discord_id = $1',
-      [discordId]
-    );
+    const { rows } = await pool.query('SELECT 1 FROM users WHERE discord_id = $1', [discordId]);
     isRegistered = rows.length > 0;
   } catch (err) {
     console.error('[middleware] registration check error:', err.message);
-    await replyError(message, 'An internal error occurred. Please try again.');
+    await mwError(ctx, 'An internal error occurred. Please try again.');
     return false;
   }
-
   if (!isRegistered) {
-    await replyError(message, 'You are not registered. Use `crd register` to get started.');
+    await mwError(ctx, 'You are not registered. Use `crd register` to get started.');
     return false;
   }
 
   // ── 3. Character check (RPG commands only) ───────────────────────────────
   if (requiresCharacter) {
     try {
-      const { rows } = await pool.query(
-        'SELECT 1 FROM user_character WHERE discord_id = $1',
-        [discordId]
-      );
+      const { rows } = await pool.query('SELECT 1 FROM user_character WHERE discord_id = $1', [discordId]);
       if (rows.length === 0) {
-        await replyError(message, 'You don\'t have a character yet. Use `crd create character` to get started.');
+        await mwError(ctx, 'You don\'t have a character yet. Use `crd create character` to get started.');
         return false;
       }
     } catch (err) {
       console.error('[middleware] character check error:', err.message);
-      await replyError(message, 'An internal error occurred. Please try again.');
+      await mwError(ctx, 'An internal error occurred. Please try again.');
       return false;
     }
   }
 
-  // ── 4. Bot-channel check ─────────────────────────────────────────────────
+  // ── 4. Bot-channel check (from cache; ephemeral rejection on slash) ───────
   if (guildId) {
-    try {
-      const { rows } = await pool.query(
-        'SELECT bot_channel_id FROM server_config WHERE guild_id = $1',
-        [guildId]
-      );
-      const botChannelId = rows[0]?.bot_channel_id ?? null;
-      if (botChannelId && message.channel.id !== botChannelId) {
-        await replyError(message, `Commands are restricted to <#${botChannelId}>.`);
-        return false;
-      }
-    } catch {
-      // if server_config row missing, no restriction — allow
+    const botChannelId = guildConfig.getConfig(guildId).bot_channel_id;
+    if (botChannelId && ctx.channel?.id !== botChannelId) {
+      await mwError(ctx, `Commands are restricted to <#${botChannelId}>.`);
+      return false;
     }
   }
 
   // ── 5. Cooldown (per user PER COMMAND; window is per-command — [v4.8]) ─────
-  // Compound key → each command has its own window; subcommand args are NOT
-  // part of the key (canonical command identifier only).
   const windowMs = cooldownMs(commandKey);
   const cooldownKey = `${discordId}:${commandKey}`;
   const now = Date.now();
@@ -154,14 +98,14 @@ async function runMiddleware(message, { requiresCharacter = false, commandKey = 
   const elapsed = now - last;
   if (elapsed < windowMs) {
     const remainingMs = windowMs - elapsed;
-    // Future expiry instant = last successful use + the window (NOT "now", NOT start).
-    // Discord relative timestamp counts down client-side — one message, no edits.
-    const readyAt = Math.floor((last + windowMs) / 1000); // SECONDS (10-digit), future
-    const sent = await message
-      .reply({ content: `You're on cooldown — ready <t:${readyAt}:R>.`, allowedMentions: { repliedUser: false } })
+    const readyAt = Math.floor((last + windowMs) / 1000); // SECONDS, future
+    const sent = await ctx
+      .reply({ content: `You're on cooldown — ready <t:${readyAt}:R>.`, ephemeral: ctx.isSlash })
       .catch(() => null);
-    // Auto-delete the notice when the cooldown ends — single timer, no edit/interval loop.
-    if (sent) setTimeout(() => sent.delete().catch(() => {}), remainingMs);
+    // Auto-delete the prefix notice when the cooldown ends (slash ephemerals can't be deleted here).
+    if (sent && !ctx.isSlash && typeof sent.delete === 'function') {
+      setTimeout(() => sent.delete().catch(() => {}), remainingMs);
+    }
     return false;
   }
   cooldowns.set(cooldownKey, now);
@@ -179,4 +123,4 @@ async function runMiddleware(message, { requiresCharacter = false, commandKey = 
   return true;
 }
 
-module.exports = { runMiddleware, getPrefix, invalidatePrefixCache, isBanned, DEFAULT_PREFIX };
+module.exports = { runMiddleware, isBanned };
