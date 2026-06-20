@@ -5,6 +5,7 @@ const pool = require('../../db/pool');
 const { assemblePlayerStats } = require('../../engine/statAssembly');
 const { EXP_REQUIRED, MAX_COMBAT_LEVEL } = require('../../config/combatExp');
 const { renderProfileImage } = require('../../engine/renderProfile');
+const { resolveSkin, resolveProfileLabel } = require('../../engine/skinResolver');
 
 const BELIEVER_EXP_PER_LEVEL = 3000; // §18 (3,000 flat per level)
 
@@ -32,8 +33,9 @@ async function execute(message) {
   const targetMember = message.guild?.members?.cache?.get(targetUser.id) || null;
   const isOther = targetUser.id !== message.author.id;
   const discordId = targetUser.id;
-  const { rows } = await pool.query(
-    `SELECT uc.class, uc.combat_level, uc.combat_exp,
+  const [characterResult, raidStreakResult, duelStreakResult] = await Promise.all([
+    pool.query(
+      `SELECT uc.class, uc.combat_level, uc.combat_exp,
             uc.believer_level, uc.believer_exp,
             uc.raids_won, uc.raids_lost, uc.pvp_wins, uc.pvp_losses,
             wr.name  AS weapon_name,
@@ -46,9 +48,45 @@ async function execute(message) {
        LEFT JOIN weapon_roster wr ON uw.weapon_roster_id   = wr.weapon_roster_id
        LEFT JOIN user_deities  ud ON uc.active_deity_id     = ud.user_deity_id
        LEFT JOIN deity_roster  dr ON ud.deity_id            = dr.deity_id
-      WHERE uc.discord_id = $1`,
-    [discordId]
-  );
+       WHERE uc.discord_id = $1`,
+      [discordId]
+    ),
+    pool.query(
+      `WITH ordered AS (
+         SELECT result,
+                ROW_NUMBER() OVER (ORDER BY timestamp, id)
+                - ROW_NUMBER() OVER (PARTITION BY result ORDER BY timestamp, id) AS run_id
+           FROM raid_logs
+          WHERE discord_id = $1 AND battle_type = 'raid'
+       ), win_runs AS (
+         SELECT COUNT(*)::int AS streak
+           FROM ordered
+          WHERE result = 'win'
+          GROUP BY run_id
+       )
+       SELECT COALESCE(MAX(streak), 0)::int AS highest FROM win_runs`,
+      [discordId]
+    ),
+    pool.query(
+      `WITH ordered AS (
+         SELECT winner_id = $1 AS won,
+                ROW_NUMBER() OVER (ORDER BY timestamp, id)
+                - ROW_NUMBER() OVER (
+                    PARTITION BY (winner_id = $1) ORDER BY timestamp, id
+                  ) AS run_id
+           FROM pvp_logs
+          WHERE challenger_id = $1 OR opponent_id = $1
+       ), win_runs AS (
+         SELECT COUNT(*)::int AS streak
+           FROM ordered
+          WHERE won
+          GROUP BY run_id
+       )
+       SELECT COALESCE(MAX(streak), 0)::int AS highest FROM win_runs`,
+      [discordId]
+    ),
+  ]);
+  const { rows } = characterResult;
 
   if (rows.length === 0) {
     // For self this is unreachable (middleware requiresCharacter); for a mentioned
@@ -115,10 +153,17 @@ async function execute(message) {
     records: {
       raids: (r.raids_won || 0) + (r.raids_lost || 0),
       raidsWon: r.raids_won || 0,
+      raidStreak: raidStreakResult.rows[0]?.highest || 0,
       duels: (r.pvp_wins || 0) + (r.pvp_losses || 0),
       duelWins: r.pvp_wins || 0,
+      duelStreak: duelStreakResult.rows[0]?.highest || 0,
     },
   };
+
+  // [Supporter-stage §6] Resolve the equipped/override/base profile skin + top-label word.
+  const skin = await resolveSkin(pool, discordId, 'profile');
+  data.skinPath = skin.path; // null → renderer keeps the default template
+  data.topLabel = await resolveProfileLabel(pool, discordId);
 
   const buffer = await renderProfileImage(data);
   const file = new AttachmentBuilder(buffer, { name: 'profile.png' });

@@ -24,6 +24,7 @@
 const path = require('path');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const { getEmojiIcon, FONT_FAMILY } = require('./renderBagItems');
+const { hasProfileLayout, renderProfileLayoutImage } = require('./profileLayoutRenderer');
 const { resolveName } = require('../utils/emojis');
 
 /* ── Background template ([v4.6]) ───────────────────────────────────────────
@@ -142,9 +143,22 @@ async function loadAvatar(avatarUrl, fallbackUrl) {
  * @returns {Promise<Buffer>} PNG
  */
 async function renderProfileImage(d) {
-  // Pre-fetch images (template + avatar + weapon/deity/combat-exp icons) before laying out.
+  // Supporter/tester/founder skins with colocated layout configs use the exact same
+  // data-driven renderer as the design previews. Skins without a config retain the
+  // original profile layout below.
+  if (hasProfileLayout(d.skinPath)) {
+    try {
+      return await renderProfileLayoutImage({ ...d, quote: `"${quoteFor(d.discordId)}"` });
+    } catch (err) {
+      console.error(`[profile] layout render failed for ${path.basename(d.skinPath)}:`, err);
+    }
+  }
+
+  // Pre-fetch images (frame + avatar + weapon/deity/combat-exp icons) before laying out.
+  // [Supporter-stage §6] When a profile skin resolves (d.skinPath), it replaces the default
+  // template as the bottom layer; otherwise fall back to the shared default template.
   const [template, avatar, weaponIcon, deityIcon, expIcon] = await Promise.all([
-    loadTemplate(),
+    d.skinPath ? loadImage(d.skinPath).catch(() => null).then((img) => img || loadTemplate()) : loadTemplate(),
     loadAvatar(d.avatarUrl, d.fallbackAvatarUrl),
     d.weaponName ? getEmojiIcon(resolveName(d.weaponName) || '') : Promise.resolve(null),
     d.deityName ? getEmojiIcon(resolveName(d.deityName) || '') : Promise.resolve(null),
@@ -167,6 +181,20 @@ async function renderProfileImage(d) {
     ctx.drawImage(template, 0, 0, template.width, template.height);
     ctx.fillStyle = SCRIM;
     ctx.fillRect(0, 0, template.width, template.height);
+    // [Supporter-stage §6] Top-label word ("Founder NNN" / tier) in the skin's top word-space.
+    // Drawn in raw canvas space (above the scaled layout) so it sits in the art's reserved band.
+    if (d.topLabel && d.topLabel.hasTopLabel && d.topLabel.word) {
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const fs = Math.round(template.height * 0.032);
+      ctx.font = `bold ${fs}px "${FONT_FAMILY}"`;
+      ctx.fillStyle = '#F5E6C8';
+      ctx.shadowColor = 'rgba(0,0,0,0.85)';
+      ctx.shadowBlur = 6;
+      ctx.fillText(d.topLabel.word, template.width / 2, Math.round(template.height * 0.06));
+      ctx.restore();
+    }
     const s = template.height / layoutH;
     ctx.translate((template.width - W * s) / 2, 0);
     ctx.scale(s, s);
@@ -318,10 +346,12 @@ async function renderProfileImage(d) {
   const cells = [
     { label: 'Raids', value: d.records.raids },
     { label: 'Raids Won', value: d.records.raidsWon },
+    { label: 'Raid Streak', value: d.records.raidStreak },
     { label: 'Duels', value: d.records.duels },
     { label: 'Duel Wins', value: d.records.duelWins },
+    { label: 'Duel Streak', value: d.records.duelStreak },
   ];
-  const gap = 12;
+  const gap = 6;
   const cellW = (W - PAD * 2 - gap * (cells.length - 1)) / cells.length;
   const cellH = 58;
   for (let i = 0; i < cells.length; i++) {
@@ -330,10 +360,10 @@ async function renderProfileImage(d) {
     ctx.fillStyle = BOX;
     ctx.fill();
     ctx.textAlign = 'center';
-    ctx.font = F(9);
+    ctx.font = F(7);
     ctx.fillStyle = DIM_COLOR;
     ctx.fillText(cells[i].label.toUpperCase(), cx + cellW / 2, y + 22);
-    ctx.font = F(19, true);
+    ctx.font = F(16, true);
     ctx.fillStyle = REC_COLOR;
     ctx.fillText(String(cells[i].value), cx + cellW / 2, y + 45);
   }

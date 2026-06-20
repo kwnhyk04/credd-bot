@@ -11,6 +11,7 @@ const sellCmd = require('../commands/rpg/sell');
 const bossSystem = require('../engine/bossSystem');
 const blackjackCmd = require('../commands/casino/blackjack');
 const crashCmd = require('../commands/casino/crash');
+const skinShop = require('../engine/skinShopViews');
 
 /**
  * Routes button interactions by customId.
@@ -32,12 +33,18 @@ const crashCmd = require('../commands/casino/crash');
  *   crash:<push|cashout>:<uid>    (casino crash — bettor-gated, session-locked)
  */
 async function handleInteraction(interaction) {
-  if (!interaction.isButton()) return;
+  const isButton = interaction.isButton();
+  const isSelect = interaction.isStringSelectMenu && interaction.isStringSelectMenu();
+  if (!isButton && !isSelect) return;
 
   const parts = interaction.customId.split(':');
   const [namespace, action] = parts;
 
   try {
+    // Supporter shop / collection — paginated pages + Preview button (owner-gated).
+    if (namespace === 'sshop') { await skinShop.handleShopButton(interaction); return; }
+    if (namespace === 'sprev') { await skinShop.handlePreviewButton(interaction); return; }
+    if (!isButton) return; // everything below this point is button-only
     if (namespace === 'register' && action === 'confirm') {
       const ownerId = parts[2];
       await registerCmd.handleConfirm(interaction, ownerId);

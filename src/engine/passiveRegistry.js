@@ -588,19 +588,18 @@ const PASSIVE_REGISTRY = {
   // ── DEITY BLESSINGS — Philippine ─────────────────────────────────────────
 
   'bathala_divine_vessel': (bs) => {
-    // [Jun-2026 §4] FULL REWORK. At the start of each turn (before attacking) add +15% to
-    // ATK and DEF, stacking ADDITIVELY up to +105% (7 stacks; cap reached on turn 7, held at
-    // cap thereafter). Implemented additive-on-base (base × (1 + 0.15 × stacks), stacks ≤ 7),
-    // NOT compounding. This is a self-buff window, NOT a debuff — it is unaffected by the
-    // 1-turn rule and is never cleansed off Bathala. HP scales with the stack too: the engine
-    // grows max + current HP to base × (1 + frac) via bathala_hp_fraction (heals as it ramps).
+    // [Supporter-stage §9] REWORK. At the start of each turn (before attacking) add +20% to
+    // ATK and DEF, stacking ADDITIVELY up to +100% (5 stacks; cap reached on turn 5, held at
+    // cap thereafter). Implemented additive-on-base (base × (1 + 0.20 × stacks), stacks ≤ 5),
+    // NOT compounding. NO HP component anymore — ATK/DEF only. This is a self-buff window, NOT
+    // a debuff: unaffected by the 1-turn rule and never cleansed off Bathala. The engine's HP
+    // ramp stays inert because bathala_hp_fraction is left at its reset default (0).
     if (!bs.flags.bathala_stacks) bs.flags.bathala_stacks = 0;
-    if (bs.flags.bathala_stacks < 7) bs.flags.bathala_stacks += 1;
-    const frac = 0.15 * bs.flags.bathala_stacks; // 0.15 → 1.05
+    if (bs.flags.bathala_stacks < 5) bs.flags.bathala_stacks += 1;
+    const frac = 0.20 * bs.flags.bathala_stacks; // 0.20 → 1.00
     bs.playerAtkMult += frac;
     bs.playerDefMult += frac;
-    bs.flags.bathala_hp_fraction = frac; // engine applies the matching HP ramp
-    bs.log.push(`🌅 Bathala: Divine Vessel — Divine ramp +${Math.round(frac * 100)}% ATK/DEF/HP!`);
+    bs.log.push(`🌅 Bathala: Divine Vessel — Divine ramp +${Math.round(frac * 100)}% ATK/DEF!`);
   },
 
   'sidapa_deaths_reprieve': (bs) => {

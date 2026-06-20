@@ -212,20 +212,28 @@ async function renderSummonGrid(results) {
 /* ════════════════════════════════════════════
  * PHASE 1 — flip message (suspense)
  * ══════════════════════════════════════════ */
-function buildFlipMessage() {
-  const flipGif = new AttachmentBuilder(FLIP_GIF_PATH, { name: 'card_flip.gif' });
+/**
+ * @param {string|null} [flipPath] absolute path to a supporter summon-skin animation
+ *   (.webp/.gif). When given, it plays in place of the bundled flip gif (§6); the webp is a
+ *   complete pre-rendered animation — sent as-is, no per-pull compositing.
+ */
+function buildFlipMessage(flipPath = null) {
+  const src = flipPath || FLIP_GIF_PATH;
+  const ext = (src.split('.').pop() || 'gif').toLowerCase();
+  const name = `card_flip.${ext}`;
+  const flip = new AttachmentBuilder(src, { name });
 
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
     .addTextDisplayComponents((td) => td.setContent('## ✨ Invocation in progress...'))
     .addSeparatorComponents((sep) => sep.setSpacing(SeparatorSpacingSize.Small).setDivider(true))
     .addMediaGalleryComponents((g) =>
-      g.addItems((item) => item.setURL('attachment://card_flip.gif'))
+      g.addItems((item) => item.setURL(`attachment://${name}`))
     );
 
   return {
     components: [container],
-    files: [flipGif],
+    files: [flip],
     flags: MessageFlags.IsComponentsV2,
   };
 }

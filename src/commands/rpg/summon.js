@@ -3,6 +3,7 @@
 const pool = require('../../db/pool');
 const { runSummon } = require('../../engine/summonEngine');
 const { buildFlipMessage, buildResultMessage, flipGifExists } = require('../../engine/renderSummon');
+const { resolveSkin } = require('../../engine/skinResolver');
 const {
   SHARDS_PER_PULL,
   ALLOWED_SUMMON_COUNTS,
@@ -89,12 +90,18 @@ async function execute(message, { args }) {
   }));
   const balances = { beliefShards: shardsRemaining, sacredRelics };
 
+  // [Supporter-stage §6] An equipped summon skin (or beta/base default) plays as the flip
+  // animation; otherwise fall back to the bundled flip gif. Display-only resolution.
+  let flipPath = null;
+  try { flipPath = (await resolveSkin(pool, discordId, 'summon')).path; } catch { /* default flip */ }
+  const haveFlip = !!flipPath || flipGifExists();
+
   let sent = null;
   try {
-    if (flipGifExists()) {
-      sent = await reply(message, buildFlipMessage());
-      await sleep(2000);
-      // attachments: [] drops the flip GIF from the edited message.
+    if (haveFlip) {
+      sent = await reply(message, buildFlipMessage(flipPath));
+      await sleep(4000); // [Supporter-stage §11] flip plays 4s before revealing gacha results
+      // attachments: [] drops the flip animation from the edited message.
       await sent.edit({ ...(await buildResultMessage(results, balances)), attachments: [] });
     } else {
       // card_flip.gif not on disk — skip the suspense phase.

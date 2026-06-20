@@ -25,6 +25,10 @@ const credCmd = require('../commands/economy/cred');
 const questsCmd = require('../commands/economy/quests');
 const dailyCmd = require('../commands/economy/daily');
 const devCmd = require('../commands/rpg/dev');
+const shopCmd = require('../commands/rpg/shop');
+const skinCmd = require('../commands/rpg/skin');
+const buyCmd = require('../commands/rpg/buy');
+const useCmd = require('../commands/rpg/use');
 const helpCmd = require('../commands/help');
 const adminCmd = require('../commands/admin');
 const coinCmd = require('../commands/casino/coin');
@@ -65,6 +69,10 @@ const IMPLEMENTED = {
   help:     { mw: 'full', run: helpCmd.execute },
   admin:    { mw: 'full', run: adminCmd.execute },
   dev:      { mw: 'dev',  run: devCmd.execute },
+  shop:     { mw: 'full', run: shopCmd.execute },
+  skin:     { mw: 'full', run: skinCmd.execute },
+  buy:      { mw: 'full', run: buyCmd.execute },
+  use:      { mw: 'full', run: useCmd.execute },
 
   // ── Casino (Phase 10) — requiresCharacter:false (registration gate only) ──
   coin:      { mw: 'full', run: coinCmd.execute },
@@ -108,6 +116,10 @@ const COMMAND_MAP = {
   slot:      { requiresCharacter: false },
   crash:     { requiresCharacter: false },
   dev:       { requiresCharacter: false },
+  shop:      { requiresCharacter: false }, // cosmetic store; supporter status is independent of character
+  skin:      { requiresCharacter: false }, // cosmetic skin collection (open to all)
+  buy:       { requiresCharacter: false }, // buy a skin by code
+  use:       { requiresCharacter: false }, // equip a skin by code
 };
 
 /** Resolve which trigger a message starts with: 'crd' always wins; else the guild prefix. */

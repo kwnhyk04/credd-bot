@@ -238,4 +238,5 @@ async function getChestCounts(discordId) {
 module.exports = {
   buildBagOverview, buildChestsView, getChestCounts, CHESTS,
   buildDropRatesEmbed, handleChestRatesButton,
+  HELP_ICON, // [addendum3 §1] reused as the shop/collection Preview button emoji
 };

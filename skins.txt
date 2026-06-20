@@ -1,0 +1,16 @@
+name | 'emoji_name' | emoji_id
+Eternal Flame Victory | 'e_eternal_flame_victory' | 1517971256496881835
+Celestial Triump Victory R4 | 'e_celestial_triump_victory_r4' | 1517971253913325730
+Aurora Sovereign Victory R3 | 'e_aurora_sovereign_victory_r3' | 1517971252021690519
+Laurel Crown Victory R2 | 'c_laurel_crown_victory_r2' | 1517971250025074759
+Altar Light Victory R1 | 'c_altar_light_victory_r1' | 1517971247911403531
+Eternal Arena B6 | 'e_eternal_arena_b6' | 1517971038955114586
+Celestial Clash B5 | 'e_celestial_clash_b5' | 1517971036715487252
+Astral Duel B4 | 'e_astral_duel_b4' | 1517971034752684143
+Sovereign Clash B3 | 'c_sovereign_clash_b3' | 1517971032751739012
+Solar Duel B2 | 'c_solar_duel_b2' | 1517971030969286706
+Champions Arena B1 | 'c_champions_arena_b1' | 1517971029387907283
+Eternal Flame P4 | 'e_eternal_flame_p4' | 1517970031026110664
+Aurora Constellation P3 | 'e_aurora_constellation_p3' | 1517970025057620119
+Laurel Runes Blue P2 | 'c_laurel_runes_blue_p2' | 1517970022469865532
+Divine Radiance P1 | 'c_divine_radiance_p1' | 1517970020657922158

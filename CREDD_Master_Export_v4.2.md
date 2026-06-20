@@ -556,7 +556,7 @@ NOTE: No CRIT stats from deities. War/battle deities receive higher ATK. All Ble
 ### PH Myths — Supreme
 | Name | HP | ATK | DEF | Identity | Blessing |
 |---|---|---|---|---|---|
-| Bathala | 1,640 | 650 | 355 | Creator — dominant HP & ATK | Divine Vessel — At the start of each turn (before attacking) +15% ATK/DEF/HP, stacking additively up to +105% (7 stacks; cap on turn 7, held after). Self-buff, never cleansed.  [Jun-2026 §4: full rework, was "all stats +20% for first 3 turns"] |
+| Bathala | 1,640 | 650 | 355 | Creator — dominant HP & ATK | Divine Vessel — At the start of each turn (before attacking) +20% ATK/DEF (no HP), stacking additively up to +100% (5 stacks; cap on turn 5, held after). Self-buff, never cleansed.  [Supporter-stage §9: HP removed; step +15%→+20%, cap +105%/7-stack → +100%/5-stack] |
 
 ### PH Myths — Legendary
 | Name | HP | ATK | DEF | Identity | Blessing |
@@ -2192,7 +2192,7 @@ Each new mythology includes: new deity roster (all tiers), new regular and elite
 - **Skip-CC turn order** ([Jun-2026 §2] — deadlock fix): a procced skip-CC (`stun`/`freeze`/`paralyze`/`petrify`/`charm`/`confuse`) is **directional** (attacker → defender) and only gates the recipient's **NEXT** turn — it can never cancel an action already due this round, and never re-locks the actor itself. The first-attack-roll winner lands the first CC but the loser still takes its own first action (it is not pre-stunned). Two opposing CC passives (e.g. Thor stun vs Skadi freeze) therefore can no longer deadlock a round into "neither can act." Engine: a CC applied during a round is *unarmed*; the round-start arming pass flips CC carried in from a previous round to *armed*, and only an armed CC gates an action.
 - **Damage-over-time** (`bleed`, `burn`, HP%-DOTs) ticks for **2 turns** (two ticks); a new application **refreshes** (does not stack) — highest-value source wins per §13.1.
 - **Timed self-buff windows** written "for the first N turns" / "for N turns" on a self-buff (Battersea "DEF +25% for first 2 turns", Freya "ATK +15% for 2 turns") apply for those rounds as authored — they are not debuffs and are unaffected by the 1-turn rule.
-- **Bathala Divine Vessel** ([Jun-2026 §4]) is a *ramping* self-buff: at the start of each turn (step 1 of the turn sequence, before attacking) it adds +15% ATK/DEF/HP, stacking additively to a +105% cap (7 stacks; reached on turn 7, held thereafter). HP scales too — max and current rise together (heals as it ramps). Not a debuff; never cleansed off Bathala, unaffected by the 1-turn rule.
+- **Bathala Divine Vessel** ([Supporter-stage §9]) is a *ramping* self-buff: at the start of each turn (step 1 of the turn sequence, before attacking) it adds +20% **ATK/DEF only**, stacking additively to a +100% cap (5 stacks; reached on turn 5, held thereafter). **No HP component** (removed in the Supporter-stage rework — was +15% ATK/DEF/HP to +105%/7-stack). Not a debuff; never cleansed off Bathala, unaffected by the 1-turn rule. The engine's `bathala_hp_fraction` ramp is left inert (default 0).
 
 ### 35.2 Stat Aggregation & CRIT
 - **Additive:** Total ATK/HP/DEF = class(level) + equipped weapon `curr` + **active** deity `curr`.
@@ -2275,6 +2275,81 @@ Worked example:
 
 ### 35.7 Asset Paths (engine path constants)
 `/assets/{deities,weapons,classes,essence}/<slug>.png` · `/assets/items/{credux_coin,sacred_relic,supreme_relic}.png` + `/items/chests/<chest>.png` · `/assets/animations/gacha/{card_back,card_flip_a,card_flip_b,card_<tier>}.png` · `/assets/animations/chests/<chest>_<1..4>_<idle|shake|crack|burst>.png` · `/assets/animations/relics/{sacred,supreme}_<1..3>.png`. DB stores filename only for roster art; animation/static names are code constants. (Full tree in Roster & Asset Conventions.)
+
+---
+
+# §40 — Supporter Shop & Skin System (Supporter-stage, first stage)
+
+**Cosmetic-only.** Nothing in this system grants credux, items, EXP, or any combat advantage — skins
+swap *rendered art only*; combat always reads the underlying item/stat. Schema is human-applied
+(`supporters`, `supporter_token_ledger`, `cosmetic_catalog`, `user_cosmetics`, `equipped_skins`,
+`stripe_events`); code reads/writes rows only, never DDL.
+
+### Tiers & tokens (§3)
+- Tiers: **Believer**, **Chosen** (subscriptions) and **Eternal** (founder, one-time). Active =
+  `supporters.status='active'` and not past `current_period_end`/`chosen_expires_at`.
+- Token stipend: Believer **1/mo**, Chosen **3/mo**, Eternal **one-time 18** at purchase (= 6× the
+  3-month window). Constants in `src/config/cosmetics.js` (`MONTHLY_TOKENS`, `ETERNAL_ONE_TIME_TOKENS`).
+- `grantTokens`/`spendTokens` (`src/engine/supporterTokens.js`) are atomic (ledger row + balance in one
+  tx; spend locks the row `FOR UPDATE`, never goes negative). Tokens are **never** written to
+  `users_bag`/credux and no function reads both — fully isolated ledgers.
+- Stripe `invoice.paid`/founder webhook is the intended grant trigger but **has no host in this bot**
+  (no `stripe` dep / HTTP server). The entitlement layer is exposed as callable functions
+  (`applySubscribe`, `applyMonthlyTokens`) + idempotency guard (`markStripeEventOnce`); `crd dev sub
+  [@user] <tier>` simulates a grant until the webhook is stood up.
+
+### Catalog & seeder (§1/§2)
+- `cosmetic_catalog` is populated by `scripts/seedCosmetics.js` (idempotent; deactivates rows whose
+  files vanish). It parses real filenames **by position** (first token = tier `b/c/e`; last token =
+  `<category-letter><increment>`, `p/b/r/s`; battle_result carries a `victory|defeated` token before
+  `r<N>`). `*_filename` columns store paths **relative to `assets/skins/`** (forward-slash).
+- Cost by tier: Believer **2**, Chosen **3**, Eternal **4** tokens (`TOKEN_COSTS`). Base set is free
+  (`is_base=true`, nominal tier `believer`, always available regardless of tier gate).
+- Categories: `profile`, `battle`, `battle_result`, `summon`. As seeded: 23 rows (4 base + 19 store).
+
+### Shop (`crd shop`, §5)
+- Active supporters only (others get a "subscribe to unlock" notice). Public, **owner-gated** message
+  (bag convention): category dropdown → skin dropdown (preview image + tier + cost + owned/equipped) →
+  Buy / Equip buttons. Buy = `spendTokens` + `user_cosmetics` insert (atomic). Equip sets
+  `equipped_skins` (clears `override_path`). **Tier gate:** buy/equip your tier and below.
+
+### Render precedence (§6/§7) — `src/engine/skinResolver.js`
+`override_path` (dev/tester/custom) → equipped `cosmetic_id` → base (active supporter) → testers/
+default set (`BETA_MODE`) → free-player default (renderer's built-in art). Every resolved frame is
+normalized to the locked **1536×1024**. Integrated live in **profile** (frame + top-label word) and
+**summon** (equipped `.webp` plays as the flip, then the deity reveals). Profile top-label: dev
+accounts → `Founder 000`; founders → `Founder NNN`; else the tier name.
+**Battle-result** skins (victory/defeated + central reward panel) are seeded and verified by the
+preview harness but **not yet wired into the live battle final-frame** — that compositing needs the
+per-skin reward-zone tuning the harness drives (the reserved space is the art's central panel, not a
+bottom strip). `crd dev use …` (§8) + `scripts/skinPreview.js` (§10, writes `tmp/skin_preview/`) cover
+testing; `DEV_ACCOUNT_IDS` defaults to `DEV_IDS`.
+
+### Skin codes, commands & preview (addendum 2 & 3)
+- **`skin_code`** (DB column, human-applied; seeder fills it): the trailing filename token —
+  `p1`/`b2`/`r3`/`s2`. Globally unique; **category is inferred from the leading letter**, so no
+  category arg is ever needed. All skin commands resolve by this code.
+- **Emoji map:** `skins.txt` at repo root maps `code=<:emoji:id>` plus `token`/`skins` icons
+  (`src/engine/skinEmojis.js`). If the file is absent or a code is missing → neutral per-category
+  fallback, logged once.
+- **Commands:**
+  - `crd shop` — paginated deity-collection-style skin shop (one category per page; ◀ ▶ + Preview),
+    supporter-gated. `crd dev supporter shop` = same view, gates bypassed, `DEV MODE` marker.
+  - `crd buy <code>` — supporters only; tier gate + token spend + ownership grant (atomic).
+    `crd dev buy <code>` — free grant, gates bypassed.
+  - `crd use skin <code>` — user-facing equip (category from the leading letter); dev/raw-file
+    overrides stay under `crd dev use …`.
+  - `crd skin collection` — open to everyone; paginated, 🔒 for unowned, ✅/「Equipped」 per category,
+    token balance.
+  - `crd dev givetoken @user <amount>` — grant tokens for shop testing.
+- **Dev accounts own everything** (`DEV_ACCOUNT_IDS`): the ownership resolver returns owned=true for
+  all active catalog skins (no DB rows); dev buys are free.
+- **Preview** (addendum 3): a Preview button (reusing the drop-rates `HELP_ICON`) on shop + collection
+  opens an image carousel — header = name + `code`, help line (buy/equip), the skin PNG via media
+  gallery, ◀ Prev / Next ▶ / ↩ Back; battle_result skins add a Victory⇄Defeated toggle.
+
+### Summon timing (§11)
+Flip animation plays **4 seconds** before revealing gacha results.
 
 ---
 

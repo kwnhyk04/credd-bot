@@ -21,6 +21,10 @@ const { runBattle } = require('../../engine/battleRender');
 const { spawnBoss, expireBoss, refreshLiveMessage } = require('../../engine/bossSystem');
 const questsCmd = require('../economy/quests');
 const dailyCmd = require('../economy/daily');
+const ent = require('../../engine/supporterEntitlements');
+const { grantTokens } = require('../../engine/supporterTokens');
+const { buildShopPage } = require('../../engine/skinShopViews');
+const { DIRS } = require('../../config/cosmetics');
 
 const INT_MAX = 2147483647; // INTEGER column ceiling (shards/chests/relics)
 const MENTION_RE = /^<@!?\d+>$/;
@@ -536,6 +540,164 @@ async function devDaily(message, devId) {
     `+${result.credux.toLocaleString()} Credux · +${result.shards} Belief Shards · +1 ${result.chestLabel}. (attendance bypassed)`);
 }
 
+// ── crd dev use <profile|bskin|bresultskin|summonskin> <inc> | founderskin | skin <id> ──
+// [Supporter-stage §8] Equip a skin so the next render shows it. Store skins are catalog rows
+// (equipped by cosmetic_id); founder/tester sets are non-catalog folders (equipped via
+// equipped_skins.override_path). Gated by the dev mw upstream.
+const USE_CATEGORY = { profile: 'profile', bskin: 'battle', bresultskin: 'battle_result', summonskin: 'summon' };
+
+const USE_USAGE = [
+  'Usage:',
+  '`use profile <p#>` · `use bskin <b#>` · `use bresultskin <r#>` · `use summonskin <s#>`',
+  '`use founderskin` · `use skin <discord_id>` — equip a whole set via override',
+  'Add a tier prefix to disambiguate, e.g. `use profile c_p1`.',
+].join('\n');
+
+async function devUse(message, args, devId) {
+  const kind = (args[1] || '').toLowerCase();
+
+  // Whole-set overrides (founder / per-user tester folder) ────────────────────
+  if (kind === 'founderskin' || kind === 'skin') {
+    let targetId = devId;
+    let folder = DIRS.founder;
+    let label = 'founder';
+    if (kind === 'skin') {
+      targetId = (args[2] || '').replace(/[<@!>]/g, '').trim();
+      if (!/^\d{5,}$/.test(targetId)) return reply(message, 'Usage: `crd dev use skin <discord_id>`');
+      folder = `${DIRS.testers}/${targetId}`;
+      label = `testers/${targetId}`;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      for (const cat of ['profile', 'battle', 'battle_result', 'summon']) {
+        await ent.setOverrideTx(client, targetId, cat, folder);
+      }
+      await logDev(client, devId, 'use_skin_set', targetId, `override all categories → ${label}`);
+      await client.query('COMMIT');
+      return reply(message, `✅ Equipped **${label}** set on <@${targetId}> (all categories). Run a render to preview.`);
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      console.error('[dev use set]', err.message);
+      return reply(message, 'Failed — nothing changed.');
+    } finally { client.release(); }
+  }
+
+  // Single store skin by increment (optionally tier-prefixed) ──────────────────
+  const category = USE_CATEGORY[kind];
+  if (!category) return reply(message, USE_USAGE);
+  const arg = (args[2] || '').toLowerCase();
+  if (!arg) return reply(message, USE_USAGE);
+  const segs = arg.split('_').filter(Boolean);
+  const suffix = segs[segs.length - 1];                 // <catletter><increment>, e.g. p1
+  const tierLetter = segs.length > 1 ? segs[0] : null;  // optional disambiguator
+
+  const params = ['%\\_' + suffix, category];
+  let where = 'cosmetic_key LIKE $1 AND category = $2 AND is_active = true AND is_base = false';
+  if (tierLetter) { params.push(tierLetter + '\\_%'); where += ' AND cosmetic_key LIKE $3'; }
+  const { rows } = await pool.query(`SELECT * FROM cosmetic_catalog WHERE ${where} ORDER BY cosmetic_key`, params);
+  if (rows.length === 0) return reply(message, `No ${category} skin matches \`${arg}\`.`);
+  const skin = rows[0];
+  const warn = rows.length > 1
+    ? ` (⚠ ${rows.length} matched: ${rows.map((r) => r.cosmetic_key).join(', ')} — picked first; add a tier prefix like \`c_${suffix}\`)`
+    : '';
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await ent.grantCosmeticTx(client, devId, skin.cosmetic_id, 'dev');
+    await ent.equipCosmeticTx(client, devId, category, skin.cosmetic_id);
+    await logDev(client, devId, 'use_skin', devId, `${category} → ${skin.cosmetic_key}`);
+    await client.query('COMMIT');
+    return reply(message,
+      `✅ Equipped **${skin.display_name}** (\`${skin.cosmetic_key}\`)${warn}. ` +
+      `Run \`crd ${category === 'profile' ? 'profile' : 'dev battle'}\` to preview.`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev use]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  } finally { client.release(); }
+}
+
+// ── crd dev givetoken @user <amount> ──
+// [Supporter-stage] Grant supporter tokens for testing shop purchases. Tokens live on the
+// supporters row, so the target must already be a supporter (run `crd dev sub` first). The
+// shop's Buy button disables itself once a skin is owned — no separate disable needed.
+async function giveToken(message, args, devId) {
+  const target = message.mentions.users.first();
+  if (!target) return reply(message, 'Usage: `crd dev givetoken @user <amount>`');
+  const amount = parseAmount(nonMentionArgs(args)[0]);
+  if (amount == null) return reply(message, 'Amount must be a positive whole number.');
+  if (amount > INT_MAX) return reply(message, 'Amount is too large.');
+
+  const sup = await ent.getSupporter(pool, target.id);
+  if (!sup) return reply(message, 'That user has no supporter row — run `crd dev sub @user <tier>` first.');
+  try {
+    const bal = await grantTokens(target.id, amount, 'dev_grant', `dev:${devId}`);
+    await logDev(pool, devId, 'give_token', target.id, `+${amount} tokens (→ ${bal})`).catch(() => {});
+    return reply(message, `✅ Gave **${amount}** supporter token${amount > 1 ? 's' : ''} to <@${target.id}>. Balance: **${bal}** 🎟️.`);
+  } catch (err) {
+    console.error('[dev givetoken]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  }
+}
+
+// ── crd dev supporter shop ──
+// [addendum2 §1] Open the full paginated skin shop with subscription + tier gates bypassed
+// and a DEV marker. Dev accounts already resolve as owning everything (§4).
+async function devSupporterShop(message, devId) {
+  const payload = await buildShopPage(pool, devId, { page: 0, ctx: 'dev' });
+  return message.reply({ ...payload, allowedMentions: { repliedUser: false, parse: [] } });
+}
+
+// ── crd dev buy <skin_code> ──
+// [addendum2 §2] Free skin grant for testing — bypasses gates and spends no tokens.
+async function devBuySkin(message, args, devId) {
+  const code = (args[1] || '').toLowerCase();
+  if (!code) return reply(message, 'Usage: `crd dev buy <skin_code>`');
+  const skin = await ent.getCatalogByCode(pool, code);
+  if (!skin) return reply(message, `No skin with code \`${code}\`.`);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await ent.grantCosmeticTx(client, devId, skin.cosmetic_id, 'dev');
+    await logDev(client, devId, 'dev_buy', devId, `free grant ${skin.skin_code}`);
+    await client.query('COMMIT');
+    return reply(message, `✅ (dev) Granted **${skin.display_name}** (\`${skin.skin_code}\`) free. Equip: \`crd use skin ${skin.skin_code}\`.`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev buy]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  } finally {
+    client.release();
+  }
+}
+
+// ── crd dev sub [@user] <believer|chosen|eternal> ──
+// [Supporter-stage §3/§4] Simulate a subscribe/founder entitlement (the Stripe webhook has no
+// host in this bot). Grants the base set + stipend; eternal also assigns a founder number.
+async function devSub(message, args, devId) {
+  const target = message.mentions.users.first() || { id: devId };
+  const tier = (nonMentionArgs(args)[0] || '').toLowerCase();
+  if (!['believer', 'chosen', 'eternal'].includes(tier)) {
+    return reply(message, 'Usage: `crd dev sub [@user] <believer|chosen|eternal>`');
+  }
+  const exists = await pool.query('SELECT 1 FROM users WHERE discord_id = $1', [target.id]);
+  if (exists.rows.length === 0) return reply(message, 'That user is not registered.');
+  try {
+    const res = await ent.applySubscribe(target.id, tier, { founder: tier === 'eternal' });
+    await logDev(pool, devId, 'sub_grant', target.id,
+      `tier=${tier}${res.founderNumber != null ? ` founder#${res.founderNumber}` : ''}`).catch(() => {});
+    return reply(message,
+      `✅ <@${target.id}> is now **${tier}**` +
+      `${res.founderNumber != null ? ` (Founder ${String(res.founderNumber).padStart(3, '0')})` : ''}` +
+      ' — base set granted + stipend paid.');
+  } catch (err) {
+    console.error('[dev sub]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  }
+}
+
 const USAGE = [
   '**Dev commands:**',
   '`givecredux @user <amount>` · `givebeliefshards @user <amount>`',
@@ -546,6 +708,10 @@ const USAGE = [
   '`setbosshp <boss name> <hp>` · `spawnboss [boss name]` — boss smoke-test enablers',
   '`quest` · `quest refresh <q1|q2|q3>` — view / refresh quests (cap bypassed)',
   '`daily @user` — grant a daily claim (attendance bypassed)',
+  '`sub [@user] <believer|chosen|eternal>` — simulate a supporter grant (base set + stipend)',
+  '`givetoken @user <amount>` — grant supporter tokens for shop testing',
+  '`supporter shop` — dev-bypass skin shop (all skins, gates off) · `buy <skin_code>` — free grant',
+  '`use profile <p#>|bskin <b#>|bresultskin <r#>|summonskin <s#>` · `use founderskin` · `use skin <id>`',
 ].join('\n');
 
 /** Dispatch — caller (commandHandler mw 'dev') has already verified superuser. */
@@ -572,6 +738,13 @@ async function execute(message, { args }) {
       return reply(message, USAGE);
     case 'quest':            return devQuest(message, args, devId);
     case 'daily':            return devDaily(message, devId);
+    case 'use':              return devUse(message, args, devId);
+    case 'sub':              return devSub(message, args, devId);
+    case 'givetoken':        return giveToken(message, args, devId);
+    case 'supporter':
+      if ((args[1] || '').toLowerCase() === 'shop') return devSupporterShop(message, devId);
+      return reply(message, USAGE);
+    case 'buy':              return devBuySkin(message, args, devId);
     default:                 return reply(message, USAGE);
   }
 }
