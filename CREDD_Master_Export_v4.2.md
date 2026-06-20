@@ -2,6 +2,7 @@
 # Consolidated from all source files + all session revisions + Decision Log v1 resolutions
 # Source files: Mechanics_Updated_06012026.txt · Credd_Master_Export_v2.md · Additional_Mechanics.md
 # Database fully revised: see credd_schema_v4.sql (runnable DDL) and Technical Blueprint v4
+# Jun-2026 mob rebalance (DB): all regular/elite/boss base stats raised and per-level scaling steepened — regular +80 HP/+65 ATK/+20 DEF, elite +90 HP/+75 ATK/+25 DEF, bosses authored per row (§15, §16). Stats live from `mob_roster`; no code constants to change.
 # Jun-2026 balance & bugfix patch: per-class base stats + scaling — distinct class identities (§1/§11, no migration); combat turn-order fix — procced skip-CC is directional and gates only the recipient's NEXT turn, two opposing CC passives no longer deadlock (§2/§35.1); `crd duel @user [level N]` normalizes both duelists' class-stat component to level 1–50 (gear unchanged, nothing persisted) (§3/§14); passive retune — Gungnir 30%→10%, Mjolnir +20%/4th→+30%/3rd, Trident 3rd→2nd & stun 25%→30%, Thunderbolt 80%→100%, Zeus 80%→100%, Bathala reworked to +15%→+105% ramping self-buff, Hydra 5%→1% (§4); deity gacha rates 64.5/30/5/0.5 (§5); combat-EXP curve rescaled (anti auto-grind, strictly increasing, no 40→41 dip, ~127M to L50) (§6/§17); category "?" → ephemeral weapon-drop-rate-per-box embed (§7); boss spawn-countdown message deleted at 0s (§8)
 # v4.5 balance patch (06/2026): raid chest drops adjusted (regular Silver 30%→20%, elite Gold 50%→30%); mob dynamic level now player + random(−2..+15); regular scaling set to HP+30/ATK+15/DEF+10 and elite scaling to HP+50/ATK+35/DEF+20 per level; all boss base HP +50,000 (§13, §15, §16, §35.6)
 # v4.4 patch (06/2026): Greater Boss tier (Jotun/Fenrir/Fafnir/Hydra/Cerberus — 80/20 weighted spawn, 2× HP, richer drops: 150k credux / 30k EXP / 2× Treasure or 1× Golden chest); weapon-drop ranges raised (Rare/Mythic/Legendary up, Supreme DEF 400→500 — new drops only); profile card polish (combat-EXP line, Active Deity/Blessing split, stat icons, Combat Record heading); BUGFIX — "+X% ATK" bonus passives now DEF-mitigated (were flat post-mitigation, ~2×/~6× too strong); portrait-card layout for weapon/deity info + create-character (art left, text right); crd profile @user; crd dev spawnboss [name] (§7, §12, §16)
@@ -867,57 +868,58 @@ Fully removed for initial release. Planned as an end-game update.
 ## 15. MOB / ELITE MOB ROSTER
 
 > **Timing & durations follow §35.1:** mob skills are round-based; CC + stat debuffs applied to the player last **1 turn**; Bleed/Burn/HP%-DOTs tick **2 turns**; "every Nth attack" reads as "every Nth turn."
+> **HP/ATK/DEF below are Level-1 base.** [Jun-2026 mob rebalance] per-level scaling is uniform: **regular +80 HP / +65 ATK / +20 DEF**, **elite +90 HP / +75 ATK / +25 DEF** (CRIT does not scale). Live `mob_roster` is the source of truth.
 
 ### PH Mobs — Regular
 | Name | HP | ATK | DEF | CRIT | Skill |
 |---|---|---|---|---|---|
-| Black Duwende | 1,610 | 118 | 78 | 5% | Hex — 25% chance reduce player ATK -15% for 1 turn |
-| White Duwende | 1,570 | 125 | 72 | 5% | Daze — 20% chance reduce player CRIT -50% for 1 turn |
-| Amalanhig | 1,730 | 112 | 68 | 5% | Infectious Bite — 30% on hit: Rot 5% max HP/turn for 2 turns |
-| Amomongo | 1,590 | 130 | 65 | 5% | Rend — Every 3rd turn deals 150% ATK |
-| Bal-Bal | 1,550 | 118 | 78 | 5% | Carrion Sense — When player HP < 30%: ATK +20% |
-| Santelmo | 1,560 | 116 | 74 | 5% | Will-o-Wisp — 20% chance each turn: player skips next attack |
+| Black Duwende | 2,110 | 368 | 178 | 5% | Hex — 25% chance reduce player ATK -15% for 1 turn |
+| White Duwende | 2,070 | 375 | 172 | 5% | Daze — 20% chance reduce player CRIT -50% for 1 turn |
+| Amalanhig | 2,230 | 362 | 168 | 5% | Infectious Bite — 30% on hit: Rot 5% max HP/turn for 2 turns |
+| Amomongo | 2,090 | 380 | 165 | 5% | Rend — Every 3rd turn deals 150% ATK |
+| Bal-Bal | 2,050 | 368 | 178 | 5% | Carrion Sense — When player HP < 30%: ATK +20% |
+| Santelmo | 2,060 | 366 | 174 | 5% | Will-o-Wisp — 20% chance each turn: player skips next attack |
 
 ### PH Mobs — Elite
 | Name | HP | ATK | DEF | CRIT | Skill |
 |---|---|---|---|---|---|
-| Manananggal | 2,450 | 172 | 140 | 10% | Viscera Drain — Every 3 turns: drain 15% player max HP + heal self |
-| Aswang | 2,150 | 195 | 135 | 10% | Shape Shift — Every 4 turns: copy player current ATK for 2 turns |
-| Tikbalang | 2,090 | 188 | 142 | 10% | Disorientation — Every 3 turns: player ATK -20% for 1 turn |
-| Kapre | 2,550 | 170 | 138 | 10% | Smoke Cloud — Every 4 turns: player CRIT -30% and ATK -10% for 1 turn |
-| Sigbin | 2,050 | 168 | 158 | 10% | Shadow Step — 20% chance to evade any incoming attack |
-| Batibat | 2,530 | 174 | 136 | 10% | Sleep Paralysis — Every 4 turns: paralyze player 1 turn (guaranteed skip) |
+| Manananggal | 2,950 | 422 | 240 | 10% | Viscera Drain — Every 3 turns: drain 15% player max HP + heal self |
+| Aswang | 2,650 | 445 | 235 | 10% | Shape Shift — Every 4 turns: copy player current ATK for 2 turns |
+| Tikbalang | 2,590 | 438 | 242 | 10% | Disorientation — Every 3 turns: player ATK -20% for 1 turn |
+| Kapre | 3,050 | 420 | 238 | 10% | Smoke Cloud — Every 4 turns: player CRIT -30% and ATK -10% for 1 turn |
+| Sigbin | 2,550 | 418 | 258 | 10% | Shadow Step — 20% chance to evade any incoming attack |
+| Batibat | 3,030 | 424 | 236 | 10% | Sleep Paralysis — Every 4 turns: paralyze player 1 turn (guaranteed skip) |
 
 ### Norse Mobs — Regular
 | Name | HP | ATK | DEF | CRIT | Skill |
 |---|---|---|---|---|---|
-| Troll | 1,730 | 116 | 74 | 5% | Regeneration — Recovers 5% max HP at start of each turn |
-| Dwarf | 1,630 | 115 | 85 | 5% | Stone Skin — Every 4 turns: absorb next hit up to 20% max HP |
-| Dark Elf | 1,570 | 130 | 65 | 5% | Curse of Decay — 25% on hit: DEF -10% for 1 turn |
-| Light Elf | 1,610 | 118 | 77 | 5% | Radiant Strike — 20% chance: blind player (CRIT to 0% for 1 turn) |
+| Troll | 2,230 | 366 | 174 | 5% | Regeneration — Recovers 5% max HP at start of each turn |
+| Dwarf | 2,130 | 365 | 185 | 5% | Stone Skin — Every 4 turns: absorb next hit up to 20% max HP |
+| Dark Elf | 2,070 | 380 | 165 | 5% | Curse of Decay — 25% on hit: DEF -10% for 1 turn |
+| Light Elf | 2,110 | 368 | 177 | 5% | Radiant Strike — 20% chance: blind player (CRIT to 0% for 1 turn) |
 
 ### Norse Mobs — Elite
 | Name | HP | ATK | DEF | CRIT | Skill |
 |---|---|---|---|---|---|
-| Ratatoskr | 2,050 | 200 | 130 | 10% | Slander — Every 3 turns: player ATK -20% for 1 turn |
-| Fossegrim | 2,250 | 178 | 144 | 10% | Enchanting Melody — Every 4 turns: player skips next turn |
-| Nokken | 2,150 | 192 | 138 | 10% | Luring Form — Every 3 turns: player DEF -20% for 1 turn |
-| Valkyrie | 2,210 | 198 | 148 | 10% | Battle Judgment — Every 4 turns: next attack deals 200% ATK |
+| Ratatoskr | 2,550 | 450 | 230 | 10% | Slander — Every 3 turns: player ATK -20% for 1 turn |
+| Fossegrim | 2,750 | 428 | 244 | 10% | Enchanting Melody — Every 4 turns: player skips next turn |
+| Nokken | 2,650 | 442 | 238 | 10% | Luring Form — Every 3 turns: player DEF -20% for 1 turn |
+| Valkyrie | 2,710 | 448 | 248 | 10% | Battle Judgment — Every 4 turns: next attack deals 200% ATK |
 
 ### Greek Mobs — Regular
 | Name | HP | ATK | DEF | CRIT | Skill |
 |---|---|---|---|---|---|
-| Satyr | 1,540 | 122 | 78 | 5% | Wild Revelry — 25% chance each turn: player ATK -15% for 1 turn |
-| Harpy | 1,470 | 132 | 66 | 5% | Swooping Talons — Every 3rd turn: 150% ATK + DEF -10% for 1 turn |
-| Skeleton Warrior | 1,610 | 118 | 85 | 5% | Undying Resolve — When HP < 30%: DEF +25% for remainder of battle |
-| Lamia | 1,500 | 128 | 72 | 5% | Serpent Bite — 30% on hit: flat Bleed ATK×0.35/turn for 2 turns |
+| Satyr | 2,040 | 372 | 178 | 5% | Wild Revelry — 25% chance each turn: player ATK -15% for 1 turn |
+| Harpy | 1,970 | 382 | 166 | 5% | Swooping Talons — Every 3rd turn: 150% ATK + DEF -10% for 1 turn |
+| Skeleton Warrior | 2,110 | 368 | 185 | 5% | Undying Resolve — When HP < 30%: DEF +25% for remainder of battle |
+| Lamia | 2,000 | 378 | 172 | 5% | Serpent Bite — 30% on hit: flat Bleed ATK×0.35/turn for 2 turns |
 
 ### Greek Mobs — Elite
 | Name | HP | ATK | DEF | CRIT | Skill |
 |---|---|---|---|---|---|
-| Minotaur | 2,150 | 198 | 138 | 10% | Labyrinth Charge — Every 3 turns: 180% ATK. If player HP > 70%: 220% ATK |
-| Cyclops | 2,550 | 172 | 155 | 10% | Boulder Throw — Every 4 turns: 160% ATK + stun 1 turn |
-| Chimera | 2,210 | 192 | 142 | 10% | Tri-Form Assault — Rotates: Lion Claw (140% ATK) → Goat Ram (DEF -20%) → Serpent Bite (Burn ATK×0.30 for 2 turns) |
+| Minotaur | 2,650 | 448 | 238 | 10% | Labyrinth Charge — Every 3 turns: 180% ATK. If player HP > 70%: 220% ATK |
+| Cyclops | 3,050 | 422 | 255 | 10% | Boulder Throw — Every 4 turns: 160% ATK + stun 1 turn |
+| Chimera | 2,710 | 442 | 242 | 10% | Tri-Form Assault — Rotates: Lion Claw (140% ATK) → Goat Ram (DEF -20%) → Serpent Bite (Burn ATK×0.30 for 2 turns) |
 
 ---
 
@@ -978,25 +980,25 @@ NOTE: Huginn & Muninn removed from boss lineup.
 ### PH Boss Roster
 | Boss | Base HP | Base ATK | Base DEF | CRIT | HP+/Lv | ATK+/Lv | DEF+/Lv |
 |---|---|---|---|---|---|---|---|
-| Berberoka | 65,000 | 720 | 400 | 8% | +300 | +22 | +15 |
-| Bungisngis | 62,000 | 1,000 | 250 | 10% | +250 | +30 | +10 |
-| Anggitay | 63,000 | 765 | 320 | 12% | +270 | +24 | +12 |
-| Dalaketnon | 63,500 | 855 | 350 | 20% | +280 | +25 | +12 |
+| Berberoka | 65,000 | 1,440 | 750 | 8% | +350 | +72 | +30 |
+| Bungisngis | 62,000 | 2,000 | 450 | 10% | +300 | +80 | +25 |
+| Anggitay | 63,000 | 1,530 | 590 | 12% | +320 | +74 | +27 |
+| Dalaketnon | 63,500 | 1,710 | 650 | 20% | +330 | +75 | +27 |
 
 ### Norse Boss Roster
 | Boss | Base HP | Base ATK | Base DEF | CRIT | HP+/Lv | ATK+/Lv | DEF+/Lv | Special |
 |---|---|---|---|---|---|---|---|---|
-| Jotun | 68,000 | 765 | 380 | 5% | +350 | +22 | +14 | Highest HP |
-| Fenrir | 63,000 | 1,100 | 280 | 25% | +260 | +32 | +10 | Highest ATK |
-| Fafnir | 66,000 | 792 | 550 | 8% | +320 | +23 | +18 | Highest DEF |
-| Sleipnir | 62,000 | 1,050 | 300 | 30% | +240 | +30 | +12 | Always attacks first |
+| Jotun | 68,000 | 1,530 | 710 | 5% | +400 | +72 | +29 | Highest HP |
+| Fenrir | 63,000 | 2,200 | 510 | 25% | +310 | +82 | +25 | Highest ATK |
+| Fafnir | 66,000 | 1,584 | 1,050 | 8% | +370 | +73 | +33 | Highest DEF |
+| Sleipnir | 62,000 | 2,100 | 550 | 30% | +290 | +80 | +27 | Always attacks first |
 
 ### Greek Boss Roster
 | Boss | Base HP | Base ATK | Base DEF | CRIT | HP+/Lv | ATK+/Lv | DEF+/Lv | Special |
 |---|---|---|---|---|---|---|---|---|
-| Cerberus | 64,000 | 880 | 300 | 15% | +280 | +26 | +12 | Attacks twice per turn (60% ATK each, both can crit) |
-| Hydra | 67,000 | 745 | 420 | 10% | +340 | +22 | +14 | Regenerates 1% max HP every 3rd turn (per-instance; only NET damage commits to the shared pool)  [Jun-2026 §4: was 5%] |
-| Medusa | 63,500 | 820 | 330 | 20% | +265 | +24 | +12 | Stone Stare — Every 3rd turn: Petrify player 1 turn, then the counter resets |
+| Cerberus | 64,000 | 1,760 | 550 | 15% | +330 | +76 | +27 | Attacks twice per round (60% ATK each, both can crit) |
+| Hydra | 67,000 | 1,490 | 790 | 10% | +390 | +72 | +29 | Regenerates 1% max HP every 3rd turn (per-instance; only NET damage commits to the shared pool)  [Jun-2026 §4: was 5%] |
+| Medusa | 63,500 | 1,640 | 610 | 20% | +315 | +74 | +27 | Stone Stare — Every 3rd turn: Petrify player 1 turn, then the counter resets |
 
 ### Boss Rewards
 | Reward | Amount |
@@ -2265,7 +2267,7 @@ Worked example:
 
 **Weapon stat banding** (`dropRates.js`): roll each stat within the tier range, positioned by the type's qualitative profile (§7): Lowest→bottom 20% · Low→bottom 40% · Balanced→middle 40–60% · High→top 40% · Highest→top 20%. CRIT banded the same way (Bows top of 1–5%). Supreme = fixed stats (always +50% damage, CRIT 0). Legendary = 25% chance on drop to roll +25% damage (`bonus_dmg_pct`, fixed); otherwise none. Rare/Mythic = no bonus rider. [v4.4] `bonus_crit_dmg_pct` is deprecated (left null) — the unified §35.2 damage % replaces it.
 
-**Mob scaling** (seed in `mob_roster`): regular = HP+30 / ATK+15 / DEF+10 per level; elite = HP+50 / ATK+35 / DEF+20; boss = authored per row with all base HP values increased by 50,000. Mob level = player level + random(−2..+15), clamped **[1, 55]**.
+**Mob scaling** (seed in `mob_roster`): [Jun-2026 rebalance] regular = HP+80 / ATK+65 / DEF+20 per level; elite = HP+90 / ATK+75 / DEF+25; base stats also raised (regular ~2,000–2,230 HP / ~365–382 ATK, elite ~2,550–3,050 HP / ~418–450 ATK). Boss = authored per row (base ~62k–68k HP; per-level HP ~+290–400 / ATK ~+72–82 / DEF ~+25–33). Mob level = player level + random(−2..+15), clamped **[1, 55]**. Stats are read live from `mob_roster` at battle time — no code constants.
 
 **Casino** (`casino.js`): coin toss & dice 1.95× · baccarat player 2× / banker 1.95× (5% commission) · blackjack 6-deck, dealer stands 17, BJ pays 3:2 · slots ~90% RTP · crash ~3% edge. **Min bet 1, max bet 150,000.** Bet > balance → "Insufficient Credux."; bet ≤ 0 → invalid.
 

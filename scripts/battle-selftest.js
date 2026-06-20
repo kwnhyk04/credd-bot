@@ -139,26 +139,25 @@ section('4. Targeted scenarios');
 
 // — C1: mob formula base + per_level × level (live DB rows, v4.2 §15) —
 {
-  // 1e: fixtures pinned to the authoritative live mob_roster export (supersedes the
-  // stale seed figures AND the interim §15 +500 HP column).
-  // Current raid scaling: regular 30/15/10; elite 50/35/20.
+  // 1e: fixtures pinned to the authoritative live mob_roster export ([Jun-2026 rebalance]).
+  // Current raid scaling: regular 80/65/20; elite 90/75/25.
   // Formula is base + per_level × level (C1 — NOT level−1), so Lv1 reflects one level of growth.
-  const blackDuwende = { base_hp: 1610, base_atk: 118, base_def: 78, base_crit: 5, hp_per_level: 30, atk_per_level: 15, def_per_level: 10 };
+  const blackDuwende = { base_hp: 2110, base_atk: 368, base_def: 178, base_crit: 5, hp_per_level: 80, atk_per_level: 65, def_per_level: 20 };
   const s1 = computeMobStats(blackDuwende, 1);
-  check('C1: Black Duwende Lv1 = 1640/133/88', s1.hp === 1640 && s1.atk === 133 && s1.def === 88,
+  check('C1: Black Duwende Lv1 = 2190/433/198', s1.hp === 2190 && s1.atk === 433 && s1.def === 198,
     `got hp=${s1.hp} atk=${s1.atk} def=${s1.def}`);
-  // elite per-level 50/35/20
-  const manananggal = { base_hp: 2450, base_atk: 172, base_def: 140, base_crit: 10, hp_per_level: 50, atk_per_level: 35, def_per_level: 20 };
+  // elite per-level 90/75/25
+  const manananggal = { base_hp: 2950, base_atk: 422, base_def: 240, base_crit: 10, hp_per_level: 90, atk_per_level: 75, def_per_level: 25 };
   const e1 = computeMobStats(manananggal, 1);
-  check('C1: Manananggal Lv1 = 2500/207/160', e1.hp === 2500 && e1.atk === 207 && e1.def === 160,
+  check('C1: Manananggal Lv1 = 3040/497/265', e1.hp === 3040 && e1.atk === 497 && e1.def === 265,
     `got hp=${e1.hp} atk=${e1.atk} def=${e1.def}`);
-  // boss rows are authored; base HP is patched +50,000 in mob_roster.
-  const boss = { base_hp: 55000, base_atk: 400, base_def: 250, base_crit: 10, hp_per_level: 150, atk_per_level: 12, def_per_level: 8 };
+  // boss rows are authored per row (Medusa: 63500/1640/610, +315/+74/+27 per level).
+  const boss = { base_hp: 63500, base_atk: 1640, base_def: 610, base_crit: 20, hp_per_level: 315, atk_per_level: 74, def_per_level: 27 };
   const s40 = computeMobStats(boss, 40);
-  check('C1: boss Lv40 spot check', s40.hp === 61000 && s40.atk === 880 && s40.def === 570,
+  check('C1: boss Lv40 spot check', s40.hp === 76100 && s40.atk === 4600 && s40.def === 1690,
     `got hp=${s40.hp} atk=${s40.atk} def=${s40.def}`);
   const sClamp = computeMobStats(blackDuwende, 99);
-  check('C1: mob level clamped to 55', sClamp.hp === 1610 + 30 * 55, `got ${sClamp.hp}`);
+  check('C1: mob level clamped to 55', sClamp.hp === 2110 + 80 * 55, `got ${sClamp.hp}`);
 }
 
 // — [Jun-2026 §1] per-class distinct base + scaling (no uniform base anymore) —
