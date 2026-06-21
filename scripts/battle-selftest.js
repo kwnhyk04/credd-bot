@@ -372,6 +372,24 @@ section('4. Targeted scenarios');
   check('snapshot boss: every 3rd (3,6 present; 1,2,4 absent)', boss.has(3) && boss.has(6) && !boss.has(1) && !boss.has(2) && !boss.has(4), [...boss].join(','));
 }
 
+// — Layout renderer snapshot actions: current move, actual damage, and new debuffs. —
+{
+  const sim = resolveBattle(
+    player({ class: 'Mage', classPassive: 'overcharge', weaponName: 'Hunting Bow' }),
+    mob({
+      name: 'Amalanhig', skillKey: 'amalanhig_infectious_bite',
+      skillName: 'Infectious Bite', skillDescription: '30% Rot for 2 turns', hp: 100000,
+    }),
+    { mode: 'raid', seed: 1, rng: () => 0.1 }
+  );
+  const action = sim.snapshots.find((s) => s.round === 1)?.actions;
+  check('snapshot actions: weapon move title', action?.a.title === 'Casts Arrow Volley', action?.a.title);
+  check('snapshot actions: actual damage included', /HP to Amalanhig/.test(action?.a.detail || ''), action?.a.detail);
+  check('snapshot actions: mob debuff + duration included',
+    action?.b.title === 'Infectious Bite' && /Rot inflicted \(2 turns\)/.test(action?.b.detail || ''),
+    `${action?.b.title} / ${action?.b.detail}`);
+}
+
 // — R2 + [Jun-2026 §2]: Fighter class stun 1/2 turns gates the mob's NEXT turn(s),
 //   refresh-don't-extend. The stun is applied on the player's r1 hit, so the mob still
 //   ACTS r1 (directional CC never cancels an action already due) and is gated AFTER. —

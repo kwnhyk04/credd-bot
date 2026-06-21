@@ -21,6 +21,7 @@ const {
   buildPlayerFighter, buildMobFighter, fetchMobByName, fetchRandomMob, rollMobLevel,
 } = require('../../engine/statAssembly');
 const { runBattle } = require('../../engine/battleRender');
+const { resolveSkin } = require('../../engine/skinResolver');
 const { spawnBoss, expireBoss, refreshLiveMessage } = require('../../engine/bossSystem');
 const questsCmd = require('../economy/quests');
 const dailyCmd = require('../economy/daily');
@@ -393,7 +394,13 @@ async function devBattle(message, args, devId) {
 
     await reply(message,
       `🎲 Dev battle: **${mob.name}** (${mobRow.mob_type}, Lv ${level}) — seed \`${seed}\`. No rewards granted.`);
-    await runBattle(message.channel, { mode: 'raid', sim });
+    let battleSkinPath = null;
+    try {
+      battleSkinPath = (await resolveSkin(pool, devId, 'battle')).path;
+    } catch (err) {
+      console.warn('[dev battle] skin resolution:', err.message);
+    }
+    await runBattle(message.channel, { mode: 'raid', sim, battleSkinPath });
   } catch (err) {
     console.error('[dev battle]', err);
     return reply(message, 'Dev battle failed — nothing was consumed.');

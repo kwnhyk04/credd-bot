@@ -25,6 +25,7 @@ const {
   buildPlayerFighter, buildMobFighter, fetchRandomMob, rollMobLevel,
 } = require('../../engine/statAssembly');
 const { runBattle } = require('../../engine/battleRender');
+const { resolveSkin } = require('../../engine/skinResolver');
 const { RAID_LOOT } = require('../../config/raidLoot');
 const { awardCombatExp } = require('../../utils/awardCombatExp');
 const { progressQuests } = require('../../utils/questProgress');
@@ -224,9 +225,18 @@ async function execute(message) {
 
       // the summary object renders as battleRender's rewards strip
       const rewards = await commitRewards(discordId, sim, mobRow, rng);
+      let battleSkinPath = null;
+      try {
+        battleSkinPath = (await resolveSkin(pool, discordId, 'battle')).path;
+      } catch (err) {
+        // Cosmetics are display-only; a resolver failure must never undo or
+        // misreport an already-committed battle result.
+        console.warn('[raid] battle skin resolution:', err.message);
+      }
       await runBattle(message.channel, {
         mode: 'raid',
         sim,
+        battleSkinPath,
         rewards,
         notices: rewards.questNotices,
         onMessage: (msg) => pool.query(

@@ -40,6 +40,7 @@ const {
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const path = require('path');
 const { emojiForDisplay } = require('../utils/emojis');
+const { loadBattleSkin, renderBattleSkinPanel } = require('./battleLayoutRenderer');
 
 const ROOT = path.join(__dirname, '..', '..');
 const FONT = 'DejaVu Sans';
@@ -301,7 +302,13 @@ function drawCard(ctx, f, state, y, { isEnemy, mirror, icons, cardH = CARD_H }) 
  * lives in the EMBED FOOTER (below the image, after Discord's separator), not
  * in the canvas — embed footers don't clip and take the mob emoji as iconURL.
  */
-function renderBattlePanel(sim, snapIdx, { mirror = false, icons = null } = {}) {
+function renderBattlePanel(sim, snapIdx, { mirror = false, icons = null, skin = null, mode = sim.mode } = {}) {
+  // Equipped skins use their own 1536x1024 art + colocated layout. A null skin
+  // deliberately keeps the original generic 640px battle panel untouched.
+  if (skin) {
+    const skinned = renderBattleSkinPanel(sim, snapIdx, skin, { mode });
+    if (skinned) return skinned;
+  }
   const s = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
   // [v4.8] grow a card's height when its (mob) skill line wraps, so nothing overlaps the bar/stats.
   const measure = createCanvas(8, 8).getContext('2d');
@@ -488,9 +495,14 @@ function logEmbeds(sim) {
  *                                          shown as the message content on the FINAL
  *                                          frame only. No-op when empty.
  */
-async function runBattle(channel, { mode, sim, rewards = null, onMessage = null, notices = [] }) {
+async function runBattle(channel, {
+  mode, sim, rewards = null, onMessage = null, notices = [], battleSkinPath = null,
+}) {
   const mirror = mode === 'duel';
-  const icons = await prefetchIcons(sim).catch(() => null);
+  const [icons, skin] = await Promise.all([
+    prefetchIcons(sim).catch(() => null),
+    loadBattleSkin(battleSkinPath),
+  ]);
 
   // rewards strip — rendered once, attached as a second embed on final frames
   let resultEmbed = null;
@@ -518,7 +530,7 @@ async function runBattle(channel, { mode, sim, rewards = null, onMessage = null,
       embeds: showRewards ? [base, resultEmbed] : [base],
       files: [
         new AttachmentBuilder(
-          renderBattlePanel(sim, i, { mirror, icons }),
+          renderBattlePanel(sim, i, { mirror, icons, skin, mode }),
           { name: 'battle.png' }
         ),
         ...(showRewards

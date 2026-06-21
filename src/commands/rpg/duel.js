@@ -23,6 +23,7 @@ const pool = require('../../db/pool');
 const { resolveBattle } = require('../../engine/battleEngine');
 const { buildPlayerFighter } = require('../../engine/statAssembly');
 const { runBattle } = require('../../engine/battleRender');
+const { resolveSkin } = require('../../engine/skinResolver');
 const { isBanned } = require('../../handlers/middleware');
 const { progressQuests } = require('../../utils/questProgress');
 
@@ -233,7 +234,15 @@ async function execute(message) {
 
         const sim = resolveBattle(p1, p2, { mode: 'duel', seed: Date.now() >>> 0 });
         const notices = await commitDuelResult(challenger.id, target.id, sim);
-        await runBattle(challengeMsg.channel, { mode: 'duel', sim, notices });
+        // A duel has one shared message, so its visual theme belongs to the
+        // challenger who opened it; both combatants still render in that skin's slots.
+        let battleSkinPath = null;
+        try {
+          battleSkinPath = (await resolveSkin(pool, challenger.id, 'battle')).path;
+        } catch (err) {
+          console.warn('[duel] battle skin resolution:', err.message);
+        }
+        await runBattle(challengeMsg.channel, { mode: 'duel', sim, notices, battleSkinPath });
       } catch (err) {
         console.error('[duel]', err);
         // commit precedes render: a failure before COMMIT changed nothing; a

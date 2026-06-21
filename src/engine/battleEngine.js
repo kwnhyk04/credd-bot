@@ -96,6 +96,102 @@ const OVERCHARGE_EVERY = 3;       // [v4.2] fires on rounds 3, 6, 9, …
 const SKIP_TAGS = ['stun', 'paralyze', 'freeze', 'petrify', 'charm', 'confuse', 'miss'];
 const DOT_TAGS = ['bleed', 'burn', 'hp_pct_dot'];
 
+const ACTION_TAG_LABELS = {
+  bleed: 'Bleed', burn: 'Burn', hp_pct_dot: 'Rot', stun: 'Stun', freeze: 'Freeze',
+  paralyze: 'Paralyze', petrify: 'Petrify', charm: 'Charm', confuse: 'Confuse',
+  miss: 'Miss', def_down: 'DEF Down', atk_down: 'ATK Down', crit_down: 'CRIT Down',
+};
+
+function actionState(side) {
+  return {
+    hp: side.hp,
+    debuffs: side.debuffs.map((d) => ({ tag: d.tag, turnsLeft: d.turnsLeft, value: d.value })),
+  };
+}
+
+function actionNameForWeapon(name) {
+  const n = String(name || '').toLowerCase();
+  if (/bow|crossbow/.test(n)) return 'Arrow Volley';
+  if (/staff|wand|caduceus/.test(n)) return 'Arcane Burst';
+  if (/hammer|mjolnir/.test(n)) return 'Crushing Blow';
+  if (/spear|trident|gungnir/.test(n)) return 'Piercing Thrust';
+  if (/shield|aegis/.test(n)) return 'Shield Bash';
+  if (/fist|knuckle|glove|jarngreipr/.test(n)) return 'Heavy Blow';
+  if (/sword|blade|katana|cutlass|labrys|axe/.test(n)) return 'Blade Strike';
+  return 'Battle Strike';
+}
+
+function passiveActionName(side, events) {
+  const sources = [side.in.weaponName, side.in.deityName].filter(Boolean);
+  for (let i = events.length - 1; i >= 0; i--) {
+    for (const source of sources) {
+      const marker = `${source}:`;
+      const at = events[i].indexOf(marker);
+      if (at < 0) continue;
+      const action = events[i].slice(at + marker.length).split('—')[0].trim();
+      if (action) return action;
+    }
+  }
+  return null;
+}
+
+function damageFromEvents(side, events) {
+  let damage = 0;
+  let crit = false;
+  let evaded = false;
+  for (const event of events) {
+    const isOwnHit = event.includes(`${side.name} attacks for **`) ||
+      event.includes(`${side.name} strikes again for **`) ||
+      event.includes(`${side.name} strikes for **`) ||
+      event.includes(`${side.name} strikes (hit `);
+    if (!isOwnHit) continue;
+    const m = /for \*\*(\d+) DMG\*\*/.exec(event);
+    if (m) damage += Number(m[1]);
+    if (event.includes('CRIT!')) crit = true;
+    if (event.includes('evaded')) evaded = true;
+  }
+  return { damage, crit, evaded };
+}
+
+function inflictedDebuffs(before, after) {
+  const old = new Map(before.debuffs.map((d) => [d.tag, d]));
+  return after.debuffs.filter((d) => {
+    const prev = old.get(d.tag);
+    return !prev || d.turnsLeft > prev.turnsLeft || Number(d.value) > Number(prev.value);
+  });
+}
+
+/** Compact, structured turn text for layout-driven battle action boxes. */
+function summarizeAction(side, opp, beforeSelf, beforeOpp, afterSelf, afterOpp, events) {
+  const unable = events.some((e) => e.includes(`${side.name} is unable to act`));
+  const hit = damageFromEvents(side, events);
+  const effects = inflictedDebuffs(beforeOpp, afterOpp);
+
+  let title;
+  if (unable) title = 'Unable to act';
+  else if (side.kind === 'mob') title = side.in.skillName || 'Enemy Strike';
+  else title = `Casts ${passiveActionName(side, events) || actionNameForWeapon(side.in.weaponName)}`;
+
+  const detail = [];
+  if (hit.damage > 0) detail.push(`−${hit.damage.toLocaleString()} HP to ${opp.name}${hit.crit ? ' (CRIT)' : ''}`);
+  else if (hit.evaded) detail.push('Attack evaded');
+
+  for (const effect of effects.slice(0, 2)) {
+    const label = ACTION_TAG_LABELS[effect.tag] || effect.tag.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    detail.push(`${label} inflicted (${effect.turnsLeft} turn${effect.turnsLeft === 1 ? '' : 's'})`);
+  }
+
+  const healed = Math.max(0, afterSelf.hp - beforeSelf.hp);
+  if (healed > 0) detail.push(`+${healed.toLocaleString()} HP recovered`);
+  if (unable && detail.length === 0) {
+    const tags = beforeSelf.debuffs.filter((d) => SKIP_TAGS.includes(d.tag)).map((d) => d.tag);
+    if (tags.length) detail.push(tags.join(', '));
+  }
+  if (detail.length === 0) detail.push('No damage dealt');
+
+  return { title, detail: detail.join(' • ') };
+}
+
 function isPowerOfFourRound(round) {
   if (round < 1) return false;
   let n = round;
@@ -628,7 +724,18 @@ function resolveBattle(a, b, opts = {}) {
     maxHp: side.maxHp,
     debuffs: side.debuffs.map((d) => ({ tag: d.tag, turnsLeft: d.turnsLeft })),
   });
-  const snapshots = [{ round: 0, a: snapSide(A), b: snapSide(B), tag: 'start' }];
+  let lastActions = {
+    a: { title: 'Ready', detail: 'Awaiting first action' },
+    b: { title: 'Ready', detail: 'Awaiting first action' },
+  };
+  const snap = (round, tag = null) => ({
+    round,
+    a: snapSide(A),
+    b: snapSide(B),
+    actions: { a: { ...lastActions.a }, b: { ...lastActions.b } },
+    ...(tag ? { tag } : {}),
+  });
+  const snapshots = [snap(0, 'start')];
 
   // ── actor order ────────────────────────────────────────────────────────────
   let aFirst;
@@ -648,6 +755,17 @@ function resolveBattle(a, b, opts = {}) {
   for (let round = 1; round <= MAX_ROUNDS && !result; round++) {
     shared.round = round;
     shared.events = [];
+    const actionStartA = actionState(A);
+    const actionStartB = actionState(B);
+
+    const captureActions = () => {
+      const actionEndA = actionState(A);
+      const actionEndB = actionState(B);
+      lastActions = {
+        a: summarizeAction(A, B, actionStartA, actionStartB, actionEndA, actionEndB, shared.events),
+        b: summarizeAction(B, A, actionStartB, actionStartA, actionEndB, actionEndA, shared.events),
+      };
+    };
 
     // 1. round start: scratch + latches
     for (const side of order) resetScratch(side);
@@ -704,10 +822,17 @@ function resolveBattle(a, b, opts = {}) {
     }
     for (const side of order) if (side.kind === 'player') applyBathala(side);
     for (const side of order) side.flags.player_was_critted = false; // latch consumed
-    if (result) { rounds.push({ round, events: shared.events }); break; }
+    if (result) {
+      captureActions();
+      rounds.push({ round, events: shared.events, actions: lastActions });
+      break;
+    }
 
     // 4. actions
     for (const side of order) act(side);
+    // Capture the active moves before end-of-round DOT ticks/expiry alter their
+    // damage and freshly-applied debuff durations.
+    captureActions();
 
     // 5. end of round
     if (!result) {
@@ -749,7 +874,7 @@ function resolveBattle(a, b, opts = {}) {
       }
     }
 
-    rounds.push({ round, events: shared.events });
+    rounds.push({ round, events: shared.events, actions: lastActions });
     // [v4.8] snapshot cadence is mode-dependent: raid + duel snapshot on rounds 1,4,16,…
     // (multiplying the previous snapshot turn by 4), boss every 3rd (3,6,9…).
     // The start + final snapshots are always present regardless.
@@ -757,7 +882,7 @@ function resolveBattle(a, b, opts = {}) {
       ? isPowerOfFourRound(round)
       : round % SNAPSHOT_EVERY === 0;
     if (!result && snapDue) {
-      snapshots.push({ round, a: snapSide(A), b: snapSide(B) });
+      snapshots.push(snap(round));
     }
   }
 
@@ -775,7 +900,7 @@ function resolveBattle(a, b, opts = {}) {
     outcome = 'cap_hp_pct';
   }
 
-  snapshots.push({ round: rounds.length, a: snapSide(A), b: snapSide(B), tag: 'end' });
+  snapshots.push(snap(rounds.length, 'end'));
   totals.netDamage = Math.max(0, totals.damageDealtToEnemy - totals.enemyLocalRegen);
 
   const summary = (side) => ({

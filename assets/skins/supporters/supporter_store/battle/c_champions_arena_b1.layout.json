@@ -1,18 +1,8 @@
 {
-  "_schema": "battle.v1 — DRAFT (no renderer yet). Top=player, bottom=enemy, split by the arena divider.",
+  "_schema": "battle.v1 — top=player, bottom=enemy; colours themed to the canvas.",
   "canvas": {
     "w": 1536,
     "h": 1024
-  },
-  "divider_y": 510,
-  "header": {
-    "x": 768,
-    "y": 36,
-    "anchor": "center",
-    "font": "DejaVu Sans",
-    "weight": "bold",
-    "size": 26,
-    "color": "#FFD54A"
   },
   "player": {
     "panel": {
@@ -22,61 +12,61 @@
       "h": 401
     },
     "name": {
-      "x": 109,
-      "y": 113,
+      "x": 115,
+      "y": 200,
       "anchor": "left",
       "font": "DejaVu Sans",
       "weight": "bold",
-      "size": 30,
+      "size": 32,
       "color": "#FFFFFF",
-      "max_width": 791
+      "max_width": 815
     },
     "sub": {
-      "x": 109,
-      "y": 147,
+      "x": 115,
+      "y": 240,
       "anchor": "left",
       "font": "DejaVu Sans",
       "weight": "bold",
-      "size": 17,
-      "color": "#56D889",
-      "max_width": 791
+      "size": 18,
+      "color": "#f2d16d",
+      "max_width": 815
     },
     "loadout": {
-      "x": 109,
-      "y": 173,
+      "x": 115,
+      "y": 270,
       "anchor": "left",
       "font": "DejaVu Sans",
       "weight": "normal",
-      "size": 15,
-      "color": "#C4C8D0",
-      "max_width": 923
+      "size": 16,
+      "color": "#C9CDD6",
+      "max_width": 946
     },
     "hp_text": {
-      "x": 1427,
-      "y": 113,
+      "x": 1425,
+      "y": 200,
       "anchor": "right",
       "font": "DejaVu Sans",
       "weight": "bold",
-      "size": 22,
-      "color": "#56D889"
+      "size": 24,
+      "color": "#f2d16d"
     },
     "hp_bar": {
-      "x": 109,
-      "y": 416,
-      "w": 1318,
-      "h": 16,
-      "radius": 8,
-      "fill": "#56D889",
-      "track": "rgba(255,255,255,0.14)"
+      "x": 115,
+      "y": 320,
+      "w": 1314,
+      "h": 18,
+      "radius": 9,
+      "fill": "#f2d16d",
+      "track": "rgba(51,156,80)"
     },
     "stats": {
-      "x": 109,
-      "y": 450,
+      "x": 115,
+      "y": 370,
       "anchor": "left",
       "font": "DejaVu Sans",
       "weight": "bold",
-      "size": 17,
-      "gap": 150,
+      "size": 18,
+      "gap": 165,
       "cols": [
         {
           "key": "atk",
@@ -104,61 +94,61 @@
       "h": 421
     },
     "name": {
-      "x": 113,
-      "y": 585,
+      "x": 115,
+      "y": 660,
       "anchor": "left",
       "font": "DejaVu Sans",
       "weight": "bold",
-      "size": 30,
+      "size": 32,
       "color": "#FFFFFF",
-      "max_width": 788
+      "max_width": 812
     },
     "sub": {
-      "x": 113,
-      "y": 619,
+      "x": 115,
+      "y": 700,
       "anchor": "left",
       "font": "DejaVu Sans",
       "weight": "bold",
-      "size": 17,
-      "color": "#FF6B62",
-      "max_width": 788
+      "size": 18,
+      "color": "#f2d16d",
+      "max_width": 812
     },
     "loadout": {
-      "x": 113,
-      "y": 645,
+      "x": 115,
+      "y": 730,
       "anchor": "left",
       "font": "DejaVu Sans",
       "weight": "normal",
-      "size": 15,
-      "color": "#C4C8D0",
-      "max_width": 920
+      "size": 16,
+      "color": "#C9CDD6",
+      "max_width": 943
     },
     "hp_text": {
-      "x": 1427,
-      "y": 585,
+      "x": 1425,
+      "y": 660,
       "anchor": "right",
       "font": "DejaVu Sans",
       "weight": "bold",
-      "size": 22,
-      "color": "#FF6B62"
+      "size": 24,
+      "color": "#f2d16d"
     },
     "hp_bar": {
-      "x": 113,
-      "y": 908,
+      "x": 115,
+      "y": 780,
       "w": 1314,
-      "h": 16,
-      "radius": 8,
-      "fill": "#FF6B62",
-      "track": "rgba(255,255,255,0.14)"
+      "h": 18,
+      "radius": 9,
+      "fill": "#f2d16d",
+      "track": "rgba(51,156,80)"
     },
     "stats": {
-      "x": 113,
-      "y": 942,
+      "x": 115,
+      "y": 830,
       "anchor": "left",
       "font": "DejaVu Sans",
       "weight": "bold",
-      "size": 17,
-      "gap": 150,
+      "size": 18,
+      "gap": 165,
       "cols": [
         {
           "key": "atk",
