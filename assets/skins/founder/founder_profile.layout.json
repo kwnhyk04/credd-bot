@@ -18,8 +18,8 @@
     "align_to": "name_start"
   },
   "avatar": {
-    "x": 218,
-    "y": 405,
+    "x": 247,
+    "y": 385,
     "size": 245,
     "radius": 24,
     "outline": "#FFF0B0",
@@ -31,7 +31,7 @@
     }
   },
   "name": {
-    "x": 650,
+    "x": 680,
     "y": 385,
     "anchor": "left",
     "font": "DejaVu Sans",
@@ -41,7 +41,7 @@
     "max_width": 750
   },
   "tier_line": {
-    "x": 650,
+    "x": 680,
     "y": 435,
     "anchor": "left",
     "font": "DejaVu Sans",
@@ -51,7 +51,7 @@
     "max_width": 750
   },
   "exp_text": {
-    "x": 650,
+    "x": 680,
     "y": 475,
     "anchor": "left",
     "font": "DejaVu Sans",
@@ -61,16 +61,17 @@
     "max_width": 750
   },
   "exp_bar": {
-    "x": 650,
+    "x": 680,
     "y": 497,
-    "w": 680,
+    "w": 675,
     "h": 14,
+    "anchor": "center",
     "radius": 7,
     "fill": "#E7C661",
     "track": "rgba(255,255,255,0.14)"
   },
   "class": {
-    "x": 340,
+    "x": 365,
     "y": 670,
     "anchor": "center",
     "font": "DejaVu Sans",
@@ -80,7 +81,7 @@
     "max_width": 251
   },
   "combat_exp": {
-    "x": 340,
+    "x": 365,
     "y": 700,
     "anchor": "center",
     "font": "DejaVu Sans",
@@ -93,7 +94,7 @@
     "max_width": 251
   },
   "weapon_label": {
-    "x": 340,
+    "x": 365,
     "y": 735,
     "anchor": "center",
     "font": "DejaVu Sans",
@@ -103,8 +104,8 @@
     "max_width": 251
   },
   "weapon_value": {
-    "x": 340,
-    "y": 760,
+    "x": 365,
+    "y": 753,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -116,7 +117,7 @@
     "max_width": 251
   },
   "deity_label": {
-    "x": 340,
+    "x": 365,
     "y": 790,
     "anchor": "center",
     "font": "DejaVu Sans",
@@ -126,8 +127,8 @@
     "max_width": 251
   },
   "deity_value": {
-    "x": 340,
-    "y": 815,
+    "x": 365,
+    "y": 810,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -139,8 +140,8 @@
     "max_width": 251
   },
   "blessing": {
-    "x": 340,
-    "y": 842,
+    "x": 365,
+    "y": 828,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "normal",
@@ -149,8 +150,8 @@
     "max_width": 251
   },
   "stats_label": {
-    "x": 650,
-    "y": 590,
+    "x": 680,
+    "y": 620,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -159,7 +160,7 @@
   },
   "stats": {
     "mode": "inline",
-    "y": 624,
+    "y": 654,
     "seg": 190,
     "marker_size": 14,
     "marker_radius": 4,
@@ -172,33 +173,33 @@
     "cols": [
       {
         "key": "atk",
-        "x": 650,
+        "x": 680,
         "label": "ATK",
         "color": "#FF6B62"
       },
       {
         "key": "hp",
-        "x": 835,
+        "x": 810,
         "label": "HP",
         "color": "#56D889"
       },
       {
         "key": "def",
-        "x": 1020,
+        "x": 940,
         "label": "DEF",
         "color": "#72A6FF"
       },
       {
         "key": "crit",
-        "x": 1205,
+        "x": 1070,
         "label": "CRIT",
         "color": "#F0B84A"
       }
     ]
   },
   "record_label": {
-    "x": 650,
-    "y": 665,
+    "x": 680,
+    "y": 695,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -206,7 +207,7 @@
     "color": "#9298A4"
   },
   "record": {
-    "y": 690,
+    "y": 720,
     "box_w": 103,
     "box_h": 50,
     "gap": 22,
@@ -224,39 +225,39 @@
     "cols": [
       {
         "key": "raids",
-        "x": 707,
+        "x": 732,
         "label": "RAIDS"
       },
       {
         "key": "raidsWon",
-        "x": 820,
+        "x": 845,
         "label": "RAID WINS"
       },
       {
         "key": "raidStreak",
-        "x": 933,
+        "x": 958,
         "label": "RAID STREAK"
       },
       {
         "key": "duels",
-        "x": 1047,
+        "x": 1072,
         "label": "DUELS"
       },
       {
         "key": "duelWins",
-        "x": 1160,
+        "x": 1185,
         "label": "DUEL WINS"
       },
       {
         "key": "duelStreak",
-        "x": 1273,
+        "x": 1298,
         "label": "DUEL STREAK"
       }
     ]
   },
   "quote": {
     "x": 1025,
-    "y": 765,
+    "y": 795,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "normal",

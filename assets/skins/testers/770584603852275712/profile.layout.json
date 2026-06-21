@@ -7,7 +7,7 @@
   "top_label": {
     "enabled": true,
     "x": 1240,
-    "y": 167,
+    "y": 260,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -20,8 +20,8 @@
     "shadow_blur": 2
   },
   "avatar": {
-    "x": 118,
-    "y": 240,
+    "x": 156,
+    "y": 320,
     "size": 285,
     "radius": 24,
     "outline": "#3A82CA",
@@ -33,8 +33,8 @@
     }
   },
   "name": {
-    "x": 550,
-    "y": 205,
+    "x": 625,
+    "y": 300,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -45,8 +45,8 @@
     "shadow_blur": 2
   },
   "tier_line": {
-    "x": 550,
-    "y": 255,
+    "x": 625,
+    "y": 350,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -57,8 +57,8 @@
     "shadow_blur": 2
   },
   "exp_text": {
-    "x": 550,
-    "y": 295,
+    "x": 625,
+    "y": 380,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "normal",
@@ -69,40 +69,40 @@
     "shadow_blur": 2
   },
   "exp_bar": {
-    "x": 550,
-    "y": 317,
-    "w": 850,
+    "x": 625,
+    "y": 400,
+    "w": 750,
     "h": 14,
     "radius": 7,
     "fill": "#3E8DD8",
     "track": "rgba(53,76,109,0.18)"
   },
   "class": {
-    "x": 260,
-    "y": 570,
+    "x": 300,
+    "y": 630,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "bold",
     "size": 18,
-    "color": "#14263A",
+    "color": "#CF4F91",
     "max_width": 291
   },
   "combat_exp": {
-    "x": 260,
-    "y": 605,
+    "x": 300,
+    "y": 655,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "bold",
     "size": 13,
-    "color": "#14263A",
+    "color": "#2D8B68",
     "icon": "combat_exp.png",
     "icon_size": 22,
     "icon_gap": 9,
     "max_width": 291
   },
   "weapon_label": {
-    "x": 975,
-    "y": 398,
+    "x": 300,
+    "y": 695,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -113,8 +113,8 @@
     "shadow_blur": 2
   },
   "weapon_value": {
-    "x": 975,
-    "y": 430,
+    "x": 300,
+    "y": 715,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -128,8 +128,8 @@
     "shadow_blur": 2
   },
   "deity_label": {
-    "x": 975,
-    "y": 478,
+    "x": 300,
+    "y": 755,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -140,8 +140,8 @@
     "shadow_blur": 2
   },
   "deity_value": {
-    "x": 975,
-    "y": 510,
+    "x": 300,
+    "y": 775,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -155,8 +155,8 @@
     "shadow_blur": 2
   },
   "blessing": {
-    "x": 975,
-    "y": 542,
+    "x": 300,
+    "y": 795,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "normal",
@@ -167,8 +167,8 @@
     "shadow_blur": 2
   },
   "stats_label": {
-    "x": 550,
-    "y": 660,
+    "x": 625,
+    "y": 640,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -179,7 +179,7 @@
   },
   "stats": {
     "mode": "inline",
-    "y": 696,
+    "y": 676,
     "seg": 190,
     "marker_size": 18,
     "marker_radius": 4,
@@ -192,33 +192,33 @@
     "cols": [
       {
         "key": "atk",
-        "x": 550,
+        "x": 625,
         "label": "ATK",
         "color": "#FF6B62"
       },
       {
         "key": "hp",
-        "x": 760,
+        "x": 825,
         "label": "HP",
         "color": "#56D889"
       },
       {
         "key": "def",
-        "x": 970,
+        "x": 1025,
         "label": "DEF",
         "color": "#72A6FF"
       },
       {
         "key": "crit",
-        "x": 1180,
+        "x": 1200,
         "label": "CRIT",
         "color": "#F0B84A"
       }
     ]
   },
   "record_label": {
-    "x": 550,
-    "y": 738,
+    "x": 625,
+    "y": 724,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -228,8 +228,8 @@
     "shadow_blur": 2
   },
   "record": {
-    "y": 762,
-    "box_w": 131,
+    "y": 748,
+    "box_w": 120,
     "box_h": 56,
     "gap": 22,
     "radius": 8,
@@ -246,46 +246,46 @@
     "cols": [
       {
         "key": "raids",
-        "x": 621,
+        "x": 685,
         "label": "RAIDS"
       },
       {
         "key": "raidsWon",
-        "x": 763,
+        "x": 812,
         "label": "RAID WINS"
       },
       {
         "key": "raidStreak",
-        "x": 904,
+        "x": 939,
         "label": "RAID STREAK"
       },
       {
         "key": "duels",
-        "x": 1046,
+        "x": 1066,
         "label": "DUELS"
       },
       {
         "key": "duelWins",
-        "x": 1188,
+        "x": 1193,
         "label": "DUEL WINS"
       },
       {
         "key": "duelStreak",
-        "x": 1329,
+        "x": 1320,
         "label": "DUEL STREAK"
       }
     ]
   },
   "quote": {
-    "x": 260,
-    "y": 830,
+    "x": 1160,
+    "y": 850,
     "anchor": "center",
     "font": "DejaVu Sans",
-    "weight": "bold",
-    "size": 14,
-    "color": "#14263A",
+    "weight": "normal",
+    "size": 15,
+    "color": "#AEB3BC",
     "italic": true,
-    "max_width": 285,
+    "max_width": 400,
     "shadow_color": "rgba(255,255,255,0.72)",
     "shadow_blur": 3
   }

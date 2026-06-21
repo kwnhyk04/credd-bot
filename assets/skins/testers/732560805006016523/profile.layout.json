@@ -7,7 +7,7 @@
   "top_label": {
     "enabled": true,
     "x": 1240,
-    "y": 167,
+    "y": 200,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -18,7 +18,7 @@
     "align_to": "name_start"
   },
   "avatar": {
-    "x": 146,
+    "x": 147,
     "y": 230,
     "size": 268,
     "radius": 24,
@@ -32,7 +32,7 @@
   },
   "name": {
     "x": 550,
-    "y": 205,
+    "y": 240,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -42,7 +42,7 @@
   },
   "tier_line": {
     "x": 550,
-    "y": 255,
+    "y": 295,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -52,7 +52,7 @@
   },
   "exp_text": {
     "x": 550,
-    "y": 295,
+    "y": 335,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "normal",
@@ -62,8 +62,8 @@
   },
   "exp_bar": {
     "x": 550,
-    "y": 317,
-    "w": 835,
+    "y": 355,
+    "w": 845,
     "h": 14,
     "radius": 7,
     "fill": "#27B889",
@@ -224,39 +224,39 @@
     "cols": [
       {
         "key": "raids",
-        "x": 620,
+        "x": 615,
         "label": "RAIDS"
       },
       {
         "key": "raidsWon",
-        "x": 759,
+        "x": 760,
         "label": "RAID WINS"
       },
       {
         "key": "raidStreak",
-        "x": 898,
+        "x": 905,
         "label": "RAID STREAK"
       },
       {
         "key": "duels",
-        "x": 1037,
+        "x": 1050,
         "label": "DUELS"
       },
       {
         "key": "duelWins",
-        "x": 1176,
+        "x": 1195,
         "label": "DUEL WINS"
       },
       {
         "key": "duelStreak",
-        "x": 1315,
+        "x": 1340,
         "label": "DUEL STREAK"
       }
     ]
   },
   "quote": {
-    "x": 967.5,
-    "y": 840,
+    "x": 1200,
+    "y": 850,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "normal",

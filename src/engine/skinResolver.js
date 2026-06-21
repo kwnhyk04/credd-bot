@@ -8,8 +8,9 @@
  *   1. equipped_skins.override_path   (dev / tester custom / founder set)
  *   2. equipped cosmetic_id           (shop/base catalog skin)
  *   3. base set                       (active supporter with nothing equipped)
- *   4. testers/ default set           (BETA_MODE, unequipped accounts) — §7
- *   5. free-player default            (null → the renderer keeps its built-in art)
+ *   4. testers/ default set           (OPT-IN only, env BETA_MODE=true) — §7
+ *   5. DEFAULT — default_template     (null → renderProfile's built-in default_template.png;
+ *                                      the post-deploy default skin for ALL users)
  *
  * Returns { path|null, source, cosmetic|null }. A null path means "no skin override —
  * render exactly as before", so callers integrate without disturbing free players.
@@ -101,7 +102,8 @@ async function resolveSkin(db, userId, category, opts = {}) {
     if (p) return { path: p, source: 'base', cosmetic: rows[0] };
   }
 
-  // 4. beta default (testers/) for unequipped accounts
+  // 4. OPT-IN beta default (testers/) — only when env BETA_MODE=true. Off by default so an
+  //    unequipped account never silently renders a tester skin.
   if (BETA_MODE) {
     let key = category;
     if (category === 'battle_result') key = variant === 'defeated' ? 'defeated' : 'victory';
@@ -110,7 +112,9 @@ async function resolveSkin(db, userId, category, opts = {}) {
     if (p) return { path: p, source: 'beta', cosmetic: null };
   }
 
-  // 5. free-player default — null means "render with the built-in art as before".
+  // 5. DEFAULT — the shared default template. null tells renderProfile to use its built-in
+  //    default_template.png (and the battle/summon renderers their built-in defaults). This is
+  //    THE default skin for every user post-deploy; `crd set all skin default` lands here.
   return { path: null, source: 'default', cosmetic: null };
 }
 

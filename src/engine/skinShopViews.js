@@ -26,7 +26,7 @@ const fs = require('fs');
 const pool = require('../db/pool');
 const { skinFilePath } = require('../config/cosmetics');
 const ent = require('./supporterEntitlements');
-const { skinEmojiByCode, iconToken, iconSkins } = require('./skinEmojis');
+const { skinEmojiByCode, iconToken, iconShop, iconSkins } = require('./skinEmojis');
 const { HELP_ICON } = require('./bagViews');
 
 const BRAND = 0x9b59b6;
@@ -36,9 +36,12 @@ const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 function clampPage(p) { return Math.min(Math.max(0, p | 0), PAGES.length - 1); }
 
-async function gather(db, viewerId, page) {
+async function gather(db, viewerId, page, ctx = 'shop') {
   const category = PAGES[clampPage(page)];
-  const skins = await ent.listActiveCatalog(db, category);
+  let skins = await ent.listActiveCatalog(db, category);
+  // Shop/dev contexts only list purchasable store skins (+ free base); the collection shows
+  // everything owned, including scope-owned tester defaults, per-tester customs, and founder set.
+  if (ctx !== 'coll') skins = skins.filter((s) => s.is_base || ent.isShopCatalog(s));
   const owned = await ent.ownedIdsResolved(db, viewerId);
   const equipped = await ent.getEquipped(db, viewerId);
   const sup = await ent.getSupporter(db, viewerId);
@@ -49,45 +52,57 @@ async function gather(db, viewerId, page) {
   };
 }
 
-function skinRow(s, owned, equippedId) {
-  const emo = s.is_base ? '🎁' : skinEmojiByCode(s.skin_code);
-  const code = s.skin_code ? ` · \`${s.skin_code}\`` : '';
+function skinRow(s, owned, equippedId, ctx) {
+  const isOwned = owned.has(s.cosmetic_id);
+  const emo = skinEmojiByCode(s.skin_code, s.category);
+  const code = s.skin_code ? ` \`${s.skin_code}\`` : '';
+  const lock = isOwned ? '' : ' 🔒';                 // ownership shown ONLY by the lock's absence
+  const name = isOwned ? `**${s.display_name}**` : `*${s.display_name}*`;
+  if (ctx === 'coll') {
+    const eq = equippedId === s.cosmetic_id ? ' ✅' : ''; // ✅ marks the equipped skin only
+    return `${emo} ${name}${code}${lock}${eq}`;
+  }
+  // shop / dev: display-only — id + token cost + lock; never an equipped marker or "owned" text
   const cost = s.is_base ? '' : ` · ${iconToken()} ${s.token_cost}`;
-  const status = owned.has(s.cosmetic_id) ? '✅ owned' : '🔒';
-  const eq = equippedId === s.cosmetic_id ? ' 「Equipped」' : '';
-  const name = owned.has(s.cosmetic_id) ? `**${s.display_name}**` : `*${s.display_name}*`;
-  return `${emo} ${name}${code}${cost} · ${status}${eq}`;
+  return `${emo} ${name}${code}${cost}${lock}`;
 }
 
 /** Paginated shop/collection page (one category). */
 async function buildShopPage(db, viewerId, { page = 0, ctx = 'shop' } = {}) {
   page = clampPage(page);
-  const { category, skins, owned, equippedId, balance } = await gather(db, viewerId, page);
+  const { category, skins, owned, equippedId, balance } = await gather(db, viewerId, page, ctx);
 
   const container = new ContainerBuilder().setAccentColor(BRAND);
   const titleLine = ctx === 'coll'
     ? `## ${iconSkins()} <@${viewerId}>'s Skin Collection`
-    : '## 🛒 Supporter Shop';
+    : `## ${iconShop()} Supporter Shop`;
   const header = ctx === 'dev' ? `${titleLine}\n-# DEV MODE — access bypassed` : titleLine;
   container.addTextDisplayComponents((td) => td.setContent(header));
   container.addTextDisplayComponents((td) => td.setContent(
     ctx === 'coll'
-      ? '-# Browse your skins. Locked 🔒 skins aren\'t owned yet — get them in `crd shop`.'
-      : '-# Browse all supporter skins. Spend tokens to claim a skin, then equip it.'
+      ? '-# Browse your skins. 🔒 = not owned yet — claim it in `crd shop`. ✅ = currently equipped.'
+      : '-# Browse all supporter skins. 🔒 = not owned. Spend tokens to claim, then equip it.'
   ));
   container.addTextDisplayComponents((td) => td.setContent(`-# Page **${page + 1}/${PAGES.length}** · ${CAT_LABEL[category]} Skins`));
   container.addSeparatorComponents(sep);
 
+  // Every collection page leads with the always-available Default (the shared default template /
+  // built-in art). It's owned by everyone and is the reset target for `crd set all skin default`.
+  // ✅ shows when this category is currently on default (nothing equipped here).
+  const rows = skins.map((s) => skinRow(s, owned, equippedId, ctx));
+  if (ctx === 'coll') {
+    rows.unshift(`${iconSkins()} **Default** \`default\`${equippedId == null ? ' ✅' : ''}`);
+  }
   container.addTextDisplayComponents((td) => td.setContent(
-    skins.length ? skins.map((s) => skinRow(s, owned, equippedId)).join('\n') : '*No skins in this category yet.*'
+    rows.length ? rows.join('\n') : '*No skins in this category yet.*'
   ));
   container.addSeparatorComponents(sep);
   container.addTextDisplayComponents((td) => td.setContent(`${iconToken()} Tokens: **${balance}**`));
   container.addSeparatorComponents(sep);
   container.addTextDisplayComponents((td) => td.setContent(
     ctx === 'coll'
-      ? '-# 💡 Equip: `crd use skin p1` ・ Shop: `crd shop`'
-      : '-# 💡 Buy: `crd buy p1` ・ Your skins: `crd skin collection`'
+      ? '-# 💡 Equip: `crd equip skin p1` ・ Tester `t1-p` ・ Base `base-p` ・ Reset `crd set all skin default`'
+      : '-# 💡 Buy: `crd buy p1` ・ Equip after: `crd equip skin p1` ・ Your skins: `crd skin collection`'
   ));
   container.addSeparatorComponents(sep);
   container.addActionRowComponents((row) => row.setComponents(
@@ -120,22 +135,21 @@ function previewFile(skin, variant) {
 /** Image preview carousel for the current category (addendum3 §2). */
 async function buildPreview(db, viewerId, { page = 0, idx = 0, ctx = 'shop', variant = 'x' } = {}) {
   page = clampPage(page);
-  const { category, skins, owned, equippedId } = await gather(db, viewerId, page);
+  const { category, skins, owned, equippedId } = await gather(db, viewerId, page, ctx);
   if (skins.length === 0) return buildShopPage(db, viewerId, { page, ctx });
   idx = ((idx % skins.length) + skins.length) % skins.length; // wrap
   const skin = skins[idx];
 
-  const emo = skin.is_base ? '🎁' : skinEmojiByCode(skin.skin_code);
+  const emo = skinEmojiByCode(skin.skin_code, skin.category);
   const codeTxt = skin.skin_code ? ` · \`${skin.skin_code}\`` : '';
-  const ownedMark = owned.has(skin.cosmetic_id)
-    ? (equippedId === skin.cosmetic_id ? '✅ 「Equipped」' : '✅ owned')
-    : '🔒 locked';
+  const isOwned = owned.has(skin.cosmetic_id);
+  const ownedMark = ctx === 'coll'
+    ? (equippedId === skin.cosmetic_id ? '✅ Equipped' : (isOwned ? '' : '🔒 locked'))
+    : (isOwned ? '' : '🔒 locked');
 
-  const help = skin.is_base
-    ? 'Base skin — granted free to supporters.'
-    : (ctx === 'coll'
-      ? `Equip: \`crd use skin ${skin.skin_code}\``
-      : `Buy: \`crd buy ${skin.skin_code}\`  ·  Equip: \`crd use skin ${skin.skin_code}\``);
+  const help = ctx === 'coll'
+    ? `Equip: \`crd equip skin ${skin.skin_code}\``
+    : `Buy: \`crd buy ${skin.skin_code}\`  ·  Equip: \`crd equip skin ${skin.skin_code}\``;
 
   const container = new ContainerBuilder().setAccentColor(BRAND);
   container.addTextDisplayComponents((td) => td.setContent(`## ${emo} ${skin.display_name}${codeTxt}  ${ownedMark}`));

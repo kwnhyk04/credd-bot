@@ -49,7 +49,10 @@ for (const [alias, canonical] of Object.entries(ALIASES)) {
 // ── 3. Every non-dev help command has a slash definition ────────────────────
 {
   const slashCanonicals = new Set(definitions.map((d) => d.canonical));
-  const helpCanonicals = new Set(CATEGORIES.flatMap((c) => c.lines.map((l) => l.canonical)));
+  // prefixOnly categories (e.g. Supporter Shop & Skins) are intentionally not slash commands.
+  const helpCanonicals = new Set(
+    CATEGORIES.filter((c) => !c.prefixOnly).flatMap((c) => c.lines.map((l) => l.canonical))
+  );
   for (const canonical of helpCanonicals) {
     check(`help command '${canonical}' has a slash definition`, slashCanonicals.has(canonical));
   }

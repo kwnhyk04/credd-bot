@@ -25,10 +25,17 @@ async function execute(message, { args }) {
   const code = (args[1] || '').toLowerCase();
   if (!code) return reply(message, 'Usage: `crd use skin <skin_code>` — e.g. `crd use skin p1`.');
 
+  const ownerId = message.author.id;
+  if (code === 'default') {
+    const removed = await ent.clearAllEquipped(pool, ownerId);
+    return reply(message, removed
+      ? `🧹 Reset **${removed}** skin slot${removed === 1 ? '' : 's'} to the default templates.`
+      : 'Your skins are already on the default templates.');
+  }
+
   const skin = await ent.getCatalogByCode(pool, code);
   if (!skin) return reply(message, `No skin with code \`${code}\`. See \`crd skin collection\`.`);
 
-  const ownerId = message.author.id;
   if (!(await ent.ownsResolved(pool, ownerId, skin.cosmetic_id))) {
     return reply(message, `You don\'t own \`${code}\` yet — buy it with \`crd buy ${code}\`.`);
   }

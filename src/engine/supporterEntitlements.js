@@ -76,21 +76,47 @@ async function grantCosmeticTx(client, userId, cosmeticId, source) {
   );
 }
 
-// ── §4 (addendum2): the two dev accounts own every active catalog skin ────────
+// ── §4 (addendum2): dev accounts own every active catalog skin ────────────────
 function isDevAccount(userId) {
   return DEV_ACCOUNT_IDS.includes(String(userId));
 }
-/** Owned-ids set, but dev accounts resolve to ALL active catalog skins (no DB rows needed). */
+
+/**
+ * Resolve the full set of cosmetic_ids a user owns, by these scopes (no schema change —
+ * scope is carried by the catalog cosmetic_key prefix the seeder writes):
+ *   - explicit user_cosmetics rows (store buys, base grants)
+ *   - `tester_default_*`   → everyone, while the bot is in open beta
+ *   - `tester_<userId>_*`  → the specific tester that folder belongs to
+ *   - `founder_*`          → dev accounts only (limited; reserved for the first 50 founders)
+ *   - is_base rows         → any active supporter (base set comes with a subscription)
+ *   - dev accounts         → ALL active catalog skins
+ */
 async function ownedIdsResolved(db, userId) {
-  if (isDevAccount(userId)) {
-    const { rows } = await db.query('SELECT cosmetic_id FROM cosmetic_catalog WHERE is_active = true');
-    return new Set(rows.map((r) => r.cosmetic_id));
+  const uid = String(userId);
+  const dev = isDevAccount(uid);
+  const owned = dev ? new Set() : await userOwnedIds(db, userId);
+  let active = false;
+  if (!dev) {
+    const sup = await getSupporter(db, userId);
+    active = isActiveSupporter(sup);
   }
-  return userOwnedIds(db, userId);
+  const { rows } = await db.query(
+    'SELECT cosmetic_id, cosmetic_key, is_base FROM cosmetic_catalog WHERE is_active = true'
+  );
+  for (const r of rows) {
+    if (dev) { owned.add(r.cosmetic_id); continue; }
+    const k = r.cosmetic_key;
+    if (k.startsWith('tester_default_')) owned.add(r.cosmetic_id);
+    else if (k.startsWith(`tester_${uid}_`)) owned.add(r.cosmetic_id);
+    else if (r.is_base && active) owned.add(r.cosmetic_id);
+    // founder_* stays dev-only (handled by the `dev` branch above).
+  }
+  return owned;
 }
 async function ownsResolved(db, userId, cosmeticId) {
   if (isDevAccount(userId)) return true;
-  return userOwns(db, userId, cosmeticId);
+  const owned = await ownedIdsResolved(db, userId);
+  return owned.has(cosmeticId);
 }
 /** Resolve a shop skin by its skin_code (category is implied by the leading letter). */
 async function getCatalogByCode(db, code) {
@@ -98,6 +124,41 @@ async function getCatalogByCode(db, code) {
     'SELECT * FROM cosmetic_catalog WHERE LOWER(skin_code) = LOWER($1) AND is_active = true', [code]
   );
   return rows[0] || null;
+}
+
+// Catalog rows that are NOT purchasable in the shop (owned by scope, not bought):
+//   base set, tester defaults, per-tester customs, and the limited founder set.
+const NON_SHOP_PREFIX = /^(tester_|founder_)/;
+function isShopCatalog(row) {
+  return !row.is_base && !NON_SHOP_PREFIX.test(row.cosmetic_key);
+}
+
+/**
+ * Resolve a skin the user wants to equip by free-text: skin_code, exact cosmetic_key, or a
+ * display-name match. Owned matches win over unowned so per-tester customs (shared display
+ * names) disambiguate to the caller's own row. Returns a catalog row or null.
+ */
+async function resolveCatalogRef(db, userId, ref) {
+  const raw = String(ref || '').trim();
+  if (!raw) return null;
+  const { rows } = await db.query(
+    `SELECT * FROM cosmetic_catalog
+       WHERE is_active = true
+         AND (LOWER(skin_code) = LOWER($1)
+              OR LOWER(cosmetic_key) = LOWER($1)
+              OR LOWER(display_name) = LOWER($1)
+              OR LOWER(display_name) LIKE LOWER($2))`,
+    [raw, `%${raw}%`]
+  );
+  if (rows.length === 0) return null;
+  if (rows.length === 1) return rows[0];
+  const owned = await ownedIdsResolved(db, userId);
+  // Prefer an exact code/key/name hit, then an owned row, then anything.
+  const exact = rows.find((r) =>
+    (r.skin_code && r.skin_code.toLowerCase() === raw.toLowerCase()) ||
+    r.cosmetic_key.toLowerCase() === raw.toLowerCase() ||
+    r.display_name.toLowerCase() === raw.toLowerCase());
+  return exact || rows.find((r) => owned.has(r.cosmetic_id)) || rows[0];
 }
 
 // ── Equip ─────────────────────────────────────────────────────────────────────
@@ -118,6 +179,11 @@ async function equipCosmeticTx(client, userId, category, cosmeticId) {
      DO UPDATE SET cosmetic_id = EXCLUDED.cosmetic_id, override_path = NULL, updated_at = NOW()`,
     [userId, category, cosmeticId]
   );
+}
+/** Reset all of a user's equipped skins to default (clears every category row). */
+async function clearAllEquipped(db, userId) {
+  const { rowCount } = await db.query('DELETE FROM equipped_skins WHERE discord_id = $1', [userId]);
+  return rowCount;
 }
 /** Force a raw file path for a category (dev/tester/custom override). */
 async function setOverrideTx(client, userId, category, relPath) {
@@ -219,7 +285,7 @@ module.exports = {
   getSupporter, isActiveSupporter, effectiveTier,
   listActiveCatalog, getCatalogByKey, getCatalogById, getCatalogByCode,
   userOwnedIds, userOwns, grantCosmeticTx,
-  isDevAccount, ownedIdsResolved, ownsResolved,
-  getEquipped, equipCosmeticTx, setOverrideTx,
+  isDevAccount, ownedIdsResolved, ownsResolved, isShopCatalog, resolveCatalogRef,
+  getEquipped, equipCosmeticTx, setOverrideTx, clearAllEquipped,
   grantBaseSetTx, applySubscribe, applyMonthlyTokens,
 };

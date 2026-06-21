@@ -18,7 +18,7 @@
     "align_to": "name_start"
   },
   "avatar": {
-    "x": 119,
+    "x": 141,
     "y": 253,
     "size": 323,
     "radius": 24,
@@ -70,7 +70,7 @@
     "track": "rgba(255,255,255,0.14)"
   },
   "class": {
-    "x": 280,
+    "x": 302,
     "y": 620,
     "anchor": "center",
     "font": "DejaVu Sans",
@@ -80,7 +80,7 @@
     "max_width": 330
   },
   "combat_exp": {
-    "x": 280,
+    "x": 302,
     "y": 655,
     "anchor": "center",
     "font": "DejaVu Sans",
@@ -93,7 +93,7 @@
     "max_width": 330
   },
   "weapon_label": {
-    "x": 280,
+    "x": 302,
     "y": 697,
     "anchor": "center",
     "font": "DejaVu Sans",
@@ -103,7 +103,7 @@
     "max_width": 330
   },
   "weapon_value": {
-    "x": 280,
+    "x": 302,
     "y": 723,
     "anchor": "center",
     "font": "DejaVu Sans",
@@ -116,7 +116,7 @@
     "max_width": 330
   },
   "deity_label": {
-    "x": 280,
+    "x": 302,
     "y": 763,
     "anchor": "center",
     "font": "DejaVu Sans",
@@ -126,7 +126,7 @@
     "max_width": 330
   },
   "deity_value": {
-    "x": 280,
+    "x": 302,
     "y": 789,
     "anchor": "center",
     "font": "DejaVu Sans",
@@ -139,7 +139,7 @@
     "max_width": 330
   },
   "blessing": {
-    "x": 280,
+    "x": 302,
     "y": 821,
     "anchor": "center",
     "font": "DejaVu Sans",

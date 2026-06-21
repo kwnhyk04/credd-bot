@@ -31,7 +31,7 @@
     }
   },
   "name": {
-    "x": 610,
+    "x": 640,
     "y": 220,
     "anchor": "left",
     "font": "DejaVu Sans",
@@ -41,7 +41,7 @@
     "max_width": 780
   },
   "tier_line": {
-    "x": 610,
+    "x": 640,
     "y": 270,
     "anchor": "left",
     "font": "DejaVu Sans",
@@ -51,7 +51,7 @@
     "max_width": 780
   },
   "exp_text": {
-    "x": 610,
+    "x": 640,
     "y": 310,
     "anchor": "left",
     "font": "DejaVu Sans",
@@ -61,7 +61,7 @@
     "max_width": 780
   },
   "exp_bar": {
-    "x": 610,
+    "x": 640,
     "y": 332,
     "w": 780,
     "h": 14,
@@ -149,7 +149,7 @@
     "max_width": 322
   },
   "stats_label": {
-    "x": 610,
+    "x": 640,
     "y": 660,
     "anchor": "left",
     "font": "DejaVu Sans",
@@ -172,32 +172,32 @@
     "cols": [
       {
         "key": "atk",
-        "x": 610,
+        "x": 640,
         "label": "ATK",
         "color": "#FF6B62"
       },
       {
         "key": "hp",
-        "x": 805,
+        "x": 835,
         "label": "HP",
         "color": "#56D889"
       },
       {
         "key": "def",
-        "x": 1000,
+        "x": 1030,
         "label": "DEF",
         "color": "#72A6FF"
       },
       {
         "key": "crit",
-        "x": 1195,
+        "x": 1225,
         "label": "CRIT",
         "color": "#F0B84A"
       }
     ]
   },
   "record_label": {
-    "x": 610,
+    "x": 640,
     "y": 738,
     "anchor": "left",
     "font": "DejaVu Sans",
@@ -224,32 +224,32 @@
     "cols": [
       {
         "key": "raids",
-        "x": 675,
+        "x": 700,
         "label": "RAIDS"
       },
       {
         "key": "raidsWon",
-        "x": 805,
+        "x": 830,
         "label": "RAID WINS"
       },
       {
         "key": "raidStreak",
-        "x": 935,
+        "x": 960,
         "label": "RAID STREAK"
       },
       {
         "key": "duels",
-        "x": 1065,
+        "x": 1090,
         "label": "DUELS"
       },
       {
         "key": "duelWins",
-        "x": 1195,
+        "x": 1220,
         "label": "DUEL WINS"
       },
       {
         "key": "duelStreak",
-        "x": 1325,
+        "x": 1350,
         "label": "DUEL STREAK"
       }
     ]

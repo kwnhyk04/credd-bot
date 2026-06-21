@@ -1,5 +1,7 @@
 name | 'emoji_name' | emoji_id
-Eternal Flame Victory | 'e_eternal_flame_victory' | 1517971256496881835
+Supporter Token | 'supporter_token' | 1518176293118541874
+Supporter Shop | 'supporter_shop' | 1518176290920726601
+Eternal Flame Victory R5 | 'e_eternal_flame_victory' | 1517971256496881835
 Celestial Triump Victory R4 | 'e_celestial_triump_victory_r4' | 1517971253913325730
 Aurora Sovereign Victory R3 | 'e_aurora_sovereign_victory_r3' | 1517971252021690519
 Laurel Crown Victory R2 | 'c_laurel_crown_victory_r2' | 1517971250025074759

@@ -6,16 +6,15 @@
   "icons_dir": "assets/cache/emojis",
   "top_label": {
     "enabled": true,
-    "x": 768,
-    "y": 283,
+    "x": 695,
+    "y": 195,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "bold",
     "size": 18,
     "color": "#FFF1C4",
     "uppercase": true,
-    "max_width": 260,
-    "align_to": "name_start"
+    "max_width": 260
   },
   "avatar": {
     "x": 133,
@@ -150,7 +149,7 @@
   },
   "stats_label": {
     "x": 608,
-    "y": 650,
+    "y": 620,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -159,7 +158,7 @@
   },
   "stats": {
     "mode": "inline",
-    "y": 686,
+    "y": 656,
     "seg": 190,
     "marker_size": 18,
     "marker_radius": 4,
@@ -198,7 +197,7 @@
   },
   "record_label": {
     "x": 608,
-    "y": 728,
+    "y": 698,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -206,7 +205,7 @@
     "color": "#9298A4"
   },
   "record": {
-    "y": 752,
+    "y": 722,
     "box_w": 116,
     "box_h": 56,
     "gap": 22,

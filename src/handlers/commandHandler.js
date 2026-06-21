@@ -29,6 +29,7 @@ const shopCmd = require('../commands/rpg/shop');
 const skinCmd = require('../commands/rpg/skin');
 const buyCmd = require('../commands/rpg/buy');
 const useCmd = require('../commands/rpg/use');
+const setCmd = require('../commands/rpg/set');
 const helpCmd = require('../commands/help');
 const adminCmd = require('../commands/admin');
 const coinCmd = require('../commands/casino/coin');
@@ -73,6 +74,7 @@ const IMPLEMENTED = {
   skin:     { mw: 'full', run: skinCmd.execute },
   buy:      { mw: 'full', run: buyCmd.execute },
   use:      { mw: 'full', run: useCmd.execute },
+  set:      { mw: 'full', run: setCmd.execute },
 
   // ── Casino (Phase 10) — requiresCharacter:false (registration gate only) ──
   coin:      { mw: 'full', run: coinCmd.execute },
@@ -120,6 +122,7 @@ const COMMAND_MAP = {
   skin:      { requiresCharacter: false }, // cosmetic skin collection (open to all)
   buy:       { requiresCharacter: false }, // buy a skin by code
   use:       { requiresCharacter: false }, // equip a skin by code
+  set:       { requiresCharacter: false }, // reset all skins to default templates
 };
 
 /** Resolve which trigger a message starts with: 'crd' always wins; else the guild prefix. */

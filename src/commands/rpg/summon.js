@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('fs');
 const pool = require('../../db/pool');
 const { runSummon } = require('../../engine/summonEngine');
 const { buildFlipMessage, buildResultMessage, flipGifExists } = require('../../engine/renderSummon');
@@ -96,11 +97,24 @@ async function execute(message, { args }) {
   try { flipPath = (await resolveSkin(pool, discordId, 'summon')).path; } catch { /* default flip */ }
   const haveFlip = !!flipPath || flipGifExists();
 
+  // Per-skin flip duration: a summon skin may ship a colocated `<basename>.json` with
+  // { "flip_seconds": N } (e.g. founder_summon = 7s). Default stays 4s for every other skin.
+  let flipMs = 4000;
+  if (flipPath) {
+    try {
+      const cfgPath = flipPath.replace(/\.[^.]+$/, '.json');
+      if (fs.existsSync(cfgPath)) {
+        const sec = JSON.parse(fs.readFileSync(cfgPath, 'utf8')).flip_seconds;
+        if (Number.isFinite(sec) && sec > 0) flipMs = Math.round(sec * 1000);
+      }
+    } catch { /* keep the 4s default */ }
+  }
+
   let sent = null;
   try {
     if (haveFlip) {
       sent = await reply(message, buildFlipMessage(flipPath));
-      await sleep(4000); // [Supporter-stage §11] flip plays 4s before revealing gacha results
+      await sleep(flipMs); // flip plays per-skin duration (default 4s; founder_summon = 7s)
       // attachments: [] drops the flip animation from the edited message.
       await sent.edit({ ...(await buildResultMessage(results, balances)), attachments: [] });
     } else {

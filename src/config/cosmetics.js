@@ -47,8 +47,11 @@ const MONTHLY_TOKENS = { believer: 1, chosen: 3 };
 const ETERNAL_ONE_TIME_TOKENS = 18;
 
 // ── Beta / dev config (§7, §8, §6 top-label) ────────────────────────────────
-// While BETA_MODE is on, an account with nothing equipped renders the testers/ default set.
-const BETA_MODE = String(process.env.BETA_MODE ?? 'true').toLowerCase() !== 'false';
+// DEFAULT (post-deploy, all users): an account with nothing equipped renders the shared default
+// template (assets/profile/default_template.png) via renderProfile's built-in art — NOT a skin.
+// BETA_MODE is an OPT-IN override (set env BETA_MODE=true) that instead renders the testers/
+// default set for unequipped accounts. Off by default so "default" always means default_template.
+const BETA_MODE = String(process.env.BETA_MODE ?? 'false').toLowerCase() === 'true';
 // The two dev accounts render the profile top-label as `Founder 000`. Human supplies the IDs
 // via env DEV_ACCOUNT_IDS (comma-separated); falls back to DEV_IDS.
 const DEV_ACCOUNT_IDS = (process.env.DEV_ACCOUNT_IDS
@@ -87,7 +90,7 @@ const SET_FILES = {
   battle: ['battle.png', 'founder_battle.png'],
   victory: ['victory.png', 'green_victory.png', 'founder_victory.png'],
   defeated: ['defeated.png', 'founder_defeated.png'],
-  summon: ['ember_spark_flip.webp', 'summon.gif', 'summon.webp'],
+  summon: ['ember_spark_flip.webp', 'summon.gif', 'summon.webp', 'founder_summon.webp'],
 };
 
 // Display title-casing: apostrophes + a couple of asset-filename typo fixes so the storefront

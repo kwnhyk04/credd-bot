@@ -21,6 +21,9 @@ build/
 coverage/
 assets/cache/
 
+# Generated skin-alignment artifacts (scripts/alignSkins.js, scripts/skinPreview.js)
+tmp/
+
 # OS / editor
 .DS_Store
 Thumbs.db

@@ -18,9 +18,9 @@
     "align_to": "name_start"
   },
   "avatar": {
-    "x": 148,
+    "x": 101,
     "y": 278,
-    "size": 314,
+    "size": 210,
     "radius": 24,
     "outline": "#FF9A3C",
     "outline_width": 3,
@@ -31,7 +31,7 @@
     }
   },
   "name": {
-    "x": 590,
+    "x": 555,
     "y": 260,
     "anchor": "left",
     "font": "DejaVu Sans",
@@ -41,7 +41,7 @@
     "max_width": 790
   },
   "tier_line": {
-    "x": 590,
+    "x": 555,
     "y": 310,
     "anchor": "left",
     "font": "DejaVu Sans",
@@ -51,7 +51,7 @@
     "max_width": 790
   },
   "exp_text": {
-    "x": 590,
+    "x": 555,
     "y": 350,
     "anchor": "left",
     "font": "DejaVu Sans",
@@ -61,7 +61,7 @@
     "max_width": 790
   },
   "exp_bar": {
-    "x": 590,
+    "x": 555,
     "y": 372,
     "w": 790,
     "h": 14,
@@ -70,18 +70,18 @@
     "track": "rgba(255,255,255,0.14)"
   },
   "class": {
-    "x": 305,
-    "y": 635,
+    "x": 208,
+    "y": 535,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "bold",
-    "size": 21,
+    "size": 14,
     "color": "#FFFFFF",
     "max_width": 322
   },
   "combat_exp": {
-    "x": 305,
-    "y": 668,
+    "x": 208,
+    "y": 568,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "normal",
@@ -93,8 +93,8 @@
     "max_width": 322
   },
   "weapon_label": {
-    "x": 305,
-    "y": 710,
+    "x": 208,
+    "y": 610,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -103,8 +103,8 @@
     "max_width": 322
   },
   "weapon_value": {
-    "x": 305,
-    "y": 736,
+    "x": 208,
+    "y": 636,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -116,8 +116,8 @@
     "max_width": 322
   },
   "deity_label": {
-    "x": 305,
-    "y": 776,
+    "x": 208,
+    "y": 676,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -126,8 +126,8 @@
     "max_width": 322
   },
   "deity_value": {
-    "x": 305,
-    "y": 802,
+    "x": 208,
+    "y": 702,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -139,8 +139,8 @@
     "max_width": 322
   },
   "blessing": {
-    "x": 305,
-    "y": 832,
+    "x": 208,
+    "y": 732,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "normal",
@@ -149,8 +149,8 @@
     "max_width": 322
   },
   "stats_label": {
-    "x": 590,
-    "y": 640,
+    "x": 555,
+    "y": 610,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -159,7 +159,7 @@
   },
   "stats": {
     "mode": "inline",
-    "y": 676,
+    "y": 646,
     "seg": 190,
     "marker_size": 18,
     "marker_radius": 4,
@@ -172,33 +172,33 @@
     "cols": [
       {
         "key": "atk",
-        "x": 590,
+        "x": 555,
         "label": "ATK",
         "color": "#FF6B62"
       },
       {
         "key": "hp",
-        "x": 785,
+        "x": 750,
         "label": "HP",
         "color": "#56D889"
       },
       {
         "key": "def",
-        "x": 980,
+        "x": 945,
         "label": "DEF",
         "color": "#72A6FF"
       },
       {
         "key": "crit",
-        "x": 1175,
+        "x": 1140,
         "label": "CRIT",
         "color": "#F0B84A"
       }
     ]
   },
   "record_label": {
-    "x": 590,
-    "y": 718,
+    "x": 555,
+    "y": 688,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -206,7 +206,7 @@
     "color": "#9298A4"
   },
   "record": {
-    "y": 742,
+    "y": 712,
     "box_w": 121,
     "box_h": 56,
     "gap": 22,
@@ -224,39 +224,39 @@
     "cols": [
       {
         "key": "raids",
-        "x": 656,
+        "x": 621,
         "label": "RAIDS"
       },
       {
         "key": "raidsWon",
-        "x": 788,
+        "x": 753,
         "label": "RAID WINS"
       },
       {
         "key": "raidStreak",
-        "x": 919,
+        "x": 884,
         "label": "RAID STREAK"
       },
       {
         "key": "duels",
-        "x": 1051,
+        "x": 1016,
         "label": "DUELS"
       },
       {
         "key": "duelWins",
-        "x": 1183,
+        "x": 1148,
         "label": "DUEL WINS"
       },
       {
         "key": "duelStreak",
-        "x": 1314,
+        "x": 1279,
         "label": "DUEL STREAK"
       }
     ]
   },
   "quote": {
-    "x": 985,
-    "y": 825,
+    "x": 950,
+    "y": 795,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "normal",

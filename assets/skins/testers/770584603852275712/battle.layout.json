@@ -1,0 +1,19 @@
+{
+  "_schema": "battle.v1 — DRAFT (no renderer yet). Top=player, bottom=enemy, split by the arena divider.",
+  "canvas": {
+    "w": 1536,
+    "h": 1024
+  },
+  "divider_y": 512,
+  "header": {
+    "x": 768,
+    "y": 36,
+    "anchor": "center",
+    "font": "DejaVu Sans",
+    "weight": "bold",
+    "size": 26,
+    "color": "#FFD54A"
+  },
+  "player": null,
+  "enemy": null
+}

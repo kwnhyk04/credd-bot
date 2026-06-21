@@ -17,7 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const pool = require('../src/db/pool');
 const {
-  SKINS_DIR, DIRS, BASE_ROWS, TOKEN_COSTS,
+  SKINS_DIR, DIRS, BASE_ROWS, TOKEN_COSTS, SET_FILES,
   parseStoreBasename, displayNameFromTokens, skinCode,
 } = require('../src/config/cosmetics');
 
@@ -40,6 +40,62 @@ function nameKeyOf(basename) {
   return toks.join('_');
 }
 
+// Category → short letter, used to mint equip codes for non-store sets (base-p, fdr-b, t1-r…).
+const CAT_LETTER = { profile: 'p', battle: 'b', battle_result: 'r', summon: 's' };
+
+// Pick the first present basename for a category inside a skins-relative set folder.
+function pickSetFile(relFolder, key) {
+  for (const cand of SET_FILES[key] || []) {
+    const abs = path.join(SKINS_DIR, ...relFolder.split('/'), cand);
+    if (fs.existsSync(abs)) return `${relFolder}/${cand}`;
+  }
+  return null;
+}
+
+/**
+ * Seed a non-store "set" folder (founder/ or testers/<id>/ or the testers/ default) as catalog
+ * rows so the skins show up in the collection. Ownership is by scope (cosmetic_key prefix),
+ * resolved in supporterEntitlements.ownedIdsResolved — these rows never appear in the shop.
+ */
+function setFolderEntries(relFolder, keyPrefix, tier, label, codePrefix) {
+  const out = [];
+  const push = (cat, rel, extra = {}) => out.push({
+    cosmetic_key: `${keyPrefix}_${cat}`, category: cat, tier, is_base: false,
+    display_name: `${label} ${cat.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}`,
+    token_cost: 0, has_top_label: cat === 'profile', skin_code: `${codePrefix}-${CAT_LETTER[cat]}`,
+    render_filename: null, victory_filename: null, defeated_filename: null,
+    display_filename: null, ...extra,
+  });
+
+  const prof = pickSetFile(relFolder, 'profile');
+  if (prof) push('profile', prof, { render_filename: prof, display_filename: prof });
+  const batt = pickSetFile(relFolder, 'battle');
+  if (batt) push('battle', batt, { render_filename: batt, display_filename: batt });
+  const vic = pickSetFile(relFolder, 'victory');
+  const def = pickSetFile(relFolder, 'defeated');
+  if (vic || def) push('battle_result', vic || def, { victory_filename: vic, defeated_filename: def, display_filename: vic || def });
+  const summ = pickSetFile(relFolder, 'summon');
+  if (summ) push('summon', summ, { render_filename: summ, display_filename: summ });
+  return out;
+}
+
+// Founder set (dev-owned, limited) + tester default (everyone, beta) + per-tester custom folders.
+function nonStoreEntries() {
+  const out = [];
+  out.push(...setFolderEntries(DIRS.founder, 'founder', 'eternal', 'Founder', 'fdr'));
+  out.push(...setFolderEntries(DIRS.testers, 'tester_default', 'believer', 'Beta', 'beta'));
+  const testersAbs = path.join(SKINS_DIR, ...DIRS.testers.split('/'));
+  try {
+    let idx = 0;
+    for (const e of fs.readdirSync(testersAbs, { withFileTypes: true })) {
+      if (!e.isDirectory()) continue;
+      idx += 1; // per-tester equip codes t1-*, t2-*, … by folder order
+      out.push(...setFolderEntries(`${DIRS.testers}/${e.name}`, `tester_${e.name}`, 'believer', 'Tester', `t${idx}`));
+    }
+  } catch { /* no testers dir */ }
+  return out;
+}
+
 function buildEntries() {
   const entries = [];
 
@@ -50,7 +106,7 @@ function buildEntries() {
     entries.push({
       cosmetic_key: b.key, category: b.category, tier: 'believer', is_base: true,
       display_name: 'Base ' + b.category.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-      token_cost: 0, has_top_label: !!b.has_top_label,
+      token_cost: 0, has_top_label: !!b.has_top_label, skin_code: `base-${CAT_LETTER[b.category]}`,
       render_filename: b.render || null,
       victory_filename: b.victory || null,
       defeated_filename: b.defeated || null,
@@ -123,6 +179,9 @@ function buildEntries() {
     });
   }
 
+  // ── Non-store sets (founder / tester default / per-tester customs) ─────────
+  entries.push(...nonStoreEntries());
+
   return entries;
 }
 
@@ -137,8 +196,11 @@ async function main() {
   try {
     await client.query('BEGIN');
     for (const e of entries) {
-      // skin_code = the lowercase trailing token (p1/b2/r3/s2); null for base rows. §0 addendum2.
-      const code = e.is_base ? null : (skinCode(e.cosmetic_key) || '').toLowerCase() || null;
+      // Equip code: an explicit per-set code (base-p / fdr-b / t1-r / beta-p) when the entry carries
+      // one, else the store skin's trailing token (p1/b2/r3/s2). Every row now has an equip ID.
+      const code = e.skin_code !== undefined
+        ? e.skin_code
+        : ((skinCode(e.cosmetic_key) || '').toLowerCase() || null);
       await client.query(
         `INSERT INTO cosmetic_catalog
            (cosmetic_key, category, tier, display_name, token_cost, is_base, has_top_label,
