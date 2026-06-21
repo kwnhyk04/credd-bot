@@ -42,19 +42,17 @@ function layoutPathFor(skinPath) {
   return skinPath.replace(/\.[^.]+$/, '.layout.json');
 }
 
-function isStyle(value) {
-  return value && Number.isFinite(value.x) && Number.isFinite(value.y);
-}
-
 function isRect(value) {
   return value && Number.isFinite(value.x) && Number.isFinite(value.y) &&
     Number.isFinite(value.w) && Number.isFinite(value.h);
 }
 
 function validateResultLayout(layout) {
+  // Only the reward PANEL is required — the renderer draws nothing but rewards
+  // (the art already carries the VICTORY/DEFEATED emblem).
   return !!(layout && layout.canvas &&
     Number.isFinite(layout.canvas.w) && Number.isFinite(layout.canvas.h) &&
-    isRect(layout.panel) && isStyle(layout.title) && isStyle(layout.subtitle));
+    isRect(layout.panel));
 }
 
 /** Load and cache a result skin image together with its own colocated layout. */
@@ -91,31 +89,6 @@ async function loadResultSkin(skinPath) {
 
 function fontOf(family, weight, size) {
   return `${weight === 'bold' ? 'bold ' : ''}${Math.max(10, Math.round(Number(size) || 16))}px "${family || FONT_FALLBACK}"`;
-}
-
-function anchorOf(anchor) {
-  return ['left', 'center', 'right'].includes(anchor) ? anchor : 'left';
-}
-
-/** Draw a single configured line, shrinking + ellipsizing to max_width. */
-function drawFittedText(ctx, rawText, style) {
-  const text = String(rawText ?? '');
-  const maxWidth = Number(style.max_width) || Infinity;
-  let size = Number(style.size) || 16;
-  ctx.font = fontOf(style.font, style.weight, size);
-  while (size > 10 && ctx.measureText(text).width > maxWidth) {
-    size -= 1;
-    ctx.font = fontOf(style.font, style.weight, size);
-  }
-  let fitted = text;
-  if (ctx.measureText(fitted).width > maxWidth) {
-    while (fitted.length > 1 && ctx.measureText(`${fitted}…`).width > maxWidth) fitted = fitted.slice(0, -1);
-    fitted = `${fitted}…`;
-  }
-  ctx.textAlign = anchorOf(style.anchor);
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = style.color || '#FFFFFF';
-  ctx.fillText(fitted, style.x, style.y);
 }
 
 /** The reward entries for an outcome — one centered row each. */
@@ -176,71 +149,91 @@ async function renderResultPanel(sim, rewards, skin, { loadIcon } = {}) {
     else ctx.fillRect(layout.plate.x, layout.plate.y, layout.plate.w, layout.plate.h);
   }
 
-  // title + subtitle (win/lose text resolved here; positions are absolute). Both
-  // default to drawing nothing when text is blank / disabled, because the result
-  // art usually already carries its own VICTORY/DEFEATED + "Rewards" banner.
-  const titleText = won ? (layout.title.win_text ?? 'VICTORY') : (layout.title.lose_text ?? 'DEFEATED');
-  if (titleText) drawFittedText(ctx, titleText, { ...layout.title, color: layout.title.color || accent });
-  if (layout.subtitle.enabled !== false) {
-    const subText = won ? `${sim.b.name} defeated!` : `Defeated by ${sim.b.name}…`;
-    drawFittedText(ctx, subText, layout.subtitle);
-  }
-
-  // ── reward rows: centered in the panel, sizes auto-scaled to panel height ──
+  // Draw ONLY the rewards — no VICTORY/DEFEATED word and no "<mob> defeated!"
+  // line (the result art already carries those). The layout's
+  // `rewards.orientation` ("horizontal" | "vertical") decides the arrangement
+  // per canvas; sizes auto-scale to the panel.
   const entries = buildEntries(won, rewards);
+  if (!entries.length) return canvas.toBuffer('image/png');
   const rw = layout.rewards || {};
   const cx = Number.isFinite(rw.center_x) ? rw.center_x : panel.x + panel.w / 2;
-  if (entries.length) {
-    const icons = await Promise.all(entries.map((e) => (loadIcon ? loadIcon(e.icon).catch(() => null) : Promise.resolve(null))));
-    const levelUp = won && rewards && rewards.leveledUp;
+  const cy = Number.isFinite(rw.center_y) ? rw.center_y : panel.y + panel.h / 2;
+  const icons = await Promise.all(entries.map((e) => (loadIcon ? loadIcon(e.icon).catch(() => null) : Promise.resolve(null))));
+  const levelUp = !!(won && rewards && rewards.leveledUp);
+  const horizontal = rw.orientation === 'horizontal';
 
+  // One reward entry = icon + value + label, left-anchored at (x, y) baseline-middle.
+  const entryWidth = (e, iconSize, valueSize, labelSize) => {
+    const gap = Math.round(iconSize * 0.28);
+    ctx.font = fontOf(rw.font, 'bold', valueSize);
+    const vw = ctx.measureText(e.value).width;
+    ctx.font = fontOf(rw.font, 'normal', labelSize);
+    const lw = ctx.measureText(`  ${e.label}`).width;
+    return iconSize + gap + vw + lw;
+  };
+  const drawEntry = (e, img, x, y, iconSize, valueSize, labelSize) => {
+    const gap = Math.round(iconSize * 0.28);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    if (img) {
+      ctx.drawImage(img, x, Math.round(y - iconSize / 2), iconSize, iconSize);
+    } else {
+      ctx.font = fontOf(rw.font, 'bold', iconSize);
+      ctx.fillStyle = e.glyphColor || accent;
+      ctx.fillText(e.glyph || '◆', x, y);
+    }
+    let xp = x + iconSize + gap;
+    ctx.font = fontOf(rw.font, 'bold', valueSize);
+    ctx.fillStyle = rw.value_color || accent;
+    ctx.fillText(e.value, xp, y);
+    xp += ctx.measureText(e.value).width;
+    ctx.font = fontOf(rw.font, 'normal', labelSize);
+    ctx.fillStyle = rw.label_color || '#D7DBE2';
+    ctx.fillText(`  ${e.label}`, xp, y);
+  };
+  const drawLevelUp = (y, size) => {
+    ctx.font = fontOf(rw.font, 'bold', size);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = rw.levelup_color || '#f0b232';
+    ctx.fillText(`LEVEL UP!   ${rewards.levelFrom} → ${rewards.levelTo}`, cx, y);
+  };
+
+  if (horizontal) {
+    // single centered row; scale from panel height, then shrink to panel width
+    let iconSize = Math.round(rw.icon_size || Math.max(26, Math.min(80, panel.h * (levelUp ? 0.30 : 0.42))));
+    let valueSize = Math.round(rw.value_size || iconSize * 0.58);
+    let labelSize = Math.round(rw.label_size || iconSize * 0.46);
+    const sep = () => Math.round(iconSize * 0.7);
+    const totalW = () => entries.reduce((s, e) => s + entryWidth(e, iconSize, valueSize, labelSize), 0) + sep() * (entries.length - 1);
+    const maxW = panel.w * 0.96;
+    if (totalW() > maxW) {
+      const k = maxW / totalW();
+      iconSize = Math.max(18, Math.round(iconSize * k));
+      valueSize = Math.max(11, Math.round(valueSize * k));
+      labelSize = Math.max(10, Math.round(labelSize * k));
+    }
+    const rowY = levelUp ? Math.round(cy - panel.h * 0.10) : cy;
+    let x = Math.round(cx - totalW() / 2);
+    for (let i = 0; i < entries.length; i++) {
+      drawEntry(entries[i], icons[i], x, rowY, iconSize, valueSize, labelSize);
+      x += entryWidth(entries[i], iconSize, valueSize, labelSize) + sep();
+    }
+    if (levelUp) drawLevelUp(Math.round(rowY + iconSize * 1.15), Math.round(rw.levelup_size || iconSize * 0.6));
+  } else {
+    // vertical stack, centered in the panel
     const iconSize = Math.round(rw.icon_size || Math.max(28, Math.min(72, panel.h * 0.12)));
     const valueSize = Math.round(rw.value_size || iconSize * 0.62);
     const labelSize = Math.round(rw.label_size || iconSize * 0.5);
     const rowGap = Math.round(rw.row_gap || iconSize * 1.55);
-    const luSize = Math.round(rw.levelup_size || iconSize * 0.6);
-
-    const blockH = entries.length * rowGap + (levelUp ? rowGap : 0);
-    let y = Math.round(panel.y + (panel.h - blockH) / 2 + iconSize / 2);
-
+    const rowsTotal = entries.length + (levelUp ? 1 : 0);
+    let y = Math.round(panel.y + (panel.h - rowsTotal * rowGap) / 2 + rowGap / 2);
     for (let i = 0; i < entries.length; i++) {
-      const e = entries[i];
-      const img = icons[i];
-      const gap = Math.round(iconSize * 0.28);
-      ctx.font = fontOf(rw.font, 'bold', valueSize);
-      const valueW = ctx.measureText(e.value).width;
-      ctx.font = fontOf(rw.font, 'normal', labelSize);
-      const labelW = ctx.measureText(`  ${e.label}`).width;
-      const rowW = iconSize + gap + valueW + labelW;
-      let x = Math.round(cx - rowW / 2);
-
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      if (img) {
-        ctx.drawImage(img, x, Math.round(y - iconSize / 2), iconSize, iconSize);
-      } else {
-        ctx.font = fontOf(rw.font, 'bold', iconSize);
-        ctx.fillStyle = e.glyphColor || accent;
-        ctx.fillText(e.glyph || '◆', x, y);
-      }
-      x += iconSize + gap;
-      ctx.font = fontOf(rw.font, 'bold', valueSize);
-      ctx.fillStyle = rw.value_color || accent;
-      ctx.fillText(e.value, x, y);
-      x += valueW;
-      ctx.font = fontOf(rw.font, 'normal', labelSize);
-      ctx.fillStyle = rw.label_color || '#D7DBE2';
-      ctx.fillText(`  ${e.label}`, x, y);
+      const w = entryWidth(entries[i], iconSize, valueSize, labelSize);
+      drawEntry(entries[i], icons[i], Math.round(cx - w / 2), y, iconSize, valueSize, labelSize);
       y += rowGap;
     }
-
-    if (levelUp) {
-      ctx.font = fontOf(rw.font, 'bold', luSize);
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = rw.levelup_color || '#f0b232';
-      ctx.fillText(`LEVEL UP!   ${rewards.levelFrom} → ${rewards.levelTo}`, cx, y);
-    }
+    if (levelUp) drawLevelUp(y, Math.round(rw.levelup_size || iconSize * 0.6));
   }
 
   return canvas.toBuffer('image/png');

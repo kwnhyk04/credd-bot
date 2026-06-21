@@ -1,34 +1,11 @@
 {
-  "_schema": "result.v1 — single outcome canvas; rewards centered in panel, themed to the art.",
+  "_schema": "result.v1 — rewards only (no title/name), centered in panel, themed to the art.",
   "canvas": {
     "w": 1536,
     "h": 1024
   },
   "theme_accent": "#7a85f5",
   "outcome": "defeated",
-  "title": {
-    "x": 759,
-    "y": 493,
-    "anchor": "center",
-    "font": "DejaVu Sans",
-    "weight": "bold",
-    "size": 48,
-    "color": "#7a85f5",
-    "max_width": 1038,
-    "win_text": "",
-    "lose_text": ""
-  },
-  "subtitle": {
-    "x": 759,
-    "y": 521,
-    "anchor": "center",
-    "font": "DejaVu Sans",
-    "weight": "bold",
-    "size": 26,
-    "color": "#E7E9EC",
-    "max_width": 1038,
-    "enabled": false
-  },
   "panel": {
     "x": 220,
     "y": 610,
@@ -36,6 +13,7 @@
     "h": 276
   },
   "rewards": {
+    "orientation": "horizontal",
     "center_x": 759,
     "value_color": "#7a85f5",
     "label_color": "#D7DBE2"
