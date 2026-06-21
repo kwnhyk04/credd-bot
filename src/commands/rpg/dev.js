@@ -395,12 +395,17 @@ async function devBattle(message, args, devId) {
     await reply(message,
       `🎲 Dev battle: **${mob.name}** (${mobRow.mob_type}, Lv ${level}) — seed \`${seed}\`. No rewards granted.`);
     let battleSkinPath = null;
+    let resultSkinPath = null;
     try {
       battleSkinPath = (await resolveSkin(pool, devId, 'battle')).path;
+      const variant = sim.winner === 'a' ? 'victory' : 'defeated';
+      resultSkinPath = (await resolveSkin(pool, devId, 'battle_result', { variant })).path;
     } catch (err) {
       console.warn('[dev battle] skin resolution:', err.message);
     }
-    await runBattle(message.channel, { mode: 'raid', sim, battleSkinPath });
+    await runBattle(message.channel, {
+      mode: 'raid', sim, battleSkinPath, resultSkinPath,
+    });
   } catch (err) {
     console.error('[dev battle]', err);
     return reply(message, 'Dev battle failed — nothing was consumed.');

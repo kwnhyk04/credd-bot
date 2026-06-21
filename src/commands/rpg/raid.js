@@ -226,8 +226,12 @@ async function execute(message) {
       // the summary object renders as battleRender's rewards strip
       const rewards = await commitRewards(discordId, sim, mobRow, rng);
       let battleSkinPath = null;
+      let resultSkinPath = null;
       try {
         battleSkinPath = (await resolveSkin(pool, discordId, 'battle')).path;
+        // STRICT outcome: win → victory canvas, loss → defeated canvas.
+        const variant = sim.winner === 'a' ? 'victory' : 'defeated';
+        resultSkinPath = (await resolveSkin(pool, discordId, 'battle_result', { variant })).path;
       } catch (err) {
         // Cosmetics are display-only; a resolver failure must never undo or
         // misreport an already-committed battle result.
@@ -237,6 +241,7 @@ async function execute(message) {
         mode: 'raid',
         sim,
         battleSkinPath,
+        resultSkinPath,
         rewards,
         notices: rewards.questNotices,
         onMessage: (msg) => pool.query(

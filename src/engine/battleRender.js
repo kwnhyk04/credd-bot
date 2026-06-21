@@ -41,6 +41,7 @@ const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const path = require('path');
 const { emojiForDisplay } = require('../utils/emojis');
 const { loadBattleSkin, renderBattleSkinPanel } = require('./battleLayoutRenderer');
+const { loadResultSkin, renderResultPanel } = require('./resultLayoutRenderer');
 
 const ROOT = path.join(__dirname, '..', '..');
 const FONT = 'DejaVu Sans';
@@ -497,26 +498,40 @@ function logEmbeds(sim) {
  */
 async function runBattle(channel, {
   mode, sim, rewards = null, onMessage = null, notices = [], battleSkinPath = null,
+  resultSkinPath = null,
 }) {
   const mirror = mode === 'duel';
-  const [icons, skin] = await Promise.all([
+  // STRICT outcome: resultSkinPath is the victory OR defeated canvas already
+  // chosen by the caller (resolveSkin variant) — never both. A null/invalid
+  // result skin falls through to the generic rewards strip below.
+  const [icons, skin, resultSkin] = await Promise.all([
     prefetchIcons(sim).catch(() => null),
     loadBattleSkin(battleSkinPath),
+    loadResultSkin(resultSkinPath),
   ]);
 
-  // rewards strip — rendered once, attached as a second embed on final frames
+  // result frame — rendered once, attached as a second embed on final frames.
+  // An equipped result skin paints the full themed victory/defeated canvas with
+  // rewards centered in its panel; otherwise the generic 640px strip is used.
   let resultEmbed = null;
   let rewardsBuffer = null;
-  if (rewards != null) {
+  if (resultSkin) {
+    rewardsBuffer = await renderResultPanel(sim, rewards, resultSkin, { loadIcon: getEmojiImage })
+      .catch((err) => {
+        console.warn('[battleRender] result skin panel:', err.message);
+        return null;
+      });
+  }
+  if (!rewardsBuffer && rewards != null) {
     rewardsBuffer = await renderRewardsPanel(sim, rewards).catch((err) => {
       console.warn('[battleRender] rewards panel:', err.message);
       return null;
     });
-    if (rewardsBuffer) {
-      resultEmbed = new EmbedBuilder()
-        .setColor(sim.winner === 'a' ? 0x43d675 : 0xf23f43)
-        .setImage('attachment://rewards.png');
-    }
+  }
+  if (rewardsBuffer) {
+    resultEmbed = new EmbedBuilder()
+      .setColor(sim.winner === 'a' ? 0x43d675 : 0xf23f43)
+      .setImage('attachment://rewards.png');
   }
 
   const noticeLine = notices.length ? notices.join('\n') : null;
