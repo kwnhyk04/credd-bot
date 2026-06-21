@@ -1,0 +1,171 @@
+{
+  "_schema": "battle.v1 — top=player, bottom=enemy; colours themed to the canvas.",
+  "canvas": {
+    "w": 1536,
+    "h": 1024
+  },
+  "player": {
+    "panel": {
+      "x": 237,
+      "y": 129,
+      "w": 1042,
+      "h": 370
+    },
+    "name": {
+      "x": 265,
+      "y": 209,
+      "anchor": "left",
+      "font": "DejaVu Sans",
+      "weight": "bold",
+      "size": 32,
+      "color": "#FFFFFF",
+      "max_width": 592
+    },
+    "sub": {
+      "x": 265,
+      "y": 249,
+      "anchor": "left",
+      "font": "DejaVu Sans",
+      "weight": "bold",
+      "size": 18,
+      "color": "#f2bb6d",
+      "max_width": 592
+    },
+    "loadout": {
+      "x": 265,
+      "y": 279,
+      "anchor": "left",
+      "font": "DejaVu Sans",
+      "weight": "normal",
+      "size": 16,
+      "color": "#C9CDD6",
+      "max_width": 710
+    },
+    "hp_text": {
+      "x": 1251,
+      "y": 209,
+      "anchor": "right",
+      "font": "DejaVu Sans",
+      "weight": "bold",
+      "size": 24,
+      "color": "#f2bb6d"
+    },
+    "hp_bar": {
+      "x": 265,
+      "y": 334,
+      "w": 947,
+      "h": 18,
+      "radius": 9,
+      "fill": "#f2bb6d",
+      "track": "rgba(0,0,0,0.45)"
+    },
+    "stats": {
+      "x": 265,
+      "y": 389,
+      "anchor": "left",
+      "font": "DejaVu Sans",
+      "weight": "bold",
+      "size": 18,
+      "gap": 130,
+      "cols": [
+        {
+          "key": "atk",
+          "label": "ATK",
+          "color": "#FF6B62"
+        },
+        {
+          "key": "def",
+          "label": "DEF",
+          "color": "#72A6FF"
+        },
+        {
+          "key": "crit",
+          "label": "CRIT",
+          "color": "#F0B84A"
+        }
+      ]
+    }
+  },
+  "enemy": {
+    "panel": {
+      "x": 237,
+      "y": 551,
+      "w": 1049,
+      "h": 387
+    },
+    "name": {
+      "x": 265,
+      "y": 631,
+      "anchor": "left",
+      "font": "DejaVu Sans",
+      "weight": "bold",
+      "size": 32,
+      "color": "#FFFFFF",
+      "max_width": 596
+    },
+    "sub": {
+      "x": 265,
+      "y": 671,
+      "anchor": "left",
+      "font": "DejaVu Sans",
+      "weight": "bold",
+      "size": 18,
+      "color": "#f2bb6d",
+      "max_width": 596
+    },
+    "loadout": {
+      "x": 265,
+      "y": 701,
+      "anchor": "left",
+      "font": "DejaVu Sans",
+      "weight": "normal",
+      "size": 16,
+      "color": "#C9CDD6",
+      "max_width": 715
+    },
+    "hp_text": {
+      "x": 1258,
+      "y": 631,
+      "anchor": "right",
+      "font": "DejaVu Sans",
+      "weight": "bold",
+      "size": 24,
+      "color": "#f2bb6d"
+    },
+    "hp_bar": {
+      "x": 265,
+      "y": 756,
+      "w": 953,
+      "h": 18,
+      "radius": 9,
+      "fill": "#f2bb6d",
+      "track": "rgba(0,0,0,0.45)"
+    },
+    "stats": {
+      "x": 265,
+      "y": 811,
+      "anchor": "left",
+      "font": "DejaVu Sans",
+      "weight": "bold",
+      "size": 18,
+      "gap": 130,
+      "cols": [
+        {
+          "key": "atk",
+          "label": "ATK",
+          "color": "#FF6B62"
+        },
+        {
+          "key": "def",
+          "label": "DEF",
+          "color": "#72A6FF"
+        },
+        {
+          "key": "crit",
+          "label": "CRIT",
+          "color": "#F0B84A"
+        }
+      ]
+    }
+  }
+}

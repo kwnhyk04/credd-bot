@@ -79,7 +79,7 @@ const CATEGORIES = [
       { canonical: 'shop', cmd: 'crd shop', desc: 'Browse the supporter skin shop' },
       { canonical: 'buy', cmd: 'crd buy [id]', desc: 'Claim a shop skin with tokens' },
       { canonical: 'skin', cmd: 'crd skin collection (skin list)', desc: 'Your skins + their equip IDs' },
-      { canonical: 'equip', cmd: 'crd equip skin [id]', desc: 'Equip a skin by ID (e.g. p1, base-p, t1-p)' },
+      { canonical: 'equip', cmd: 'crd equip skin [id]', desc: 'Equip a skin by ID (e.g. p1, pb, pt1)' },
       { canonical: 'use', cmd: 'crd use skin [id]', desc: 'Equip a skin (alias of equip skin)' },
       { canonical: 'set', cmd: 'crd set all skin default', desc: 'Reset all skins to the default templates' },
     ],

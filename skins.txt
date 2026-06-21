@@ -16,3 +16,9 @@ Eternal Flame P4 | 'e_eternal_flame_p4' | 1517970031026110664
 Aurora Constellation P3 | 'e_aurora_constellation_p3' | 1517970025057620119
 Laurel Runes Blue P2 | 'c_laurel_runes_blue_p2' | 1517970022469865532
 Divine Radiance P1 | 'c_divine_radiance_p1' | 1517970020657922158
+Philippine Myth Profile Skin | 'ph_profile' | 1518387864570822708
+Philippine Myth Battle Skin | 'ph_battle' | 1518387863044096070
+Norse Myth Profile Skin | 'norse_profile' | 1518387861114585278
+Norse Myth Battle Skin | 'norse_battle' | 1518387858803654829
+Greek Myth Profile Skin | 'greek_profile' | 1518387856828010527
+Greek Myth Battle Skin | 'greek_battle' | 1518387854814871552

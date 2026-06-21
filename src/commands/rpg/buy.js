@@ -53,7 +53,7 @@ async function execute(message, { args }) {
     await ent.grantCosmeticTx(client, ownerId, skin.cosmetic_id, 'shop');
     await client.query('COMMIT');
     return reply(message,
-      `${skinEmojiByCode(skin.skin_code)} Bought **${skin.display_name}** (\`${skin.skin_code}\`) for ${skin.token_cost} ${iconToken()}. ` +
+      `${skinEmojiByCode(skin.skin_code, skin.category, skin.cosmetic_key)} Bought **${skin.display_name}** (\`${skin.skin_code}\`) for ${skin.token_cost} ${iconToken()}. ` +
       `Balance: **${res.balance}**. Equip: \`crd use skin ${skin.skin_code}\`.`);
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});

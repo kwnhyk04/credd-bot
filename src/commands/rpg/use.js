@@ -53,7 +53,7 @@ async function execute(message, { args }) {
     client.release();
   }
   return reply(message,
-    `${skinEmojiByCode(skin.skin_code)} Equipped **${skin.display_name}** (\`${skin.skin_code}\`) as your ${CAT_WORD[skin.category]} skin.`);
+    `${skinEmojiByCode(skin.skin_code, skin.category, skin.cosmetic_key)} Equipped **${skin.display_name}** (\`${skin.skin_code}\`) as your ${CAT_WORD[skin.category]} skin.`);
 }
 
 module.exports = { execute };

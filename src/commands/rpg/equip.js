@@ -47,7 +47,7 @@ async function equipSkin(message, args) {
   }
   const codeTxt = skin.skin_code ? ` (\`${skin.skin_code}\`)` : '';
   return reply(message,
-    `${skinEmojiByCode(skin.skin_code)} Equipped **${skin.display_name}**${codeTxt} as your ${CAT_WORD[skin.category]} skin.`);
+    `${skinEmojiByCode(skin.skin_code, skin.category, skin.cosmetic_key)} Equipped **${skin.display_name}**${codeTxt} as your ${CAT_WORD[skin.category]} skin.`);
 }
 
 /**

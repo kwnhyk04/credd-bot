@@ -36,12 +36,33 @@ const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 function clampPage(p) { return Math.min(Math.max(0, p | 0), PAGES.length - 1); }
 
+// Collection ordering: Founder → Beta (tester default) → Base → shop skins
+// (ascending by code) → other tester customs.
+function collectionRank(s) {
+  const k = s.cosmetic_key || '';
+  if (k.startsWith('founder_')) return 0;
+  if (k.startsWith('tester_default_')) return 1;
+  if (s.is_base) return 2;
+  if (ent.isShopCatalog(s)) return 3;
+  return 4; // per-tester customs
+}
+function sortCollection(skins) {
+  return skins.slice().sort((a, b) => {
+    const ra = collectionRank(a), rb = collectionRank(b);
+    if (ra !== rb) return ra - rb;
+    const ca = (a.skin_code || a.display_name || '').toLowerCase();
+    const cb = (b.skin_code || b.display_name || '').toLowerCase();
+    return ca < cb ? -1 : ca > cb ? 1 : 0;
+  });
+}
+
 async function gather(db, viewerId, page, ctx = 'shop') {
   const category = PAGES[clampPage(page)];
   let skins = await ent.listActiveCatalog(db, category);
   // Shop/dev contexts only list purchasable store skins (+ free base); the collection shows
   // everything owned, including scope-owned tester defaults, per-tester customs, and founder set.
   if (ctx !== 'coll') skins = skins.filter((s) => s.is_base || ent.isShopCatalog(s));
+  else skins = sortCollection(skins);
   const owned = await ent.ownedIdsResolved(db, viewerId);
   const equipped = await ent.getEquipped(db, viewerId);
   const sup = await ent.getSupporter(db, viewerId);
@@ -54,7 +75,7 @@ async function gather(db, viewerId, page, ctx = 'shop') {
 
 function skinRow(s, owned, equippedId, ctx) {
   const isOwned = owned.has(s.cosmetic_id);
-  const emo = skinEmojiByCode(s.skin_code, s.category);
+  const emo = skinEmojiByCode(s.skin_code, s.category, s.cosmetic_key);
   const code = s.skin_code ? ` \`${s.skin_code}\`` : '';
   const lock = isOwned ? '' : ' 🔒';                 // ownership shown ONLY by the lock's absence
   const name = isOwned ? `**${s.display_name}**` : `*${s.display_name}*`;
@@ -101,7 +122,7 @@ async function buildShopPage(db, viewerId, { page = 0, ctx = 'shop' } = {}) {
   container.addSeparatorComponents(sep);
   container.addTextDisplayComponents((td) => td.setContent(
     ctx === 'coll'
-      ? '-# 💡 Equip: `crd equip skin p1` ・ Tester `t1-p` ・ Base `base-p` ・ Reset `crd set all skin default`'
+      ? '-# 💡 Equip: `crd equip skin p1` ・ Tester `pt1` ・ Base `pb` ・ Reset `crd set all skin default`'
       : '-# 💡 Buy: `crd buy p1` ・ Equip after: `crd equip skin p1` ・ Your skins: `crd skin collection`'
   ));
   container.addSeparatorComponents(sep);
@@ -140,7 +161,7 @@ async function buildPreview(db, viewerId, { page = 0, idx = 0, ctx = 'shop', var
   idx = ((idx % skins.length) + skins.length) % skins.length; // wrap
   const skin = skins[idx];
 
-  const emo = skinEmojiByCode(skin.skin_code, skin.category);
+  const emo = skinEmojiByCode(skin.skin_code, skin.category, skin.cosmetic_key);
   const codeTxt = skin.skin_code ? ` · \`${skin.skin_code}\`` : '';
   const isOwned = owned.has(skin.cosmetic_id);
   const ownedMark = ctx === 'coll'

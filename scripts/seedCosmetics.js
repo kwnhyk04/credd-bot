@@ -40,8 +40,20 @@ function nameKeyOf(basename) {
   return toks.join('_');
 }
 
-// Category → short letter, used to mint equip codes for non-store sets (base-p, fdr-b, t1-r…).
+// Category → short letter, used to mint equip codes for non-store sets.
+// Convention (no dashes): base `<L>b`, beta(tester_default) `<L>b1`, tester N `<L>t<N>`.
 const CAT_LETTER = { profile: 'p', battle: 'b', battle_result: 'r', summon: 's' };
+
+// Founder set uses fixed two-letter equip codes.
+const FOUNDER_CODE = { profile: 'fp', battle: 'bp', battle_result: 'rf', summon: 'sf' };
+
+// Themed store sets that don't follow the position-based store filename convention
+// (ph/norse/greek). Profile + battle only — seeded explicitly as purchasable shop rows.
+const THEMED_STORE = [
+  { theme: 'ph', display: 'Philippine Mythos', tier: 'chosen', pcode: 'p5', bcode: 'b7' },
+  { theme: 'norse', display: 'Norse Mythos', tier: 'chosen', pcode: 'p6', bcode: 'b8' },
+  { theme: 'greek', display: 'Greek Mythos', tier: 'chosen', pcode: 'p7', bcode: 'b9' },
+];
 
 // Pick the first present basename for a category inside a skins-relative set folder.
 function pickSetFile(relFolder, key) {
@@ -57,12 +69,12 @@ function pickSetFile(relFolder, key) {
  * rows so the skins show up in the collection. Ownership is by scope (cosmetic_key prefix),
  * resolved in supporterEntitlements.ownedIdsResolved — these rows never appear in the shop.
  */
-function setFolderEntries(relFolder, keyPrefix, tier, label, codePrefix) {
+function setFolderEntries(relFolder, keyPrefix, tier, label, codeFor) {
   const out = [];
   const push = (cat, rel, extra = {}) => out.push({
     cosmetic_key: `${keyPrefix}_${cat}`, category: cat, tier, is_base: false,
     display_name: `${label} ${cat.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}`,
-    token_cost: 0, has_top_label: cat === 'profile', skin_code: `${codePrefix}-${CAT_LETTER[cat]}`,
+    token_cost: 0, has_top_label: cat === 'profile', skin_code: codeFor(cat),
     render_filename: null, victory_filename: null, defeated_filename: null,
     display_filename: null, ...extra,
   });
@@ -82,15 +94,20 @@ function setFolderEntries(relFolder, keyPrefix, tier, label, codePrefix) {
 // Founder set (dev-owned, limited) + tester default (everyone, beta) + per-tester custom folders.
 function nonStoreEntries() {
   const out = [];
-  out.push(...setFolderEntries(DIRS.founder, 'founder', 'eternal', 'Founder', 'fdr'));
-  out.push(...setFolderEntries(DIRS.testers, 'tester_default', 'believer', 'Beta', 'beta'));
+  out.push(...setFolderEntries(DIRS.founder, 'founder', 'eternal', 'Founder', (cat) => FOUNDER_CODE[cat]));
+  out.push(...setFolderEntries(DIRS.testers, 'tester_default', 'believer', 'Beta', (cat) => `${CAT_LETTER[cat]}b1`));
   const testersAbs = path.join(SKINS_DIR, ...DIRS.testers.split('/'));
   try {
+    // Numeric-sorted folder order so each tester keeps a stable index (pt1..ptN)
+    // regardless of filesystem listing; a newer (larger) discord id sorts last.
+    const dirs = fs.readdirSync(testersAbs, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && /^\d+$/.test(e.name))
+      .map((e) => e.name)
+      .sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0));
     let idx = 0;
-    for (const e of fs.readdirSync(testersAbs, { withFileTypes: true })) {
-      if (!e.isDirectory()) continue;
-      idx += 1; // per-tester equip codes t1-*, t2-*, … by folder order
-      out.push(...setFolderEntries(`${DIRS.testers}/${e.name}`, `tester_${e.name}`, 'believer', 'Tester', `t${idx}`));
+    for (const name of dirs) {
+      idx += 1; // per-tester equip codes pt1/bt1/rt1/st1, pt2/… by numeric id order
+      out.push(...setFolderEntries(`${DIRS.testers}/${name}`, `tester_${name}`, 'believer', 'Tester', (cat) => `${CAT_LETTER[cat]}t${idx}`));
     }
   } catch { /* no testers dir */ }
   return out;
@@ -106,7 +123,7 @@ function buildEntries() {
     entries.push({
       cosmetic_key: b.key, category: b.category, tier: 'believer', is_base: true,
       display_name: 'Base ' + b.category.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-      token_cost: 0, has_top_label: !!b.has_top_label, skin_code: `base-${CAT_LETTER[b.category]}`,
+      token_cost: 0, has_top_label: !!b.has_top_label, skin_code: `${CAT_LETTER[b.category]}b`,
       render_filename: b.render || null,
       victory_filename: b.victory || null,
       defeated_filename: b.defeated || null,
@@ -179,6 +196,30 @@ function buildEntries() {
     });
   }
 
+  // ── Themed store sets (ph/norse/greek) — profile + battle only (no result/summon).
+  //    Plain filenames don't match the tier_name_<cat><n> store convention, so seed them
+  //    explicitly as purchasable shop rows with their own equip/buy codes.
+  for (const t of THEMED_STORE) {
+    const prof = `${DIRS.storeProfile}/${t.theme}_profile.png`;
+    if (fs.existsSync(path.join(SKINS_DIR, ...prof.split('/')))) {
+      entries.push({
+        cosmetic_key: `${t.theme}_profile`, category: 'profile', tier: t.tier, is_base: false,
+        display_name: t.display, token_cost: TOKEN_COSTS[t.tier], has_top_label: true,
+        render_filename: prof, display_filename: prof, victory_filename: null, defeated_filename: null,
+        skin_code: t.pcode,
+      });
+    }
+    const batt = `${DIRS.storeBattle}/${t.theme}_battle.png`;
+    if (fs.existsSync(path.join(SKINS_DIR, ...batt.split('/')))) {
+      entries.push({
+        cosmetic_key: `${t.theme}_battle`, category: 'battle', tier: t.tier, is_base: false,
+        display_name: t.display, token_cost: TOKEN_COSTS[t.tier], has_top_label: false,
+        render_filename: batt, display_filename: batt, victory_filename: null, defeated_filename: null,
+        skin_code: t.bcode,
+      });
+    }
+  }
+
   // ── Non-store sets (founder / tester default / per-tester customs) ─────────
   entries.push(...nonStoreEntries());
 
@@ -190,6 +231,16 @@ async function main() {
   if (entries.length === 0) {
     console.error('[seedCosmetics] No skin files found under', SKINS_DIR);
     process.exit(1);
+  }
+
+  if (process.argv.includes('--dry')) {
+    // Dry run: print what WOULD be seeded (no DB connection), for verifying codes.
+    for (const e of entries) {
+      const code = e.skin_code !== undefined ? e.skin_code : ((skinCode(e.cosmetic_key) || '').toLowerCase() || null);
+      console.log(`${(code || '—').padEnd(6)} ${e.category.padEnd(14)} ${String(e.tier).padEnd(9)} cost=${e.token_cost}  ${e.cosmetic_key}`);
+    }
+    console.log(`\n[dry] ${entries.length} rows (no DB writes).`);
+    return;
   }
 
   const client = await pool.connect();
@@ -222,7 +273,32 @@ async function main() {
       'UPDATE cosmetic_catalog SET is_active=false WHERE cosmetic_key <> ALL($1) AND is_active=true RETURNING cosmetic_key',
       [keys]
     );
+
+    // Auto-equip each tester's own set to their discord_id for any category they
+    // haven't set yet. Runtime `crd set all skin default` still resets at will; a
+    // later re-seed only re-fills categories that are currently empty (ON CONFLICT
+    // DO NOTHING), so a tester's custom/reset choice is never overwritten.
+    const testersAbs = path.join(SKINS_DIR, ...DIRS.testers.split('/'));
+    let tdirs = [];
+    try {
+      tdirs = fs.readdirSync(testersAbs, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && /^\d+$/.test(e.name)).map((e) => e.name);
+    } catch { /* none */ }
+    let equipped = 0;
+    for (const id of tdirs) {
+      const res = await client.query(
+        `INSERT INTO equipped_skins (discord_id, category, cosmetic_id, override_path, updated_at)
+           SELECT $1, c.category, c.cosmetic_id, NULL, NOW()
+             FROM cosmetic_catalog c
+            WHERE c.is_active = true AND c.cosmetic_key LIKE $2
+         ON CONFLICT (discord_id, category) DO NOTHING`,
+        [id, `tester_${id}_%`]
+      );
+      equipped += res.rowCount;
+    }
+
     await client.query('COMMIT');
+    if (equipped) console.log('[seedCosmetics] auto-equipped tester defaults:', equipped, 'category rows');
 
     // Summary by category/tier.
     const tally = {};

@@ -51,14 +51,17 @@ function load() {
 }
 
 /**
- * Emoji for a skin row. Resolves by skin_code first, then falls back to a neutral glyph
- * for the given category (base/tester/founder skins have no custom emoji of their own).
+ * Emoji for a skin row. Resolves by skin_code first, then by cosmetic_key (themed store
+ * sets like ph_profile carry their emoji under the key, not a p#/b# code), then falls back
+ * to a neutral glyph for the category (base/tester/founder skins have no custom emoji).
  */
-function skinEmojiByCode(code, category) {
+function skinEmojiByCode(code, category, cosmeticKey) {
   const m = load();
-  const key = String(code || '').toLowerCase();
-  if (m[key]) return m[key];
-  return FALLBACK_BY_CATEGORY[category] || FALLBACK_BY_LETTER[key.charAt(0)] || '🎨';
+  const ck = String(code || '').toLowerCase();
+  if (m[ck]) return m[ck];
+  const kk = String(cosmeticKey || '').toLowerCase();
+  if (kk && m[kk]) return m[kk];
+  return FALLBACK_BY_CATEGORY[category] || FALLBACK_BY_LETTER[ck.charAt(0)] || '🎨';
 }
 
 function iconToken() { return load().supporter_token || '🎟️'; }

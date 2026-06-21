@@ -1,0 +1,21 @@
+{
+  "_schema": "result.v1 — rewards only, centered in panel, themed to the art.",
+  "canvas": {
+    "w": 1536,
+    "h": 1024
+  },
+  "theme_accent": "#f5ad7a",
+  "outcome": "victory",
+  "panel": {
+    "x": 250,
+    "y": 531,
+    "w": 1034,
+    "h": 205
+  },
+  "rewards": {
+    "orientation": "horizontal",
+    "center_x": 767,
+    "value_color": "#f5ad7a",
+    "label_color": "#D7DBE2"
+  }
+}
