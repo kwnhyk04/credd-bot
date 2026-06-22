@@ -157,7 +157,6 @@ async function renderResultPanel(sim, rewards, skin, { loadIcon } = {}) {
   if (!entries.length) return canvas.toBuffer('image/png');
   const rw = layout.rewards || {};
   const cx = Number.isFinite(rw.center_x) ? rw.center_x : panel.x + panel.w / 2;
-  const cy = Number.isFinite(rw.center_y) ? rw.center_y : panel.y + panel.h / 2;
   const icons = await Promise.all(entries.map((e) => (loadIcon ? loadIcon(e.icon).catch(() => null) : Promise.resolve(null))));
   const levelUp = !!(won && rewards && rewards.leveledUp);
   const horizontal = rw.orientation === 'horizontal';
@@ -199,9 +198,16 @@ async function renderResultPanel(sim, rewards, skin, { loadIcon } = {}) {
     ctx.fillText(`LEVEL UP!   ${rewards.levelFrom} → ${rewards.levelTo}`, cx, y);
   };
 
+  // Reserve a strip at the top of the panel so the first reward clears the art's
+  // "Rewards Obtained" ribbon (the detected zone starts at that ribbon). Rewards
+  // center within the area below it. Tunable per-layout via rewards.top_reserve.
+  const reserve = Math.round(panel.h * (Number.isFinite(rw.top_reserve) ? rw.top_reserve : 0.18));
+  const availY = panel.y + reserve;
+  const availH = Math.max(80, panel.h - reserve);
+
   if (horizontal) {
-    // single centered row; scale from panel height, then shrink to panel width
-    let iconSize = Math.round(rw.icon_size || Math.max(36, Math.min(120, panel.h * (levelUp ? 0.36 : 0.50))));
+    // single centered row; scale from available height, then shrink to panel width
+    let iconSize = Math.round(rw.icon_size || Math.max(36, Math.min(120, availH * (levelUp ? 0.40 : 0.56))));
     let valueSize = Math.round(rw.value_size || iconSize * 0.58);
     let labelSize = Math.round(rw.label_size || iconSize * 0.46);
     const sep = () => Math.round(iconSize * 0.7);
@@ -213,7 +219,8 @@ async function renderResultPanel(sim, rewards, skin, { loadIcon } = {}) {
       valueSize = Math.max(11, Math.round(valueSize * k));
       labelSize = Math.max(10, Math.round(labelSize * k));
     }
-    const rowY = levelUp ? Math.round(cy - panel.h * 0.10) : cy;
+    const cyMid = availY + availH / 2;
+    const rowY = levelUp ? Math.round(cyMid - iconSize * 0.7) : Math.round(cyMid);
     let x = Math.round(cx - totalW() / 2);
     for (let i = 0; i < entries.length; i++) {
       drawEntry(entries[i], icons[i], x, rowY, iconSize, valueSize, labelSize);
@@ -221,16 +228,26 @@ async function renderResultPanel(sim, rewards, skin, { loadIcon } = {}) {
     }
     if (levelUp) drawLevelUp(Math.round(rowY + iconSize * 1.15), Math.round(rw.levelup_size || iconSize * 0.6));
   } else {
-    // vertical stack, centered in the panel
-    const iconSize = Math.round(rw.icon_size || Math.max(36, Math.min(104, panel.h * 0.16)));
-    const valueSize = Math.round(rw.value_size || iconSize * 0.62);
-    const labelSize = Math.round(rw.label_size || iconSize * 0.5);
-    const rowGap = Math.round(rw.row_gap || iconSize * 1.55);
+    // vertical list — rows share a common LEFT edge so the icons line up in a
+    // column and each row reads left→right (icon · value · label). The whole block
+    // is horizontally centered, fit to the available height, and vertically centered.
+    let iconSize = Math.round(rw.icon_size || Math.max(36, Math.min(104, availH * 0.18)));
+    let valueSize = Math.round(rw.value_size || iconSize * 0.62);
+    let labelSize = Math.round(rw.label_size || iconSize * 0.5);
+    let rowGap = Math.round(rw.row_gap || iconSize * 1.5);
     const rowsTotal = entries.length + (levelUp ? 1 : 0);
-    let y = Math.round(panel.y + (panel.h - rowsTotal * rowGap) / 2 + rowGap / 2);
+    if (rowsTotal * rowGap > availH) {
+      const k = availH / (rowsTotal * rowGap);
+      iconSize = Math.max(22, Math.round(iconSize * k));
+      valueSize = Math.max(13, Math.round(valueSize * k));
+      labelSize = Math.max(12, Math.round(labelSize * k));
+      rowGap = Math.round(rowGap * k);
+    }
+    const maxRowW = Math.max(...entries.map((e) => entryWidth(e, iconSize, valueSize, labelSize)));
+    const leftX = Math.round(cx - maxRowW / 2);
+    let y = Math.round(availY + (availH - rowsTotal * rowGap) / 2 + rowGap / 2);
     for (let i = 0; i < entries.length; i++) {
-      const w = entryWidth(entries[i], iconSize, valueSize, labelSize);
-      drawEntry(entries[i], icons[i], Math.round(cx - w / 2), y, iconSize, valueSize, labelSize);
+      drawEntry(entries[i], icons[i], leftX, y, iconSize, valueSize, labelSize);
       y += rowGap;
     }
     if (levelUp) drawLevelUp(y, Math.round(rw.levelup_size || iconSize * 0.6));
