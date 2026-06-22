@@ -159,7 +159,9 @@ async function renderResultPanel(sim, rewards, skin, { loadIcon } = {}) {
   const cx = Number.isFinite(rw.center_x) ? rw.center_x : panel.x + panel.w / 2;
   const icons = await Promise.all(entries.map((e) => (loadIcon ? loadIcon(e.icon).catch(() => null) : Promise.resolve(null))));
   const levelUp = !!(won && rewards && rewards.leveledUp);
-  const horizontal = rw.orientation === 'horizontal';
+  // Default to one centered left→right row (like the default rewards strip);
+  // only an explicit orientation:'vertical' stacks them.
+  const horizontal = rw.orientation !== 'vertical';
 
   // One reward entry = icon + value + label, left-anchored at (x, y) baseline-middle.
   const entryWidth = (e, iconSize, valueSize, labelSize) => {

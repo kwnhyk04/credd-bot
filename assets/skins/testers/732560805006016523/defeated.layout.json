@@ -13,7 +13,7 @@
     "h": 389
   },
   "rewards": {
-    "orientation": "vertical",
+    "orientation": "horizontal",
     "center_x": 888,
     "value_color": "#7ad6f5",
     "label_color": "#D7DBE2"
