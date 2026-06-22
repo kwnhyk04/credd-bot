@@ -307,7 +307,7 @@ function renderBattlePanel(sim, snapIdx, { mirror = false, icons = null, skin = 
   // Equipped skins use their own 1536x1024 art + colocated layout. A null skin
   // deliberately keeps the original generic 640px battle panel untouched.
   if (skin) {
-    const skinned = renderBattleSkinPanel(sim, snapIdx, skin, { mode });
+    const skinned = renderBattleSkinPanel(sim, snapIdx, skin, { mode, icons });
     if (skinned) return skinned;
   }
   const s = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];

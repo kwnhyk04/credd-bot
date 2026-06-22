@@ -164,6 +164,47 @@ function compactDetailText(fighter) {
   return `|  ${skill}`;
 }
 
+/**
+ * Player loadout drawn with the weapon + deity custom-emoji ICONS followed by their
+ * names (then any debuffs). Falls back to just the name when an icon image is missing.
+ * Honors the loadout style's anchor / max_width (shrinks the font to fit).
+ */
+function drawPlayerLoadout(ctx, style, fighter, state, icons) {
+  const segs = [
+    { img: icons && icons.weapon, text: fighter.weapon || 'None' },
+    { text: '   •   ', sep: true },
+    { img: icons && icons.deity, text: fighter.deity || 'None' },
+  ];
+  const dbuff = debuffText(state);
+  if (dbuff) segs.push({ text: dbuff, sep: true });
+
+  const maxW = Number(style.max_width) || Infinity;
+  let size = Number(style.size) || 16;
+  const widthAt = (sz) => {
+    ctx.font = fontOf(style, sz);
+    const ic = Math.round(sz * 1.2), gap = Math.round(sz * 0.28);
+    let w = 0;
+    for (const s of segs) { if (s.img) w += ic + gap; w += ctx.measureText(s.text).width; }
+    return { w, ic, gap };
+  };
+  let m = widthAt(size);
+  while (size > 10 && m.w > maxW) { size -= 1; m = widthAt(size); }
+
+  let x = style.x;
+  if (style.anchor === 'right') x = style.x - m.w;
+  else if (style.anchor === 'center') x = style.x - m.w / 2;
+  const iconY = Math.round(style.y - size * 0.95);
+  ctx.font = fontOf(style, size);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  for (const s of segs) {
+    if (s.img) { ctx.drawImage(s.img, x, iconY, m.ic, m.ic); x += m.ic + m.gap; }
+    ctx.fillStyle = s.sep ? (style.sep_color || '#9298A4') : (style.color || '#FFFFFF');
+    ctx.fillText(s.text, x, style.y);
+    x += ctx.measureText(s.text).width;
+  }
+}
+
 function drawHpBar(ctx, style, state) {
   const pct = Math.max(0, Math.min(1, state.maxHp > 0 ? state.hp / state.maxHp : 0));
   roundRect(ctx, style.x, style.y, style.w, style.h, style.radius);
@@ -194,7 +235,7 @@ function drawStats(ctx, fighter, style) {
   }
 }
 
-function drawSide(ctx, fighter, state, side) {
+function drawSide(ctx, fighter, state, side, sideIcons) {
   const name = drawFittedText(
     ctx,
     side.level ? fighter.name : `${fighter.name}${fighter.level ? `  Lv.${fighter.level}` : ''}`,
@@ -211,7 +252,12 @@ function drawSide(ctx, fighter, state, side) {
   if (loadoutStyle.flow_after_sub) {
     loadoutStyle.x = side.sub.x + sub.width + (Number(loadoutStyle.gap) || 14);
   }
-  drawFittedText(ctx, side.compact_summary ? compactDetailText(fighter) : detailText(fighter, state), loadoutStyle);
+  // Players show weapon + deity emoji icons in the loadout; mobs keep their skill text.
+  if (fighter.kind === 'player') {
+    drawPlayerLoadout(ctx, loadoutStyle, fighter, state, sideIcons);
+  } else {
+    drawFittedText(ctx, side.compact_summary ? compactDetailText(fighter) : detailText(fighter, state), loadoutStyle);
+  }
   drawFittedText(ctx, `${state.hp.toLocaleString()} / ${state.maxHp.toLocaleString()}`, side.hp_text);
   drawHpBar(ctx, side.hp_bar, state);
   drawStats(ctx, fighter, side.stats);
@@ -237,7 +283,7 @@ function drawAction(ctx, action, style) {
 }
 
 /** Render one battle snapshot over a preloaded equipped skin. */
-function renderBattleSkinPanel(sim, snapIdx, skin, { mode = sim.mode } = {}) {
+function renderBattleSkinPanel(sim, snapIdx, skin, { mode = sim.mode, icons = null } = {}) {
   if (!skin || !skin.image || !validateLayout(skin.layout)) return null;
   const layout = skin.layout;
   const state = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
@@ -260,8 +306,8 @@ function renderBattleSkinPanel(sim, snapIdx, skin, { mode = sim.mode } = {}) {
     const label = mode === 'duel' ? `DUEL • TURN ${state.round}` : `BATTLE • TURN ${state.round}`;
     drawFittedText(ctx, label, layout.header);
   }
-  drawSide(ctx, sim.a, state.a, layout.player);
-  drawSide(ctx, sim.b, state.b, layout.enemy);
+  drawSide(ctx, sim.a, state.a, layout.player, icons && icons.a);
+  drawSide(ctx, sim.b, state.b, layout.enemy, icons && icons.b);
   if (layout.actions && state.actions) {
     drawAction(ctx, state.actions.a, layout.actions.player);
     drawAction(ctx, state.actions.b, layout.actions.enemy);
