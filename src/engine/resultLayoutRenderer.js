@@ -228,9 +228,9 @@ async function renderResultPanel(sim, rewards, skin, { loadIcon } = {}) {
     }
     if (levelUp) drawLevelUp(Math.round(rowY + iconSize * 1.15), Math.round(rw.levelup_size || iconSize * 0.6));
   } else {
-    // vertical list — rows share a common LEFT edge so the icons line up in a
-    // column and each row reads left→right (icon · value · label). The whole block
-    // is horizontally centered, fit to the available height, and vertically centered.
+    // vertical list — each row reads left→right (icon · value · label) and is
+    // CENTER-aligned on the panel's center; the block is fit to the available
+    // height and vertically centered below the ribbon reserve.
     let iconSize = Math.round(rw.icon_size || Math.max(36, Math.min(104, availH * 0.18)));
     let valueSize = Math.round(rw.value_size || iconSize * 0.62);
     let labelSize = Math.round(rw.label_size || iconSize * 0.5);
@@ -243,11 +243,10 @@ async function renderResultPanel(sim, rewards, skin, { loadIcon } = {}) {
       labelSize = Math.max(12, Math.round(labelSize * k));
       rowGap = Math.round(rowGap * k);
     }
-    const maxRowW = Math.max(...entries.map((e) => entryWidth(e, iconSize, valueSize, labelSize)));
-    const leftX = Math.round(cx - maxRowW / 2);
     let y = Math.round(availY + (availH - rowsTotal * rowGap) / 2 + rowGap / 2);
     for (let i = 0; i < entries.length; i++) {
-      drawEntry(entries[i], icons[i], leftX, y, iconSize, valueSize, labelSize);
+      const w = entryWidth(entries[i], iconSize, valueSize, labelSize);
+      drawEntry(entries[i], icons[i], Math.round(cx - w / 2), y, iconSize, valueSize, labelSize);
       y += rowGap;
     }
     if (levelUp) drawLevelUp(y, Math.round(rw.levelup_size || iconSize * 0.6));
