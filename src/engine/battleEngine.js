@@ -25,9 +25,10 @@
  *        raid/boss → A.weapon → A.deity → mob skill (all on A's perspective)
  *        duel      → first actor's weapon → deity, then second actor's weapon → deity
  *     4. actions in actor order:
- *        PLAYER attack: main-hit variance (1 draw) → [Swordsman] bleed-value roll
- *        (1 draw, only when the main hit lands) → [labrys 2nd hit] crit (1) +
- *        variance (1) → [extra_turn] crit (1) + variance (1) + [Swordsman] bleed (1)
+ *        PLAYER attack: main-hit variance (1 draw) → [Swordsman] bleed draw (1, only
+ *        when the main hit lands — RESERVED for stream stability; the bleed value is now
+ *        a deterministic 8%/stack) → [labrys 2nd hit] crit (1) + variance (1) →
+ *        [extra_turn] crit (1) + variance (1) + [Swordsman] bleed (1)
  *        MOB attack: per sub-hit → crit (1 draw) + variance (1 draw)
  *
  * ROUND PIPELINE (§35.1/§13.1, rulings R1–R9):
@@ -40,23 +41,30 @@
  *   (death check per tick), stat-debuff expiry, sudden-death drain (round ≥ 30),
  *   snapshot per mode cadence. Hard cap round 50 (§35.3).
  *
+ * LOG DISPLAY ORDER ([Jun-2026]): execution is UNCHANGED (passives resolve before the
+ *   attacks to set up the hits), but each round's log is re-sequenced for readability to
+ *   [attacks] → [passive procs] → [end-of-round DOT / sudden-death], so a side's proc reads
+ *   as the consequence shown after its attack. Only sim.rounds[].events ordering changes.
+ *
  * SNAPSHOT CADENCE ([v4.2], mode-dependent — the renderer's edit loop consumes
  *   whatever arrives; the start + final snapshots are always present):
  *     duel/raid → rounds 1,4,16,…   boss → every 3rd round
  *
- * MAGE OVERCHARGE ([v4.2], §11/§13.1): the charge accumulator is gone. On every
- *   3rd round of the battle clock (rounds 3,6,9,…) the Mage's MAIN hit is a fixed ×2.5
- *   ([v4.4], was ×3) AND the entire attack's crit is suppressed (pre-roll latch voided,
- *   nextAttackAutoCrit ignored), with no damage-% rider. Rider hits in the same action
- *   (Labrys 2nd, Glacial Bow extra) are NOT the overcharge attack — they keep fresh crit
- *   rolls and the normal multiplier.
+ * MAGE OVERCHARGE ([v4.2], §11/§13.1; [Jun-2026] stacks damage%): the charge accumulator
+ *   is gone. On every 3rd round (rounds 3,6,9,…) the Mage's MAIN hit is ×(2.5 + damage%/100)
+ *   ([v4.4] base was ×3) AND the entire attack's crit is suppressed (pre-roll latch voided,
+ *   nextAttackAutoCrit ignored) — STRICT no-crit. The damage-% lane (weapon bonusDmgPct +
+ *   procced damageBonusPct; e.g. a 200% proc → ×4.5) now stacks ADDITIVELY onto the 2.5
+ *   base, and ATK-mult procs (Mjolnir) already fold in via effATK. Rider hits in the same
+ *   action (Labrys 2nd, Glacial Bow extra) are NOT the overcharge attack — they keep fresh
+ *   crit rolls and the normal multiplier.
  *   Skip-CC on a multiple of 3 → the action never runs → that overcharge is simply lost
  *   (no carry-over); the next fires on the next multiple of 3.
  *
  * DAMAGE PIPELINE (per hit) — ONE unified rule (§35.2 / config/combat):
  *   base = effATK × (1 − effDEF/(effDEF+200)) × variance(0.90–1.10)
  *   then exactly one multiplier:
- *     overcharge (Mage 3rd round): ×2.5 fixed, no crit, no rider
+ *     overcharge (Mage 3rd round): ×(2.5 + damage%/100), no crit (damage% stacks; ATK-mult via effATK)
  *     otherwise:                   ×((critLevel ? 2.0 : 1) + damage%/100)
  *   critLevel = a rolled crit OR a Double (Idiyanale, a guaranteed crit-level hit that DOES
  *   take the rider). damage% = weapon bonusDmgPct + procced sources (Katana +30, future
@@ -92,6 +100,8 @@ const MITIGATION_K = 200;         // §12: 1 − DEF/(DEF+200)
 const ARCHER_PIERCE = 0.25;
 const KNIGHT_DR = 0.80;
 const OVERCHARGE_EVERY = 3;       // [v4.2] fires on rounds 3, 6, 9, …
+const BLEED_PCT_PER_STACK = 0.08; // [Jun-2026] Swordsman: 8% of ATK per stack, per turn
+const BLEED_MAX_STACKS = 5;       // capped at 5 stacks = 40% of ATK
 
 const SKIP_TAGS = ['stun', 'paralyze', 'freeze', 'petrify', 'charm', 'confuse', 'miss'];
 const DOT_TAGS = ['bleed', 'burn', 'hp_pct_dot'];
@@ -496,11 +506,12 @@ function resolveBattle(a, b, opts = {}) {
 
   // ── player attack action ───────────────────────────────────────────────────
   const playerAttack = (S, O) => {
-    // Mage Overcharge: on every 3rd round the MAIN hit is a fixed ×2.5 ([v4.4], was ×3)
-    // AND the entire attack's crit is suppressed (pre-roll latch & nextAttackAutoCrit both
-    // voided), with no damage-% rider. Only the main hit qualifies — rider hits later in
-    // the same action (Labrys 2nd, Glacial Bow extra) keep their own crit rolls and the
-    // normal multiplier.
+    // Mage Overcharge: on every 3rd round the MAIN hit is ×(2.5 + damage%/100) ([v4.4] base
+    // was ×3) AND the entire attack's crit is suppressed (pre-roll latch & nextAttackAutoCrit
+    // both voided — STRICT no-crit). The damage-% lane stacks additively onto the 2.5 base
+    // ([Jun-2026]); ATK-mult procs fold in earlier via effATK. Only the main hit qualifies —
+    // rider hits later in the same action (Labrys 2nd, Glacial Bow extra) keep their own crit
+    // rolls and the normal multiplier.
     const overchargeRound = S.classPassive === 'overcharge' && shared.round % OVERCHARGE_EVERY === 0;
 
     const doHit = ({ atkScale, mainHit, critKnown }) => {
@@ -517,7 +528,7 @@ function resolveBattle(a, b, opts = {}) {
       //   hit = base × ((critLevel ? 2.0 : 1.0) + damage%/100)
       // Double (Idiyanale) is a GUARANTEED crit-level hit — same 2.0 base + damage%, so it
       // stacks with the rider (Supreme + double → ×2.5; Supreme + deity 50% + double → ×3.0).
-      // Overcharge (Mage 3rd round) is its own fixed lane: ×2.5, no crit, no rider.
+      // Overcharge (Mage 3rd round) is its own lane: ×(2.5 + damage%/100), no crit.
       const overchargeFired = mainHit && overchargeRound;
       const doubled = mainHit && S.scratch.nextAttackDouble && !overchargeFired;
       const critApplied = crit && !overchargeFired && !doubled;
@@ -525,7 +536,12 @@ function resolveBattle(a, b, opts = {}) {
 
       let dmg = mitigated(effAtk(S) * atkScale, def) * variance;
       if (overchargeFired) {
-        dmg *= OVERCHARGE_MULT;                   // ×2.5 fixed
+        // [Jun-2026] Overcharge stacks the damage-% lane ADDITIVELY onto the ×2.5 base,
+        // still with NO crit: e.g. a 200% damage-% proc → ×(2.5 + 2.0) = ×4.5. ATK-mult
+        // procs (e.g. Mjolnir) already fold in earlier through effAtk. A plain Mage
+        // (damage% 0) stays a clean ×2.5.
+        const damagePct = S.bonusDmgPct + S.scratch.damageBonusPct;
+        dmg *= OVERCHARGE_MULT + damagePct / 100;
       } else {
         const damagePct = S.bonusDmgPct + S.scratch.damageBonusPct;
         dmg *= hitMultiplier(critLevel, damagePct);
@@ -552,12 +568,20 @@ function resolveBattle(a, b, opts = {}) {
           }
         }
       }
-      // Swordsman bleed: refreshes on every attack; value rolled per attack (draw
-      // happens only when the hit landed — documented in the draw-order contract)
+      // Swordsman bleed [Jun-2026]: every landed attack ADDS a stack and refreshes the
+      // bleed to 2 turns. Each stack = 8% of the swordsman's ATK per turn, capped at 5
+      // stacks (40%). At the cap, further hits keep it at 40% and just reset the duration.
+      // Requires the swordsman to actually act — a skip-CC'd turn never reaches here.
+      // The per-attack rng draw is KEPT (consumed, unused) for draw-order stream stability
+      // now that the value is deterministic.
       if (S.classPassive === 'bleed' && !res.negated && !sideImmune(O, 'bleed')) {
         if (O.kind !== 'player' || !O.statusImmune) {
-          const bleedVal = S.atk * (0.30 + rng() * 0.20);
-          addDebuff(O, 'bleed', 2, bleedVal);
+          rng(); // reserved draw — stream stability (bleed value is deterministic now)
+          const ex = findDebuff(O, 'bleed');
+          const stacks = Math.min(BLEED_MAX_STACKS, (ex && ex.stacks ? ex.stacks : 0) + 1);
+          const value = stacks * BLEED_PCT_PER_STACK * S.atk;
+          if (ex) { ex.turnsLeft = 2; ex.value = Math.max(ex.value, value); ex.stacks = stacks; }
+          else O.debuffs.push({ tag: 'bleed', turnsLeft: 2, value, stacks, armed: false });
         }
       }
       // per-instance heals
@@ -829,7 +853,9 @@ function resolveBattle(a, b, opts = {}) {
     }
 
     // 4. actions
+    const procEnd = shared.events.length; // events so far = this round's passive procs
     for (const side of order) act(side);
+    const actionEnd = shared.events.length; // procEnd..actionEnd = the attack events
     // Capture the active moves before end-of-round DOT ticks/expiry alter their
     // damage and freshly-applied debuff durations.
     captureActions();
@@ -874,6 +900,14 @@ function resolveBattle(a, b, opts = {}) {
       }
     }
 
+    // [Jun-2026] Log DISPLAY order only (execution is unchanged — passives still resolve
+    // before the attacks to set up the hits): show each round's passive procs AFTER the
+    // attacks. Segments: [attacks] → [passive procs] → [end-of-round DOT / sudden death].
+    shared.events = [
+      ...shared.events.slice(procEnd, actionEnd),
+      ...shared.events.slice(0, procEnd),
+      ...shared.events.slice(actionEnd),
+    ];
     rounds.push({ round, events: shared.events, actions: lastActions });
     // [v4.8] snapshot cadence is mode-dependent: raid + duel snapshot on rounds 1,4,16,…
     // (multiplying the previous snapshot turn by 4), boss every 3rd (3,6,9…).
