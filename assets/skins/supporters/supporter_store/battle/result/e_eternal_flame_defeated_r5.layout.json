@@ -1,20 +1,20 @@
 {
-  "_schema": "result.v1 — rewards only (no title/name), centered in panel, themed to the art.",
+  "_schema": "result.v1 — rewards only, centered in panel, native canvas size, themed to art.",
   "canvas": {
-    "w": 1536,
-    "h": 1024
+    "w": 1774,
+    "h": 887
   },
   "theme_accent": "#f5c27a",
   "outcome": "defeated",
   "panel": {
-    "x": 122,
-    "y": 673,
-    "w": 1291,
-    "h": 217
+    "x": 174,
+    "y": 517,
+    "w": 1437,
+    "h": 296
   },
   "rewards": {
-    "orientation": "horizontal",
-    "center_x": 768,
+    "orientation": "vertical",
+    "center_x": 893,
     "value_color": "#f5c27a",
     "label_color": "#D7DBE2"
   }

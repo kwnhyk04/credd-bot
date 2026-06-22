@@ -201,7 +201,7 @@ async function renderResultPanel(sim, rewards, skin, { loadIcon } = {}) {
 
   if (horizontal) {
     // single centered row; scale from panel height, then shrink to panel width
-    let iconSize = Math.round(rw.icon_size || Math.max(26, Math.min(80, panel.h * (levelUp ? 0.30 : 0.42))));
+    let iconSize = Math.round(rw.icon_size || Math.max(36, Math.min(120, panel.h * (levelUp ? 0.36 : 0.50))));
     let valueSize = Math.round(rw.value_size || iconSize * 0.58);
     let labelSize = Math.round(rw.label_size || iconSize * 0.46);
     const sep = () => Math.round(iconSize * 0.7);
@@ -222,7 +222,7 @@ async function renderResultPanel(sim, rewards, skin, { loadIcon } = {}) {
     if (levelUp) drawLevelUp(Math.round(rowY + iconSize * 1.15), Math.round(rw.levelup_size || iconSize * 0.6));
   } else {
     // vertical stack, centered in the panel
-    const iconSize = Math.round(rw.icon_size || Math.max(28, Math.min(72, panel.h * 0.12)));
+    const iconSize = Math.round(rw.icon_size || Math.max(36, Math.min(104, panel.h * 0.16)));
     const valueSize = Math.round(rw.value_size || iconSize * 0.62);
     const labelSize = Math.round(rw.label_size || iconSize * 0.5);
     const rowGap = Math.round(rw.row_gap || iconSize * 1.55);
