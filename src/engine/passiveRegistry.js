@@ -502,13 +502,16 @@ const PASSIVE_REGISTRY = {
 
   'spear_of_ares': stackingAtk('spear_of_ares_stack', 0.08, 0.40, 2),
 
-  'helm_of_darkness': chanceEnemyDebuff(0.25, 'miss', 1, null,
-    '🪖 Helm of Darkness: Invisibility — Enemy will miss next attack!'),
+  // [v5] Promoted to Supreme Light armor — reworked from "enemy miss" to a DEF shred
+  // (matches the v5 armor_roster seed): 30% chance each turn → enemy DEF -50% for 2 turns.
+  'helm_of_darkness': chanceEnemyDebuff(0.30, 'def_down', 2, () => 0.50,
+    '🪖 Helm of Darkness: Invisibility — Enemy DEF -50% for 2 turns!'),
 
   'aegis': (bs) => {
-    // 20% chance per turn: Stone Stack; at 3 stacks stun 1 turn and reset
+    // [v5] Promoted to Supreme armor — proc raised 20% → 50%.
+    // 50% chance per turn: Stone Stack; at 3 stacks stun 1 turn and reset
     if (!bs.flags.aegis_stacks) bs.flags.aegis_stacks = 0;
-    if (bs.rng() < 0.20) {
+    if (bs.rng() < 0.50) {
       bs.flags.aegis_stacks += 1;
       bs.log.push(`🛡️ Aegis: Medusa's Gaze — Stone Stack! (${bs.flags.aegis_stacks}/3)`);
       if (bs.flags.aegis_stacks >= 3) {
@@ -585,6 +588,68 @@ const PASSIVE_REGISTRY = {
     }
   },
 
+  // ── ARMOR PASSIVES — v5 (defensive; fire alongside weapon/deity each round) ─
+  // Mapped from credd_v5_new_armor_passives.js placeholder API → this engine's
+  // real bs model (flags + scratch mults). aegis / helm_of_darkness already live
+  // in the weapon section above (shared keys, updated for their Supreme armor form).
+
+  // Kalasag — Bulwark Hide: incoming damage −3% (additive incoming lane, post-DEF).
+  'kalasag': constantSelfBuff(0, 0, -0.03),
+
+  // Hoplite Panoply — Phalanx Wall: incoming damage −15%.
+  'hoplite_panoply': constantSelfBuff(0, 0, -0.15),
+
+  // Mail of Brokkr — Dwarven Forge: incoming −30% AND reflect 15% of damage taken.
+  // The engine adds mail_brokkr_reflect to the reflect sum on the FINAL applied hit.
+  'mail_of_brokkr': (bs) => {
+    bs.bonusIncomingDmgMult += -0.30;
+    bs.flags.mail_brokkr_reflect = 0.15;
+  },
+
+  // Wolfskin Cloak — Wolf's Vigor: regen 10% max HP at the start of each round.
+  'wolfskin_cloak': regenSelf(1, 0.10,
+    (heal) => `🐺 Wolfskin Cloak: Wolf's Vigor — Regenerated ${heal} HP!`),
+
+  // Salakot Ward — Spirit Ward: 20% chance to negate an incoming debuff. The roll
+  // happens in the engine's addDebuff() at apply-time (see battleEngine §13.1 hook).
+  'salakot_ward': (bs) => {
+    bs.flags.salakot_negate_chance = 0.20;
+  },
+
+  // Anting-Anting Sash — Charmed Hide: immune to Stun / Petrify / Freeze (typed).
+  // Other debuffs still land; engine addDebuff() honors immune_cc_types.
+  'anting_anting_sash': (bs) => {
+    bs.flags.immune_cc_types = ['stun', 'petrify', 'freeze'];
+  },
+
+  // Valkyrie's Mantle — Chooser's Grace: 20% evade, clamped so TOTAL evade across
+  // all sources (amihan/loki/…) never exceeds 40% (v5 resolver cap). Always draws
+  // once (stream stability), even when the cap leaves zero headroom.
+  'valkyrie_mantle': (bs) => {
+    const used = bs.flags.evade_chance_used || 0;
+    const chance = Math.min(0.20, Math.max(0, 0.40 - used));
+    bs.flags.evade_chance_used = used + chance;
+    const roll = bs.rng();
+    bs.flags.valkyrie_evade_check = roll < chance;
+    if (bs.flags.valkyrie_evade_check) {
+      bs.log.push('🪽 Valkyrie\'s Mantle: Chooser\'s Grace — Attack evaded!');
+    }
+  },
+
+  // Mantle of Bathala — Divine Aegis: +5% HP and +5% DEF every turn, stacking to
+  // +100% each. DEF via the def multiplier; HP via the engine's Bathala HP ramp
+  // (bathala_hp_fraction → applyBathala). Stack persists for the battle.
+  'mantle_of_bathala': (bs) => {
+    if (!bs.flags.mantle_bathala_stacks) bs.flags.mantle_bathala_stacks = 0;
+    if (bs.flags.mantle_bathala_stacks < 1.00) {
+      bs.flags.mantle_bathala_stacks = Math.min(bs.flags.mantle_bathala_stacks + 0.05, 1.00);
+    }
+    const frac = bs.flags.mantle_bathala_stacks;
+    bs.playerDefMult += frac;
+    bs.flags.bathala_hp_fraction = frac;
+    bs.log.push(`🛡️ Mantle of Bathala: Divine Aegis — +${Math.round(frac * 100)}% HP/DEF!`);
+  },
+
   // ── DEITY BLESSINGS — Philippine ─────────────────────────────────────────
 
   'bathala_divine_vessel': (bs) => {
@@ -631,8 +696,14 @@ const PASSIVE_REGISTRY = {
 
   'dian_masalanta_devotion': hpThresholdBuff(0.30, 0.25, 0),
 
-  'amihan_tailwind': chanceFlag(0.20, 'amihan_evade_check',
-    '💨 Amihan: Tailwind — Attack evaded!'),
+  'amihan_tailwind': (bs) => {
+    // 20% evade. [v5] Registers its chance into the shared evade budget so the
+    // armor evade (valkyrie_mantle) capping at 40% total can see it. One rng draw
+    // (unchanged from the old chanceFlag — draw order is stable).
+    bs.flags.evade_chance_used = (bs.flags.evade_chance_used || 0) + 0.20;
+    bs.flags.amihan_evade_check = bs.rng() < 0.20;
+    if (bs.flags.amihan_evade_check) bs.log.push('💨 Amihan: Tailwind — Attack evaded!');
+  },
 
   'habagat_monsoon_fury': chanceRider(0.25, 0.50,
     '🌩️ Habagat: Monsoon Fury — Storm Strike! +50% ATK!'),
@@ -686,6 +757,8 @@ const PASSIVE_REGISTRY = {
 
   'loki_illusory_double': (bs) => {
     // 20% chance each turn: evade an attack and counter for 50% ATK (rider)
+    // [v5] Registers its chance into the shared evade budget (40% total cap).
+    bs.flags.evade_chance_used = (bs.flags.evade_chance_used || 0) + 0.20;
     bs.flags.loki_evade_check = bs.rng() < 0.20;
     if (bs.flags.loki_evade_check) {
       bs.flags.loki_counter_dmg = Math.floor(bs.playerATK * 0.50);

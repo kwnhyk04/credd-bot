@@ -4,11 +4,10 @@
  * STAT ASSEMBLY — Phase 6 (§35.2)
  *
  * Builds battle-ready fighter structs for battleEngine.resolveBattle:
- *   - buildPlayerFighter: user_character + equipped weapon curr_* + ACTIVE deity
- *     curr_* (additive), CRIT = class crit (cap 40) + weapon crit (total cap 45).
+ *   - buildPlayerFighter: user_character + equipped weapon/armor + ACTIVE deity
+ *     curr_* (additive), with uncapped class + weapon CRIT under v5.
  *     CRIT is NEVER scaled by weapon or deity enhancement. The weapon's unified
- *     damage % (bonus_dmg_pct) is read straight off the row (bonus_crit_dmg_pct
- *     is deprecated as of [v4.4] — §35.2).
+ *     damage % (bonus_dmg_pct) is read straight off the row.
  *   - buildMobFighter: base + per_level × level (C1 — Master §16 formula, NOT
  *     level − 1), level clamped [1, 55]. Carries skill_key / immunity_tags /
  *     special_flags for the engine.
@@ -21,10 +20,9 @@
  * that helper stays for display (profile) until the Phase 9 profile migration.
  */
 
-const { CLASSES, CLASS_CRIT_CAP } = require('../config/classes');
+const { CLASSES } = require('../config/classes');
 const { ELITE_SPAWN_CHANCE } = require('../config/raidLoot');
 
-const TOTAL_CRIT_CAP = 45.0; // §35.2 hard ceiling (class + weapon)
 const MOB_LEVEL_MIN = 1;
 const MOB_LEVEL_MAX = 55;
 
@@ -37,10 +35,8 @@ const CLASS_PASSIVES = {
 };
 
 /**
- * Authoritative class battle stats: per-class base + scaling × (level − 1), floored
- * ([Jun-2026 patch §1] — each class has a distinct base now; see config/classes).
- * Class crit caps at 40 (§35.2); Swordsman/Archer reach 39.3 at Lv50 (R6 —
- * the §11 "exactly 40%" line is flavor).
+ * Authoritative class battle stats: per-class base + scaling × (level − 1), floored.
+ * v5 removes both the former 40% class clamp and 45% combined CRIT clamp.
  */
 function computeClassBattleStats(className, level) {
   const cls = CLASSES[className];
@@ -50,22 +46,29 @@ function computeClassBattleStats(className, level) {
     hp: Math.floor(cls.base.hp + cls.scaling.hp * steps),
     atk: Math.floor(cls.base.atk + cls.scaling.atk * steps),
     def: Math.floor(cls.base.def + cls.scaling.def * steps),
-    crit: Math.min(cls.base.crit + cls.scaling.crit * steps, CLASS_CRIT_CAP),
+    crit: cls.base.crit + cls.scaling.crit * steps,
   };
 }
 
 /**
- * Pure assembly step (§35.2 additive totals) — exported for the selftest.
- * weapon/deity: { curr_atk, curr_hp, curr_def, crit?, bonus_dmg_pct?, bonus_crit_dmg_pct? } | null
+ * Pure assembly step — exported for the selftest. [v5 STAT ASSEMBLY]
+ *   HP   = class + armor + deity        (weapon no longer carries HP)
+ *   ATK  = class + weapon + deity       (armor carries no ATK)
+ *   DEF  = class + armor + deity        (weapon no longer carries DEF)
+ *   CRIT = class + weapon               (UNCAPPED — v5 removed the 40/45 ceiling)
+ * Runes (Phase 2) and pantheon slots 2/3 (Phase 3) are not summed here yet.
+ * NULL slots = zero contribution, never an error.
+ * weapon: { curr_atk, crit } | null   armor: { curr_hp, curr_def } | null
+ * deity:  { curr_atk, curr_hp, curr_def } | null
  */
-function assemblePlayerStats(className, level, weapon, deity) {
+function assemblePlayerStats(className, level, weapon, armor, deity) {
   const cls = computeClassBattleStats(className, level);
   const wCrit = weapon ? Number(weapon.crit) || 0 : 0;
   return {
     atk: Math.floor(cls.atk + (weapon ? weapon.curr_atk : 0) + (deity ? deity.curr_atk : 0)),
-    hp: Math.floor(cls.hp + (weapon ? weapon.curr_hp : 0) + (deity ? deity.curr_hp : 0)),
-    def: Math.floor(cls.def + (weapon ? weapon.curr_def : 0) + (deity ? deity.curr_def : 0)),
-    crit: Math.min(cls.crit + wCrit, TOTAL_CRIT_CAP),
+    hp: Math.floor(cls.hp + (armor ? armor.curr_hp : 0) + (deity ? deity.curr_hp : 0)),
+    def: Math.floor(cls.def + (armor ? armor.curr_def : 0) + (deity ? deity.curr_def : 0)),
+    crit: cls.crit + wCrit, // uncapped (v5 §B.3)
   };
 }
 
@@ -99,15 +102,19 @@ function rollMobLevel(playerLevel, rng) {
 async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) {
   const res = await db.query(
     `SELECT uc.class, uc.combat_level, u.username,
-            w.curr_atk  AS w_atk, w.curr_hp AS w_hp, w.curr_def AS w_def,
-            w.crit      AS w_crit, w.bonus_dmg_pct, w.bonus_crit_dmg_pct,
+            w.curr_atk  AS w_atk, w.crit AS w_crit,
+            w.bonus_dmg_pct,
             wr.name     AS weapon_name, wr.passive_key,
+            am.curr_hp  AS a_hp, am.curr_def AS a_def,
+            ar.name     AS armor_name, ar.passive_key AS armor_passive_key,
             ud.curr_atk AS d_atk, ud.curr_hp AS d_hp, ud.curr_def AS d_def,
             dr.name     AS deity_name, dr.blessing_key
        FROM user_character uc
        JOIN users u            ON u.discord_id = uc.discord_id
        LEFT JOIN user_weapons w  ON w.weapon_id = uc.equipped_weapon_id
        LEFT JOIN weapon_roster wr ON wr.weapon_roster_id = w.weapon_roster_id
+       LEFT JOIN user_armors am  ON am.armor_id = uc.equipped_armor_id
+       LEFT JOIN armor_roster ar ON ar.armor_roster_id = am.armor_roster_id
        LEFT JOIN user_deities ud ON ud.user_deity_id = uc.active_deity_id
        LEFT JOIN deity_roster dr ON dr.deity_id = ud.deity_id
       WHERE uc.discord_id = $1`,
@@ -117,7 +124,10 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
   const r = res.rows[0];
 
   const weapon = r.w_atk != null
-    ? { curr_atk: r.w_atk, curr_hp: r.w_hp, curr_def: r.w_def, crit: r.w_crit }
+    ? { curr_atk: r.w_atk, crit: r.w_crit }
+    : null;
+  const armor = r.a_hp != null
+    ? { curr_hp: r.a_hp, curr_def: r.a_def }
     : null;
   const deity = r.d_atk != null
     ? { curr_atk: r.d_atk, curr_hp: r.d_hp, curr_def: r.d_def }
@@ -126,7 +136,7 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
   const effLevel = levelOverride != null
     ? Math.max(MOB_LEVEL_MIN, Math.min(50, Math.floor(levelOverride)))
     : r.combat_level;
-  const stats = assemblePlayerStats(r.class, effLevel, weapon, deity);
+  const stats = assemblePlayerStats(r.class, effLevel, weapon, armor, deity);
 
   return {
     name: r.username,
@@ -138,9 +148,11 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
     hp: stats.hp,
     def: stats.def,
     crit: stats.crit,
-    bonusDmgPct: Number(r.bonus_dmg_pct) || 0,   // unified damage % (§35.2); bonus_crit_dmg_pct deprecated
+    bonusDmgPct: Number(r.bonus_dmg_pct) || 0,   // unified damage % (§35.2)
     weaponPassiveKey: weapon ? r.passive_key : 'none',
     weaponName: weapon ? r.weapon_name : null,
+    armorPassiveKey: armor ? r.armor_passive_key : 'none', // [v5] armor passive fires alongside weapon/deity
+    armorName: armor ? r.armor_name : null,
     deityBlessingKey: deity ? r.blessing_key : 'none',
     deityName: deity ? r.deity_name : null,
   };
@@ -256,7 +268,6 @@ async function fetchRandomMob(db, rng) {
 }
 
 module.exports = {
-  TOTAL_CRIT_CAP,
   CLASS_PASSIVES,
   computeClassBattleStats,
   assemblePlayerStats,

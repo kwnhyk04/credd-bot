@@ -51,38 +51,62 @@ async function equipSkin(message, args) {
 }
 
 /**
- * `crd equip <weapon_id>` — equip a weapon the player owns.
+ * `crd equip <id>` — equip a weapon OR armor the player owns ([v5] one command,
+ *   id-detected: looks up user_weapons then user_armors and writes the matching slot).
  * `crd equip skin <skin_name>` — equip a cosmetic skin (delegates to equipSkin).
+ * `crd equip info <id>` — unified equipment info card (delegates to equipment.js;
+ *   supports the `crd eq info <id>` alias path since `eq` → `equip`).
  */
 async function execute(message, { args }) {
-  if ((args[0] || '').toLowerCase() === 'skin') return equipSkin(message, args);
+  const first = (args[0] || '').toLowerCase();
+  if (first === 'skin') return equipSkin(message, args);
+  if (first === 'info') return require('./equipment').info(message, (args[1] || '').trim());
 
-  const weaponId = (args[0] || '').trim().toLowerCase();
-  if (!weaponId) {
-    await reply(message, 'Usage: `crd equip <weapon_id>`');
+  const gearId = (args[0] || '').trim().toLowerCase();
+  if (!gearId) {
+    await reply(message, 'Usage: `crd equip <id>`');
     return;
   }
 
   const discordId = message.author.id;
-  const { rows } = await pool.query(
+
+  // Weapon first.
+  const wRes = await pool.query(
     `SELECT wr.name, wr.tier, uw.enhancement
        FROM user_weapons uw
        JOIN weapon_roster wr ON uw.weapon_roster_id = wr.weapon_roster_id
       WHERE uw.weapon_id = $1 AND uw.discord_id = $2`,
-    [weaponId, discordId]
+    [gearId, discordId]
   );
-  if (rows.length === 0) {
-    await reply(message, 'You don\'t own a weapon with that ID.');
+  if (wRes.rows.length > 0) {
+    await pool.query(
+      'UPDATE user_character SET equipped_weapon_id = $1 WHERE discord_id = $2',
+      [gearId, discordId]
+    );
+    const w = wRes.rows[0];
+    await reply(message, `Equipped **${w.name}** (${w.tier}) +${w.enhancement - 1}.`);
     return;
   }
 
-  await pool.query(
-    'UPDATE user_character SET equipped_weapon_id = $1 WHERE discord_id = $2',
-    [weaponId, discordId]
+  // Then armor.
+  const aRes = await pool.query(
+    `SELECT ar.name, ar.tier, ar.type, ua.enhancement
+       FROM user_armors ua
+       JOIN armor_roster ar ON ua.armor_roster_id = ar.armor_roster_id
+      WHERE ua.armor_id = $1 AND ua.discord_id = $2`,
+    [gearId, discordId]
   );
+  if (aRes.rows.length > 0) {
+    await pool.query(
+      'UPDATE user_character SET equipped_armor_id = $1 WHERE discord_id = $2',
+      [gearId, discordId]
+    );
+    const a = aRes.rows[0];
+    await reply(message, `Equipped **${a.name}** (${a.tier} ${a.type}) +${a.enhancement - 1}.`);
+    return;
+  }
 
-  const w = rows[0];
-  await reply(message, `Equipped **${w.name}** (${w.tier}) +${w.enhancement - 1}.`);
+  await reply(message, 'You don\'t own equipment with that ID.');
 }
 
 module.exports = { execute };

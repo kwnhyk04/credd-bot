@@ -40,12 +40,16 @@ async function execute(message) {
             uc.raids_won, uc.raids_lost, uc.pvp_wins, uc.pvp_losses,
             wr.name  AS weapon_name,
             uw.enhancement AS weapon_enh,
-            uw.curr_atk AS w_atk, uw.curr_hp AS w_hp, uw.curr_def AS w_def, uw.crit AS w_crit,
+            uw.curr_atk AS w_atk, uw.crit AS w_crit,
+            ar.name  AS armor_name, ar.type AS armor_type,
+            ua.enhancement AS armor_enh, ua.curr_hp AS a_hp, ua.curr_def AS a_def,
             dr.name  AS deity_name, dr.blessing_name, ud.enhancement AS deity_enh,
             ud.curr_atk AS d_atk, ud.curr_hp AS d_hp, ud.curr_def AS d_def
        FROM user_character uc
        LEFT JOIN user_weapons  uw ON uc.equipped_weapon_id = uw.weapon_id
        LEFT JOIN weapon_roster wr ON uw.weapon_roster_id   = wr.weapon_roster_id
+       LEFT JOIN user_armors   ua ON uc.equipped_armor_id  = ua.armor_id
+       LEFT JOIN armor_roster  ar ON ua.armor_roster_id    = ar.armor_roster_id
        LEFT JOIN user_deities  ud ON uc.active_deity_id     = ud.user_deity_id
        LEFT JOIN deity_roster  dr ON ud.deity_id            = dr.deity_id
        WHERE uc.discord_id = $1`,
@@ -103,17 +107,22 @@ async function execute(message) {
 
   const r = rows[0];
 
-  // Assemble totals through the engine's stat path (class + weapon curr_* + active deity curr_*).
+  // Assemble totals through the engine's stat path ([v5]: class + weapon ATK/CRIT +
+  // armor HP/DEF + active deity curr_*).
   const weapon = r.w_atk != null
-    ? { curr_atk: r.w_atk, curr_hp: r.w_hp, curr_def: r.w_def, crit: r.w_crit }
+    ? { curr_atk: r.w_atk, crit: r.w_crit }
+    : null;
+  const armor = r.a_hp != null
+    ? { curr_hp: r.a_hp, curr_def: r.a_def }
     : null;
   const deity = r.d_atk != null
     ? { curr_atk: r.d_atk, curr_hp: r.d_hp, curr_def: r.d_def }
     : null;
-  const stats = assemblePlayerStats(r.class, r.combat_level, weapon, deity);
+  const stats = assemblePlayerStats(r.class, r.combat_level, weapon, armor, deity);
 
   // enhancement column: 1 = +0; display level is enhancement − 1.
   const weaponEnh = r.weapon_name ? Math.max(0, (r.weapon_enh || 1) - 1) : 0;
+  const armorEnh  = r.armor_name  ? Math.max(0, (r.armor_enh  || 1) - 1) : 0;
   const deityEnh  = r.deity_name  ? Math.max(0, (r.deity_enh  || 1) - 1) : 0;
 
   const combatAtCap = r.combat_level >= MAX_COMBAT_LEVEL;
@@ -141,6 +150,9 @@ async function execute(message) {
 
     weaponName: r.weapon_name || null,
     weaponEnh,
+    armorName: r.armor_name || null,
+    armorType: r.armor_type || null,
+    armorEnh,
     deityName: r.deity_name || null,
     deityEnh,
     blessingName: r.deity_name ? (r.blessing_name || null) : null,

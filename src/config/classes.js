@@ -9,15 +9,11 @@
  *
  * NOTE: computeClassStats() is DISPLAY-ONLY. The authoritative battle stat calculator
  * lives in src/engine/statAssembly.js (Phase 6) and reads the SAME `base`/`scaling`
- * tables: class + weapon curr + active deity curr; CRIT cap 40% class / 45% total.
+ * tables. v5 removes the former 40% class / 45% total CRIT ceilings.
  *
- * L50 crit (R6 ruling / patch §1): Swordsman & Archer reach 5 + 0.7×49 = 39.3% at Lv50;
- * the 40% class cap is a safety clamp, never hit in the normal case. Knight keeps a flat
- * 5% (0 CRIT growth). §11's "exactly 40%" line is flavor text.
+ * L50 crit: Swordsman & Archer reach 5 + 0.7×49 = 39.3%. Knight keeps a flat
+ * 5% (0 CRIT growth). Higher future levels continue scaling without a clamp.
  */
-
-// Display/battle cap for class CRIT (§35.2: class crit caps at 40%).
-const CLASS_CRIT_CAP = 40.0;
 
 // Valid class names (must match user_character.class CHECK constraint exactly).
 const CLASS_NAMES = ['Swordsman', 'Fighter', 'Mage', 'Knight', 'Archer'];
@@ -77,7 +73,7 @@ const CLASSES = {
 
 /**
  * Interim display-only class stat calculation (per-class base + scaling × (level-1)).
- * floor() on hp/atk/def, CRIT capped at CLASS_CRIT_CAP (1-decimal). Mirrors the
+ * floor() on hp/atk/def; CRIT remains uncapped under v5. Mirrors the
  * authoritative Phase 6 battle calculator (statAssembly.computeClassBattleStats).
  */
 function computeClassStats(className, level) {
@@ -88,12 +84,11 @@ function computeClassStats(className, level) {
     hp:  Math.floor(cls.base.hp  + cls.scaling.hp  * steps),
     atk: Math.floor(cls.base.atk + cls.scaling.atk * steps),
     def: Math.floor(cls.base.def + cls.scaling.def * steps),
-    crit: Math.min(cls.base.crit + cls.scaling.crit * steps, CLASS_CRIT_CAP),
+    crit: cls.base.crit + cls.scaling.crit * steps,
   };
 }
 
 module.exports = {
-  CLASS_CRIT_CAP,
   CLASS_NAMES,
   CLASSES,
   computeClassStats,

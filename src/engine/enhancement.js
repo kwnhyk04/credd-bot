@@ -51,15 +51,27 @@ const ENHANCE_COST = {
 };
 
 /**
- * Recompute stored curr stats for a given stored enhancement (1..11).
- * crit / bonus_* are unaffected (§7 "all stats" = ATK/HP/DEF only).
- * @returns {{curr_atk:number, curr_hp:number, curr_def:number}}
+ * Recompute a weapon's stored curr stat for a given stored enhancement (1..11).
+ * [v5] Weapons are ATK-only now (HP/DEF removed). crit / bonus_* are unaffected.
+ * @returns {{curr_atk:number}}
  */
-function computeWeaponStats({ base_atk, base_hp, base_def }, enhancement) {
+function computeWeaponStats({ base_atk }, enhancement) {
   const m = WEAPON_BOOST_TABLE[enhancement];
   if (m == null) throw new Error(`computeWeaponStats: invalid enhancement ${enhancement}`);
   return {
     curr_atk: Math.floor(base_atk * m),
+  };
+}
+
+/**
+ * Recompute an armor's stored curr stats for a given stored enhancement (1..11).
+ * [v5] Armor is HP/DEF only — reuses the SAME WEAPON_BOOST_TABLE (§C.1 note).
+ * @returns {{curr_hp:number, curr_def:number}}
+ */
+function computeArmorStats({ base_hp, base_def }, enhancement) {
+  const m = WEAPON_BOOST_TABLE[enhancement];
+  if (m == null) throw new Error(`computeArmorStats: invalid enhancement ${enhancement}`);
+  return {
     curr_hp: Math.floor(base_hp * m),
     curr_def: Math.floor(base_def * m),
   };
@@ -89,5 +101,6 @@ module.exports = {
   SUCCESS_RATE,
   ENHANCE_COST,
   computeWeaponStats,
+  computeArmorStats,
   nextAttempt,
 };

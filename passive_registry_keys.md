@@ -67,13 +67,29 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `hephaestus_hammer` — Forged Armor: DEF +20% for the whole battle; every 4th turn, lands a 150% ATK forge strike.
 - `caduceus` — Herald's Touch: Every 3rd turn, cleanses all debuffs and restores 8% max HP.
 - `spear_of_ares` — Bloodlust: ATK +8% every 2 turns, stacking up to 40%.
-- `helm_of_darkness` — Invisibility: 25% chance each turn to make the enemy miss its next attack entirely.
-- `aegis` — Medusa's Gaze: 20% chance on hit to add a Stone stack; at 3 stacks, stuns for 1 turn, then resets.
+- `helm_of_darkness` — Invisibility: [v5 Supreme armor] 30% chance each turn to reduce enemy DEF by 50% for 2 turns.
+- `aegis` — Medusa's Gaze: [v5 Supreme armor] 50% chance on hit to add a Stone stack; at 3 stacks, stuns for 1 turn, then resets.
 - `apollos_silver_bow` — Unerring Arrow: Ignores 25% of enemy DEF; every 4th turn, the attack is a guaranteed CRIT.
 - `mjolnir` — Crushing Force: Deals +20% bonus ATK every turn; every 4th turn, lands a 200% ATK crush.
 - `gungnir` — Never Misses: Ignores 40% of enemy DEF; 30% chance to pierce all DEF (zero mitigation) and reduce enemy DEF by 25% for 1 turn.
 - `thunderbolt_of_zeus` — Divine Thunder: 30% chance to deal +80% bonus ATK and paralyze for 1 turn; also triggers automatically on a CRIT.
 - `trident_of_poseidon` — Tidal Wrath: Every 3rd turn, deals +100% bonus ATK and reduces enemy DEF by 20% for 1 turn, with a 25% chance to stun for 1 turn.
+
+## ARMOR passives (armor_roster.passive_key) — [v5]
+
+Migrated-shield keys (steel_kite_shield, reinforced_targe, vatican_aspis, battersea_shield,
+dipylon_shield, enderby_shield, pelte, shield_of_the_valkyrie, skjaldmaer, luzon_tribal_shield,
+aegis, helm_of_darkness) are listed once under WEAPON above and reused here. The eight below are
+new and defensive:
+
+- `kalasag` — Bulwark Hide: reduces incoming damage by 3% (post-DEF).
+- `hoplite_panoply` — Phalanx Wall: reduces incoming damage by 15% (post-DEF).
+- `mail_of_brokkr` — Dwarven Forge: reduces incoming damage by 30% and reflects 15% of damage taken.
+- `wolfskin_cloak` — Wolf's Vigor: regenerates 10% max HP at the start of each round.
+- `salakot_ward` — Spirit Ward: 20% chance to negate an incoming debuff.
+- `anting_anting_sash` — Charmed Hide: immune to Stun, Petrify, and Freeze.
+- `valkyrie_mantle` — Chooser's Grace: 20% chance to evade an incoming attack (total evade capped at 40%).
+- `mantle_of_bathala` — Divine Aegis: +5% HP and +5% DEF every turn, stacking up to +100% each.
 
 ## DEITY blessings (deity_roster.blessing_key)
 

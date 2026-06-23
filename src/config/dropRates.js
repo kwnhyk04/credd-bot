@@ -1,8 +1,12 @@
 'use strict';
 
 /**
- * Chest drop rates (§5) + weapon stat banding (§7 ranges, §35.6 sub-bands).
+ * Chest drop rates (§5) + weapon stat banding (§7) + armor stat banding (v5 §C.1).
  * Hardcoded game-balance constants. No schema/seed.
+ *
+ * [v5 GEAR OVERHAUL] Weapons roll ATK + CRIT only (HP/DEF removed). Armor is a
+ * new gear class rolling HP + DEF only (no CRIT). Existing chests drop weapon OR
+ * armor via GEAR_SPLIT — there is NO dedicated armor chest.
  */
 
 // ── Chests ─────────────────────────────────────────────────────────────────
@@ -35,23 +39,29 @@ const CHESTS = {
 const CHEST_ALIASES = Object.keys(CHESTS); // ['sc','gc','btc','bgtc','supc']
 const MAX_OPEN = 10;
 
-// ── Tier stat ranges (§7) ────────────────────────────────────────────────
-// [min, max] inclusive-ish (max reachable only at fraction 1.0 which rand never hits).
-// [v4.4] ranges raised (new drops only — existing user_weapons rows are NOT rewritten).
+// [v5] Per-drop gear-class roll: weapon vs armor. 0.5 = 50/50 (Blueprint 1.2).
+// Single tunable constant (re-checked in the Phase 6 economy pass), NOT in the DB.
+const GEAR_SPLIT = 0.5;
+
+// [v5] Armor type weighting at drop (1/3 each — Blueprint 1.2).
+const ARMOR_TYPES = ['Heavy', 'Medium', 'Light'];
+
+// ── Weapon tier stat ranges (§7) ───────────────────────────────────────────
+// [v5] ATK + CRIT only. HP/DEF removed from weapons.
 const TIER_RANGES = {
-  Rare:      { atk: [100, 150], hp: [100, 200], def: [50, 75],   crit: [1, 5] },
-  Mythic:    { atk: [200, 350], hp: [300, 400], def: [80, 150],  crit: [1, 5] },
-  Legendary: { atk: [500, 600], hp: [600, 800], def: [200, 300], crit: [1, 5] },
-  // Supreme handled separately (fixed 800/1200/500, crit 0, 50/50 riders — unchanged).
+  Rare:      { atk: [100, 150], crit: [1, 5] },
+  Mythic:    { atk: [200, 350], crit: [1, 5] },
+  Legendary: { atk: [500, 600], crit: [1, 5] },
+  // Supreme handled separately (fixed 800 ATK, crit 0, 50% damage rider).
 };
 
-// ── Type qualitative profile (§7) ─────────────────────────────────────────
+// ── Weapon type qualitative profile (§7 / v5 §B.3) ─────────────────────────
+// [v5] Shield removed. CRIT re-banded by type (Bow crit-fisher … Staff near-zero).
 const TYPE_PROFILES = {
-  Sword:  { atk: 'Balanced', hp: 'Balanced', def: 'Balanced', crit: 'Low' },
-  Staff:  { atk: 'Highest',  hp: 'Low',      def: 'Lowest',   crit: 'Low' },
-  Gloves: { atk: 'High',     hp: 'High',     def: 'Low',      crit: 'Low' },
-  Shield: { atk: 'Low',      hp: 'High',     def: 'Highest',  crit: 'Low' },
-  Bow:    { atk: 'High',     hp: 'Low',      def: 'Low',      crit: 'High' },
+  Sword:  { atk: 'Balanced', crit: 'Balanced' },
+  Staff:  { atk: 'Highest',  crit: 'Lowest' },
+  Gloves: { atk: 'High',     crit: 'Low' },
+  Bow:    { atk: 'High',     crit: 'High' },
 };
 
 // ── Banding sub-ranges (§35.6) ────────────────────────────────────────────
@@ -64,17 +74,38 @@ const BAND_FRACTIONS = {
   Highest:  [0.80, 1.00],
 };
 
-// Supreme fixed stats (§7/§8/§35.2). [v4.4] DEF 400 → 500; crit-damage rider removed —
-// the unified model uses a single damage % (50%), so bonus_crit_dmg_pct is left null.
+// Supreme fixed weapon stats (§7/§8/§35.2). DEF/HP gone; single 50% damage rider.
 const SUPREME_STATS = {
-  atk: 800, hp: 1200, def: 500, crit: 0.0,
-  bonus_dmg_pct: 50.00, bonus_crit_dmg_pct: null,
+  atk: 800, crit: 0.0,
+  bonus_dmg_pct: 50.00,
 };
 
-// Legendary bonus rider: 25% chance → +25% damage % (single unified stat — no separate
-// crit-damage rider as of [v4.4]).
+// Legendary bonus rider: 25% chance → +25% damage % (single unified stat).
 const LEGENDARY_BONUS_CHANCE = 0.25;
 const LEGENDARY_BONUS_VALUE = 25.00;
+
+// ── Armor stat banding (v5 §C.1) ───────────────────────────────────────────
+// HP + DEF only, positioned within the tier range by type.
+const ARMOR_TIER_RANGES = {
+  Rare:      { hp: [100, 200], def: [50, 75] },
+  Mythic:    { hp: [300, 400], def: [80, 150] },
+  Legendary: { hp: [600, 800], def: [200, 300] },
+  // Supreme is fixed by type (no roll) — see SUPREME_ARMOR.
+};
+
+// Heavy: HP bottom 40% / DEF top 20% · Medium: both mid 40–60% · Light: HP top 20% / DEF bottom 40%.
+const ARMOR_TYPE_PROFILES = {
+  Heavy:  { hp: 'Low',      def: 'Highest' },
+  Medium: { hp: 'Balanced', def: 'Balanced' },
+  Light:  { hp: 'Highest',  def: 'Low' },
+};
+
+// Supreme armor — fixed by type (v5 §C.1).
+const SUPREME_ARMOR = {
+  Heavy:  { hp: 1000, def: 600 },
+  Medium: { hp: 1200, def: 500 },
+  Light:  { hp: 1400, def: 400 },
+};
 
 /**
  * Roll a chest's drop tier via cumulative walk. Returns a tier string.
@@ -90,6 +121,16 @@ function rollTier(chestAlias) {
   return chest.drops[chest.drops.length - 1][0]; // FP safety net
 }
 
+/** Roll the gear class for one drop: 'weapon' or 'armor' (GEAR_SPLIT). */
+function rollGearClass() {
+  return Math.random() < GEAR_SPLIT ? 'weapon' : 'armor';
+}
+
+/** Roll an armor type, 1/3 each (Heavy/Medium/Light). */
+function rollArmorType() {
+  return ARMOR_TYPES[Math.floor(Math.random() * ARMOR_TYPES.length)];
+}
+
 function bandedValue(range, band) {
   const [min, max] = range;
   const [lo, hi] = BAND_FRACTIONS[band];
@@ -98,9 +139,9 @@ function bandedValue(range, band) {
 }
 
 /**
- * Roll weapon stats for a tier + weapon type.
- * Returns { atk, hp, def, crit, bonus_dmg_pct|null, bonus_crit_dmg_pct|null }.
- * curr_* equal base_* at drop (enhancement 1).
+ * Roll weapon stats for a tier + weapon type (v5: ATK + CRIT only).
+ * Returns { atk, crit, bonus_dmg_pct|null }.
+ * curr_atk equals base_atk at drop (enhancement 1).
  */
 function rollWeaponStats(tier, type) {
   if (tier === 'Supreme') {
@@ -114,28 +155,54 @@ function rollWeaponStats(tier, type) {
   }
 
   const atk = Math.floor(bandedValue(range.atk, profile.atk));
-  const hp  = Math.floor(bandedValue(range.hp,  profile.hp));
-  const def = Math.floor(bandedValue(range.def, profile.def));
   const crit = Math.round(bandedValue(range.crit, profile.crit) * 10) / 10; // 1 decimal
 
-  // [v4.4] single unified damage % — no separate crit-damage rider (left null).
   let bonus_dmg_pct = null;
-  const bonus_crit_dmg_pct = null;
   if (tier === 'Legendary' && Math.random() < LEGENDARY_BONUS_CHANCE) {
     bonus_dmg_pct = LEGENDARY_BONUS_VALUE;
   }
 
-  return { atk, hp, def, crit, bonus_dmg_pct, bonus_crit_dmg_pct };
+  return { atk, crit, bonus_dmg_pct };
+}
+
+/**
+ * Roll armor stats for a tier + armor type (v5 §C.1: HP + DEF only).
+ * Supreme is fixed by type. Returns { hp, def }. curr_* equal base_* at drop.
+ */
+function rollArmorStats(tier, type) {
+  if (tier === 'Supreme') {
+    const fixed = SUPREME_ARMOR[type];
+    if (!fixed) throw new Error(`rollArmorStats: unknown Supreme type ${type}`);
+    return { ...fixed };
+  }
+
+  const range = ARMOR_TIER_RANGES[tier];
+  const profile = ARMOR_TYPE_PROFILES[type];
+  if (!range || !profile) {
+    throw new Error(`rollArmorStats: unknown tier/type ${tier}/${type}`);
+  }
+
+  const hp = Math.floor(bandedValue(range.hp, profile.hp));
+  const def = Math.floor(bandedValue(range.def, profile.def));
+  return { hp, def };
 }
 
 module.exports = {
   CHESTS,
   CHEST_ALIASES,
   MAX_OPEN,
+  GEAR_SPLIT,
+  ARMOR_TYPES,
   TIER_RANGES,
   TYPE_PROFILES,
   BAND_FRACTIONS,
   SUPREME_STATS,
+  ARMOR_TIER_RANGES,
+  ARMOR_TYPE_PROFILES,
+  SUPREME_ARMOR,
   rollTier,
+  rollGearClass,
+  rollArmorType,
   rollWeaponStats,
+  rollArmorStats,
 };

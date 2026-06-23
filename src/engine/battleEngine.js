@@ -99,6 +99,8 @@ const SNAPSHOT_EVERY = 3;
 const MITIGATION_K = 200;         // §12: 1 − DEF/(DEF+200)
 const ARCHER_PIERCE = 0.25;
 const KNIGHT_DR = 0.80;
+const INCOMING_DR_FLOOR = 0.25;   // [v5] combined damage-reduction floor: post-DEF incoming never < 25%
+const TOTAL_EVADE_CAP = 0.40;     // [v5] total evade across all sources (enforced in the registry)
 const OVERCHARGE_EVERY = 3;       // [v4.2] fires on rounds 3, 6, 9, …
 const BLEED_PCT_PER_STACK = 0.08; // [Jun-2026] Swordsman: 8% of ATK per stack, per turn
 const BLEED_MAX_STACKS = 5;       // capped at 5 stacks = 40% of ATK
@@ -238,6 +240,7 @@ function resolveBattle(a, b, opts = {}) {
     bonusDmgPct: Number(f.bonusDmgPct) || 0,   // unified damage % from the weapon (§35.2)
     classPassive: f.classPassive || null,
     weaponPassiveKey: f.weaponPassiveKey || 'none',
+    armorPassiveKey: f.armorPassiveKey || 'none',   // [v5] equipped-armor passive
     deityBlessingKey: f.deityBlessingKey || 'none',
     skillKey: f.skillKey || 'none',
     immunityTags: Array.isArray(f.immunityTags) ? f.immunityTags : [],
@@ -285,6 +288,21 @@ function resolveBattle(a, b, opts = {}) {
   const findDebuff = (side, tag) => side.debuffs.find((d) => d.tag === tag);
   const debuffValue = (side, tag) => { const d = findDebuff(side, tag); return d ? d.value : 0; };
   const addDebuff = (side, tag, turns, value = 0) => {
+    // [v5] armor defensive hooks on a player recipient (anting / salakot). Both run
+    // at debuff-apply time so they catch CC from passives AND attacks. Existing fights
+    // (no v5 armor) leave these flags falsy → byte-identical behavior.
+    if (side.kind === 'player') {
+      const immune = side.flags.immune_cc_types;
+      if (Array.isArray(immune) && immune.includes(tag)) {
+        shared.events.push(`🧿 ${side.name} is immune to ${ACTION_TAG_LABELS[tag] || tag} (Charmed Hide)!`);
+        return;
+      }
+      const negate = side.flags.salakot_negate_chance || 0;
+      if (negate > 0 && rng() < negate) {
+        shared.events.push(`🪬 ${side.name} negates an incoming ${ACTION_TAG_LABELS[tag] || tag} (Spirit Ward)!`);
+        return;
+      }
+    }
     const ex = findDebuff(side, tag);
     if (ex) {
       ex.turnsLeft = Math.max(ex.turnsLeft, turns);
@@ -448,6 +466,13 @@ function resolveBattle(a, b, opts = {}) {
       shared.events.push(`🛡️ ${O.name} ignores the incoming damage (Shieldmaiden's Guard)!`);
       return { applied: 0, negated: true };
     }
+    if (F.valkyrie_evade_check) { // [v5] armor evade (total-evade cap enforced in the registry)
+      shared.events.push(`🪽 ${O.name} evades the attack (Chooser's Grace)!`);
+      return { applied: 0, negated: true };
+    }
+
+    // [v5] post-DEF baseline for the combined damage-reduction floor (computed below).
+    const postDefDmg = dmg;
 
     // multiplicative reductions, fixed order (R3)
     if (F.heimdall_first_hit_available && !F.heimdall_first_hit_used) {
@@ -467,8 +492,12 @@ function resolveBattle(a, b, opts = {}) {
     if (F.pelte_block_check) dmg *= 1 - (F.pelte_block_pct || 0);
     if (F.njord_block_check) dmg *= 1 - (F.njord_block_pct || 0);
 
-    dmg *= 1 + O.scratch.bonusIncomingDmgMult;       // additive lane (damocles/vatican)
+    dmg *= 1 + O.scratch.bonusIncomingDmgMult;       // additive lane (damocles/vatican/kalasag/hoplite/mail)
     if (O.classPassive === 'damage_reduction') dmg *= KNIGHT_DR;
+    // [v5] combined damage-reduction floor — no stack of reductions can cut a hit
+    // below 25% of its post-DEF value (Blueprint 1.5 / Gear Overhaul §E).
+    const drFloor = postDefDmg * INCOMING_DR_FLOOR;
+    if (postDefDmg > 0 && dmg < drFloor) dmg = drFloor;
     dmg = Math.max(0, Math.floor(dmg));
 
     // sidapa lethal reprieve (once per battle)
@@ -493,6 +522,7 @@ function resolveBattle(a, b, opts = {}) {
     let reflectPct = 0;
     if (F.enderby_reflect_check) reflectPct += 0.30;
     if (F.tyr_reflect > 0) reflectPct += F.tyr_reflect;
+    if (F.mail_brokkr_reflect > 0) reflectPct += F.mail_brokkr_reflect; // [v5] Mail of Brokkr 15%
     if (reflectPct > 0 && dmg > 0) {
       const refl = Math.floor(dmg * reflectPct);
       if (refl > 0) {
@@ -708,6 +738,12 @@ function resolveBattle(a, b, opts = {}) {
     side.flags.enemy_def_mult = undefined;
     side.flags.enemy_atk_override = null;
     side.flags.bathala_hp_fraction = 0; // [Jun-2026 §4] registry re-sets the ramp each round
+    // [v5] armor-derived per-round flags (the armor passive re-establishes them each round)
+    side.flags.evade_chance_used = 0;
+    side.flags.mail_brokkr_reflect = 0;
+    side.flags.salakot_negate_chance = 0;
+    side.flags.immune_cc_types = null;
+    side.flags.valkyrie_evade_check = false;
     // input latches (engine-set, read by the registry this round)
     side.tookHitLastRound = side.tookHitThisRound;
     side.tookHitThisRound = false;
@@ -833,10 +869,12 @@ function resolveBattle(a, b, opts = {}) {
         const P = perspectiveOf(side);
         runRegistry(side.weaponPassiveKey, P);
         runRegistry(side.deityBlessingKey, P);
+        runRegistry(side.armorPassiveKey, P); // [v5] armor after deity (evade cap sees deity evade)
       }
     } else {
       runRegistry(A.weaponPassiveKey, PA);
       runRegistry(A.deityBlessingKey, PA);
+      runRegistry(A.armorPassiveKey, PA);     // [v5] armor after deity (evade cap sees deity evade)
       runRegistry(B.skillKey, PA); // mob skill runs on the player's perspective
     }
     // consume hydra local regen (local mirror only — never the shared pool)
@@ -943,6 +981,7 @@ function resolveBattle(a, b, opts = {}) {
     cls: side.kind === 'player' ? (side.in.class || '') : (side.in.mobType || 'mob'),
     level: side.in.level,
     weapon: side.in.weaponName || null,
+    armor: side.kind === 'player' ? (side.in.armorName || null) : null, // [v5] equipped armor
     deity: side.in.deityName || null,
     // mob/boss passive skill name + description for the render (null for players)
     skill: side.kind === 'player' ? null : (side.in.skillName || null),

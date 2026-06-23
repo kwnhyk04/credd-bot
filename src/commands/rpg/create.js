@@ -9,8 +9,11 @@ const path = require('path');
 const pool = require('../../db/pool');
 const { isBanned } = require('../../handlers/middleware');
 const { CLASSES, CLASS_NAMES } = require('../../config/classes');
-const { STARTER_WEAPON_NAME, STARTER_WEAPON, GRANT_BELIEF_SHARDS, GRANT_SILVER_CHESTS } = require('../../config/starter');
-const { generateUniqueWeaponId } = require('../../utils/weaponId');
+const {
+  STARTER_WEAPON_NAME, STARTER_WEAPON, STARTER_ARMOR_NAME, STARTER_ARMOR,
+  GRANT_BELIEF_SHARDS, GRANT_SILVER_CHESTS,
+} = require('../../config/starter');
+const { generateUniqueGearId } = require('../../utils/weaponId');
 const { renderPortraitCard } = require('../../engine/renderPortraitCard');
 
 const BRAND = 0x9b59b6;
@@ -187,7 +190,7 @@ async function handleConfirm(interaction, className, ownerId) {
       return;
     }
 
-    // Look up the (seeded) Initiate's Blade roster row.
+    // Look up the (seeded) Initiate's Blade weapon + Initiate's Garb armor roster rows.
     const roster = await client.query('SELECT weapon_roster_id FROM weapon_roster WHERE name = $1', [STARTER_WEAPON_NAME]);
     if (roster.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -197,19 +200,36 @@ async function handleConfirm(interaction, className, ownerId) {
     }
     const weaponRosterId = roster.rows[0].weapon_roster_id;
 
-    // Weapon row first (FK-safe), then character with equipped_weapon_id already set.
-    const weaponId = await generateUniqueWeaponId(client);
+    const armorRoster = await client.query('SELECT armor_roster_id FROM armor_roster WHERE name = $1', [STARTER_ARMOR_NAME]);
+    if (armorRoster.rows.length === 0) {
+      await client.query('ROLLBACK');
+      console.error(`[create] starter armor "${STARTER_ARMOR_NAME}" not found in armor_roster`);
+      await interaction.update(errPayload('Character creation is temporarily unavailable. Please try again later.'));
+      return;
+    }
+    const armorRosterId = armorRoster.rows[0].armor_roster_id;
+
+    // Gear rows first (FK-safe), then character with both equip slots already set.
+    // [v5] weapon = ATK + CRIT only; armor = HP + DEF only.
+    const weaponId = await generateUniqueGearId(client);
     await client.query(
       `INSERT INTO user_weapons
-         (discord_id, weapon_id, weapon_roster_id, curr_atk, curr_hp, curr_def,
-          enhancement, base_atk, base_hp, base_def, crit, is_locked)
-       VALUES ($1, $2, $3, $4, $5, $6, 1, $4, $5, $6, $7, FALSE)`,
-      [discordId, weaponId, weaponRosterId, STARTER_WEAPON.atk, STARTER_WEAPON.hp, STARTER_WEAPON.def, STARTER_WEAPON.crit]
+         (discord_id, weapon_id, weapon_roster_id, curr_atk, enhancement, base_atk, crit, is_locked)
+       VALUES ($1, $2, $3, $4, 1, $4, $5, FALSE)`,
+      [discordId, weaponId, weaponRosterId, STARTER_WEAPON.atk, STARTER_WEAPON.crit]
+    );
+
+    const armorId = await generateUniqueGearId(client);
+    await client.query(
+      `INSERT INTO user_armors
+         (discord_id, armor_id, armor_roster_id, curr_hp, curr_def, enhancement, base_hp, base_def, is_locked)
+       VALUES ($1, $2, $3, $4, $5, 1, $4, $5, FALSE)`,
+      [discordId, armorId, armorRosterId, STARTER_ARMOR.hp, STARTER_ARMOR.def]
     );
 
     await client.query(
-      'INSERT INTO user_character (discord_id, class, equipped_weapon_id) VALUES ($1, $2, $3)',
-      [discordId, className, weaponId]
+      'INSERT INTO user_character (discord_id, class, equipped_weapon_id, equipped_armor_id) VALUES ($1, $2, $3, $4)',
+      [discordId, className, weaponId, armorId]
     );
 
     // Starter grant (creation only, §35.6).
@@ -228,7 +248,7 @@ async function handleConfirm(interaction, className, ownerId) {
       .addTextDisplayComponents((td) =>
         td.setContent(
           `Your journey begins, Believer.\n\n**Passive:** ${cls.passiveName}\n\n` +
-          `**Starter Weapon**\n-# ${STARTER_WEAPON_NAME} (Common) — equipped\n\n` +
+          `**Starter Gear**\n-# ${STARTER_WEAPON_NAME} (Common) · ${STARTER_ARMOR_NAME} (Common) — both equipped\n\n` +
           `**Starter Grant**\n-# ${GRANT_BELIEF_SHARDS.toLocaleString()} Belief Shards · ${GRANT_SILVER_CHESTS} Silver Chests`
         )
       )

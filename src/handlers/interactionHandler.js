@@ -77,6 +77,11 @@ async function handleInteraction(interaction) {
       return;
     }
 
+    if (namespace === 'armors') {
+      await bagCmd.handleArmorsButton(interaction);
+      return;
+    }
+
     if (namespace === 'chests' && action === 'rates') {
       await bagViews.handleChestRatesButton(interaction);
       return;

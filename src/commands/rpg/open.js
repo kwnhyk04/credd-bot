@@ -1,8 +1,11 @@
 'use strict';
 
 const pool = require('../../db/pool');
-const { CHESTS, CHEST_ALIASES, MAX_OPEN, rollTier, rollWeaponStats } = require('../../config/dropRates');
-const { generateUniqueWeaponId } = require('../../utils/weaponId');
+const {
+  CHESTS, CHEST_ALIASES, MAX_OPEN,
+  rollTier, rollGearClass, rollArmorType, rollWeaponStats, rollArmorStats,
+} = require('../../config/dropRates');
+const { generateUniqueGearId } = require('../../utils/weaponId');
 const { runSummon } = require('../../engine/summonEngine');
 const { TIER_ALIAS } = require('../../config/gachaRates');
 const { playAnimatedOpen, buildWeaponResultPayload } = require('../../engine/chestOpen');
@@ -55,29 +58,60 @@ async function openChestsTxn(discordId, alias, amount) {
     const drops = [];
     for (let i = 0; i < amount; i++) {
       const tier = rollTier(alias);
-      const wr = await client.query(
-        `SELECT weapon_roster_id, name, type FROM weapon_roster
-          WHERE tier = $1 AND is_available = TRUE
-          ORDER BY RANDOM() LIMIT 1`,
-        [tier]
-      );
-      if (wr.rows.length === 0) {
-        await client.query('ROLLBACK');
-        console.error(`[open] no available weapon for tier ${tier}`);
-        return { ok: false, reason: 'no_weapon_pool' };
-      }
-      const { weapon_roster_id, name, type } = wr.rows[0];
-      const s = rollWeaponStats(tier, type);
-      const weaponId = await generateUniqueWeaponId(client);
+      // [v5] each drop is a weapon OR an armor (GEAR_SPLIT). Same chest, same tier odds.
+      const gearClass = rollGearClass();
 
-      await client.query(
-        `INSERT INTO user_weapons
-           (discord_id, weapon_id, weapon_roster_id, curr_atk, curr_hp, curr_def,
-            enhancement, base_atk, base_hp, base_def, crit, bonus_dmg_pct, bonus_crit_dmg_pct, is_locked)
-         VALUES ($1,$2,$3,$4,$5,$6,1,$4,$5,$6,$7,$8,$9,FALSE)`,
-        [discordId, weaponId, weapon_roster_id, s.atk, s.hp, s.def, s.crit, s.bonus_dmg_pct, s.bonus_crit_dmg_pct]
-      );
-      drops.push({ name, type, tier, ...s, weaponId });
+      if (gearClass === 'weapon') {
+        const wr = await client.query(
+          `SELECT weapon_roster_id, name, type FROM weapon_roster
+            WHERE tier = $1 AND is_available = TRUE
+            ORDER BY RANDOM() LIMIT 1`,
+          [tier]
+        );
+        if (wr.rows.length === 0) {
+          await client.query('ROLLBACK');
+          console.error(`[open] no available weapon for tier ${tier}`);
+          return { ok: false, reason: 'no_weapon_pool' };
+        }
+        const { weapon_roster_id, name, type } = wr.rows[0];
+        const s = rollWeaponStats(tier, type); // ATK + CRIT only (v5)
+        const gearId = await generateUniqueGearId(client);
+
+        await client.query(
+          `INSERT INTO user_weapons
+             (discord_id, weapon_id, weapon_roster_id, curr_atk,
+              enhancement, base_atk, crit, bonus_dmg_pct, is_locked)
+           VALUES ($1,$2,$3,$4,1,$4,$5,$6,FALSE)`,
+          [discordId, gearId, weapon_roster_id, s.atk, s.crit, s.bonus_dmg_pct]
+        );
+        drops.push({ gearClass: 'weapon', name, type, tier, ...s, id: gearId });
+      } else {
+        // armor: roll type 1/3 each, pick an available roster row of that tier+type
+        const armorType = rollArmorType();
+        const ar = await client.query(
+          `SELECT armor_roster_id, name, type FROM armor_roster
+            WHERE tier = $1 AND type = $2 AND is_available = TRUE
+            ORDER BY RANDOM() LIMIT 1`,
+          [tier, armorType]
+        );
+        if (ar.rows.length === 0) {
+          await client.query('ROLLBACK');
+          console.error(`[open] no available armor for tier ${tier} type ${armorType}`);
+          return { ok: false, reason: 'no_armor_pool' };
+        }
+        const { armor_roster_id, name, type } = ar.rows[0];
+        const s = rollArmorStats(tier, type); // HP + DEF only (v5 §C.1)
+        const gearId = await generateUniqueGearId(client);
+
+        await client.query(
+          `INSERT INTO user_armors
+             (discord_id, armor_id, armor_roster_id, curr_hp, curr_def,
+              enhancement, base_hp, base_def, is_locked)
+           VALUES ($1,$2,$3,$4,$5,1,$4,$5,FALSE)`,
+          [discordId, gearId, armor_roster_id, s.hp, s.def]
+        );
+        drops.push({ gearClass: 'armor', name, type, tier, ...s, id: gearId });
+      }
     }
 
     const remaining = previous - amount;
@@ -107,11 +141,14 @@ async function openChestsTxn(discordId, alias, amount) {
   }
 }
 
-/** Renderer card stats line, e.g. `ATK 120 · HP 180 · DEF 70 · CRIT 3.2%`. */
+/** Renderer card stats line. Weapon → `ATK 120 · CRIT 3.2%`; armor → `HP 180 · DEF 70 · Heavy`. */
 function dropStatsLine(d) {
+  if (d.gearClass === 'armor') {
+    return `HP ${d.hp} · DEF ${d.def} · ${d.type}`;
+  }
   const critTxt = d.crit > 0 ? ` · CRIT ${Number(d.crit).toFixed(1)}%` : '';
   const bonus = d.bonus_dmg_pct ? ` · +${Number(d.bonus_dmg_pct)}% DMG` : '';
-  return `ATK ${d.atk} · HP ${d.hp} · DEF ${d.def}${critTxt}${bonus}`;
+  return `ATK ${d.atk}${critTxt}${bonus}`;
 }
 
 /**
@@ -164,6 +201,7 @@ async function execute(message, { args }) {
     if (res.reason === 'nobag') await reply(message, `You don't have any ${chest.action}s.`);
     else if (res.reason === 'insufficient') await reply(message, `You don't have enough ${chest.action}s. You have ${res.have}.`);
     else if (res.reason === 'no_weapon_pool') await reply(message, 'Chest opening is temporarily unavailable (no available weapons for a rolled tier). Nothing was consumed.');
+    else if (res.reason === 'no_armor_pool') await reply(message, 'Chest opening is temporarily unavailable (no available armor for a rolled tier). Nothing was consumed.');
     else await reply(message, 'Something went wrong opening your chest. Nothing was consumed.');
     return;
   }
@@ -171,7 +209,7 @@ async function execute(message, { args }) {
 
   // Display layer (committed already): gif animation → weapon-grid result.
   const items = drops.map((d) => ({
-    id: d.weaponId,
+    id: d.id,
     name: d.name,
     tier: d.tier,
     stats: dropStatsLine(d),

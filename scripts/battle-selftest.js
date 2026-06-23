@@ -43,7 +43,7 @@ function player(over = {}) {
   return Object.assign({
     name: 'Hero', kind: 'player', class: 'Knight', classPassive: 'damage_reduction',
     level: 50, atk: 300, hp: 2000, def: 150, crit: 20,
-    bonusDmgPct: 0, bonusCritDmgPct: 0,
+    bonusDmgPct: 0,
     weaponPassiveKey: 'none', weaponName: 'Test Blade',
     deityBlessingKey: 'none', deityName: null,
   }, over);
@@ -85,9 +85,11 @@ section('1. Coverage — registry ⇄ passive_registry_keys.md');
   const extra = [...regKeys].filter((k) => !mdKeys.has(k));
   check('every md key implemented', missing.length === 0, `missing: ${missing.join(', ')}`);
   check('no unlisted registry keys', extra.length === 0, `extra: ${extra.join(', ')}`);
-  // 137 unique keys total — 136 effect keys + the shared `none` no-op (the md
-  // lists `none` in both the weapon and mob sections; the registry is one flat object)
-  check('expected key count (137 incl. none)', regKeys.size === 137, `got ${regKeys.size}`);
+  // 145 unique keys total — 144 effect keys + the shared `none` no-op. [v5] +8 new
+  // armor passives (kalasag, salakot_ward, wolfskin_cloak, hoplite_panoply,
+  // anting_anting_sash, valkyrie_mantle, mail_of_brokkr, mantle_of_bathala); aegis &
+  // helm_of_darkness were already counted (migrated from shields).
+  check('expected key count (145 incl. none)', regKeys.size === 145, `got ${regKeys.size}`);
   for (const k of regKeys) {
     if (typeof PASSIVE_REGISTRY[k] !== 'function') check(`key ${k} is a function`, false);
   }
@@ -125,14 +127,17 @@ section('3. Determinism — 100 seeds, identical sims');
 // ════════════════════════════════════════════════════════════════════════════
 section('4. Targeted scenarios');
 
-// — crit caps / class stats (R6) —
+// — v5 uncapped CRIT / class stats —
 {
   const archer = computeClassBattleStats('Archer', 50);
   check('R6: Archer Lv50 class crit = 39.3', Math.abs(archer.crit - 39.3) < 1e-9, `got ${archer.crit}`);
   const knight = computeClassBattleStats('Knight', 50);
   check('Knight crit stays 5.0 (0 growth)', Math.abs(knight.crit - 5.0) < 1e-9, `got ${knight.crit}`);
-  const tot = assemblePlayerStats('Archer', 50, { curr_atk: 0, curr_hp: 0, curr_def: 0, crit: 10 }, null);
-  check('total crit hard cap 45', Math.abs(tot.crit - 45) < 1e-9, `got ${tot.crit}`);
+  // [v5] both the old class and combined CRIT ceilings are removed (§B.3).
+  const tot = assemblePlayerStats('Archer', 50, { curr_atk: 0, crit: 10 }, null, null);
+  check('v5 crit uncapped: Archer 39.3 + 10 weapon = 49.3', Math.abs(tot.crit - 49.3) < 1e-9, `got ${tot.crit}`);
+  const archer60 = computeClassBattleStats('Archer', 60);
+  check('v5 class crit continues beyond old 40% clamp', Math.abs(archer60.crit - 46.3) < 1e-9, `got ${archer60.crit}`);
   const mage = computeClassBattleStats('Mage', 50);
   check('Mage Lv50 ATK 5250', mage.atk === 350 + 100 * 49, `got ${mage.atk}`);
 }
@@ -172,7 +177,7 @@ section('4. Targeted scenarios');
     const stats = computeClassBattleStats(cls, 50);
     check(`§1: ${cls} Lv50 HP includes +50 HP/Lv`, stats.hp === L50_HP[cls], `got ${stats.hp}`);
   }
-  // crit caps: Swordsman/Archer reach 39.3 at L50; Knight flat 5.0 (0 growth)
+  // Swordsman/Archer reach 39.3 at L50; Knight stays flat at 5.0.
   check('§1: Swordsman Lv50 crit 39.3', Math.abs(computeClassBattleStats('Swordsman', 50).crit - 39.3) < 1e-9);
 }
 
@@ -189,19 +194,18 @@ section('4. Targeted scenarios');
     `got ${dmgOf(allEvents(sN), 'attacks')}`);
 }
 
-// — Supreme riders are MUTUALLY EXCLUSIVE: crit-dmg only on crit, flat-dmg only on
-//   non-crit (never both). Supreme crit caps at ×2.5, NOT ×3.75. —
+// — Unified Supreme damage bonus applies to both normal and critical hits. —
 {
   // crit 0 weapon; Artemis grants the first-attack auto-crit (the "other source")
-  const mk = () => player({ crit: 0, bonusDmgPct: 50, bonusCritDmgPct: 50, deityBlessingKey: 'artemis_huntress_precision' });
+  const mk = () => player({ crit: 0, bonusDmgPct: 50, deityBlessingKey: 'artemis_huntress_precision' });
   // r1 draws: order 0, critPre .99 (no natural crit), variance .5; mob: crit .99, var .5; r2: critPre .99, var .5
   const sim = resolveBattle(mk(), mob({ hp: 10000 }),
     { seed: 1, rng: scripted([0.0, 0.99, 0.5, 0.99, 0.5, 0.99, 0.5]) });
   const r1 = dmgOf(roundEvents(sim, 1), 'attacks');
   const r2 = dmgOf(roundEvents(sim, 2), 'attacks');
-  // base hit ≈ 214; crit = ×2.5 only (no flat bonus) = 535; non-crit = ×1.5 only = 321.
-  check('Supreme crit hit = 535 (×2.5 only, no flat bonus)', r1 === 535, `got ${r1}`);
-  check('Supreme non-crit hit = 321 (×1.5 only)', r2 === 321, `got ${r2}`);
+  // base hit ≈ 214; unified +50% means ×2.5 crit and ×1.5 non-crit.
+  check('Supreme unified bonus: crit hit = 535 (×2.5)', r1 === 535, `got ${r1}`);
+  check('Supreme unified bonus: non-crit hit = 321 (×1.5)', r2 === 321, `got ${r2}`);
   check('crit ≈ non-crit ÷1.5 ×2.5', r1 === Math.floor((r2 / 1.5) * 2.5), `got ${r1} vs ${Math.floor((r2 / 1.5) * 2.5)}`);
   check('round 1 marked CRIT', hasEvent(roundEvents(sim, 1), '(CRIT!)'));
   check('round 2 not marked CRIT', !hasEvent(roundEvents(sim, 2), '(CRIT!)'));
@@ -644,7 +648,7 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
       class: cls, classPassive: cp,
       atk: 50 + Math.floor(fx() * 800), hp: 200 + Math.floor(fx() * 6000),
       def: Math.floor(fx() * 400), crit: Math.floor(fx() * 46),
-      bonusDmgPct: fx() < 0.2 ? 50 : 0, bonusCritDmgPct: fx() < 0.2 ? 50 : 0,
+      bonusDmgPct: fx() < 0.2 ? 50 : 0,
       weaponPassiveKey: pick(weaponKeys), deityBlessingKey: pick(deityKeys),
     });
     const b = mode === 'duel'

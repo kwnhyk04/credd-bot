@@ -95,11 +95,11 @@ function getEmojiImage(displayName) {
 
 /** Fetch all loadout icons for a sim once, before animating. */
 async function prefetchIcons(sim) {
-  const [aw, ad, bw, bd] = await Promise.all([
-    getEmojiImage(sim.a.weapon), getEmojiImage(sim.a.deity),
-    getEmojiImage(sim.b.weapon), getEmojiImage(sim.b.deity),
+  const [aw, aa, ad, bw, ba, bd] = await Promise.all([
+    getEmojiImage(sim.a.weapon), getEmojiImage(sim.a.armor), getEmojiImage(sim.a.deity),
+    getEmojiImage(sim.b.weapon), getEmojiImage(sim.b.armor), getEmojiImage(sim.b.deity),
   ]);
-  return { a: { weapon: aw, deity: ad }, b: { weapon: bw, deity: bd } };
+  return { a: { weapon: aw, armor: aa, deity: ad }, b: { weapon: bw, armor: ba, deity: bd } };
 }
 
 /* ----------------------------------------------------------------------- */
@@ -182,21 +182,26 @@ function drawLoadout(ctx, f, icons, x, y, align) {
     else segs.push({ text: '◆' });
     segs.push({ text: ` ${f.weapon}` });
   };
+  const armorSegs = () => {
+    if (icons && icons.armor) segs.push({ img: icons.armor });
+    else segs.push({ text: '✦' });
+    segs.push({ text: ` ${f.armor}` });
+  };
   const deitySegs = () => {
     if (icons && icons.deity) segs.push({ img: icons.deity });
     else segs.push({ text: '❖' });
     segs.push({ text: ` ${f.deity}` });
   };
-  if (align === 'right' && f.deity) {
-    deitySegs();
-    segs.push({ text: '  |  ' });
+  const sepSeg = () => segs.push({ text: '  |  ' });
+  // [v5] loadout shows Weapon | Armor | Deity (mirror reverses the order).
+  if (align === 'right') {
+    if (f.deity) { deitySegs(); sepSeg(); }
+    if (f.armor) { armorSegs(); sepSeg(); }
     weaponSegs();
   } else {
     weaponSegs();
-    if (f.deity) {
-      segs.push({ text: '  |  ' });
-      deitySegs();
-    }
+    if (f.armor) { sepSeg(); armorSegs(); }
+    if (f.deity) { sepSeg(); deitySegs(); }
   }
   ctx.font = `12px ${FONT}`;
   ctx.fillStyle = COLORS.dim;

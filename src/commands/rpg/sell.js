@@ -13,45 +13,67 @@ function sumPrices(rows) {
 }
 
 /**
- * Resolve the exact set of weapons a sell would delete. Excludes locked and
- * equipped weapons always; `all` additionally excludes Legendary + Supreme.
- * Reads equipped first, then user_weapons — callers that need users_bag locked
- * MUST lock it before invoking this (lock order: users_bag → user_weapons).
+ * [v5] Resolve the exact set of GEAR (weapons + armor) a sell would delete.
+ * Excludes locked and equipped gear always; `all` additionally excludes Legendary +
+ * Supreme. Reads equipped first, then both gear tables — callers that need users_bag
+ * locked MUST lock it before invoking this (lock order: users_bag → gear tables).
  * @param executor pool (read-only prompt) or in-txn client (forUpdate:true)
- * @returns {{equipped:string|null, rows:{weapon_id:string,tier:string}[]}}
+ * @returns {{equippedW:string|null, equippedA:string|null,
+ *            rows:{gear_id:string,tier:string,kind:'weapon'|'armor'}[]}}
  */
 async function resolveSellSet(executor, discordId, { mode, arg, forUpdate = false }) {
   const eqRes = await executor.query(
-    'SELECT equipped_weapon_id FROM user_character WHERE discord_id = $1',
+    'SELECT equipped_weapon_id, equipped_armor_id FROM user_character WHERE discord_id = $1',
     [discordId]
   );
-  const equipped = eqRes.rows[0]?.equipped_weapon_id ?? null;
+  const equippedW = eqRes.rows[0]?.equipped_weapon_id ?? null;
+  const equippedA = eqRes.rows[0]?.equipped_armor_id ?? null;
 
-  const params = [discordId, equipped];
-  let clause;
-  if (mode === 'id') {
-    params.push(arg);
-    clause = `AND uw.weapon_id = $${params.length}`;
-  } else if (mode === 'tier') {
-    params.push(arg);
-    clause = `AND wr.tier = $${params.length}`;
-  } else { // all
-    params.push(ALL_EXCLUDED_TIERS);
-    clause = `AND wr.tier <> ALL($${params.length}::text[])`;
+  const rows = [];
+
+  // weapons
+  {
+    const params = [discordId, equippedW];
+    let clause;
+    if (mode === 'id') { params.push(arg); clause = `AND uw.weapon_id = $${params.length}`; }
+    else if (mode === 'tier') { params.push(arg); clause = `AND wr.tier = $${params.length}`; }
+    else { params.push(ALL_EXCLUDED_TIERS); clause = `AND wr.tier <> ALL($${params.length}::text[])`; }
+    const r = await executor.query(
+      `SELECT uw.weapon_id AS gear_id, wr.tier, 'weapon' AS kind
+         FROM user_weapons uw
+         JOIN weapon_roster wr ON uw.weapon_roster_id = wr.weapon_roster_id
+        WHERE uw.discord_id = $1
+          AND uw.is_locked = FALSE
+          AND uw.weapon_id IS DISTINCT FROM $2
+          ${clause}
+        ${forUpdate ? 'FOR UPDATE OF uw' : ''}`,
+      params
+    );
+    rows.push(...r.rows);
   }
 
-  const { rows } = await executor.query(
-    `SELECT uw.weapon_id, wr.tier
-       FROM user_weapons uw
-       JOIN weapon_roster wr ON uw.weapon_roster_id = wr.weapon_roster_id
-      WHERE uw.discord_id = $1
-        AND uw.is_locked = FALSE
-        AND uw.weapon_id IS DISTINCT FROM $2
-        ${clause}
-      ${forUpdate ? 'FOR UPDATE OF uw' : ''}`,
-    params
-  );
-  return { equipped, rows };
+  // armors
+  {
+    const params = [discordId, equippedA];
+    let clause;
+    if (mode === 'id') { params.push(arg); clause = `AND ua.armor_id = $${params.length}`; }
+    else if (mode === 'tier') { params.push(arg); clause = `AND ar.tier = $${params.length}`; }
+    else { params.push(ALL_EXCLUDED_TIERS); clause = `AND ar.tier <> ALL($${params.length}::text[])`; }
+    const r = await executor.query(
+      `SELECT ua.armor_id AS gear_id, ar.tier, 'armor' AS kind
+         FROM user_armors ua
+         JOIN armor_roster ar ON ua.armor_roster_id = ar.armor_roster_id
+        WHERE ua.discord_id = $1
+          AND ua.is_locked = FALSE
+          AND ua.armor_id IS DISTINCT FROM $2
+          ${clause}
+        ${forUpdate ? 'FOR UPDATE OF ua' : ''}`,
+      params
+    );
+    rows.push(...r.rows);
+  }
+
+  return { equippedW, equippedA, rows };
 }
 
 /**
@@ -62,7 +84,7 @@ async function resolveSellSet(executor, discordId, { mode, arg, forUpdate = fals
 async function execute(message, { args }) {
   const target = (args[0] || '').trim().toLowerCase();
   if (!target) {
-    await reply(message, 'Usage: `crd sell <weapon_id | common|rare|mythic|legendary|supreme | all>`');
+    await reply(message, 'Usage: `crd sell <id | common|rare|mythic|legendary|supreme | all>`');
     return;
   }
 
@@ -79,8 +101,8 @@ async function execute(message, { args }) {
   let count, total, descLine;
 
   if (mode === 'id') {
-    // Specific, friendly rejections for the single-weapon path.
-    const { rows } = await pool.query(
+    // Specific, friendly rejections for the single-gear path (weapon then armor).
+    const wq = await pool.query(
       `SELECT uw.is_locked, uw.enhancement, wr.name, wr.tier,
               (uw.weapon_id = uc.equipped_weapon_id) AS equipped
          FROM user_weapons uw
@@ -89,40 +111,49 @@ async function execute(message, { args }) {
         WHERE uw.weapon_id = $1 AND uw.discord_id = $2`,
       [arg, discordId]
     );
-    if (rows.length === 0) {
-      await reply(message, 'You don\'t own a weapon with that ID.');
+    const aq = wq.rows.length === 0 ? await pool.query(
+      `SELECT ua.is_locked, ua.enhancement, ar.name, ar.tier,
+              (ua.armor_id = uc.equipped_armor_id) AS equipped
+         FROM user_armors ua
+         JOIN armor_roster ar ON ua.armor_roster_id = ar.armor_roster_id
+         JOIN user_character uc ON uc.discord_id = ua.discord_id
+        WHERE ua.armor_id = $1 AND ua.discord_id = $2`,
+      [arg, discordId]
+    ) : { rows: [] };
+    const g = wq.rows[0] || aq.rows[0];
+    if (!g) {
+      await reply(message, 'You don\'t own equipment with that ID.');
       return;
     }
-    const w = rows[0];
-    if (w.equipped) {
-      await reply(message, 'That weapon is equipped. Unequip it first.');
+    if (g.equipped) {
+      await reply(message, 'That equipment is equipped. Unequip it first.');
       return;
     }
-    if (w.is_locked) {
-      await reply(message, 'That weapon is locked. Unlock it first.');
+    if (g.is_locked) {
+      await reply(message, 'That equipment is locked. Unlock it first.');
       return;
     }
     count = 1;
-    total = SELL_PRICES[w.tier] || 0;
-    descLine = `**${w.name}** (${w.tier}) +${w.enhancement - 1}`;
+    total = SELL_PRICES[g.tier] || 0;
+    descLine = `**${g.name}** (${g.tier}) +${g.enhancement - 1}`;
   } else {
     const { rows } = await resolveSellSet(pool, discordId, { mode, arg });
     if (rows.length === 0) {
       await reply(message, mode === 'tier'
-        ? `You have no unlocked, unequipped ${arg} weapons to sell.`
-        : 'You have no weapons to sell (Legendary and Supreme must be sold by ID).');
+        ? `You have no unlocked, unequipped ${arg} gear to sell.`
+        : 'You have no gear to sell (Legendary and Supreme must be sold by ID).');
       return;
     }
     count = rows.length;
     total = sumPrices(rows);
-    const noun = count === 1 ? 'weapon' : 'weapons';
+    const noun = count === 1 ? 'item' : 'items';
     descLine = mode === 'tier' ? `**${count}** ${arg} ${noun}` : `**${count}** ${noun}`;
   }
 
   const subject = count === 1 ? 'it' : 'them';
   const content =
     `⚠️ Sell ${descLine} for **${total.toLocaleString()} Credux**? ` +
-    `This will **permanently delete** ${subject} and cannot be undone. Locked and equipped weapons are excluded.`;
+    `This will **permanently delete** ${subject} and cannot be undone. Locked and equipped gear is excluded.`;
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`sell:confirm:${mode}:${arg}:${discordId}`).setLabel('✅ Confirm').setStyle(ButtonStyle.Danger),
@@ -161,15 +192,17 @@ async function handleConfirm(interaction, mode, arg, ownerId) {
         const creduxBefore = Number(bagRes.rows[0].credux);
         const total = sumPrices(rows);
         const creduxAfter = creduxBefore + total;
-        const ids = rows.map(r => r.weapon_id);
-        // item_type: sold weapon's tier for id, the tier for tier, 'all' for all.
+        const weaponIds = rows.filter((r) => r.kind === 'weapon').map((r) => r.gear_id);
+        const armorIds = rows.filter((r) => r.kind === 'armor').map((r) => r.gear_id);
+        // item_type: sold gear's tier for id, the tier for tier, 'all' for all.
         const itemType = mode === 'all' ? 'all' : (mode === 'tier' ? arg : rows[0].tier);
 
-        await client.query('DELETE FROM user_weapons WHERE weapon_id = ANY($1::varchar[])', [ids]);
+        if (weaponIds.length) await client.query('DELETE FROM user_weapons WHERE weapon_id = ANY($1::varchar[])', [weaponIds]);
+        if (armorIds.length) await client.query('DELETE FROM user_armors WHERE armor_id = ANY($1::varchar[])', [armorIds]);
         await client.query('UPDATE users_bag SET credux = credux + $2 WHERE discord_id = $1', [ownerId, total]);
         await client.query(
           `INSERT INTO game_logs (discord_id, action, item_type, previous_credux, updated_credux)
-           VALUES ($1, 'Sell Weapon', $2, $3, $4)`,
+           VALUES ($1, 'Sell Gear', $2, $3, $4)`,
           [ownerId, itemType, creduxBefore, creduxAfter]
         );
 
@@ -186,7 +219,7 @@ async function handleConfirm(interaction, mode, arg, ownerId) {
   }
 
   if (outcome.status === 'done') {
-    const noun = outcome.count === 1 ? 'weapon' : 'weapons';
+    const noun = outcome.count === 1 ? 'item' : 'items';
     await interaction.update({
       content: `✅ Sold **${outcome.count}** ${noun} for **${outcome.total.toLocaleString()} Credux**.`,
       components: [],

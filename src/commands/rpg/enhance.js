@@ -6,9 +6,9 @@ const {
 } = require('discord.js');
 const pool = require('../../db/pool');
 const {
-  MAX_ENHANCEMENT,
   ENHANCEABLE_TIERS,
   computeWeaponStats,
+  computeArmorStats,
   nextAttempt,
 } = require('../../engine/enhancement');
 const { emojiForDisplay, emoji } = require('../../utils/emojis');
@@ -20,7 +20,8 @@ const { progressQuests } = require('../../utils/questProgress');
 const TIER_COLOR = {
   Common: 0x95a5a6, Rare: 0x3498db, Mythic: 0x9b59b6, Legendary: 0xFFD700, Supreme: 0xe74c3c,
 };
-const TYPE_EMOJI = { Sword: '⚔️', Staff: '🪄', Gloves: '🥊', Shield: '🛡️', Bow: '🏹' };
+const TYPE_EMOJI = { Sword: '⚔️', Staff: '🪄', Gloves: '🥊', Bow: '🏹' };
+const ARMOR_TYPE_EMOJI = { Heavy: '🛡️', Medium: '🥋', Light: '🧥' };
 const GREEN = 0x2ecc71;
 const RED = 0xe74c3c;
 
@@ -30,20 +31,57 @@ function reply(message, payload) {
   return message.reply({ ...payload, allowedMentions: { repliedUser: false } });
 }
 
-/** Live forge data: weapon + owner credux, or null if not owned. */
-async function fetchForgeData(discordId, weaponId) {
-  const { rows } = await pool.query(
-    `SELECT uw.enhancement, uw.base_atk, uw.base_hp, uw.base_def,
-            uw.curr_atk, uw.curr_hp, uw.curr_def, uw.crit,
-            wr.name, wr.tier, wr.type,
-            ub.credux
+/** Type icon for a normalized gear row (weapon or armor). */
+function gearIcon(g) {
+  const fallback = g.kind === 'armor' ? (ARMOR_TYPE_EMOJI[g.type] ?? '🛡️') : (TYPE_EMOJI[g.type] ?? '⚔️');
+  return emojiForDisplay(g.name, fallback);
+}
+
+/** Stat line for the CURRENT stored stats — weapon → ATK, armor → HP · DEF. */
+function statLine(g) {
+  return g.kind === 'armor'
+    ? `HP **${g.curr_hp}** · DEF **${g.curr_def}**`
+    : `ATK **${g.curr_atk}**`;
+}
+
+/** Stat line for a previewed enhancement level (computed). */
+function previewLine(g, level) {
+  if (g.kind === 'armor') {
+    const s = computeArmorStats(g, level);
+    return `HP ${s.curr_hp} · DEF ${s.curr_def}`;
+  }
+  const s = computeWeaponStats(g, level);
+  return `ATK ${s.curr_atk}`;
+}
+
+/**
+ * Live forge data: gear (weapon then armor) + owner credux, or null if not owned.
+ * Returns a normalized row with `kind` and the relevant base/curr stat columns.
+ */
+async function fetchForgeData(discordId, gearId) {
+  const w = await pool.query(
+    `SELECT uw.enhancement, uw.base_atk, uw.curr_atk, uw.crit,
+            wr.name, wr.tier, wr.type, ub.credux
        FROM user_weapons uw
        JOIN weapon_roster wr ON uw.weapon_roster_id = wr.weapon_roster_id
        JOIN users_bag ub ON ub.discord_id = uw.discord_id
       WHERE uw.weapon_id = $1 AND uw.discord_id = $2`,
-    [weaponId, discordId]
+    [gearId, discordId]
   );
-  return rows[0] ?? null;
+  if (w.rows[0]) return { kind: 'weapon', ...w.rows[0] };
+
+  const a = await pool.query(
+    `SELECT ua.enhancement, ua.base_hp, ua.base_def, ua.curr_hp, ua.curr_def,
+            ar.name, ar.tier, ar.type, ub.credux
+       FROM user_armors ua
+       JOIN armor_roster ar ON ua.armor_roster_id = ar.armor_roster_id
+       JOIN users_bag ub ON ub.discord_id = ua.discord_id
+      WHERE ua.armor_id = $1 AND ua.discord_id = $2`,
+    [gearId, discordId]
+  );
+  if (a.rows[0]) return { kind: 'armor', ...a.rows[0] };
+
+  return null;
 }
 
 function footerCredux(credux) {
@@ -52,40 +90,37 @@ function footerCredux(credux) {
 
 /**
  * Append the next-level section (or maxed / not-enhanceable note).
- * Returns whether the Enhance button should be ENABLED: false when maxed or
- * not enhanceable; affordability also disables it (section stays visible).
- * Render-side only — every click still re-validates server-side in the txn.
+ * Returns whether the Enhance button should be ENABLED.
  */
-function addNextSection(container, w) {
-  if (!ENHANCEABLE_TIERS.includes(w.tier)) {
-    container.addTextDisplayComponents((td) => td.setContent(`${w.tier} weapons cannot be enhanced.`));
+function addNextSection(container, g) {
+  if (!ENHANCEABLE_TIERS.includes(g.tier)) {
+    container.addTextDisplayComponents((td) => td.setContent(`${g.tier} gear cannot be enhanced.`));
     return false;
   }
-  const next = nextAttempt(w.tier, w.enhancement);
+  const next = nextAttempt(g.tier, g.enhancement);
   if (next == null) {
     container.addTextDisplayComponents((td) => td.setContent('-# Maximum enhancement reached'));
     return false;
   }
-  const preview = computeWeaponStats(w, w.enhancement + 1);
   container.addTextDisplayComponents((td) =>
     td.setContent(
       `**Next: +${next.targetLevel}**\n` +
       `Cost: **${next.cost.toLocaleString()}** Credux · Success: **${Math.round(next.successRate * 100)}%**\n` +
-      `-# On success → ATK ${preview.curr_atk} · HP ${preview.curr_hp} · DEF ${preview.curr_def}`
+      `-# On success → ${previewLine(g, g.enhancement + 1)}`
     )
   );
-  return Number(w.credux) >= next.cost;
+  return Number(g.credux) >= next.cost;
 }
 
-function forgeButtonsRow(weaponId, discordId, enhanceEnabled) {
+function forgeButtonsRow(gearId, discordId, enhanceEnabled) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(`enhance:attempt:${weaponId}:${discordId}`)
+      .setCustomId(`enhance:attempt:${gearId}:${discordId}`)
       .setLabel('🔨 Enhance')
       .setStyle(ButtonStyle.Success)
       .setDisabled(!enhanceEnabled),
     new ButtonBuilder()
-      .setCustomId(`enhance:cancel:${weaponId}:${discordId}`)
+      .setCustomId(`enhance:cancel:${gearId}:${discordId}`)
       .setLabel('Cancel')
       .setStyle(ButtonStyle.Secondary),
   );
@@ -95,22 +130,22 @@ function forgeButtonsRow(weaponId, discordId, enhanceEnabled) {
  * Forge view (CLAUDE.md container standard): header → separator → current
  * stats → separator → next-level block → separator → Credux footer (+ buttons).
  */
-function buildForgePayload(w, weaponId, discordId, { resultLine = null, color = null, buttons = true } = {}) {
-  const display = w.enhancement - 1;
-  const icon = emojiForDisplay(w.name, TYPE_EMOJI[w.type] ?? '⚔️');
+function buildForgePayload(g, gearId, discordId, { resultLine = null, color = null, buttons = true } = {}) {
+  const display = g.enhancement - 1;
+  const icon = gearIcon(g);
 
   const container = new ContainerBuilder()
-    .setAccentColor(color ?? (TIER_COLOR[w.tier] || TIER_COLOR.Common))
+    .setAccentColor(color ?? (TIER_COLOR[g.tier] || TIER_COLOR.Common))
     .addTextDisplayComponents((td) =>
-      td.setContent(`## 🔨 Forge — ${icon} ${w.name} (${w.tier}) +${display}`)
+      td.setContent(`## 🔨 Forge — ${icon} ${g.name} (${g.tier}) +${display}`)
     )
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) =>
-      td.setContent(`**Current Stats**\nATK **${w.curr_atk}** · HP **${w.curr_hp}** · DEF **${w.curr_def}**`)
+      td.setContent(`**Current Stats**\n${statLine(g)}`)
     )
     .addSeparatorComponents(sep);
 
-  const enhanceEnabled = addNextSection(container, w);
+  const enhanceEnabled = addNextSection(container, g);
 
   if (resultLine) {
     container.addSeparatorComponents(sep);
@@ -119,30 +154,25 @@ function buildForgePayload(w, weaponId, discordId, { resultLine = null, color = 
 
   container
     .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) => td.setContent(footerCredux(w.credux)));
+    .addTextDisplayComponents((td) => td.setContent(footerCredux(g.credux)));
 
   const components = [container];
-  if (buttons) components.push(forgeButtonsRow(weaponId, discordId, enhanceEnabled));
+  if (buttons) components.push(forgeButtonsRow(gearId, discordId, enhanceEnabled));
   return { components, flags: MessageFlags.IsComponentsV2 };
 }
 
 /**
  * Verdict + next-step preview in one (continuous forging): buttons stay live
  * so attempts can chain on the same message.
- *   ✅ Forge Success — <Name> +n → +n+1   body: resulting stats
- *   ❌ Forge Failed — <Name> remains +n   body: current stats + consumed note
- * then the SAME next-level section as the initial view (for the new level),
- * Credux footer with the updated balance, Enhance disabled when maxed or
- * unaffordable.
  */
-function buildResolvedPayload(w, weaponId, discordId, result) {
-  const icon = emojiForDisplay(w.name, TYPE_EMOJI[w.type] ?? '⚔️');
+function buildResolvedPayload(g, gearId, discordId, result) {
+  const icon = gearIcon(g);
   const header = result.success
-    ? `## ✅ Forge Success — ${icon} ${w.name} +${result.newEnhancement - 2} → +${result.newEnhancement - 1}`
-    : `## ❌ Forge Failed — ${icon} ${w.name} remains +${w.enhancement - 1}`;
+    ? `## ✅ Forge Success — ${icon} ${g.name} +${result.newEnhancement - 2} → +${result.newEnhancement - 1}`
+    : `## ❌ Forge Failed — ${icon} ${g.name} remains +${g.enhancement - 1}`;
   const stats = result.success
-    ? `**Resulting Stats**\nATK **${w.curr_atk}** · HP **${w.curr_hp}** · DEF **${w.curr_def}**`
-    : `**Current Stats**\nATK **${w.curr_atk}** · HP **${w.curr_hp}** · DEF **${w.curr_def}**\n` +
+    ? `**Resulting Stats**\n${statLine(g)}`
+    : `**Current Stats**\n${statLine(g)}\n` +
       `-# Materials consumed: ${emoji('credux_coin')} −${result.cost.toLocaleString()} Credux`;
 
   const container = new ContainerBuilder()
@@ -152,9 +182,8 @@ function buildResolvedPayload(w, weaponId, discordId, result) {
     .addTextDisplayComponents((td) => td.setContent(stats))
     .addSeparatorComponents(sep);
 
-  const enhanceEnabled = addNextSection(container, w);
+  const enhanceEnabled = addNextSection(container, g);
 
-  // daily-quest completion notices (one -# line each), appended below the next-level block
   if (result.questNotices && result.questNotices.length) {
     container
       .addSeparatorComponents(sep)
@@ -163,10 +192,10 @@ function buildResolvedPayload(w, weaponId, discordId, result) {
 
   container
     .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) => td.setContent(footerCredux(w.credux)));
+    .addTextDisplayComponents((td) => td.setContent(footerCredux(g.credux)));
 
   return {
-    components: [container, forgeButtonsRow(weaponId, discordId, enhanceEnabled)],
+    components: [container, forgeButtonsRow(gearId, discordId, enhanceEnabled)],
     flags: MessageFlags.IsComponentsV2,
   };
 }
@@ -180,31 +209,30 @@ function notePayload(text, color = RED) {
 }
 
 /**
- * `crd enhance <weapon_id>` — open a forge view (Master §7).
+ * `crd enhance <id>` — open a forge view for a weapon OR armor (Master §7 / [v5]).
  * Each Enhance click is one atomic txn; the message resolves to a result card.
  */
 async function execute(message, { args }) {
-  const weaponId = (args[0] || '').trim().toLowerCase();
-  if (!weaponId) {
-    await reply(message, { content: 'Usage: `crd enhance <weapon_id>`' });
+  const gearId = (args[0] || '').trim().toLowerCase();
+  if (!gearId) {
+    await reply(message, { content: 'Usage: `crd enhance <id>`' });
     return;
   }
 
-  const w = await fetchForgeData(message.author.id, weaponId);
-  if (!w) {
-    await reply(message, { content: 'You don\'t own a weapon with that ID.' });
+  const g = await fetchForgeData(message.author.id, gearId);
+  if (!g) {
+    await reply(message, { content: 'You don\'t own equipment with that ID.' });
     return;
   }
-  await reply(message, buildForgePayload(w, weaponId, message.author.id));
+  await reply(message, buildForgePayload(g, gearId, message.author.id));
 }
 
 /**
- * One atomic enhancement attempt. Deducts Credux on BOTH success and failure
- * (§7). On success: bump enhancement + recompute curr_* via the boost table.
- * Lock order: users_bag → user_weapons (standardized across enhance/sell).
- * Returns a tagged result object; throws only on unexpected DB failure (→ ROLLBACK).
+ * One atomic enhancement attempt. Deducts Credux on BOTH success and failure (§7).
+ * id-detects weapon (scales ATK) vs armor (scales HP/DEF); both use the boost table.
+ * Lock order: users_bag → gear table (standardized across enhance/sell).
  */
-async function attemptEnhance(client, discordId, weaponId) {
+async function attemptEnhance(client, discordId, gearId) {
   await client.query('BEGIN');
 
   const bagRes = await client.query(
@@ -217,25 +245,38 @@ async function attemptEnhance(client, discordId, weaponId) {
   }
   const creduxBefore = Number(bagRes.rows[0].credux);
 
-  const wRes = await client.query(
-    `SELECT uw.enhancement, uw.base_atk, uw.base_hp, uw.base_def, wr.tier, wr.name
+  // Weapon first.
+  let kind = 'weapon';
+  let gRes = await client.query(
+    `SELECT uw.enhancement, uw.base_atk, wr.tier, wr.name
        FROM user_weapons uw
        JOIN weapon_roster wr ON uw.weapon_roster_id = wr.weapon_roster_id
       WHERE uw.weapon_id = $1 AND uw.discord_id = $2
       FOR UPDATE OF uw`,
-    [weaponId, discordId]
+    [gearId, discordId]
   );
-  if (wRes.rows.length === 0) {
+  if (gRes.rows.length === 0) {
+    kind = 'armor';
+    gRes = await client.query(
+      `SELECT ua.enhancement, ua.base_hp, ua.base_def, ar.tier, ar.name
+         FROM user_armors ua
+         JOIN armor_roster ar ON ua.armor_roster_id = ar.armor_roster_id
+        WHERE ua.armor_id = $1 AND ua.discord_id = $2
+        FOR UPDATE OF ua`,
+      [gearId, discordId]
+    );
+  }
+  if (gRes.rows.length === 0) {
     await client.query('ROLLBACK');
     return { status: 'notfound' };
   }
-  const w = wRes.rows[0];
+  const g = gRes.rows[0];
 
-  if (!ENHANCEABLE_TIERS.includes(w.tier)) {
+  if (!ENHANCEABLE_TIERS.includes(g.tier)) {
     await client.query('ROLLBACK');
-    return { status: 'not_enhanceable', tier: w.tier };
+    return { status: 'not_enhanceable', tier: g.tier };
   }
-  const next = nextAttempt(w.tier, w.enhancement);
+  const next = nextAttempt(g.tier, g.enhancement);
   if (next == null) {
     await client.query('ROLLBACK');
     return { status: 'maxed' };
@@ -253,27 +294,32 @@ async function attemptEnhance(client, discordId, weaponId) {
     [discordId, next.cost]
   );
 
-  let newEnhancement = w.enhancement;
+  let newEnhancement = g.enhancement;
   if (success) {
-    newEnhancement = w.enhancement + 1;
-    const stats = computeWeaponStats(w, newEnhancement);
-    await client.query(
-      `UPDATE user_weapons
-          SET enhancement = $2, curr_atk = $3, curr_hp = $4, curr_def = $5
-        WHERE weapon_id = $1`,
-      [weaponId, newEnhancement, stats.curr_atk, stats.curr_hp, stats.curr_def]
-    );
+    newEnhancement = g.enhancement + 1;
+    if (kind === 'weapon') {
+      const s = computeWeaponStats(g, newEnhancement);
+      await client.query(
+        'UPDATE user_weapons SET enhancement = $2, curr_atk = $3 WHERE weapon_id = $1',
+        [gearId, newEnhancement, s.curr_atk]
+      );
+    } else {
+      const s = computeArmorStats(g, newEnhancement);
+      await client.query(
+        'UPDATE user_armors SET enhancement = $2, curr_hp = $3, curr_def = $4 WHERE armor_id = $1',
+        [gearId, newEnhancement, s.curr_hp, s.curr_def]
+      );
+    }
   }
 
   await client.query(
     `INSERT INTO game_logs (discord_id, action, item_type, previous_credux, updated_credux)
      VALUES ($1, 'Enhance', $2, $3, $4)`,
-    [discordId, w.tier, creduxBefore, creduxAfter]
+    [discordId, g.tier, creduxBefore, creduxAfter]
   );
 
-  // daily-quest progress (§20) — every attempt (success or fail) counts: credux_spent
-  // by the Credux cost (stored in thousands; cost is always a clean ×1,000) and
-  // weapon_enhancements by one. users_bag lock already held → bag → quests order.
+  // daily-quest progress (§20) — every attempt counts (credux_spent stored in thousands;
+  // cost is always a clean ×1,000) and gear enhancements by one.
   const questNotices = await progressQuests(client, discordId, {
     credux_spent: next.cost / 1000,
     weapon_enhancements: 1,
@@ -283,7 +329,7 @@ async function attemptEnhance(client, discordId, weaponId) {
   return {
     status: 'done',
     success,
-    name: w.name,
+    name: g.name,
     targetLevel: next.targetLevel,
     cost: next.cost,
     newEnhancement,
@@ -291,8 +337,8 @@ async function attemptEnhance(client, discordId, weaponId) {
   };
 }
 
-/** Button: enhance:attempt:<weaponId>:<uid> */
-async function handleAttempt(interaction, weaponId, ownerId) {
+/** Button: enhance:attempt:<gearId>:<uid> */
+async function handleAttempt(interaction, gearId, ownerId) {
   if (interaction.user.id !== ownerId) {
     await interaction.reply({ content: 'This forge isn\'t yours.', flags: MessageFlags.Ephemeral });
     return;
@@ -301,7 +347,7 @@ async function handleAttempt(interaction, weaponId, ownerId) {
   const client = await pool.connect();
   let result;
   try {
-    result = await attemptEnhance(client, ownerId, weaponId);
+    result = await attemptEnhance(client, ownerId, gearId);
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[enhance] attempt failed:', err.message);
@@ -311,44 +357,40 @@ async function handleAttempt(interaction, weaponId, ownerId) {
     client.release();
   }
 
-  // Weapon vanished (sold/deleted mid-session) → close the forge.
   if (result.status === 'notfound') {
-    await interaction.update(notePayload('This weapon is no longer in your bag.'));
+    await interaction.update(notePayload('This equipment is no longer in your bag.'));
     return;
   }
   if (result.status === 'not_enhanceable') {
-    await interaction.reply({ content: `${result.tier} weapons cannot be enhanced.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: `${result.tier} gear cannot be enhanced.`, flags: MessageFlags.Ephemeral });
     return;
   }
 
-  const w = await fetchForgeData(ownerId, weaponId);
-  if (!w) {
-    await interaction.update(notePayload('This weapon is no longer in your bag.'));
+  const g = await fetchForgeData(ownerId, gearId);
+  if (!g) {
+    await interaction.update(notePayload('This equipment is no longer in your bag.'));
     return;
   }
 
-  // Insufficient Credux → red forge view in place, buttons stay live.
   if (result.status === 'insufficient') {
     const resultLine = `❌ Not enough Credux — need **${result.cost.toLocaleString()}**, you have **${result.credux.toLocaleString()}**.`;
-    await interaction.update(buildForgePayload(w, weaponId, ownerId, { resultLine, color: RED }));
+    await interaction.update(buildForgePayload(g, gearId, ownerId, { resultLine, color: RED }));
     return;
   }
   if (result.status === 'maxed') {
-    await interaction.update(buildForgePayload(w, weaponId, ownerId, { resultLine: 'This weapon is already maxed (+10).' }));
+    await interaction.update(buildForgePayload(g, gearId, ownerId, { resultLine: 'This equipment is already maxed (+10).' }));
     return;
   }
 
-  // status === 'done' → verdict + next-step preview, buttons stay live (chaining).
-  await interaction.update(buildResolvedPayload(w, weaponId, ownerId, result));
+  await interaction.update(buildResolvedPayload(g, gearId, ownerId, result));
 }
 
-/** Button: enhance:cancel:<weaponId>:<uid> — drop the buttons, keep the last view as-is. */
+/** Button: enhance:cancel:<gearId>:<uid> — drop the buttons, keep the last view as-is. */
 async function handleCancel(interaction, ownerId) {
   if (interaction.user.id !== ownerId) {
     await interaction.reply({ content: 'This forge isn\'t yours.', flags: MessageFlags.Ephemeral });
     return;
   }
-  // Strip action rows from the CURRENT message so the last verdict stays visible.
   const keep = interaction.message.components
     .filter((c) => c.type !== ComponentType.ActionRow)
     .map((c) => c.toJSON());

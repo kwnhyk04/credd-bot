@@ -157,17 +157,18 @@ async function renderProfileImage(d) {
   // Pre-fetch images (frame + avatar + weapon/deity/combat-exp icons) before laying out.
   // [Supporter-stage §6] When a profile skin resolves (d.skinPath), it replaces the default
   // template as the bottom layer; otherwise fall back to the shared default template.
-  const [template, avatar, weaponIcon, deityIcon, expIcon] = await Promise.all([
+  const [template, avatar, weaponIcon, armorIcon, deityIcon, expIcon] = await Promise.all([
     d.skinPath ? loadImage(d.skinPath).catch(() => null).then((img) => img || loadTemplate()) : loadTemplate(),
     loadAvatar(d.avatarUrl, d.fallbackAvatarUrl),
     d.weaponName ? getEmojiIcon(resolveName(d.weaponName) || '') : Promise.resolve(null),
+    d.armorName ? getEmojiIcon(resolveName(d.armorName) || '') : Promise.resolve(null),
     d.deityName ? getEmojiIcon(resolveName(d.deityName) || '') : Promise.resolve(null),
     getEmojiIcon('combat_exp'),
   ]);
 
   // ── Measure the layout (600-wide design space) ──
   const headerH = PAD + AVATAR + 14;
-  const bodyH = 230;            // class, combat-exp, weapon hdr+val, deity hdr+val+blessing, stats hdr+val
+  const bodyH = 264;            // class, combat-exp, weapon, armor, deity hdr+val+blessing, stats [v5 +armor]
   const recordsH = 110;         // "Combat Record" heading + boxed cells
   const footerH = 30;
   const layoutH = headerH + 12 + bodyH + 12 + recordsH + 12 + footerH;
@@ -294,6 +295,25 @@ async function renderProfileImage(d) {
     if (weaponIcon) { ctx.drawImage(weaponIcon, wx, by - 15, 18, 18); wx += 24; }
     const enh = d.weaponEnh > 0 ? ` +${d.weaponEnh}` : '';
     ctx.fillText(fitText(ctx, `${d.weaponName}${enh}`, W - PAD - wx), wx, by);
+  } else {
+    ctx.fillStyle = SUB_COLOR;
+    ctx.fillText('None', PAD, by);
+  }
+  by += LH + 8;
+
+  // Armor ([v5]) — mirrors the weapon block: emoji + name +enh (type).
+  ctx.font = F(13, true);
+  ctx.fillStyle = DIM_COLOR;
+  ctx.fillText('Armor:', PAD, by);
+  by += LH;
+  ctx.font = F(15, true);
+  if (d.armorName) {
+    let ax = PAD;
+    if (armorIcon) { ctx.drawImage(armorIcon, ax, by - 15, 18, 18); ax += 24; }
+    ctx.fillStyle = NAME_COLOR;
+    const enh = d.armorEnh > 0 ? ` +${d.armorEnh}` : '';
+    const typeTxt = d.armorType ? ` (${d.armorType})` : '';
+    ctx.fillText(fitText(ctx, `${d.armorName}${enh}${typeTxt}`, W - PAD - ax), ax, by);
   } else {
     ctx.fillStyle = SUB_COLOR;
     ctx.fillText('None', PAD, by);

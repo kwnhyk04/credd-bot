@@ -13,9 +13,15 @@ const { emojiForDisplay } = require('../../utils/emojis');
 
 const WEAPONS_PER_PAGE = 10;
 const TYPE_EMOJI = { Sword: '⚔️', Staff: '🪄', Gloves: '🥊', Shield: '🛡️', Bow: '🏹' };
+// [v5] armor types
+const ARMOR_TYPE_EMOJI = { Heavy: '🛡️', Medium: '🥋', Light: '🧥' };
 
 // Tier ordering for the weapons list (Supreme → Common).
 const TIER_ORDER_SQL = `CASE wr.tier
+  WHEN 'Supreme' THEN 5 WHEN 'Legendary' THEN 4 WHEN 'Mythic' THEN 3
+  WHEN 'Rare' THEN 2 WHEN 'Common' THEN 1 ELSE 0 END`;
+// [v5] same ordering keyed on the armor_roster alias.
+const ARMOR_TIER_ORDER_SQL = `CASE ar.tier
   WHEN 'Supreme' THEN 5 WHEN 'Legendary' THEN 4 WHEN 'Mythic' THEN 3
   WHEN 'Rare' THEN 2 WHEN 'Common' THEN 1 ELSE 0 END`;
 
@@ -75,7 +81,7 @@ async function fetchWeapons(discordId, page) {
 
   const { rows: weapons } = await pool.query(
     `SELECT uw.weapon_id, wr.name, wr.tier, wr.type, uw.enhancement, uw.is_locked,
-            uw.curr_atk, uw.curr_hp, uw.curr_def, uw.crit,
+            uw.curr_atk, uw.crit,
             (uw.weapon_id = uc.equipped_weapon_id) AS equipped
        FROM user_weapons uw
        JOIN weapon_roster wr ON uw.weapon_roster_id = wr.weapon_roster_id
@@ -127,7 +133,7 @@ function buildWeaponsPage({ user, weapons, total, page }) {
       // ID leads as inline code (tap-to-copy); enhancement lives on line 1.
       return (
         `\`${w.weapon_id}\` ${icon} **${w.name}** +${w.enhancement - 1}${badges}\n` +
-        `-# ${w.tier} • ATK ${w.curr_atk} · HP ${w.curr_hp} · DEF ${w.curr_def}${critTxt}`
+        `-# ${w.tier} • ATK ${w.curr_atk}${critTxt}`
       );
     });
 
@@ -198,12 +204,109 @@ async function handleWeaponsButton(interaction) {
   await interaction.update(buildWeaponsPage({ user: interaction.user, weapons: rows, total, page }));
 }
 
-// ── dispatcher: crd bag [chests|weapons] ────────────────────────────────
+// ── crd bag armors (paginated, Components V2 — mirrors bag weapons) ──────
+async function fetchArmors(discordId, page) {
+  const offset = page * WEAPONS_PER_PAGE;
+
+  const { rows: armors } = await pool.query(
+    `SELECT ua.armor_id, ar.name, ar.tier, ar.type, ua.enhancement, ua.is_locked,
+            ua.curr_hp, ua.curr_def,
+            COALESCE(jsonb_array_length(ua.native_sockets), 0)
+              + COALESCE(jsonb_array_length(ua.opposite_sockets), 0) AS socket_count,
+            (ua.armor_id = uc.equipped_armor_id) AS equipped
+       FROM user_armors ua
+       JOIN armor_roster ar ON ua.armor_roster_id = ar.armor_roster_id
+       LEFT JOIN user_character uc ON uc.discord_id = ua.discord_id
+      WHERE ua.discord_id = $1
+      ORDER BY ${ARMOR_TIER_ORDER_SQL} DESC, ua.enhancement DESC, ua.obtained_at ASC
+      LIMIT $2 OFFSET $3`,
+    [discordId, WEAPONS_PER_PAGE, offset]
+  );
+
+  const countRes = await pool.query(
+    'SELECT count(*)::int AS total FROM user_armors WHERE discord_id = $1',
+    [discordId]
+  );
+
+  return { armors, total: countRes.rows[0].total };
+}
+
+function buildArmorsPage({ user, armors, total, page }) {
+  const totalPages = Math.max(1, Math.ceil(total / WEAPONS_PER_PAGE));
+
+  const container = new ContainerBuilder().setAccentColor(0x5865f2);
+
+  container.addTextDisplayComponents((td) =>
+    td.setContent(
+      `## 🛡️ <@${user.id}>'s Armor\n` +
+      `-# Showing **${armors.length}** of **${total}** pieces • Page **${page + 1}/${totalPages}**`
+    )
+  );
+  container.addSeparatorComponents((s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true));
+
+  if (armors.length === 0) {
+    container.addTextDisplayComponents((td) => td.setContent('*No armor found. Open some chests!*'));
+  } else {
+    const rows = armors.map((a) => {
+      const icon = emojiForDisplay(a.name, ARMOR_TYPE_EMOJI[a.type] ?? '🛡️');
+      const badges = `${a.equipped ? ' ✅' : ''}${a.is_locked ? ' 🔒' : ''}`;
+      const sockets = a.socket_count > 0 ? ` · 💠 ${a.socket_count}` : '';
+      return (
+        `\`${a.armor_id}\` ${icon} **${a.name}** +${a.enhancement - 1}${badges}\n` +
+        `-# ${a.tier} ${a.type} • HP ${a.curr_hp} · DEF ${a.curr_def}${sockets}`
+      );
+    });
+    container.addTextDisplayComponents((td) => td.setContent(rows.join('\n\n')));
+  }
+
+  container.addSeparatorComponents((s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true));
+  container.addTextDisplayComponents((td) =>
+    td.setContent('-# 💡 `crd equip <id>` to equip • `crd enhance <id>` to forge • `crd sell <id>` to sell')
+  );
+  container.addSeparatorComponents((s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true));
+
+  container.addActionRowComponents((row) =>
+    row.setComponents(
+      new ButtonBuilder()
+        .setCustomId(`armors:prev:${user.id}:${page}`)
+        .setLabel('Previous').setEmoji('◀️').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
+      new ButtonBuilder()
+        .setCustomId(`armors:next:${user.id}:${page}`)
+        .setLabel('Next').setEmoji('▶️').setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1)
+    )
+  );
+
+  return { components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
+}
+
+async function armors(message) {
+  const page = 0;
+  const { armors: rows, total } = await fetchArmors(message.author.id, page);
+  await reply(message, buildArmorsPage({ user: message.author, armors: rows, total, page }));
+}
+
+// Button: armors:<prev|next>:<ownerId>:<page>
+async function handleArmorsButton(interaction) {
+  const [, action, ownerId, pageStr] = interaction.customId.split(':');
+  if (interaction.user.id !== ownerId) {
+    return interaction.reply({
+      content: 'This isn\'t your inventory view — run `crd bag armors` yourself!',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+  const currentPage = parseInt(pageStr, 10) || 0;
+  const page = action === 'next' ? currentPage + 1 : Math.max(0, currentPage - 1);
+  const { armors: rows, total } = await fetchArmors(ownerId, page);
+  await interaction.update(buildArmorsPage({ user: interaction.user, armors: rows, total, page }));
+}
+
+// ── dispatcher: crd bag [chests|weapons|armors] ─────────────────────────
 async function execute(message, { args }) {
   const sub = (args[0] || '').toLowerCase();
   if (sub === 'chests') return chests(message);
   if (sub === 'weapons') return weapons(message);
+  if (sub === 'armors' || sub === 'armor') return armors(message);
   return overview(message);
 }
 
-module.exports = { execute, handleWeaponsButton };
+module.exports = { execute, handleWeaponsButton, handleArmorsButton };
