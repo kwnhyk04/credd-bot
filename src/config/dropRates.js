@@ -51,7 +51,7 @@ const ARMOR_TYPES = ['Heavy', 'Medium', 'Light'];
 const TIER_RANGES = {
   Rare:      { atk: [100, 150], crit: [1, 5] },
   Mythic:    { atk: [200, 350], crit: [1, 5] },
-  Legendary: { atk: [500, 600], crit: [1, 5] },
+  Legendary: { atk: [500, 600], crit: [3, 7] },
   // Supreme handled separately (fixed 800 ATK, crit 0, 50% damage rider).
 };
 
@@ -76,7 +76,7 @@ const BAND_FRACTIONS = {
 
 // Supreme fixed weapon stats (§7/§8/§35.2). DEF/HP gone; single 50% damage rider.
 const SUPREME_STATS = {
-  atk: 800, crit: 0.0,
+  atk: 800, crit: 10.0, // [v5 tweak] Supreme weapons fixed 10% crit on drop.
   bonus_dmg_pct: 50.00,
 };
 
@@ -129,6 +129,38 @@ function rollGearClass() {
 /** Roll an armor type, 1/3 each (Heavy/Medium/Light). */
 function rollArmorType() {
   return ARMOR_TYPES[Math.floor(Math.random() * ARMOR_TYPES.length)];
+}
+
+// ── Native socket count rolled at gear drop (Phase 2 §2.2) ──────────────────
+// Native lane = weapon:offense / armor:defense. Opposite slots are NOT rolled —
+// they're bought via `crd unlock socket`. Common gear has zero sockets.
+// [tier] → [[count, probability], …]  (probabilities sum to 1.0)
+const NATIVE_SOCKET_ROLL = {
+  Common:    [[0, 1.00]],
+  Rare:      [[1, 0.70], [2, 0.30]],
+  Mythic:    [[2, 0.60], [3, 0.40]],
+  Legendary: [[3, 0.65], [4, 0.35]],
+  Supreme:   [[4, 1.00]],
+};
+
+/** Roll how many native sockets a freshly-dropped gear piece has, by tier. */
+function rollNativeSocketCount(tier) {
+  const table = NATIVE_SOCKET_ROLL[tier] || NATIVE_SOCKET_ROLL.Common;
+  const r = Math.random();
+  let acc = 0;
+  for (const [count, p] of table) {
+    acc += p;
+    if (r < acc) return count;
+  }
+  return table[table.length - 1][0]; // FP safety net
+}
+
+/**
+ * Build the JSONB socket array for a slot count: [{slot:1,rune_uid:null}, …].
+ * Shape per Naming Conventions §5. count 0 → [].
+ */
+function buildSocketArray(count) {
+  return Array.from({ length: count }, (_, i) => ({ slot: i + 1, rune_uid: null }));
 }
 
 function bandedValue(range, band) {
@@ -200,9 +232,12 @@ module.exports = {
   ARMOR_TIER_RANGES,
   ARMOR_TYPE_PROFILES,
   SUPREME_ARMOR,
+  NATIVE_SOCKET_ROLL,
   rollTier,
   rollGearClass,
   rollArmorType,
+  rollNativeSocketCount,
+  buildSocketArray,
   rollWeaponStats,
   rollArmorStats,
 };

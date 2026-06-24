@@ -36,6 +36,10 @@ const CHEST_GIFS = {
   supreme_chest: 'supreme_chest.gif',
   sacred_relic: 'sacred_relic.gif',
   supreme_relic: 'supreme_relic.gif',
+  // [v5 Phase 2] rune bags (gif file optional — missing → results-only flow).
+  lesser_bag: 'lesser_bag.gif',
+  greater_bag: 'greater_bag.gif',
+  divine_bag: 'divine_bag.gif',
 };
 
 const CHEST_FLAVOR = {
@@ -46,6 +50,9 @@ const CHEST_FLAVOR = {
   supreme_chest: 'Light pours from the supreme vault. Few have seen what lies within.',
   sacred_relic: 'The sacred relic burns away, leaving its blessing behind.',
   supreme_relic: 'The supreme relic shatters — raw light forged into steel.',
+  lesser_bag: 'The lesser bag unravels — faint runes scatter into your hand.',
+  greater_bag: 'The greater bag splits open, humming with bound power.',
+  divine_bag: 'The divine bag erupts in light — the strongest runes answer.',
 };
 
 // Weapon tiers rarest-first for the summary line.
@@ -68,21 +75,29 @@ function tierSummary(items) {
     .join(' ・ ');
 }
 
+/** Resolve the gif's on-disk path + attachment name. gifPath (absolute) overrides
+ *  the bundled CHEST_GIFS lookup so rune bags can load from assets/items/runes. */
+function resolveGif(gifKey, gifPath) {
+  if (gifPath) return { name: path.basename(gifPath), abs: gifPath };
+  const name = CHEST_GIFS[gifKey];
+  return name ? { name, abs: path.join(ANIM_DIR, name) } : null;
+}
+
 /** Animation-phase container: header → separator → the chest gif. */
-function animationPayload(gifKey, animTitle) {
-  const gifName = CHEST_GIFS[gifKey];
+function animationPayload(gifKey, animTitle, gifPath) {
+  const g = resolveGif(gifKey, gifPath);
   const container = new ContainerBuilder()
     .setAccentColor(0xf0b232)
     .addTextDisplayComponents((td) =>
       td.setContent(`## ✨ ${animTitle}\n*${CHEST_FLAVOR[gifKey] ?? 'The chest creaks open...'}*`)
     )
     .addSeparatorComponents(sep)
-    .addMediaGalleryComponents((g) =>
-      g.addItems((item) => item.setURL(`attachment://${gifName}`))
+    .addMediaGalleryComponents((gal) =>
+      gal.addItems((item) => item.setURL(`attachment://${g.name}`))
     );
   return {
     components: [container],
-    files: [new AttachmentBuilder(path.join(ANIM_DIR, gifName), { name: gifName })],
+    files: [new AttachmentBuilder(g.abs, { name: g.name })],
     flags: MessageFlags.IsComponentsV2,
     allowedMentions: { repliedUser: false },
   };
@@ -137,17 +152,17 @@ async function buildWeaponResultPayload(p) {
  * @param {string}   opts.animTitle     header for the animation phase
  * @param {Function} opts.buildResult   async () => { components, files } (CV2, no flags)
  */
-async function playAnimatedOpen(message, { gifKey, animTitle, buildResult }) {
-  const gifName = CHEST_GIFS[gifKey];
-  if (!gifName) throw new Error(`playAnimatedOpen: unknown gifKey ${gifKey}`);
-  const gifOnDisk = fs.existsSync(path.join(ANIM_DIR, gifName));
+async function playAnimatedOpen(message, { gifKey, gifPath, animTitle, buildResult }) {
+  const g = resolveGif(gifKey, gifPath);
+  if (!g) throw new Error(`playAnimatedOpen: unknown gifKey ${gifKey}`);
+  const gifOnDisk = fs.existsSync(g.abs);
 
   let msg = null;
   let result = null;
   try {
     if (gifOnDisk) {
       // Pre-render the result DURING the animation so the edit lands instantly.
-      msg = await message.reply(animationPayload(gifKey, animTitle));
+      msg = await message.reply(animationPayload(gifKey, animTitle, gifPath));
       [result] = await Promise.all([buildResult(), sleep(ANIMATION_MS)]);
     } else {
       // gif missing → skip the suspense phase, results only.
@@ -175,4 +190,36 @@ async function playAnimatedOpen(message, { gifKey, animTitle, buildResult }) {
   return msg;
 }
 
-module.exports = { playAnimatedOpen, buildWeaponResultPayload, tierSummary, CHEST_GIFS, CHEST_FLAVOR };
+/**
+ * Rune-bag result container (mirrors the weapon grid; §2.3 "same as Weapons display").
+ * @param {object} p
+ * @param {string} p.gifKey         bag gif key (flavor lookup)
+ * @param {string} p.title          e.g. 'Opened 5 × Lesser Rune Bag'
+ * @param {Array}  p.items          [{ id, name, tier, stats }, …] renderer shape
+ * @param {number} p.remaining      bags of this type left
+ * @param {string} p.bagLabel       display label, e.g. 'Lesser Rune Bag'
+ * @param {string} p.bagEmoji       inline emoji string for the bag
+ */
+async function buildRuneResultPayload(p) {
+  const buffer = await renderWeaponResults(p.items);
+  const grid = new AttachmentBuilder(buffer, { name: 'rune_results.png' });
+
+  const container = new ContainerBuilder()
+    .setAccentColor(0x9b59b6)
+    .addTextDisplayComponents((td) =>
+      td.setContent(`## ✨ ${p.title}\n*${CHEST_FLAVOR[p.gifKey] ?? 'The bag spills open...'}*`)
+    )
+    .addSeparatorComponents(sep)
+    .addMediaGalleryComponents((g) =>
+      g.addItems((item) => item.setURL('attachment://rune_results.png'))
+    )
+    .addTextDisplayComponents((td) => td.setContent(tierSummary(p.items)))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) =>
+      td.setContent(`-# ${p.bagEmoji} ${p.bagLabel}s left: **${p.remaining}** ・ 💡 \`crd runes\` ・ \`crd socket <gear_id> <rune_uid> <slot#>\``)
+    );
+
+  return { components: [container], files: [grid] };
+}
+
+module.exports = { playAnimatedOpen, buildWeaponResultPayload, buildRuneResultPayload, tierSummary, CHEST_GIFS, CHEST_FLAVOR };

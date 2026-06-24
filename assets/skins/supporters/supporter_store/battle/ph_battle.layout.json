@@ -13,7 +13,7 @@
     },
     "name": {
       "x": 176,
-      "y": 150,
+      "y": 230,
       "anchor": "left",
       "font": "DejaVu Sans",
       "weight": "bold",
@@ -23,7 +23,7 @@
     },
     "sub": {
       "x": 176,
-      "y": 190,
+      "y": 260,
       "anchor": "left",
       "font": "DejaVu Sans",
       "weight": "bold",
@@ -33,7 +33,7 @@
     },
     "loadout": {
       "x": 176,
-      "y": 220,
+      "y": 290,
       "anchor": "left",
       "font": "DejaVu Sans",
       "weight": "normal",
@@ -43,7 +43,7 @@
     },
     "hp_text": {
       "x": 1356,
-      "y": 150,
+      "y": 230,
       "anchor": "right",
       "font": "DejaVu Sans",
       "weight": "bold",
@@ -52,16 +52,16 @@
     },
     "hp_bar": {
       "x": 176,
-      "y": 275,
+      "y": 325,
       "w": 1133,
       "h": 18,
       "radius": 9,
       "fill": "#f2bb6d",
-      "track": "rgba(0,0,0,0.45)"
+      "track": "rgba(128,24,24)"
     },
     "stats": {
       "x": 176,
-      "y": 330,
+      "y": 380,
       "anchor": "left",
       "font": "DejaVu Sans",
       "weight": "bold",
@@ -139,7 +139,7 @@
       "h": 18,
       "radius": 9,
       "fill": "#f2bb6d",
-      "track": "rgba(0,0,0,0.45)"
+      "track": "rgba(128,24,24)"
     },
     "stats": {
       "x": 175,

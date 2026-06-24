@@ -523,6 +523,7 @@ function resolveBattle(a, b, opts = {}) {
     if (F.enderby_reflect_check) reflectPct += 0.30;
     if (F.tyr_reflect > 0) reflectPct += F.tyr_reflect;
     if (F.mail_brokkr_reflect > 0) reflectPct += F.mail_brokkr_reflect; // [v5] Mail of Brokkr 15%
+    if (F.rune_thorns_reflect > 0) reflectPct += F.rune_thorns_reflect; // [v5 Phase 2] Thorns rune
     if (reflectPct > 0 && dmg > 0) {
       const refl = Math.floor(dmg * reflectPct);
       if (refl > 0) {
@@ -618,6 +619,7 @@ function resolveBattle(a, b, opts = {}) {
       if (res.applied > 0) {
         if (S.flags.japanese_bo_active) heal(S, res.applied * 0.5);
         if (S.flags.soul_drain_active) heal(S, res.applied * 0.1);
+        if (S.flags.rune_lifesteal_pct > 0) heal(S, res.applied * S.flags.rune_lifesteal_pct); // [v5 Phase 2] Vampiric rune
       }
       if (mainHit && S.flags.gungnir_full_pierce) S.flags.gungnir_full_pierce = false;
     };
@@ -744,6 +746,10 @@ function resolveBattle(a, b, opts = {}) {
     side.flags.salakot_negate_chance = 0;
     side.flags.immune_cc_types = null;
     side.flags.valkyrie_evade_check = false;
+    // [v5 Phase 2] socketed effect-rune per-round flags (the rune runner re-sets them).
+    side.flags.rune_thorns_reflect = 0;
+    side.flags.rune_warding_pct = 0;
+    side.flags.rune_lifesteal_pct = 0;
     // input latches (engine-set, read by the registry this round)
     side.tookHitLastRound = side.tookHitThisRound;
     side.tookHitThisRound = false;
@@ -759,7 +765,7 @@ function resolveBattle(a, b, opts = {}) {
 
   const applyBathala = (side) => {
     // [Jun-2026 §4] HP ramps with the Bathala stack: target bonus = floor(base maxHP × frac),
-    // where frac is the registry's per-round ramp (0.15 → 1.05). As the bonus grows, max AND
+    // where frac is the registry's per-round ramp (0.05 → 0.50). As the bonus grows, max AND
     // current HP rise together (heals as it ramps — patch assumption); if it ever shrinks,
     // current is re-clamped to the lowered max.
     const target = Math.floor(side.in.hp * (side.flags.bathala_hp_fraction || 0));
@@ -775,6 +781,41 @@ function resolveBattle(a, b, opts = {}) {
     if (result) return;
     const fn = PASSIVE_REGISTRY[key] || PASSIVE_REGISTRY.none;
     fn(perspective);
+    checkDeaths('passive');
+  };
+
+  /**
+   * [v5 Phase 2 §2.4] Apply a player's socketed EFFECT runes for this round. Runs
+   * in the passive phase (after the armor passive, before actions) on the bearer's
+   * perspective. Stat-% runes already folded into base stats at assembly — here we
+   * only handle combat-effect families. Sums within a family across sockets:
+   *   piercing → ignoreDefPct (highest-wins lane) · aegis_rune → incoming reduction
+   *   thorns → reflect % · warding → incoming-DOT cut · vampiric → lifesteal %
+   *   venom → on-hit flat Burn DOT (2 turns). No runes → no-op (byte-identical).
+   */
+  const applyRunes = (side, P) => {
+    if (result) return;
+    const runes = side.in.effectRunes;
+    if (!Array.isArray(runes) || runes.length === 0) return;
+    let pierce = 0, incoming = 0, thorns = 0, warding = 0, lifesteal = 0, venom = 0;
+    for (const r of runes) {
+      const v = Number(r.value) || 0;
+      switch (r.effect_key) {
+        case 'piercing':   pierce += v; break;
+        case 'aegis_rune': incoming += v; break;
+        case 'thorns':     thorns += v; break;
+        case 'warding':    warding += v; break;
+        case 'vampiric':   lifesteal += v; break;
+        case 'venom':      venom = Math.max(venom, v); break; // refresh, highest-wins
+        default: break;
+      }
+    }
+    if (pierce > 0) P.ignoreDefPct = Math.max(P.ignoreDefPct, Math.min(pierce, 100) / 100);
+    if (incoming > 0) P.bonusIncomingDmgMult += -(Math.min(incoming, 100) / 100);
+    side.flags.rune_thorns_reflect = thorns / 100;
+    side.flags.rune_warding_pct = Math.min(warding, 100) / 100;
+    side.flags.rune_lifesteal_pct = lifesteal / 100;
+    if (venom > 0) P.applyDebuff('burn', 2, P.playerATK * (venom / 100));
     checkDeaths('passive');
   };
 
@@ -870,11 +911,13 @@ function resolveBattle(a, b, opts = {}) {
         runRegistry(side.weaponPassiveKey, P);
         runRegistry(side.deityBlessingKey, P);
         runRegistry(side.armorPassiveKey, P); // [v5] armor after deity (evade cap sees deity evade)
+        applyRunes(side, P);                  // [v5 Phase 2] socketed effect runes
       }
     } else {
       runRegistry(A.weaponPassiveKey, PA);
       runRegistry(A.deityBlessingKey, PA);
       runRegistry(A.armorPassiveKey, PA);     // [v5] armor after deity (evade cap sees deity evade)
+      applyRunes(A, PA);                       // [v5 Phase 2] socketed effect runes
       runRegistry(B.skillKey, PA); // mob skill runs on the player's perspective
     }
     // consume hydra local regen (local mirror only — never the shared pool)
@@ -905,9 +948,11 @@ function resolveBattle(a, b, opts = {}) {
         if (result) break;
         for (const d of side.debuffs) {
           if (!DOT_TAGS.includes(d.tag)) continue;
-          const tick = d.tag === 'hp_pct_dot'
+          let tick = d.tag === 'hp_pct_dot'
             ? Math.floor(side.maxHp * d.value)
             : Math.floor(d.value);
+          // [v5 Phase 2] Warding rune reduces incoming DOT damage on the bearer.
+          if (side.flags.rune_warding_pct > 0) tick = Math.floor(tick * (1 - side.flags.rune_warding_pct));
           if (tick > 0) {
             damage(side, tick);
             shared.events.push(`🩸 ${side.name} suffers ${tick} ${d.tag === 'burn' ? 'Burn' : d.tag === 'bleed' ? 'Bleed' : 'Rot'} damage!`);

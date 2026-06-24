@@ -14,7 +14,7 @@ const path = require('path');
  */
 
 const pool = require('../../db/pool');
-const { computeWeaponStats } = require('../../engine/enhancement');
+const { computeWeaponStats, computeArmorStats } = require('../../engine/enhancement');
 const { computeDeityStats } = require('../../engine/deityEnhancement');
 const { resolveBattle, rngOf } = require('../../engine/battleEngine');
 const {
@@ -41,6 +41,15 @@ const CHEST_COLUMNS = {
   bgtc: 'boss_golden_chest', supc: 'supreme_chest',
 };
 const RELIC_COLUMNS = { sacred: 'sacred_relics', supreme: 'supreme_relics' };
+// [v5 Phase 2] essence tier → users_bag column; rune-bag alias → users_bag column.
+const ESSENCE_COLUMNS = {
+  epic: 'epic_essence', mythic: 'mythic_essence',
+  legendary: 'legendary_essence', supreme: 'supreme_essence',
+};
+const RUNE_BAG_COLUMNS = {
+  lesser: 'lesser_rune_bag', greater: 'greater_rune_bag', divine: 'divine_rune_bag',
+  lb: 'lesser_rune_bag', gb: 'greater_rune_bag', db: 'divine_rune_bag',
+};
 
 // Per-player tables wiped by resetplayer (immutable *_logs are preserved).
 // Snapshot order = read order; DELETE order is FK-safe (children before users).
@@ -210,6 +219,72 @@ async function giveRelic(message, args, devId) {
   }
 }
 
+// ── crd dev giveessence @user <tier> <count> ───────────────────────────────
+async function giveEssence(message, args, devId) {
+  const target = message.mentions.users.first();
+  if (!target) return reply(message, 'Usage: `crd dev giveessence @user <epic|mythic|legendary|supreme> <count>`');
+  const rest = nonMentionArgs(args);
+  const col = ESSENCE_COLUMNS[(rest[0] || '').toLowerCase()];
+  if (!col) return reply(message, 'Tier must be: epic, mythic, legendary, or supreme.');
+  const amount = parseAmount(rest[1]);
+  if (amount == null) return reply(message, 'Count must be a positive whole number.');
+  if (amount > INT_MAX) return reply(message, 'Count is too large.');
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const bag = await client.query('SELECT 1 FROM users_bag WHERE discord_id = $1 FOR UPDATE', [target.id]);
+    if (bag.rows.length === 0) { await client.query('ROLLBACK'); return reply(message, 'That user has no bag (are they registered?).'); }
+    const upd = await client.query(
+      `UPDATE users_bag SET ${col} = ${col} + $2 WHERE discord_id = $1 RETURNING ${col} AS cnt`,
+      [target.id, amount]
+    );
+    const cnt = upd.rows[0].cnt;
+    await logDev(client, devId, 'give_essence', target.id, `+${amount} ${col} (→ ${cnt})`);
+    await client.query('COMMIT');
+    return reply(message, `✅ Gave **${amount}× ${col}** to <@${target.id}>. Now: ${cnt}.`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev giveessence]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  } finally {
+    client.release();
+  }
+}
+
+// ── crd dev givebag @user <lesser|greater|divine> <count> ──────────────────
+async function giveBag(message, args, devId) {
+  const target = message.mentions.users.first();
+  if (!target) return reply(message, 'Usage: `crd dev givebag @user <lesser|greater|divine> <count>`');
+  const rest = nonMentionArgs(args);
+  const col = RUNE_BAG_COLUMNS[(rest[0] || '').toLowerCase()];
+  if (!col) return reply(message, 'Type must be: lesser, greater, or divine (or lb/gb/db).');
+  const amount = parseAmount(rest[1]);
+  if (amount == null) return reply(message, 'Count must be a positive whole number.');
+  if (amount > INT_MAX) return reply(message, 'Count is too large.');
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const bag = await client.query('SELECT 1 FROM users_bag WHERE discord_id = $1 FOR UPDATE', [target.id]);
+    if (bag.rows.length === 0) { await client.query('ROLLBACK'); return reply(message, 'That user has no bag (are they registered?).'); }
+    const upd = await client.query(
+      `UPDATE users_bag SET ${col} = ${col} + $2 WHERE discord_id = $1 RETURNING ${col} AS cnt`,
+      [target.id, amount]
+    );
+    const cnt = upd.rows[0].cnt;
+    await logDev(client, devId, 'give_bag', target.id, `+${amount} ${col} (→ ${cnt})`);
+    await client.query('COMMIT');
+    return reply(message, `✅ Gave **${amount}× ${col}** to <@${target.id}>. Now: ${cnt}.`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev givebag]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  } finally {
+    client.release();
+  }
+}
+
 // ── crd dev ban|unban @user ────────────────────────────────────────────────
 async function setBan(message, devId, banned) {
   const target = message.mentions.users.first();
@@ -280,7 +355,9 @@ async function resetPlayer(message, devId) {
 // level, quests, runes UNTOUCHED. Defaults to self. Bare zero — NO starter
 // re-grant (post-Phase-1 cleanup of pre-v5 / shield / test gear). Logged with a
 // pre-wipe count snapshot.
-async function resetWeapons(message, devId) {
+async function resetWeapons(message, args, devId) {
+  // `crd dev resetweapons all` — wipe EVERY registered user's weapons + armors.
+  if ((args[1] || '').toLowerCase() === 'all') return resetAllWeapons(message, devId);
   const target = message.mentions.users.first() || { id: devId };
 
   const client = await pool.connect();
@@ -296,6 +373,9 @@ async function resetWeapons(message, devId) {
       'UPDATE user_character SET equipped_weapon_id = NULL, equipped_armor_id = NULL WHERE discord_id = $1',
       [target.id]
     );
+    // [v5 Phase 2] Return any socketed runes to the bag (don't orphan them) before
+    // the gear they point at is deleted (Blueprint §1.4a extension).
+    await client.query('UPDATE user_runes SET socketed_into = NULL WHERE discord_id = $1 AND socketed_into IS NOT NULL', [target.id]);
     await client.query('DELETE FROM user_weapons WHERE discord_id = $1', [target.id]);
     await client.query('DELETE FROM user_armors WHERE discord_id = $1', [target.id]);
 
@@ -314,11 +394,40 @@ async function resetWeapons(message, devId) {
   }
 }
 
-// ── crd dev enhanceweapon <weapon_id> <+level> ─────────────────────────────
-async function enhanceWeapon(message, args, devId) {
-  const weaponId = (args[1] || '').trim().toLowerCase();
+// ── crd dev resetweapons all — server-wide gear wipe ───────────────────────
+async function resetAllWeapons(message, devId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const wc = await client.query('SELECT count(*)::int AS n FROM user_weapons');
+    const ac = await client.query('SELECT count(*)::int AS n FROM user_armors');
+    const weapons = wc.rows[0].n;
+    const armors = ac.rows[0].n;
+    await client.query('UPDATE user_character SET equipped_weapon_id = NULL, equipped_armor_id = NULL');
+    await client.query('UPDATE user_runes SET socketed_into = NULL WHERE socketed_into IS NOT NULL');
+    await client.query('DELETE FROM user_weapons');
+    await client.query('DELETE FROM user_armors');
+    await logDev(client, devId, 'reset_weapons', devId,
+      `ALL users: wiped ${weapons} weapons + ${armors} armors`, { weapons, armors, scope: 'all' });
+    await client.query('COMMIT');
+    return reply(message,
+      `✅ Reset gear for **ALL** registered users — removed **${weapons}** weapons + **${armors}** armors. ` +
+      'Socketed runes returned to bags. Deities, currency, chests, runes untouched.');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev resetweapons all]', err.message);
+    return reply(message, 'Failed — nothing was wiped.');
+  } finally {
+    client.release();
+  }
+}
+
+// ── crd dev enhanceequipment <equipment_id> <+level> ───────────────────────
+// [v5] id-detect weapon vs armor: weapon scales ATK, armor scales HP/DEF.
+async function enhanceEquipment(message, args, devId) {
+  const gearId = (args[1] || '').trim().toLowerCase();
   const level = parseLevel(args[2]);
-  if (!weaponId || level == null) return reply(message, 'Usage: `crd dev enhanceweapon <weapon_id> <+0..+10>`');
+  if (!gearId || level == null) return reply(message, 'Usage: `crd dev enhanceequipment <equipment_id> <+0..+10>`');
 
   const stored = level + 1;
   const client = await pool.connect();
@@ -326,21 +435,41 @@ async function enhanceWeapon(message, args, devId) {
     await client.query('BEGIN');
     const wRes = await client.query(
       'SELECT discord_id, base_atk FROM user_weapons WHERE weapon_id = $1 FOR UPDATE',
-      [weaponId]
+      [gearId]
     );
-    if (wRes.rows.length === 0) { await client.query('ROLLBACK'); return reply(message, 'No weapon exists with that ID.'); }
-    const w = wRes.rows[0];
-    const stats = computeWeaponStats(w, stored); // [v5] ATK only
-    await client.query(
-      'UPDATE user_weapons SET enhancement = $2, curr_atk = $3 WHERE weapon_id = $1',
-      [weaponId, stored, stats.curr_atk]
+    if (wRes.rows.length > 0) {
+      const w = wRes.rows[0];
+      const stats = computeWeaponStats(w, stored); // ATK only
+      await client.query(
+        'UPDATE user_weapons SET enhancement = $2, curr_atk = $3 WHERE weapon_id = $1',
+        [gearId, stored, stats.curr_atk]
+      );
+      await logDev(client, devId, 'enhance_equipment', w.discord_id, `weapon ${gearId} → +${level}`);
+      await client.query('COMMIT');
+      return reply(message, `✅ Weapon \`${gearId}\` set to **+${level}** — ATK ${stats.curr_atk}.`);
+    }
+
+    const aRes = await client.query(
+      'SELECT discord_id, base_hp, base_def FROM user_armors WHERE armor_id = $1 FOR UPDATE',
+      [gearId]
     );
-    await logDev(client, devId, 'enhance_weapon', w.discord_id, `${weaponId} → +${level}`);
-    await client.query('COMMIT');
-    return reply(message, `✅ Weapon \`${weaponId}\` set to **+${level}** — ATK ${stats.curr_atk}.`);
+    if (aRes.rows.length > 0) {
+      const a = aRes.rows[0];
+      const stats = computeArmorStats(a, stored); // HP + DEF
+      await client.query(
+        'UPDATE user_armors SET enhancement = $2, curr_hp = $3, curr_def = $4 WHERE armor_id = $1',
+        [gearId, stored, stats.curr_hp, stats.curr_def]
+      );
+      await logDev(client, devId, 'enhance_equipment', a.discord_id, `armor ${gearId} → +${level}`);
+      await client.query('COMMIT');
+      return reply(message, `✅ Armor \`${gearId}\` set to **+${level}** — HP ${stats.curr_hp} · DEF ${stats.curr_def}.`);
+    }
+
+    await client.query('ROLLBACK');
+    return reply(message, 'No equipment exists with that ID.');
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-    console.error('[dev enhanceweapon]', err.message);
+    console.error('[dev enhanceequipment]', err.message);
     return reply(message, 'Failed — nothing changed.');
   } finally {
     client.release();
@@ -770,8 +899,9 @@ const USAGE = [
   '**Dev commands:**',
   '`givecredux @user <amount>` · `givebeliefshards @user <amount>`',
   '`givechest @user <type> <amount>` · `giverelic @user <sacred|supreme> <amount>`',
-  '`ban @user` · `unban @user` · `resetplayer @user` · `resetweapons [@user]` (gear-only wipe)',
-  '`enhanceweapon <weapon_id> <+level>` · `enhancedeity @user <deity name> <+level>`',
+  '`giveessence @user <epic|mythic|legendary|supreme> <count>` · `givebag @user <lesser|greater|divine> <count>`',
+  '`ban @user` · `unban @user` · `resetplayer @user` · `resetweapons [@user|all]` (gear-only wipe)',
+  '`enhanceequipment <equipment_id> <+level>` · `enhancedeity @user <deity name> <+level>`',
   '`battle [mob name] [seed <n>]` — engine smoke test (no rewards)',
   '`setbosshp <boss name> <hp>` · `spawnboss [boss name]` — boss smoke-test enablers',
   '`quest` · `quest refresh <q1|q2|q3>` — view / refresh quests (cap bypassed)',
@@ -791,11 +921,14 @@ async function execute(message, { args }) {
     case 'givebeliefshards': return giveBeliefShards(message, args, devId);
     case 'givechest':        return giveChest(message, args, devId);
     case 'giverelic':        return giveRelic(message, args, devId);
+    case 'giveessence':      return giveEssence(message, args, devId);
+    case 'givebag':          return giveBag(message, args, devId);
     case 'ban':              return setBan(message, devId, true);
     case 'unban':            return setBan(message, devId, false);
     case 'resetplayer':      return resetPlayer(message, devId);
-    case 'resetweapons':     return resetWeapons(message, devId);
-    case 'enhanceweapon':    return enhanceWeapon(message, args, devId);
+    case 'resetweapons':     return resetWeapons(message, args, devId);
+    case 'enhanceequipment': return enhanceEquipment(message, args, devId);
+    case 'enhanceweapon':    return enhanceEquipment(message, args, devId); // back-compat alias
     case 'enhancedeity':     return enhanceDeity(message, args, devId);
     case 'battle':           return devBattle(message, args, devId);
     case 'setbosshp':        return setBossHp(message, args, devId);

@@ -18,6 +18,51 @@ const path = require('path');
 const pool = require('../../db/pool');
 const { resolveName } = require('../../utils/emojis');
 const { renderPortraitCard } = require('../../engine/renderPortraitCard');
+const { runeEmojiName } = require('../../config/runes');
+
+const RUNES_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'items', 'runes');
+
+// Lane of each socket array by gear kind (Naming Conv §5).
+const SOCKET_LANES = {
+  weapon: { native: 'offense', opposite: 'defense' },
+  armor:  { native: 'defense', opposite: 'offense' },
+};
+
+/**
+ * Build the ordered socket-slot list for the card panel. Global slot numbering:
+ * native 1..N then opposite N+1..N+M. Each entry: { imagePath, value, lane } —
+ * filled slots resolve the rune art (assets/items/runes/<key>_rune.png) + value.
+ * Returns [] when the gear has no sockets.
+ */
+async function socketSlots(g) {
+  const native = Array.isArray(g.native_sockets) ? g.native_sockets : [];
+  const opposite = Array.isArray(g.opposite_sockets) ? g.opposite_sockets : [];
+  if (native.length === 0 && opposite.length === 0) return [];
+  const lanes = SOCKET_LANES[g.kind];
+
+  const uids = [...native, ...opposite].map((s) => s && s.rune_uid).filter(Boolean);
+  const runeBy = new Map();
+  if (uids.length) {
+    const { rows } = await pool.query(
+      `SELECT ur.rune_uid, rn.name, rn.tier, rn.value, rn.effect_key
+         FROM user_runes ur JOIN rune_roster rn ON ur.rune_id = rn.rune_id
+        WHERE ur.rune_uid = ANY($1::varchar[])`,
+      [uids]
+    );
+    for (const r of rows) runeBy.set(r.rune_uid, r);
+  }
+
+  const slots = [];
+  for (const [arr, lane] of [[native, lanes.native], [opposite, lanes.opposite]]) {
+    for (const slot of arr) {
+      const rune = slot && slot.rune_uid ? runeBy.get(slot.rune_uid) : null;
+      slots.push(rune
+        ? { imagePath: path.join(RUNES_DIR, `${runeEmojiName(rune.effect_key)}.png`), label: rune.name, tier: rune.tier, lane }
+        : { imagePath: null, label: null, tier: null, lane });
+    }
+  }
+  return slots;
+}
 
 const AI_DISCLAIMER = '-# Images are AI-generated interpretations and may not be accurate; used for in-game illustration only.';
 
@@ -65,13 +110,16 @@ async function buildInfoPayload(g, gearId) {
     if (g.bonus_dmg_pct) statLines.push(`Bonus +${Number(g.bonus_dmg_pct)}% DMG`);
   }
 
-  const subtitle = g.kind === 'armor' ? `${g.tier} · ${g.type}` : g.tier;
+  // [v5 tweak] Armor type ("(Medium)") is no longer shown in displays.
+  const subtitle = g.tier;
   const sections = [
     { heading: 'Stats', body: statLines.join('\n') },
     hasPassive
       ? { heading: `Passive — ${g.passive_name}`, body: g.passive_description }
       : { heading: 'Passive', body: 'No passive.', dim: true },
   ];
+  // [v5 Phase 2] Sockets render as a boxed panel under the text (renderPortraitCard).
+  const sockets = await socketSlots(g);
 
   const buffer = await renderPortraitCard({
     // v5 keeps weapon and armor artwork in the shared assets/weapons registry.
@@ -80,6 +128,7 @@ async function buildInfoPayload(g, gearId) {
     title: `${g.name} +${g.enhancement - 1}`,
     subtitle,
     sections,
+    sockets,
   });
   const file = new AttachmentBuilder(buffer, { name: 'equipment_card.png' });
 
@@ -104,6 +153,7 @@ async function buildInfoPayload(g, gearId) {
 async function fetchGear(discordId, gearId) {
   const w = await pool.query(
     `SELECT uw.curr_atk, uw.crit, uw.enhancement, uw.bonus_dmg_pct,
+            uw.native_sockets, uw.opposite_sockets,
             wr.name, wr.type, wr.tier, wr.passive_name, wr.passive_description, wr.lore
        FROM user_weapons uw
        JOIN weapon_roster wr ON uw.weapon_roster_id = wr.weapon_roster_id
@@ -114,6 +164,7 @@ async function fetchGear(discordId, gearId) {
 
   const a = await pool.query(
     `SELECT ua.curr_hp, ua.curr_def, ua.enhancement,
+            ua.native_sockets, ua.opposite_sockets,
             ar.name, ar.type, ar.tier, ar.passive_name, ar.passive_description, ar.lore
        FROM user_armors ua
        JOIN armor_roster ar ON ua.armor_roster_id = ar.armor_roster_id

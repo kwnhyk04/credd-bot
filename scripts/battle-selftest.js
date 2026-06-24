@@ -548,6 +548,21 @@ section('4. Targeted scenarios');
     `winner=${sim.winner} rounds=${sim.rounds.length}`);
 }
 
+// — Mantle of Bathala: +5% HP/DEF per turn, hard-capped at +50% —
+{
+  const sim = resolveBattle(
+    player({ atk: 0, hp: 1000, def: 100, armorPassiveKey: 'mantle_of_bathala' }),
+    mob({ atk: 0, hp: 1000, def: 100 }),
+    { seed: 23 }
+  );
+  const mantleEvents = allEvents(sim).filter((e) => e.includes('Mantle of Bathala'));
+  const maxLoggedPct = Math.max(...mantleEvents.map((e) => Number(/\+(\d+)%/.exec(e)?.[1] || 0)));
+  check('Mantle of Bathala caps max HP at +50%', sim.a.maxHp === 1500, `maxHp=${sim.a.maxHp}`);
+  check('Mantle of Bathala never logs above +50%', maxLoggedPct === 50, `max=${maxLoggedPct}%`);
+  check('Mantle of Bathala remains capped after turn 10',
+    hasEvent(roundEvents(sim, 11), '+50% HP/DEF') && !hasEvent(roundEvents(sim, 11), '+55% HP/DEF'));
+}
+
 // — Sudden death from round 30; mutual drain death → mob/challenged wins (R5) —
 {
   const sim = resolveBattle(player({ atk: 0, hp: 1000 }), mob({ hp: 1000, atk: 0 }), { seed: 17 });

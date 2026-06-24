@@ -9,7 +9,10 @@ const {
 } = require('discord.js');
 const pool = require('../../db/pool');
 const { buildBagOverview, buildChestsView, getChestCounts } = require('../../engine/bagViews');
-const { emojiForDisplay } = require('../../utils/emojis');
+const { emojiForDisplay, emoji } = require('../../utils/emojis');
+
+// Rune-slot indicator for inventory rows (custom emoji, 💠 fallback).
+function slotIcon() { const e = emoji('rune_slot'); return e === '▫️' ? '💠' : e; }
 
 const WEAPONS_PER_PAGE = 10;
 const TYPE_EMOJI = { Sword: '⚔️', Staff: '🪄', Gloves: '🥊', Shield: '🛡️', Bow: '🏹' };
@@ -60,7 +63,7 @@ async function overview(message) {
     },
     relics: { sacred: b.sacred_relics, supreme: b.supreme_relics },
   };
-  await reply(message, buildBagOverview(message.author, data));
+  await reply(message, await buildBagOverview(message.author, data));
 }
 
 // ── crd bag chests ──────────────────────────────────────────────────────
@@ -82,6 +85,8 @@ async function fetchWeapons(discordId, page) {
   const { rows: weapons } = await pool.query(
     `SELECT uw.weapon_id, wr.name, wr.tier, wr.type, uw.enhancement, uw.is_locked,
             uw.curr_atk, uw.crit,
+            COALESCE(jsonb_array_length(uw.native_sockets), 0)
+              + COALESCE(jsonb_array_length(uw.opposite_sockets), 0) AS socket_count,
             (uw.weapon_id = uc.equipped_weapon_id) AS equipped
        FROM user_weapons uw
        JOIN weapon_roster wr ON uw.weapon_roster_id = wr.weapon_roster_id
@@ -130,10 +135,11 @@ function buildWeaponsPage({ user, weapons, total, page }) {
       const icon = emojiForDisplay(w.name, TYPE_EMOJI[w.type] ?? '⚔️');
       const badges = `${w.equipped ? ' ✅' : ''}${w.is_locked ? ' 🔒' : ''}`;
       const critTxt = Number(w.crit) > 0 ? ` · CRIT ${Number(w.crit).toFixed(1)}%` : '';
+      const sockets = w.socket_count > 0 ? ` · ${slotIcon()} ${w.socket_count}` : '';
       // ID leads as inline code (tap-to-copy); enhancement lives on line 1.
       return (
         `\`${w.weapon_id}\` ${icon} **${w.name}** +${w.enhancement - 1}${badges}\n` +
-        `-# ${w.tier} • ATK ${w.curr_atk}${critTxt}`
+        `-# ${w.tier} • ATK ${w.curr_atk}${critTxt}${sockets}`
       );
     });
 
@@ -250,10 +256,10 @@ function buildArmorsPage({ user, armors, total, page }) {
     const rows = armors.map((a) => {
       const icon = emojiForDisplay(a.name, ARMOR_TYPE_EMOJI[a.type] ?? '🛡️');
       const badges = `${a.equipped ? ' ✅' : ''}${a.is_locked ? ' 🔒' : ''}`;
-      const sockets = a.socket_count > 0 ? ` · 💠 ${a.socket_count}` : '';
+      const sockets = a.socket_count > 0 ? ` · ${slotIcon()} ${a.socket_count}` : '';
       return (
         `\`${a.armor_id}\` ${icon} **${a.name}** +${a.enhancement - 1}${badges}\n` +
-        `-# ${a.tier} ${a.type} • HP ${a.curr_hp} · DEF ${a.curr_def}${sockets}`
+        `-# ${a.tier} • HP ${a.curr_hp} · DEF ${a.curr_def}${sockets}`
       );
     });
     container.addTextDisplayComponents((td) => td.setContent(rows.join('\n\n')));

@@ -61,15 +61,58 @@ function computeClassBattleStats(className, level) {
  * weapon: { curr_atk, crit } | null   armor: { curr_hp, curr_def } | null
  * deity:  { curr_atk, curr_hp, curr_def } | null
  */
-function assemblePlayerStats(className, level, weapon, armor, deity) {
+function assemblePlayerStats(className, level, weapon, armor, deity, runeMods = null) {
   const cls = computeClassBattleStats(className, level);
   const wCrit = weapon ? Number(weapon.crit) || 0 : 0;
+  // [v5 Phase 2 §2.4] stat-% runes multiply the COMBINED class+gear base; deities
+  // are flat-added AFTER (not scaled by runes — Stat Assembly Step 6).
+  const m = runeMods || { atkPct: 0, hpPct: 0, defPct: 0, critPts: 0 };
+  const baseAtk = cls.atk + (weapon ? weapon.curr_atk : 0);
+  const baseHp = cls.hp + (armor ? armor.curr_hp : 0);
+  const baseDef = cls.def + (armor ? armor.curr_def : 0);
   return {
-    atk: Math.floor(cls.atk + (weapon ? weapon.curr_atk : 0) + (deity ? deity.curr_atk : 0)),
-    hp: Math.floor(cls.hp + (armor ? armor.curr_hp : 0) + (deity ? deity.curr_hp : 0)),
-    def: Math.floor(cls.def + (armor ? armor.curr_def : 0) + (deity ? deity.curr_def : 0)),
-    crit: cls.crit + wCrit, // uncapped (v5 §B.3)
+    atk: Math.floor(baseAtk * (1 + m.atkPct / 100) + (deity ? deity.curr_atk : 0)),
+    hp: Math.floor(baseHp * (1 + m.hpPct / 100) + (deity ? deity.curr_hp : 0)),
+    def: Math.floor(baseDef * (1 + m.defPct / 100) + (deity ? deity.curr_def : 0)),
+    crit: cls.crit + wCrit + m.critPts, // uncapped (v5 §B.3)
   };
+}
+
+// effect_key → which stat-% accumulator it feeds (the 4 stat families).
+const RUNE_STAT_TARGET = { sharpness: 'atkPct', precision: 'critPts', vitality: 'hpPct', bulwark: 'defPct' };
+const RUNE_EFFECT_KEYS = ['vampiric', 'piercing', 'venom', 'thorns', 'warding', 'aegis_rune'];
+
+/** Collect rune_uids from a JSONB socket array (null-safe). */
+function uidsFrom(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr.map((s) => s && s.rune_uid).filter(Boolean);
+}
+
+/**
+ * Resolve socketed runes on the equipped weapon + armor into stat-% mods and a
+ * combat-effect list. One query for all socketed uids. Returns
+ * { mods:{atkPct,hpPct,defPct,critPts}, effects:[{effect_key,value}] }.
+ */
+async function accumulateRuneStats(db, r) {
+  const uids = [
+    ...uidsFrom(r.w_native), ...uidsFrom(r.w_opposite),
+    ...uidsFrom(r.a_native), ...uidsFrom(r.a_opposite),
+  ];
+  const mods = { atkPct: 0, hpPct: 0, defPct: 0, critPts: 0 };
+  const effects = [];
+  if (uids.length === 0) return { mods, effects };
+
+  const { rows } = await db.query(
+    'SELECT effect_key, value FROM rune_roster rn JOIN user_runes ur ON ur.rune_id = rn.rune_id WHERE ur.rune_uid = ANY($1::varchar[])',
+    [uids]
+  );
+  for (const row of rows) {
+    const val = Number(row.value) || 0;
+    const target = RUNE_STAT_TARGET[row.effect_key];
+    if (target) mods[target] += val;
+    else if (RUNE_EFFECT_KEYS.includes(row.effect_key)) effects.push({ effect_key: row.effect_key, value: val });
+  }
+  return { mods, effects };
 }
 
 /** Mob stats per C1: base + per_level × level (uniform for regular/elite/boss). */
@@ -104,8 +147,10 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
     `SELECT uc.class, uc.combat_level, u.username,
             w.curr_atk  AS w_atk, w.crit AS w_crit,
             w.bonus_dmg_pct,
+            w.native_sockets AS w_native, w.opposite_sockets AS w_opposite,
             wr.name     AS weapon_name, wr.passive_key,
             am.curr_hp  AS a_hp, am.curr_def AS a_def,
+            am.native_sockets AS a_native, am.opposite_sockets AS a_opposite,
             ar.name     AS armor_name, ar.passive_key AS armor_passive_key,
             ud.curr_atk AS d_atk, ud.curr_hp AS d_hp, ud.curr_def AS d_def,
             dr.name     AS deity_name, dr.blessing_key
@@ -136,7 +181,10 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
   const effLevel = levelOverride != null
     ? Math.max(MOB_LEVEL_MIN, Math.min(50, Math.floor(levelOverride)))
     : r.combat_level;
-  const stats = assemblePlayerStats(r.class, effLevel, weapon, armor, deity);
+  // [v5 Phase 2] socketed runes: stat-% mods feed the assembly, effect runes are
+  // handed to the engine as combat hooks.
+  const { mods: runeMods, effects: effectRunes } = await accumulateRuneStats(db, r);
+  const stats = assemblePlayerStats(r.class, effLevel, weapon, armor, deity, runeMods);
 
   return {
     name: r.username,
@@ -155,6 +203,7 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
     armorName: armor ? r.armor_name : null,
     deityBlessingKey: deity ? r.blessing_key : 'none',
     deityName: deity ? r.deity_name : null,
+    effectRunes, // [v5 Phase 2] socketed effect runes (vampiric/piercing/venom/thorns/warding/aegis_rune)
   };
 }
 

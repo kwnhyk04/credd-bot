@@ -71,8 +71,8 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `aegis` — Medusa's Gaze: [v5 Supreme armor] 50% chance on hit to add a Stone stack; at 3 stacks, stuns for 1 turn, then resets.
 - `apollos_silver_bow` — Unerring Arrow: Ignores 25% of enemy DEF; every 4th turn, the attack is a guaranteed CRIT.
 - `mjolnir` — Crushing Force: Deals +20% bonus ATK every turn; every 4th turn, lands a 200% ATK crush.
-- `gungnir` — Never Misses: Ignores 40% of enemy DEF; 30% chance to pierce all DEF (zero mitigation) and reduce enemy DEF by 25% for 1 turn.
-- `thunderbolt_of_zeus` — Divine Thunder: 30% chance to deal +80% bonus ATK and paralyze for 1 turn; also triggers automatically on a CRIT.
+- `gungnir` — Never Misses: Ignores 40% of enemy DEF; 25% chance to pierce all DEF (zero mitigation).
+- `thunderbolt_of_zeus` — Divine Thunder: on a CRIT, deal +100% bonus ATK and paralyze for 1 turn.
 - `trident_of_poseidon` — Tidal Wrath: Every 3rd turn, deals +100% bonus ATK and reduces enemy DEF by 20% for 1 turn, with a 25% chance to stun for 1 turn.
 
 ## ARMOR passives (armor_roster.passive_key) — [v5]
@@ -89,7 +89,7 @@ new and defensive:
 - `salakot_ward` — Spirit Ward: 20% chance to negate an incoming debuff.
 - `anting_anting_sash` — Charmed Hide: immune to Stun, Petrify, and Freeze.
 - `valkyrie_mantle` — Chooser's Grace: 20% chance to evade an incoming attack (total evade capped at 40%).
-- `mantle_of_bathala` — Divine Aegis: +5% HP and +5% DEF every turn, stacking up to +100% each.
+- `mantle_of_bathala` — Divine Aegis: +5% HP and +5% DEF every turn, stacking up to +50% each.
 
 ## DEITY blessings (deity_roster.blessing_key)
 

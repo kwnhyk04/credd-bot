@@ -196,8 +196,8 @@ NOTE: Weapons are NOT class-locked. Any class can equip any weapon.
 |---|---|---|---|---|---|
 | Rare | 100–150 | 100–200 | 50–75 | 1–5% | — |
 | Mythic | 200–350 | 300–400 | 80–150 | 1–5% | — |
-| Legendary | 500–600 | 600–800 | 200–300 | 1–5% | 25% chance on drop: +25% damage (fixed); otherwise none |
-| Supreme | Fixed 800 | Fixed 1200 | Fixed 500 | — | +50% damage (always) |
+| Legendary | 500–600 | 600–800 | 200–300 | 3–7% [v5] | 25% chance on drop: +25% damage (fixed); otherwise none |
+| Supreme | Fixed 800 | Fixed 1200 | Fixed 500 | Fixed 10% [v5] | +50% damage (always) |
 
 ### Weapon Enhancement System
 - Command: `crd enhance [weapon ID]`
@@ -211,13 +211,13 @@ NOTE: Weapons are NOT class-locked. Any class can equip any weapon.
 |---|---|
 | +1 | 100% |
 | +2 | 95% |
-| +3 | 80% |
-| +4 | 65% |
-| +5 | 50% |
-| +6 | 40% |
-| +7 | 30% |
-| +8 | 20% |
-| +9 | 15% |
+| +3 | 85% |
+| +4 | 75% |
+| +5 | 65% |
+| +6 | 55% |
+| +7 | 40% |
+| +8 | 30% |
+| +9 | 20% |
 | +10 | 10% |
 
 #### Credux Cost per Tier
@@ -229,10 +229,10 @@ NOTE: Weapons are NOT class-locked. Any class can equip any weapon.
 | +4 | 12,000 | 50,000 | 130,000 | 400,000 |
 | +5 | 20,000 | 90,000 | 220,000 | 650,000 |
 | +6 | 35,000 | 150,000 | 380,000 | 1,000,000 |
-| +7 | 55,000 | 250,000 | 600,000 | 1,800,000 |
-| +8 | 90,000 | 400,000 | 950,000 | 3,000,000 |
-| +9 | 100,000 | 650,000 | 1,500,000 | 5,000,000 |
-| +10 | 100,000 | 1,000,000 | 2,500,000 | 8,000,000 |
+| +7 | 55,000 | 250,000 | 600,000 | 1,500,000 |
+| +8 | 90,000 | 400,000 | 900,000 | 3,000,000 |
+| +9 | 100,000 | 650,000 | 1,500,000 | 3,000,000 |
+| +10 | 100,000 | 1,000,000 | 2,000,000 | 3,000,000 |
 
 #### Stat Boost per Enhancement Level
 | Level | Stat Boost |
@@ -462,8 +462,8 @@ NOTE: Weapons are NOT class-locked. Any class can equip any weapon.
 | Weapon | Mythology | Passive |
 |---|---|---|
 | Mjolnir | Norse | Crushing Force — Every turn +30% ATK bonus; every 3rd turn: 200% ATK crush  [Jun-2026 §4: was +20% / every 4th] |
-| Gungnir | Norse | Never Misses — Ignores 40% DEF; 10% chance pierce ALL DEF (zero mitigation); enemy DEF -25% for 1 turn on pierce  [Jun-2026 §4: was 30%] |
-| Thunderbolt of Zeus | Greek | Divine Thunder — 30% chance: 100% ATK bonus + paralyze 1 turn. Auto-triggers on CRIT  [Jun-2026 §4: was 80%] |
+| Gungnir | Norse | Never Misses — Ignores 40% of enemy DEF; 25% chance to pierce ALL DEF (zero mitigation)  [v5] |
+| Thunderbolt of Zeus | Greek | Divine Thunder — on a CRIT: +100% bonus ATK and paralyze 1 turn  [v5] |
 | Trident of Poseidon | Greek | Tidal Wrath — Every 2nd turn: 100% ATK bonus; 30% chance stun 1 turn; enemy DEF -20% for 1 turn  [Jun-2026 §4: was every 3rd / 25% stun] |
 
 ---
@@ -1331,7 +1331,7 @@ Weapons over-populate `user_weapons` fast (every chest drops one). Locking prote
 |---|---|
 | Common | 100 |
 | Rare | 1,000 |
-| Mythic | 5,000 |
+| Mythic | 50,000 |
 | Legendary | 100,000 |
 | Supreme | 1,000,000 |
 

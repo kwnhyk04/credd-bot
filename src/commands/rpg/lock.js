@@ -1,6 +1,7 @@
 'use strict';
 
 const pool = require('../../db/pool');
+const { unlockSocket } = require('./socket');
 
 function reply(message, content) {
   return message.reply({ content, allowedMentions: { repliedUser: false } });
@@ -58,10 +59,31 @@ async function setLock(message, args, locked) {
     return;
   }
 
-  await reply(message, 'You don\'t own equipment with that ID.');
+  // Then rune (by rune_uid). Extends the lock convention to runes (§2.6).
+  const r = await pool.query(
+    `UPDATE user_runes ur
+        SET is_locked = $3
+       FROM rune_roster rn
+      WHERE ur.rune_id = rn.rune_id
+        AND ur.rune_uid = $1
+        AND ur.discord_id = $2
+      RETURNING rn.name, rn.tier`,
+    [gearId, discordId, locked]
+  );
+  if (r.rows.length > 0) {
+    const g = r.rows[0];
+    await reply(message, `${icon} **${g.name}** rune (${g.tier}) is now ${word}.`);
+    return;
+  }
+
+  await reply(message, 'You don\'t own equipment or a rune with that ID.');
 }
 
 const lock = (message, { args }) => setLock(message, args, true);
-const unlock = (message, { args }) => setLock(message, args, false);
+const unlock = (message, { args }) => {
+  // `crd unlock socket <gear_id>` buys the next opposite slot (§2.5).
+  if ((args[0] || '').toLowerCase() === 'socket') return unlockSocket(message, args);
+  return setLock(message, args, false);
+};
 
 module.exports = { lock, unlock };

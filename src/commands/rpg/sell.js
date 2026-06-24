@@ -3,9 +3,53 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const pool = require('../../db/pool');
 const { SELL_PRICES, TIER_ALIASES, ALL_EXCLUDED_TIERS } = require('../../config/sellPrices');
+const { RUNE_SELL_PRICE } = require('../../config/runes');
 
 function reply(message, content) {
   return message.reply({ content, allowedMentions: { repliedUser: false } });
+}
+
+/**
+ * [v5 §2.6] Sell a single rune by uid (immediate, no confirm dialog — a rune is
+ * one item). Blocks locked or socketed runes. Returns true if it handled `arg`.
+ */
+async function trySellRune(message, discordId, arg) {
+  const r = await pool.query(
+    `SELECT ur.is_locked, ur.socketed_into, rn.name, rn.tier
+       FROM user_runes ur JOIN rune_roster rn ON ur.rune_id = rn.rune_id
+      WHERE ur.rune_uid = $1 AND ur.discord_id = $2`,
+    [arg, discordId]
+  );
+  if (r.rows.length === 0) return false;
+  const rune = r.rows[0];
+  if (rune.is_locked) { await reply(message, 'That rune is locked. Unlock it first.'); return true; }
+  if (rune.socketed_into) { await reply(message, `That rune is socketed into \`${rune.socketed_into}\`. Unsocket it first.`); return true; }
+  const price = RUNE_SELL_PRICE[rune.tier] || 0;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT credux FROM users_bag WHERE discord_id = $1 FOR UPDATE', [discordId]);
+    const del = await client.query(
+      'DELETE FROM user_runes WHERE rune_uid = $1 AND discord_id = $2 AND is_locked = FALSE AND socketed_into IS NULL',
+      [arg, discordId]
+    );
+    if (del.rowCount === 0) { await client.query('ROLLBACK'); await reply(message, 'That rune is no longer sellable.'); return true; }
+    await client.query('UPDATE users_bag SET credux = credux + $2 WHERE discord_id = $1', [discordId, price]);
+    await client.query(
+      `INSERT INTO game_logs (discord_id, action, item_type) VALUES ($1, 'Sell Rune', $2)`,
+      [discordId, rune.tier]
+    );
+    await client.query('COMMIT');
+    await reply(message, `✅ Sold **${rune.name}** rune (${rune.tier}) for **${price.toLocaleString()} Credux**.`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[sell rune]', err.message);
+    await reply(message, 'Something went wrong selling the rune.');
+  } finally {
+    client.release();
+  }
+  return true;
 }
 
 function sumPrices(rows) {
@@ -101,6 +145,8 @@ async function execute(message, { args }) {
   let count, total, descLine;
 
   if (mode === 'id') {
+    // Rune first (own namespace, immediate sell). Then gear (weapon then armor).
+    if (await trySellRune(message, discordId, arg)) return;
     // Specific, friendly rejections for the single-gear path (weapon then armor).
     const wq = await pool.query(
       `SELECT uw.is_locked, uw.enhancement, wr.name, wr.tier,

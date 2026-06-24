@@ -39,6 +39,13 @@ module.exports = {
   enh: 'enhance',
   lk: 'lock',
   ulk: 'unlock',
+  // Runes / sockets (Phase 2)
+  es: 'essence shop',
+  ex: 'exchange',
+  rb: 'rune bag',
+  rn: 'runes',
+  so: 'socket',
+  uso: 'unsocket',
   // Economy
   g: 'cred',          // [v4.9] back-compat
   bs: 'bestow',

@@ -9,7 +9,7 @@
 const SELL_PRICES = {
   Common: 100,
   Rare: 1000,
-  Mythic: 5000,
+  Mythic: 50000,
   Legendary: 100000,
   Supreme: 1000000,
 };

@@ -1,15 +1,21 @@
 'use strict';
 
+const path = require('path');
 const pool = require('../../db/pool');
 const {
   CHESTS, CHEST_ALIASES, MAX_OPEN,
   rollTier, rollGearClass, rollArmorType, rollWeaponStats, rollArmorStats,
+  rollNativeSocketCount, buildSocketArray,
 } = require('../../config/dropRates');
-const { generateUniqueGearId } = require('../../utils/weaponId');
+const { generateUniqueGearId, generateUniqueRuneUid } = require('../../utils/weaponId');
 const { runSummon } = require('../../engine/summonEngine');
 const { TIER_ALIAS } = require('../../config/gachaRates');
-const { playAnimatedOpen, buildWeaponResultPayload } = require('../../engine/chestOpen');
+const { playAnimatedOpen, buildWeaponResultPayload, buildRuneResultPayload } = require('../../engine/chestOpen');
 const { buildResultMessage } = require('../../engine/renderSummon');
+const { BAGS, BAG_ALIAS, BAG_ALIASES, RUNE_BAG_MAX_OPEN, bagEmoji, runeEmojiName } = require('../../config/runes');
+
+const RUNES_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'items', 'runes');
+const BAG_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'items', 'rune bag');
 
 // Relic gacha config (Master §6): which relic feeds how many deity rolls.
 //   sr   → 1 Sacred Relic  → 10 deity rolls (pity applies)
@@ -76,15 +82,18 @@ async function openChestsTxn(discordId, alias, amount) {
         const { weapon_roster_id, name, type } = wr.rows[0];
         const s = rollWeaponStats(tier, type); // ATK + CRIT only (v5)
         const gearId = await generateUniqueGearId(client);
+        const sockets = buildSocketArray(rollNativeSocketCount(tier)); // §2.2 native sockets
 
         await client.query(
           `INSERT INTO user_weapons
              (discord_id, weapon_id, weapon_roster_id, curr_atk,
-              enhancement, base_atk, crit, bonus_dmg_pct, is_locked)
-           VALUES ($1,$2,$3,$4,1,$4,$5,$6,FALSE)`,
-          [discordId, gearId, weapon_roster_id, s.atk, s.crit, s.bonus_dmg_pct]
+              enhancement, base_atk, crit, bonus_dmg_pct, is_locked,
+              native_sockets, opposite_sockets)
+           VALUES ($1,$2,$3,$4,1,$4,$5,$6,FALSE,$7::jsonb,'[]'::jsonb)`,
+          [discordId, gearId, weapon_roster_id, s.atk, s.crit, s.bonus_dmg_pct,
+           JSON.stringify(sockets)]
         );
-        drops.push({ gearClass: 'weapon', name, type, tier, ...s, id: gearId });
+        drops.push({ gearClass: 'weapon', name, type, tier, ...s, id: gearId, socketCount: sockets.length });
       } else {
         // armor: roll type 1/3 each, pick an available roster row of that tier+type
         const armorType = rollArmorType();
@@ -102,15 +111,17 @@ async function openChestsTxn(discordId, alias, amount) {
         const { armor_roster_id, name, type } = ar.rows[0];
         const s = rollArmorStats(tier, type); // HP + DEF only (v5 §C.1)
         const gearId = await generateUniqueGearId(client);
+        const sockets = buildSocketArray(rollNativeSocketCount(tier)); // §2.2 native sockets
 
         await client.query(
           `INSERT INTO user_armors
              (discord_id, armor_id, armor_roster_id, curr_hp, curr_def,
-              enhancement, base_hp, base_def, is_locked)
-           VALUES ($1,$2,$3,$4,$5,1,$4,$5,FALSE)`,
-          [discordId, gearId, armor_roster_id, s.hp, s.def]
+              enhancement, base_hp, base_def, is_locked,
+              native_sockets, opposite_sockets)
+           VALUES ($1,$2,$3,$4,$5,1,$4,$5,FALSE,$6::jsonb,'[]'::jsonb)`,
+          [discordId, gearId, armor_roster_id, s.hp, s.def, JSON.stringify(sockets)]
         );
-        drops.push({ gearClass: 'armor', name, type, tier, ...s, id: gearId });
+        drops.push({ gearClass: 'armor', name, type, tier, ...s, id: gearId, socketCount: sockets.length });
       }
     }
 
@@ -168,8 +179,12 @@ async function execute(message, { args }) {
     await openRelic(message, alias);
     return;
   }
+  if (BAG_ALIASES.includes(alias)) {
+    await openRuneBags(message, alias, args[1]);
+    return;
+  }
   if (!alias) {
-    await reply(message, 'Usage: `crd open <sc|gc|btc|bgtc|supc> [amount]`');
+    await reply(message, 'Usage: `crd open <sc|gc|btc|bgtc|supc|lb|gb|db> [amount]`');
     return;
   }
   if (!CHEST_ALIASES.includes(alias)) {
@@ -213,6 +228,7 @@ async function execute(message, { args }) {
     name: d.name,
     tier: d.tier,
     stats: dropStatsLine(d),
+    sockets: d.socketCount, // [v5 Phase 2] centered slot-count line on the card
   }));
 
   await playAnimatedOpen(message, {
@@ -315,4 +331,117 @@ async function openRelic(message, alias) {
   });
 }
 
-module.exports = { execute, openChestsTxn };
+/** Weighted tier pick from essence_bag_def.rune_pool ([{tier,weight}], sums 100). */
+function rollRuneTier(pool) {
+  const total = pool.reduce((s, e) => s + Number(e.weight), 0);
+  let r = Math.random() * total;
+  for (const e of pool) {
+    r -= Number(e.weight);
+    if (r < 0) return e.tier;
+  }
+  return pool[pool.length - 1].tier;
+}
+
+/**
+ * Atomic rune-bag open: lock the bag column → validate count → per open roll a
+ * tier from essence_bag_def.rune_pool then a uniform rune_roster row → INSERT
+ * user_runes → deduct bags → game_logs → COMMIT.
+ */
+async function openRuneBagsTxn(discordId, bagKey, amount) {
+  const bag = BAGS[bagKey];
+  const col = bag.column; // whitelisted from constant map
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const bagRes = await client.query(
+      `SELECT ${col} AS count FROM users_bag WHERE discord_id = $1 FOR UPDATE`,
+      [discordId]
+    );
+    if (bagRes.rows.length === 0) { await client.query('ROLLBACK'); return { ok: false, reason: 'nobag' }; }
+    const previous = bagRes.rows[0].count;
+    if (previous < amount) { await client.query('ROLLBACK'); return { ok: false, reason: 'insufficient', have: previous }; }
+
+    const poolRes = await client.query('SELECT rune_pool FROM essence_bag_def WHERE bag_key = $1', [bag.poolKey]);
+    if (poolRes.rows.length === 0) { await client.query('ROLLBACK'); return { ok: false, reason: 'no_pool' }; }
+    const runePool = poolRes.rows[0].rune_pool;
+
+    const drops = [];
+    for (let i = 0; i < amount; i++) {
+      const tier = rollRuneTier(runePool);
+      const rr = await client.query(
+        'SELECT rune_id, name, effect_key, tier, value FROM rune_roster WHERE tier = $1 ORDER BY RANDOM() LIMIT 1',
+        [tier]
+      );
+      if (rr.rows.length === 0) { await client.query('ROLLBACK'); return { ok: false, reason: 'no_rune_pool' }; }
+      const rune = rr.rows[0];
+      const runeUid = await generateUniqueRuneUid(client);
+      await client.query(
+        `INSERT INTO user_runes (rune_uid, discord_id, rune_id, socketed_into, is_locked)
+         VALUES ($1, $2, $3, NULL, FALSE)`,
+        [runeUid, discordId, rune.rune_id]
+      );
+      drops.push({ id: runeUid, name: rune.name, tier: rune.tier, effect_key: rune.effect_key, value: rune.value });
+    }
+
+    const remaining = previous - amount;
+    await client.query(`UPDATE users_bag SET ${col} = ${col} - $2 WHERE discord_id = $1`, [discordId, amount]);
+    await client.query(
+      `INSERT INTO game_logs (discord_id, action, item_type, previous_chest_count, updated_chest_count)
+       VALUES ($1, 'Open Rune Bag', $2, $3, $4)`,
+      [discordId, col, previous, remaining]
+    );
+    await client.query('COMMIT');
+    return { ok: true, drops, remaining };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[open rune bag] transaction failed:', err.message);
+    return { ok: false, reason: 'error' };
+  } finally {
+    client.release();
+  }
+}
+
+/** `crd open <lb|gb|db> [amount]` — open stockpiled rune bags (max 10). */
+async function openRuneBags(message, alias, rawAmount) {
+  const bagKey = BAG_ALIAS[alias];
+  const bag = BAGS[bagKey];
+  const raw = rawAmount ?? '1';
+  if (!/^\d+$/.test(raw)) { await reply(message, `Amount must be a whole number between 1 and ${RUNE_BAG_MAX_OPEN}.`); return; }
+  const amount = parseInt(raw, 10);
+  if (amount < 1 || amount > RUNE_BAG_MAX_OPEN) {
+    await reply(message, `You can open between 1 and ${RUNE_BAG_MAX_OPEN} ${bag.display}s at a time.`);
+    return;
+  }
+
+  const res = await openRuneBagsTxn(message.author.id, bagKey, amount);
+  if (!res.ok) {
+    if (res.reason === 'nobag') await reply(message, 'You don\'t have a bag yet. Use `crd register` first.');
+    else if (res.reason === 'insufficient') await reply(message, `You don't have enough ${bag.display}s. You have ${res.have}.`);
+    else if (res.reason === 'no_pool' || res.reason === 'no_rune_pool') await reply(message, 'Rune opening is temporarily unavailable (no rune pool seeded). Nothing was consumed.');
+    else await reply(message, 'Something went wrong opening your bag. Nothing was consumed.');
+    return;
+  }
+
+  const items = res.drops.map((d) => ({
+    id: d.id, name: d.name, tier: d.tier, stats: `${d.effect_key} ${d.value}`,
+    // [v5 #5] rune sprite from assets/items/runes/<key>_rune.png.
+    imagePath: path.join(RUNES_DIR, `${runeEmojiName(d.effect_key)}.png`),
+  }));
+  await playAnimatedOpen(message, {
+    gifKey: bag.gifKey,
+    // Rune-bag gif lives in assets/items/rune bag (e.g. lesser_bag.gif).
+    gifPath: path.join(BAG_DIR, `${bagKey}_bag.gif`),
+    animTitle: `Opening ${amount} × ${bag.display}…`,
+    buildResult: () => buildRuneResultPayload({
+      gifKey: bag.gifKey,
+      title: `Opened ${amount} × ${bag.display}`,
+      items,
+      remaining: res.remaining,
+      bagLabel: bag.display,
+      bagEmoji: bagEmoji(bagKey),
+    }),
+  });
+}
+
+module.exports = { execute, openChestsTxn, openRuneBagsTxn };

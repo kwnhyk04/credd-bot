@@ -13,55 +13,55 @@
     },
     "name": {
       "x": 212,
-      "y": 150,
+      "y": 200,
       "anchor": "left",
-      "font": "DejaVu Sans",
+      "font": "Lucida Console",
       "weight": "bold",
       "size": 32,
-      "color": "#FFFFFF",
+      "color": "#f74b77",
       "max_width": 683
     },
     "sub": {
       "x": 212,
-      "y": 190,
+      "y": 240,
       "anchor": "left",
       "font": "DejaVu Sans",
       "weight": "bold",
       "size": 18,
-      "color": "#6da5f2",
+      "color": "#f2bb6d",
       "max_width": 683
     },
     "loadout": {
       "x": 212,
-      "y": 220,
+      "y": 270,
       "anchor": "left",
       "font": "DejaVu Sans",
       "weight": "normal",
       "size": 16,
-      "color": "#C9CDD6",
+      "color": "#f2bb6d",
       "max_width": 819
     },
     "hp_text": {
-      "x": 1350,
-      "y": 150,
+      "x": 1300,
+      "y": 200,
       "anchor": "right",
       "font": "DejaVu Sans",
       "weight": "bold",
       "size": 24,
-      "color": "#6da5f2"
+      "color": "#f2bb6d"
     },
     "hp_bar": {
       "x": 212,
-      "y": 275,
+      "y": 320,
       "w": 1092,
       "h": 18,
       "radius": 9,
-      "fill": "#6da5f2",
-      "track": "rgba(0,0,0,0.45)"
+      "fill": "#f2bb6d",
+      "track": "rgba(170,170,170)"
     },
     "stats": {
       "x": 212,
-      "y": 330,
+      "y": 370,
       "anchor": "left",
       "font": "DejaVu Sans",
       "weight": "bold",
@@ -110,7 +110,7 @@
       "font": "DejaVu Sans",
       "weight": "bold",
       "size": 18,
-      "color": "#6da5f2",
+      "color": "#f2bb6d",
       "max_width": 683
     },
     "loadout": {
@@ -120,17 +120,17 @@
       "font": "DejaVu Sans",
       "weight": "normal",
       "size": 16,
-      "color": "#C9CDD6",
+      "color": "#f2bb6d",
       "max_width": 819
     },
     "hp_text": {
-      "x": 1350,
+      "x": 1300,
       "y": 620,
       "anchor": "right",
       "font": "DejaVu Sans",
       "weight": "bold",
       "size": 24,
-      "color": "#6da5f2"
+      "color": "#f2bb6d"
     },
     "hp_bar": {
       "x": 212,
@@ -138,8 +138,8 @@
       "w": 1092,
       "h": 18,
       "radius": 9,
-      "fill": "#6da5f2",
-      "track": "rgba(0,0,0,0.45)"
+      "fill": "#f2bb6d",
+      "track": "rgba(170,170,170)"
     },
     "stats": {
       "x": 212,

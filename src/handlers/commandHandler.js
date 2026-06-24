@@ -26,6 +26,10 @@ const credCmd = require('../commands/economy/cred');
 const questsCmd = require('../commands/economy/quests');
 const dailyCmd = require('../commands/economy/daily');
 const devCmd = require('../commands/rpg/dev');
+const essenceShopCmd = require('../commands/rpg/essenceShop');
+const exchangeCmd = require('../commands/rpg/exchange');
+const socketCmd = require('../commands/rpg/socket');
+const runeCmd = require('../commands/rpg/rune');
 const shopCmd = require('../commands/rpg/shop');
 const skinCmd = require('../commands/rpg/skin');
 const buyCmd = require('../commands/rpg/buy');
@@ -72,6 +76,12 @@ const IMPLEMENTED = {
   help:     { mw: 'full', run: helpCmd.execute },
   admin:    { mw: 'full', run: adminCmd.execute },
   dev:      { mw: 'dev',  run: devCmd.execute },
+  essence:  { mw: 'full', run: essenceShopCmd.execute },
+  exchange: { mw: 'full', run: exchangeCmd.execute },
+  socket:   { mw: 'full', run: socketCmd.socket },
+  unsocket: { mw: 'full', run: socketCmd.unsocket },
+  rune:     { mw: 'full', run: runeCmd.execute },
+  runes:    { mw: 'full', run: runeCmd.list },
   shop:     { mw: 'full', run: shopCmd.execute },
   skin:     { mw: 'full', run: skinCmd.execute },
   buy:      { mw: 'full', run: buyCmd.execute },
@@ -121,6 +131,12 @@ const COMMAND_MAP = {
   slot:      { requiresCharacter: false },
   crash:     { requiresCharacter: false },
   dev:       { requiresCharacter: false },
+  essence:   { requiresCharacter: true },  // essence shop
+  exchange:  { requiresCharacter: true },
+  socket:    { requiresCharacter: true },
+  unsocket:  { requiresCharacter: true },
+  rune:      { requiresCharacter: true },  // crd rune bag
+  runes:     { requiresCharacter: true },  // crd runes
   shop:      { requiresCharacter: false }, // cosmetic store; supporter status is independent of character
   skin:      { requiresCharacter: false }, // cosmetic skin collection (open to all)
   buy:       { requiresCharacter: false }, // buy a skin by code

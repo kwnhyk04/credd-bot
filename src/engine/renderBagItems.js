@@ -83,6 +83,28 @@ async function getEmojiIcon(name) {
   }
 }
 
+/** Disk-cached Twemoji (Discord's default-emoji art) by hex codepoint. Returns
+ *  a canvas Image or null. Used for items with no custom emoji (weapons/armors). */
+async function getUnicodeIcon(hex) {
+  const key = `u${hex}`;
+  if (iconCache.has(key)) return iconCache.get(key);
+  try {
+    const file = path.join(CACHE_DIR, `${key}.png`);
+    if (!fs.existsSync(file)) {
+      const res = await fetch(`https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/${hex}.png`);
+      if (!res.ok) return null;
+      fs.mkdirSync(CACHE_DIR, { recursive: true });
+      fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+    }
+    const img = await loadImage(file);
+    iconCache.set(key, img);
+    return img;
+  } catch (err) {
+    console.error(`[renderBagItems] twemoji '${hex}' unavailable:`, err.message);
+    return null;
+  }
+}
+
 function roundRectPath(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -116,30 +138,92 @@ async function renderBagItemsImage(items) {
     ctx.fillStyle = BOX;
     ctx.fill();
 
-    // Icon + all text vertically centered on the box middle.
     const midY = y + ROW_H / 2;
-    const icon = await getEmojiIcon(item.emojiName);
-    if (icon) ctx.drawImage(icon, PAD + 12, midY - ICON / 2, ICON, ICON);
-
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
 
+    // Optional leading id label (essence shop: `1` `2` …) before the icon.
+    let leftX = PAD + 12;
+    if (item.idLabel != null) {
+      ctx.font = NAME_FONT;
+      ctx.fillStyle = CMD_COLOR;
+      ctx.fillText(String(item.idLabel), leftX, midY);
+      leftX += ctx.measureText(String(item.idLabel)).width + 12;
+    }
+
+    // Icon: a local iconPath (assets/items/...) wins over the CDN emoji; a unicode
+    // `glyph` (e.g. ⚔️ / 🛡️) is the last-resort fallback drawn as text.
+    let icon = null;
+    if (item.iconPath) { try { icon = await loadImage(item.iconPath); } catch { icon = null; } }
+    if (!icon && item.emojiName) icon = await getEmojiIcon(item.emojiName);
+    if (!icon && item.twemoji) icon = await getUnicodeIcon(item.twemoji);
+    if (icon) {
+      ctx.drawImage(icon, leftX, midY - ICON / 2, ICON, ICON);
+    } else if (item.glyph) {
+      ctx.font = `${ICON - 4}px "${FONT_FAMILY}"`;
+      ctx.fillStyle = NAME_COLOR;
+      ctx.fillText(item.glyph, leftX, midY);
+    }
+
     // Bold name, then the open command in smaller muted text.
-    const nameX = PAD + 12 + ICON + 10;
+    const nameX = leftX + ICON + 10;
     ctx.font = NAME_FONT;
     ctx.fillStyle = NAME_COLOR;
     ctx.fillText(item.name, nameX, midY);
     const nameW = ctx.measureText(item.name).width;
+    let cmdEnd = nameX + nameW;
+    if (item.cmd) {
+      ctx.font = CMD_FONT;
+      ctx.fillStyle = CMD_COLOR;
+      ctx.fillText(item.cmd, nameX + nameW + 12, midY);
+      cmdEnd = nameX + nameW + 12 + ctx.measureText(item.cmd).width;
+    }
 
-    ctx.font = CMD_FONT;
-    ctx.fillStyle = CMD_COLOR;
-    ctx.fillText(item.cmd, nameX + nameW + 12, midY);
-
-    // Count, right-aligned.
-    ctx.font = COUNT_FONT;
+    // Right side, in priority: rightSegments (text + inline emoji icons, FIXED
+    // font) → `right` string (auto-shrunk) → numeric count.
     ctx.fillStyle = NAME_COLOR;
-    ctx.textAlign = 'right';
-    ctx.fillText(String(item.count), W - PAD - 14, midY);
+    if (Array.isArray(item.rightSegments)) {
+      const SEG_FONT = `15px "${FONT_FAMILY}"`;
+      const SEG_ICON = 20;
+      ctx.font = SEG_FONT;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      // Resolve icons + measure total width.
+      let total = 0;
+      const parts = [];
+      for (const seg of item.rightSegments) {
+        if (seg.text != null) {
+          parts.push({ text: seg.text, w: ctx.measureText(seg.text).width });
+          total += parts[parts.length - 1].w;
+        } else {
+          let im = null;
+          if (seg.iconPath) { try { im = await loadImage(seg.iconPath); } catch { im = null; } }
+          if (!im && seg.emojiName) im = await getEmojiIcon(seg.emojiName);
+          if (!im && seg.twemoji) im = await getUnicodeIcon(seg.twemoji);
+          parts.push({ img: im, w: im ? SEG_ICON + 2 : 0 });
+          total += parts[parts.length - 1].w;
+        }
+      }
+      let sx = W - PAD - 14 - total;
+      for (const p of parts) {
+        if (p.img) { ctx.drawImage(p.img, sx, midY - SEG_ICON / 2, SEG_ICON, SEG_ICON); sx += p.w; }
+        else if (p.text != null) { ctx.fillText(p.text, sx, midY); sx += p.w; }
+      }
+      ctx.textAlign = 'left';
+    } else if (item.right != null) {
+      ctx.textAlign = 'right';
+      const avail = (W - PAD - 14) - (cmdEnd + 14);
+      let px = 15;
+      ctx.font = `${px}px "${FONT_FAMILY}"`;
+      while (px > 9 && ctx.measureText(String(item.right)).width > avail) {
+        px -= 1; ctx.font = `${px}px "${FONT_FAMILY}"`;
+      }
+      ctx.fillText(String(item.right), W - PAD - 14, midY);
+    } else {
+      ctx.textAlign = 'right';
+      ctx.font = COUNT_FONT;
+      ctx.fillText(String(item.count), W - PAD - 14, midY);
+    }
     ctx.textAlign = 'left';
   }
 

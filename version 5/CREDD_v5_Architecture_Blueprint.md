@@ -143,9 +143,16 @@ Goal: gear has sockets; runes drop, socket in, and modify stats/combat.
   2.3 Rune drop/craft faucet
 
 - Essence Bag (primary faucet): essence + Credux → bag → open → random rune (tiered).
-  Lesser (Epic/Mythic essence) → Common–Rare runes; Greater (Legendary) → Mythic–Legendary;
+  Lesser (Epic/Mythic essence) → Common–Rare runes;
+  Greater (Legendary) → Mythic–Legendary;
   Divine (Supreme) → Legendary–Supreme. (SQL seeds bag definitions; tune costs.)
-- `crd open eb/geb/deb [amount]` style open commands.
+- `crd open lb/gb/db [amount]` style open commands Maximum 10 only.
+- Opening Style same as chest opening, duplicate chest opening for rune opening. You create an opening message myth style
+  Use lesser_bag.gif for Lesser bag opening
+  Use greater_bag.gif for Greater bag opening
+  Use divine_bag.gif for Divine bag opening
+- Result display same as Weapons display embed after chest opening
+- Images for runes are in assets\items\runes folder
 
   Drop rates:
   Lesser: 100% Random Rare
@@ -170,12 +177,23 @@ Goal: gear has sockets; runes drop, socket in, and modify stats/combat.
 
   2.6 Rune bag / inventory views
 
-- `crd bag runes` — list owned runes (family, tier, value, socketed-into/free, 🔒).
+- `crd rune bag` - list all 3 bags and count 0 default if user doesn't have. crd bag chests style embed
+- `crd runes` — list owned runes (family, tier, value, socketed-into/free, 🔒).
 - Extend lock/sell convention to runes if desired.
+- Same design as crd bag weapons, rune icons emoji uploaded to Bot emoji. Read game_items.txt for rune icons.
 
   2.7 Exchange shop (essence tier-up — one-way)
 
-- `crd exchange` — 10 Epic→1 Mythic · 5 Mythic→1 Legendary · 5 Legendary→1 Supreme. NEVER downward.
+- `crd essence shop` - Same design embed as crd supporter shop (Header with essence icon)
+- ID's to buy are just increment from 1.
+  1 = Lesser Rune Bag: Cost 10 Mythic essence + 10,000 credux
+  2 = Greater Rune Bag: Cost 10 Legend Essence + 50,000 credux
+  3 = Divine Rune Bag: Cost 10 Supreme Essence + 100,000 credux
+  4 = Mythic Essence: Cost 10 Epic Essence + 10,000 credux
+  5 = Legendary Essence: Cost 10 Mythic Essence + 50,000 credux
+  6 = Supreme Essence: Cost 10 Legendary Essence + 100,000 credux
+- `crd exchange [id]` — NEVER downward.
+- Emoji Icons are uploaded in Discord bot for rune bags
 
 PHASE 2 DONE WHEN: gear shows real sockets, essence bags yield runes, runes socket and change battle
 stats/effects through the pipeline + hooks, opposite slots are buyable, exchange shop works.
@@ -202,7 +220,7 @@ PHASE 4 — RANKED PvP + LEADERBOARDS
 `crd duel` (casual, no stakes) · `crd duel wager @user [amt]` (Credux, NO rating; cap 50k/duel;
 winnings count vs the 1M/day bestow-shared cap; log all) · `crd ranked` (rating, NO Credux).
 4.2 Elo: pvp_rating default 1000. Brackets Mortal(0–999)/Champion(1000–1999)/Demigod(2000–3499)/
-Ascendant(3500–5999)/Divine(6000+). Match only previous/current/next bracket.
+Ascendant(3500–9999)/Divine(10000+). Match only previous/current/next bracket.
 Points: same +25/−20 · below +12/−35 · above +40/−10. Demotion shield at bracket floor.
 4.3 Ranked runs on level-normalized duels (reuse `crd duel [level N]` normalize) so build decides.
 4.4 Leaderboards: serverwise + global toggle. Categories: lifetime_credux_earned (NOT bestow/wager/
@@ -212,9 +230,9 @@ Boss Kills (participation: boss died + you attacked). `crd leaderboard [category
 | Bracket | Weekly chest | Season-end payout |
 | Mortal | 5k credux + 1 Silver Chest | — |
 | Champion | 15k credux + 1 Gold Chest | small season title |
-| Demigod | 30k credux + 2 Gold Chest | season title + credux |
-| Ascendant | 60k credux + 1 Boss Treasure | season title + 1 Sacred Relic |
-| Divine | 100k credux + 1 Boss Golden | exclusive seasonal title + 1 Supreme Relic | - Weekly: paid on the weekly PHT reset to each player's CURRENT bracket; one claim per week; auto credit to bags
+| Demigod | 30k credux + 1 Boss Treasure | season title + credux |
+| Ascendant | 60k credux + 1 Boss Golden | season title + 1 Sacred Relic |
+| Divine | 100k credux + 1 Boss Golden | exclusive seasonal title + 1 Supreme Relic + 1 Supreme chest | - Weekly: paid on the weekly PHT reset to each player's CURRENT bracket; one claim per week; auto credit to bags
 (`crd ranked claim` or auto-grant). Season-end: paid on season rollover by PEAK bracket reached. - Anti-abuse: weekly reward requires a minimum games-played threshold that week (e.g. >=5 ranked
 games) so an idle Champion can't farm weekly chests without laddering. Tune the threshold. - Reward amounts live in the ranked_reward config table (credd_schema_v5b_runes_seasons.sql §E).
 

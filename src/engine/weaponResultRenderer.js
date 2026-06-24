@@ -135,8 +135,9 @@ async function drawCard(ctx, item, x, y) {
   ctx.fillText(`#${item.id}`, x + 9, cy + 8);
   cy += 16;
 
-  // weapon sprite (rounded-clipped so jpg corners don't poke out of the card)
-  const imgPath = weaponImagePath(item.name);
+  // weapon/rune sprite (rounded-clipped). An explicit imagePath (e.g. a rune at
+  // assets/items/runes/<key>_rune.png) overrides the weapon-name art lookup.
+  const imgPath = item.imagePath || weaponImagePath(item.name);
   let drawn = false;
   if (imgPath) {
     try {
@@ -191,8 +192,18 @@ async function drawCard(ctx, item, x, y) {
     fitText(ctx, l1.length > l2.length ? l1 : l2, maxW, 12, 'normal');
     ctx.fillText(l1, cx, cy);
     ctx.fillText(l2, cx, cy + 14);
+    cy += 14;
   } else {
     ctx.fillText(line, cx, cy);
+  }
+
+  // [v5 #7] socket count — its own centered line under the stats.
+  if (item.sockets != null) {
+    cy += 16;
+    ctx.font = `bold 11px "${FONT_FAMILY}"`;
+    ctx.fillStyle = '#c9b8e8';
+    ctx.textAlign = 'center';
+    ctx.fillText(`◇ ${item.sockets} Rune slot${item.sockets === 1 ? '' : 's'}`, cx, cy);
   }
 }
 

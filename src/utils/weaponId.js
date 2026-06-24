@@ -42,9 +42,25 @@ async function generateUniqueGearId(client) {
 const generateUniqueWeaponId = generateUniqueGearId;
 const generateUniqueArmorId = generateUniqueGearId;
 
+/**
+ * Generate an 8-char rune_uid unique within user_runes (own namespace per
+ * Naming Conventions §4 — need not be unique vs gear ids).
+ */
+async function generateUniqueRuneUid(client) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const id = generateWeaponId();
+    const { rows } = await client.query(
+      'SELECT 1 FROM user_runes WHERE rune_uid = $1 LIMIT 1', [id]
+    );
+    if (rows.length === 0) return id;
+  }
+  throw new Error('Failed to generate a unique rune uid after 10 attempts');
+}
+
 module.exports = {
   generateWeaponId,
   generateUniqueGearId,
   generateUniqueWeaponId,
   generateUniqueArmorId,
+  generateUniqueRuneUid,
 };

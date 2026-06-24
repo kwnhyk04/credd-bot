@@ -548,21 +548,18 @@ const PASSIVE_REGISTRY = {
   },
 
   'gungnir': (bs) => {
-    // [Jun-2026 §4] Ignores 40% DEF; 10% chance (was 30%) pierce ALL DEF; on pierce: enemy DEF -25% 1 turn
+    // [v5] Never Misses — Ignores 40% of enemy DEF; 25% chance to pierce ALL DEF (zero mitigation).
     if (0.40 > bs.ignoreDefPct) bs.ignoreDefPct = 0.40;
-    if (bs.rng() < 0.10) {
+    if (bs.rng() < 0.25) {
       bs.flags.gungnir_full_pierce = true; // engine zeroes enemy DEF for this hit
-      if (!bs.enemyImmune('def_down')) {
-        bs.applyDebuff('def_down', 1, 0.25);
-      }
-      bs.log.push('🏹 Gungnir: Never Misses — ALL DEF PIERCED! DEF -25%!');
+      bs.log.push('🏹 Gungnir: Never Misses — ALL DEF PIERCED!');
     }
   },
 
   'thunderbolt_of_zeus': (bs) => {
-    // [Jun-2026 §4] 30% chance OR on CRIT (pre-roll latch): +100% ATK rider (was +80%) + paralyze 1 turn
-    const roll = bs.rng() < 0.30;
-    if (roll || bs.flags.crit_landed_this_hit) {
+    // [v5] Divine Thunder — on a CRIT: +100% bonus ATK and paralyze 1 turn. Crit-gated only
+    // (the pre-roll latch crit_landed_this_hit marks this round's main hit as a crit).
+    if (bs.flags.crit_landed_this_hit) {
       bs.playerAtkMult += 1.00;
       if (!bs.enemyImmune('paralyze')) {
         bs.applyDebuff('paralyze', 1);
@@ -637,12 +634,12 @@ const PASSIVE_REGISTRY = {
   },
 
   // Mantle of Bathala — Divine Aegis: +5% HP and +5% DEF every turn, stacking to
-  // +100% each. DEF via the def multiplier; HP via the engine's Bathala HP ramp
+  // +50% each. DEF via the def multiplier; HP via the engine's Bathala HP ramp
   // (bathala_hp_fraction → applyBathala). Stack persists for the battle.
   'mantle_of_bathala': (bs) => {
     if (!bs.flags.mantle_bathala_stacks) bs.flags.mantle_bathala_stacks = 0;
-    if (bs.flags.mantle_bathala_stacks < 1.00) {
-      bs.flags.mantle_bathala_stacks = Math.min(bs.flags.mantle_bathala_stacks + 0.05, 1.00);
+    if (bs.flags.mantle_bathala_stacks < 0.50) {
+      bs.flags.mantle_bathala_stacks = Math.min(bs.flags.mantle_bathala_stacks + 0.05, 0.50);
     }
     const frac = bs.flags.mantle_bathala_stacks;
     bs.playerDefMult += frac;

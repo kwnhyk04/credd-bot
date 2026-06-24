@@ -266,7 +266,13 @@ function profileTitle(d) {
 function buildView(d) {
   const combatMax = d.combatExpMax == null ? 'MAX' : fmt(d.combatExpMax);
   const weaponEnh = d.weaponEnh > 0 ? ` +${d.weaponEnh}` : '';
+  const armorEnh = d.armorEnh > 0 ? ` +${d.armorEnh}` : '';
   const deityEnh = d.deityEnh > 0 ? ` +${d.deityEnh}` : '';
+  // [v5 tweak] One "Equipments" value carries BOTH weapon and armor so long names
+  // can't overlap by position (armor has no separate layout element). Armor type
+  // ("(Medium)") is no longer shown.
+  const weaponTxt = d.weaponName ? `${d.weaponName}${weaponEnh}` : 'None';
+  const armorTxt = d.armorName ? `${d.armorName}${armorEnh}` : 'None';
   return {
     top_label: d.topLabel?.hasTopLabel ? d.topLabel.word : null,
     name: d.displayName,
@@ -275,8 +281,8 @@ function buildView(d) {
     exp_ratio: Number(d.believerExp) / Math.max(1, Number(d.believerExpMax)),
     class: `${d.className}  |  Combat Lv ${fmt(d.combatLevel)}`,
     combat_exp: `Combat EXP  ${fmt(d.combatExp)} / ${combatMax}`,
-    weapon_label: 'EQUIPPED WEAPON',
-    weapon_value: d.weaponName ? `${d.weaponName}${weaponEnh}` : 'None',
+    weapon_label: 'EQUIPMENTS',
+    weapon_value: `${weaponTxt}, ${armorTxt}`,
     deity_label: 'ACTIVE DEITY',
     deity_value: d.deityName ? `${d.deityName}${deityEnh}` : 'None',
     blessing: d.deityName ? `Blessing: ${d.blessingName || '-'}` : '',

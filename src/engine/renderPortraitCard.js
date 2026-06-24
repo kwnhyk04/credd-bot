@@ -35,6 +35,40 @@ const PANEL = '#26272D';
 const TITLE_COLOR = '#FFFFFF';
 const BODY_COLOR = '#D4D7DC';
 const DIM_COLOR = '#9aa0a8';
+const SLOT_BG = '#2F313A';
+const SLOT_EMPTY_BORDER = '#3a3d46';
+// Rune tier → border color (the slot border indicates the socketed rune's tier).
+const TIER_COLOR = {
+  Common: '#95a5a6', Rare: '#3498db', Mythic: '#9b59b6', Legendary: '#fbbf24', Supreme: '#e74c3c',
+};
+
+/* ── Socket panel layout (rune slots in the right column) ─────────────────── */
+const SOCK_BOX = 72;        // target slot box edge
+const SOCK_GAP = 10;        // gap between slots
+const SOCK_HEAD = 24;       // "Sockets" heading band
+const SOCK_VALUE_H = 18;    // value strip under the rune image
+const SOCK_ROW_GAP = 8;     // gap between wrapped rows
+
+/** Layout for n socket boxes within the right column (wraps to multiple rows). */
+function sockPanel(n) {
+  if (!n) return { rows: 0, perRow: 0, box: 0, h: 0 };
+  const perRow = Math.max(1, Math.floor((RW + SOCK_GAP) / (SOCK_BOX + SOCK_GAP)));
+  const box = Math.min(SOCK_BOX, Math.floor((RW - (Math.min(n, perRow) - 1) * SOCK_GAP) / Math.min(n, perRow)));
+  const rows = Math.ceil(n / perRow);
+  const h = SOCK_HEAD + rows * (box + SOCK_VALUE_H + SOCK_ROW_GAP);
+  return { rows, perRow, box, h };
+}
+
+/** Shrink the font until `text` fits `maxW`; returns the chosen px size. */
+function fitFont(ctx, text, startPx, maxW, bold = false) {
+  let px = startPx;
+  while (px > 8) {
+    ctx.font = F(px, bold);
+    if (ctx.measureText(text).width <= maxW) break;
+    px -= 1;
+  }
+  return px;
+}
 
 const F = (px, bold = false) => `${bold ? 'bold ' : ''}${px}px "${FONT_FAMILY}"`;
 
@@ -131,9 +165,15 @@ async function renderPortraitCard(d) {
   }
   const accent = d.accent || '#9b59b6';
 
-  // Height: tallest of the portrait and the text block, plus padding.
+  // Preload socket rune images (filled slots only). [v5 Phase 2] rune slot panel.
+  const sockets = Array.isArray(d.sockets) ? d.sockets : [];
+  const sockImgs = await Promise.all(sockets.map((s) =>
+    s.imagePath ? loadImage(s.imagePath).catch(() => null) : Promise.resolve(null)));
+  const panel = sockPanel(sockets.length);
+
+  // Height: tallest of the portrait and the text block (+ socket panel), plus padding.
   const probe = createCanvas(10, 10).getContext('2d');
-  const textH = measureRight(probe, d.title, d.subtitle, d.sections || []);
+  const textH = measureRight(probe, d.title, d.subtitle, d.sections || []) + (panel.h ? panel.h + 8 : 0);
   const H = Math.max(PH + PAD * 2, textH + PAD * 2);
 
   const canvas = createCanvas(W, H);
@@ -172,6 +212,68 @@ async function renderPortraitCard(d) {
       for (const line of wrapLines(ctx, s.body, RW)) { ctx.fillText(line, RX, y); y += 20; }
     }
     y += 12;
+  }
+
+  // ── Socket panel — boxed rune slots, centered, auto-sizing (Phase 2) ──────
+  if (panel.h) {
+    ctx.font = F(15, true);
+    ctx.fillStyle = TITLE_COLOR;
+    ctx.textAlign = 'left';
+    ctx.fillText('Sockets', RX, y + 4);
+    y += SOCK_HEAD;
+
+    const box = panel.box;
+    for (let i = 0; i < sockets.length; i++) {
+      const rowIdx = Math.floor(i / panel.perRow);
+      const colIdx = i % panel.perRow;
+      const inThisRow = Math.min(panel.perRow, sockets.length - rowIdx * panel.perRow);
+      const rowW = inThisRow * box + (inThisRow - 1) * SOCK_GAP;
+      const startX = RX + (RW - rowW) / 2;                 // centered in the right column
+      const bx = startX + colIdx * (box + SOCK_GAP);
+      const by = y + rowIdx * (box + SOCK_VALUE_H + SOCK_ROW_GAP);
+
+      const slot = sockets[i];
+      const filled = !!slot.imagePath || (slot.label != null && slot.label !== '');
+      // [v5 #9] border color = the socketed rune's TIER (empty = dim).
+      const border = filled ? (TIER_COLOR[slot.tier] || accent) : SLOT_EMPTY_BORDER;
+      roundRectPath(ctx, bx, by, box, box, 12);
+      ctx.fillStyle = SLOT_BG;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = border;
+      roundRectPath(ctx, bx, by, box, box, 12);
+      ctx.stroke();
+
+      const img = sockImgs[i];
+      if (img) {
+        const inner = box - 16;
+        const scale = Math.min(inner / img.width, inner / img.height);
+        const dw = img.width * scale, dh = img.height * scale;
+        ctx.drawImage(img, bx + (box - dw) / 2, by + (box - dh) / 2, dw, dh);
+      } else {
+        ctx.fillStyle = DIM_COLOR;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = F(13);
+        ctx.fillText(filled ? '◆' : '—', bx + box / 2, by + box / 2);
+        ctx.textBaseline = 'alphabetic';
+      }
+
+      // Caption under the box: the rune NAME (auto-resized), or "Empty".
+      if (filled && slot.label) {
+        const vt = String(slot.label);
+        ctx.fillStyle = border;
+        ctx.font = F(fitFont(ctx, vt, 13, box, true), true);
+        ctx.textAlign = 'center';
+        ctx.fillText(vt, bx + box / 2, by + box + 13);
+      } else if (!filled) {
+        ctx.fillStyle = DIM_COLOR;
+        ctx.font = F(11);
+        ctx.textAlign = 'center';
+        ctx.fillText('Empty', bx + box / 2, by + box + 12);
+      }
+      ctx.textAlign = 'left';
+    }
   }
 
   return canvas.toBuffer('image/png');

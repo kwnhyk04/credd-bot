@@ -17,7 +17,13 @@ function reply(message, payload) {
   return message.reply({ ...payload, allowedMentions: { repliedUser: false, parse: [] } });
 }
 
-async function execute(message) {
+async function execute(message, { args } = { args: [] }) {
+  // [v5] Base `crd shop` is reserved for future content — only `crd shop supporter` is live.
+  if ((args?.[0] || '').toLowerCase() !== 'supporter') {
+    return reply(message, {
+      content: '🛒 `crd shop` is reserved for future content. Use `crd shop supporter` for the Supporter Shop.',
+    });
+  }
   const ownerId = message.author.id;
   const sup = await ent.getSupporter(pool, ownerId);
   if (!ent.effectiveTier(sup) && !ent.isDevAccount(ownerId)) {

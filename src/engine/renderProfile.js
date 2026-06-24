@@ -312,8 +312,8 @@ async function renderProfileImage(d) {
     if (armorIcon) { ctx.drawImage(armorIcon, ax, by - 15, 18, 18); ax += 24; }
     ctx.fillStyle = NAME_COLOR;
     const enh = d.armorEnh > 0 ? ` +${d.armorEnh}` : '';
-    const typeTxt = d.armorType ? ` (${d.armorType})` : '';
-    ctx.fillText(fitText(ctx, `${d.armorName}${enh}${typeTxt}`, W - PAD - ax), ax, by);
+    // [v5 tweak] Armor type ("(Medium)") no longer shown.
+    ctx.fillText(fitText(ctx, `${d.armorName}${enh}`, W - PAD - ax), ax, by);
   } else {
     ctx.fillStyle = SUB_COLOR;
     ctx.fillText('None', PAD, by);

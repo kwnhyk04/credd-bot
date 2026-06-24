@@ -80,53 +80,47 @@ function buildDropRatesButton(ownerId) {
  *   relics:  { sacred, supreme },
  * }
  * ══════════════════════════════════════════ */
-function buildBagOverview(user, data) {
-  // Chests + Essence: one item per line (mobile-friendly vertical lists).
-  const chestLines = CHESTS
-    .map((c) => `${emoji(c.emojiName)} ${c.name.replace(' Chest', '')}: **${data.chests[c.code] ?? 0}**`)
-    .join('\n');
-
-  const essenceLines = ESSENCES
-    .map((e) => `${emoji(e.emojiName)} ${e.name}: **${data.essence[e.name.toLowerCase()] ?? 0}**`)
-    .join('\n');
-
-  const relicLine =
-    `${emoji('sacred_relic')} Sacred Relic: **${data.relics.sacred ?? 0}** ・ ` +
-    `${emoji('supreme_relic')} Supreme Relic: **${data.relics.supreme ?? 0}**`;
+async function buildBagOverview(user, data) {
+  // [v5 revamp] `crd bag` is a directory rendered in the SAME boxed-row canvas as
+  // `crd bag chests`: header → Credux + Belief Shards → boxed category rows (no footer).
+  const { rows: [c] } = await pool.query(
+    `SELECT
+       (SELECT count(*) FROM user_weapons WHERE discord_id = $1) AS weapons,
+       (SELECT count(*) FROM user_armors  WHERE discord_id = $1) AS armors,
+       (SELECT count(*) FROM user_runes   WHERE discord_id = $1) AS runes,
+       (SELECT COALESCE(silver_chest+gold_chest+boss_treasure_chest+boss_golden_chest+supreme_chest,0)
+          FROM users_bag WHERE discord_id = $1) AS chests,
+       (SELECT COALESCE(lesser_rune_bag+greater_rune_bag+divine_rune_bag,0)
+          FROM users_bag WHERE discord_id = $1) AS rune_bags`,
+    [user.id]
+  );
+  const n = c || {};
+  const items = [
+    { twemoji: '1f5e1', name: 'Weapons', cmd: 'crd bag weapons', count: Number(n.weapons || 0) }, // 🗡️ (header emoji)
+    { twemoji: '1f6e1', name: 'Armors',  cmd: 'crd bag armors',  count: Number(n.armors || 0) },  // 🛡️
+    { emojiName: 'general_chest',  name: 'Chests',   cmd: 'crd bag chests',  count: Number(n.chests || 0) },
+    { emojiName: 'bag',            name: 'Rune Bag', cmd: 'crd rune bag',    count: Number(n.rune_bags || 0) },
+    { emojiName: 'rune_icon',      name: 'Runes',    cmd: 'crd runes',       count: Number(n.runes || 0) },
+  ];
+  const buffer = await renderBagItemsImage(items);
+  const file = new AttachmentBuilder(buffer, { name: 'bag_overview.png' });
 
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
-    // ── Header (real mention; reply sets allowedMentions parse: [] — no ping) ──
     .addTextDisplayComponents((td) => td.setContent(`## ${emoji('bag')} <@${user.id}>'s Bag`))
     .addSeparatorComponents(sep)
-    // ── Currencies (no dedicated "general" currency icon → use the Credux coin) ──
     .addTextDisplayComponents((td) =>
       td.setContent(
-        `**${emoji('credux_coin')} Currencies**\n\n` +
         `${emoji('credux_coin')} Credux: **${(data.credux ?? 0).toLocaleString()}** ・ ` +
         `${emoji('belief_shards')} Belief Shards: **${(data.beliefShards ?? 0).toLocaleString()}**`
       )
     )
     .addSeparatorComponents(sep)
-    // ── Chests ──
-    .addSectionComponents((section) => section
-      .addTextDisplayComponents((td) => td.setContent(`**${emoji('general_chest')} Chests**`))
-      .setButtonAccessory(buildDropRatesButton(user.id)))
-    .addTextDisplayComponents((td) => td.setContent(chestLines))
-    .addSeparatorComponents(sep)
-    // ── Essence ──
-    .addTextDisplayComponents((td) => td.setContent(`**${emoji('general_essence')} Essence**\n\n${essenceLines}`))
-    .addSeparatorComponents(sep)
-    // ── Relics ──
-    .addTextDisplayComponents((td) => td.setContent(`**${emoji('general_relic')} Relics**\n\n${relicLine}`))
-    .addSeparatorComponents(sep)
-    // ── Footer: help only ──
-    .addTextDisplayComponents((td) =>
-      td.setContent('-# 💡 `crd bag chests` ・ `crd bag weapons`')
-    );
+    .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL('attachment://bag_overview.png')));
 
   return {
     components: [container],
+    files: [file],
     flags: MessageFlags.IsComponentsV2,
     allowedMentions: { parse: [] },
   };

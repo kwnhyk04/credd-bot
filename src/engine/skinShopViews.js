@@ -83,9 +83,11 @@ function skinRow(s, owned, equippedId, ctx) {
     const eq = equippedId === s.cosmetic_id ? ' ✅' : ''; // ✅ marks the equipped skin only
     return `${emo} ${name}${code}${lock}${eq}`;
   }
-  // shop / dev: display-only — id + token cost + lock; never an equipped marker or "owned" text
-  const cost = s.is_base ? '' : ` · ${iconToken()} ${s.token_cost}`;
-  return `${emo} ${name}${code}${cost}${lock}`;
+  // shop / dev: display-only, ordered coin · price · id · skin-emoji · name (+lock).
+  // Base skins are free → no coin/price segment.
+  const price = s.is_base ? '' : `${iconToken()} ${s.token_cost} `;
+  const idTxt = s.skin_code ? `\`${s.skin_code}\` ` : '';
+  return `${price}${idTxt}${emo} ${name}${lock}`;
 }
 
 /** Paginated shop/collection page (one category). */
