@@ -85,8 +85,7 @@ async function fetchWeapons(discordId, page) {
   const { rows: weapons } = await pool.query(
     `SELECT uw.weapon_id, wr.name, wr.tier, wr.type, uw.enhancement, uw.is_locked,
             uw.curr_atk, uw.crit,
-            COALESCE(jsonb_array_length(uw.native_sockets), 0)
-              + COALESCE(jsonb_array_length(uw.opposite_sockets), 0) AS socket_count,
+            COALESCE(jsonb_array_length(uw.native_sockets), 0) AS socket_count,
             (uw.weapon_id = uc.equipped_weapon_id) AS equipped
        FROM user_weapons uw
        JOIN weapon_roster wr ON uw.weapon_roster_id = wr.weapon_roster_id
@@ -217,8 +216,7 @@ async function fetchArmors(discordId, page) {
   const { rows: armors } = await pool.query(
     `SELECT ua.armor_id, ar.name, ar.tier, ar.type, ua.enhancement, ua.is_locked,
             ua.curr_hp, ua.curr_def,
-            COALESCE(jsonb_array_length(ua.native_sockets), 0)
-              + COALESCE(jsonb_array_length(ua.opposite_sockets), 0) AS socket_count,
+            COALESCE(jsonb_array_length(ua.native_sockets), 0) AS socket_count,
             (ua.armor_id = uc.equipped_armor_id) AS equipped
        FROM user_armors ua
        JOIN armor_roster ar ON ua.armor_roster_id = ar.armor_roster_id

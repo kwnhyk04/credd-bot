@@ -13,7 +13,18 @@ BEGIN;
 DELETE FROM rune_roster;
 ALTER SEQUENCE rune_roster_rune_id_seq RESTART WITH 1;
 
--- value = magnitude (%, or % points for CRIT). Tune freely; bands kept gentle to protect boss math.
+-- value = legacy/default magnitude (%, or % points for CRIT). Owned runes roll
+-- their actual value into user_runes.rolled_value from code-side ranges:
+-- Sharpness:  Rare 1-3, Mythic 4-7, Legendary 8-12, Supreme 15-20
+-- Precision:  Rare 1-2, Mythic 3-6, Legendary 7-10, Supreme 12-15
+-- Vampiric:   Rare 1-3, Mythic 4-7, Legendary 8-12, Supreme 15-20
+-- Piercing:   Rare 2-4, Mythic 5-7, Legendary 8-13, Supreme 15-20
+-- Venom:      Rare 5-10, Mythic 11-15, Legendary 16-20, Supreme 25-30
+-- Vitality:   Rare 3-7, Mythic 8-12, Legendary 15-20, Supreme 25-30
+-- Bulwark:    Rare 1-3, Mythic 4-7, Legendary 8-12, Supreme 15-20
+-- Thorns:     Rare 2-4, Mythic 5-7, Legendary 8-13, Supreme 15-20
+-- Warding:    Rare 3-5, Mythic 7-9, Legendary 10-13, Supreme 15-20
+-- Aegis:      Rare 1-3, Mythic 4-8, Legendary 10-13, Supreme 15-20
 INSERT INTO rune_roster (name, lane, effect_key, tier, value, description) VALUES
 -- OFFENSE LANE (weapon native / armor opposite) -----------------------
 ('Sharpness',  'offense', 'sharpness', 'Rare',      3.00,  'ATK +3%'),
@@ -89,9 +100,9 @@ CREATE TABLE essence_bag_def (
     rune_pool    JSONB       NOT NULL                -- weighted tier table (see above)
 );
 INSERT INTO essence_bag_def (bag_key, open_command, essence_tier, essence_cost, credux_cost, rune_pool) VALUES
-('lesser',  'eb',  'mythic',    10, 20000,  '[{"tier":"Rare","weight":100}]'::jsonb),
-('greater', 'geb', 'legendary',  3, 75000,  '[{"tier":"Mythic","weight":85},{"tier":"Legendary","weight":15}]'::jsonb),
-('divine',  'deb', 'supreme',    2, 200000, '[{"tier":"Legendary","weight":85},{"tier":"Supreme","weight":15}]'::jsonb);
+('lesser',  'eb',  'mythic',    10, 50000,  '[{"tier":"Rare","weight":100}]'::jsonb),
+('greater', 'geb', 'legendary',  10, 125000,  '[{"tier":"Mythic","weight":85},{"tier":"Legendary","weight":15}]'::jsonb),
+('divine',  'deb', 'supreme',    10, 250000, '[{"tier":"Legendary","weight":85},{"tier":"Supreme","weight":15}]'::jsonb);
 -- Drop rates (per user spec):
 --   Lesser  -> 100% Rare rune
 --   Greater -> 85% Mythic / 15% Legendary
@@ -163,12 +174,12 @@ INSERT INTO ranked_reward (bracket, weekly_credux, weekly_payload, season_end_pa
                       '[]'::jsonb),
 ('Champion',  15000,  '[{"item":"gold_chest","qty":1}]'::jsonb,
                       '[{"type":"title","code":"season_rank"}]'::jsonb),
-('Demigod',   30000,  '[{"item":"gold_chest","qty":2}]'::jsonb,
+('Demigod',   30000,  '[{"item":"boss_treasure","qty":1}]'::jsonb,
                       '[{"type":"title","code":"season_rank"},{"item":"credux","qty":50000}]'::jsonb),
-('Ascendant', 60000,  '[{"item":"boss_treasure","qty":1}]'::jsonb,
-                      '[{"type":"title","code":"season_rank"},{"item":"sacred_relic","qty":1}]'::jsonb),
+('Ascendant', 60000,  '[{"item":"boss_golden","qty":1}]'::jsonb,
+                      '[{"type":"title","code":"season_rank"},{"item":"supreme_chest","qty":1}]'::jsonb),
 ('Divine',    100000, '[{"item":"boss_golden","qty":1}]'::jsonb,
-                      '[{"type":"title","code":"season_divine_exclusive"},{"item":"limited_skin","qty":1},{"item":"supreme_relic","qty":1}]'::jsonb);
+                      '[{"type":"title","code":"season_divine_exclusive"},{"item":"supreme_chest","qty":1},{"item":"supreme_relic","qty":1}]'::jsonb);
 -- Weekly grant: on weekly PHT reset, to CURRENT bracket, gated by a min games-played threshold
 -- (recommend >=5 ranked games that week). Season-end grant: on rollover, by PEAK bracket reached.
 -- item keys above must match your real chest/relic/currency identifiers — adjust to your codebase.

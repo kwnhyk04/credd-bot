@@ -138,9 +138,9 @@ function rollArmorType() {
 const NATIVE_SOCKET_ROLL = {
   Common:    [[0, 1.00]],
   Rare:      [[1, 0.70], [2, 0.30]],
-  Mythic:    [[2, 0.60], [3, 0.40]],
-  Legendary: [[3, 0.65], [4, 0.35]],
-  Supreme:   [[4, 1.00]],
+  Mythic:    [[1, 0.40], [2, 0.60]],
+  Legendary: [[2, 1.00]],
+  Supreme:   [[2, 1.00]],
 };
 
 /** Roll how many native sockets a freshly-dropped gear piece has, by tier. */
@@ -160,7 +160,8 @@ function rollNativeSocketCount(tier) {
  * Shape per Naming Conventions §5. count 0 → [].
  */
 function buildSocketArray(count) {
-  return Array.from({ length: count }, (_, i) => ({ slot: i + 1, rune_uid: null }));
+  const capped = Math.max(0, Math.min(Number(count) || 0, 2));
+  return Array.from({ length: capped }, (_, i) => ({ slot: i + 1, rune_uid: null }));
 }
 
 function bandedValue(range, band) {

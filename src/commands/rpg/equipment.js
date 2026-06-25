@@ -11,21 +11,32 @@
  */
 
 const {
-  ContainerBuilder, SeparatorSpacingSize, AttachmentBuilder, MessageFlags,
+  ContainerBuilder,
+  SeparatorSpacingSize,
+  AttachmentBuilder,
+  MessageFlags,
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const pool = require('../../db/pool');
 const { resolveName } = require('../../utils/emojis');
 const { renderPortraitCard } = require('../../engine/renderPortraitCard');
-const { runeEmojiName } = require('../../config/runes');
+const { runeEmojiName, runeDescription } = require('../../config/runes');
 
-const RUNES_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'items', 'runes');
+const RUNES_DIR = path.join(
+  __dirname,
+  '..',
+  '..',
+  '..',
+  'assets',
+  'items',
+  'runes',
+);
 
 // Lane of each socket array by gear kind (Naming Conv §5).
 const SOCKET_LANES = {
   weapon: { native: 'offense', opposite: 'defense' },
-  armor:  { native: 'defense', opposite: 'offense' },
+  armor: { native: 'defense', opposite: 'offense' },
 };
 
 /**
@@ -36,41 +47,67 @@ const SOCKET_LANES = {
  */
 async function socketSlots(g) {
   const native = Array.isArray(g.native_sockets) ? g.native_sockets : [];
-  const opposite = Array.isArray(g.opposite_sockets) ? g.opposite_sockets : [];
+  const opposite = [];
   if (native.length === 0 && opposite.length === 0) return [];
   const lanes = SOCKET_LANES[g.kind];
 
-  const uids = [...native, ...opposite].map((s) => s && s.rune_uid).filter(Boolean);
+  const uids = [...native, ...opposite]
+    .map((s) => s && s.rune_uid)
+    .filter(Boolean);
   const runeBy = new Map();
   if (uids.length) {
     const { rows } = await pool.query(
-      `SELECT ur.rune_uid, rn.name, rn.tier, rn.value, rn.effect_key
+      `SELECT ur.rune_uid, rn.name, rn.tier,
+              COALESCE(ur.rolled_value, rn.value) AS value,
+              rn.effect_key, rn.description
          FROM user_runes ur JOIN rune_roster rn ON ur.rune_id = rn.rune_id
         WHERE ur.rune_uid = ANY($1::varchar[])`,
-      [uids]
+      [uids],
     );
     for (const r of rows) runeBy.set(r.rune_uid, r);
   }
 
   const slots = [];
-  for (const [arr, lane] of [[native, lanes.native], [opposite, lanes.opposite]]) {
+  for (const [arr, lane] of [
+    [native, lanes.native],
+    [opposite, lanes.opposite],
+  ]) {
     for (const slot of arr) {
       const rune = slot && slot.rune_uid ? runeBy.get(slot.rune_uid) : null;
-      slots.push(rune
-        ? { imagePath: path.join(RUNES_DIR, `${runeEmojiName(rune.effect_key)}.png`), label: rune.name, tier: rune.tier, lane }
-        : { imagePath: null, label: null, tier: null, lane });
+      slots.push(
+        rune
+          ? {
+              imagePath: path.join(
+                RUNES_DIR,
+                `${runeEmojiName(rune.effect_key)}.png`,
+              ),
+              label: `${rune.name} ${runeDescription(rune.effect_key, rune.value, rune.description)}`,
+              tier: rune.tier,
+              lane,
+            }
+          : { imagePath: null, label: null, tier: null, lane },
+      );
     }
   }
   return slots;
 }
 
-const AI_DISCLAIMER = '-# Images are AI-generated interpretations and may not be accurate; used for in-game illustration only.';
+const AI_DISCLAIMER =
+  '-# Images are AI-generated interpretations and may not be accurate; used for in-game illustration only.';
 
 const TIER_COLOR = {
-  Common: 0x95a5a6, Rare: 0x3498db, Mythic: 0x9b59b6, Legendary: 0xFFD700, Supreme: 0xe74c3c,
+  Common: 0x95a5a6,
+  Rare: 0x3498db,
+  Mythic: 0x9b59b6,
+  Legendary: 0xffd700,
+  Supreme: 0xe74c3c,
 };
 const TIER_HEX = {
-  Common: '#95a5a6', Rare: '#3498db', Mythic: '#9b59b6', Legendary: '#FFD700', Supreme: '#e74c3c',
+  Common: '#95a5a6',
+  Rare: '#3498db',
+  Mythic: '#9b59b6',
+  Legendary: '#FFD700',
+  Supreme: '#e74c3c',
 };
 
 const WEAPONS_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'weapons');
@@ -87,7 +124,10 @@ function reply(message, payload) {
  * then fall back to the name-derived slug. null = no art (renderer text-only).
  */
 function artworkPath(baseDir, name) {
-  const derived = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  const derived = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
   const slugs = [resolveName(name), derived].filter(Boolean);
   for (const slug of slugs) {
     for (const ext of ['png', 'jpg']) {
@@ -102,12 +142,15 @@ function artworkPath(baseDir, name) {
 async function buildInfoPayload(g, gearId) {
   const hasPassive = g.passive_name && g.passive_name.toLowerCase() !== 'none';
 
-  const statLines = g.kind === 'weapon'
-    ? [`ATK   ${g.curr_atk}`]
-    : [`HP    ${g.curr_hp}`, `DEF   ${g.curr_def}`];
+  const statLines =
+    g.kind === 'weapon'
+      ? [`ATK   ${g.curr_atk}`]
+      : [`HP    ${g.curr_hp}`, `DEF   ${g.curr_def}`];
   if (g.kind === 'weapon') {
-    if (Number(g.crit) > 0) statLines.push(`CRIT  ${Number(g.crit).toFixed(1)}%`);
-    if (g.bonus_dmg_pct) statLines.push(`Bonus +${Number(g.bonus_dmg_pct)}% DMG`);
+    if (Number(g.crit) > 0)
+      statLines.push(`CRIT  ${Number(g.crit).toFixed(1)}%`);
+    if (g.bonus_dmg_pct)
+      statLines.push(`Bonus +${Number(g.bonus_dmg_pct)}% DMG`);
   }
 
   // [v5 tweak] Armor type ("(Medium)") is no longer shown in displays.
@@ -134,19 +177,29 @@ async function buildInfoPayload(g, gearId) {
 
   const container = new ContainerBuilder()
     .setAccentColor(TIER_COLOR[g.tier] ?? TIER_COLOR.Common)
-    .addMediaGalleryComponents((gal) => gal.addItems((item) => item.setURL('attachment://equipment_card.png')))
+    .addMediaGalleryComponents((gal) =>
+      gal.addItems((item) => item.setURL('attachment://equipment_card.png')),
+    )
     .addSeparatorComponents(sep);
 
   const hasLore = typeof g.lore === 'string' && g.lore.trim().length > 0;
   const loreBlock = hasLore ? `*${g.lore.trim()}*` : '-# No lore recorded yet.';
   container
-    .addTextDisplayComponents((td) => td.setContent(`${loreBlock}\n\n${AI_DISCLAIMER}`))
+    .addTextDisplayComponents((td) =>
+      td.setContent(`${loreBlock}\n\n${AI_DISCLAIMER}`),
+    )
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) =>
-      td.setContent(`-# 💡 \`crd enhance ${gearId}\` ・ \`crd equip ${gearId}\``)
+      td.setContent(
+        `-# 💡 \`crd enhance ${gearId}\` ・ \`crd equip ${gearId}\``,
+      ),
     );
 
-  return { components: [container], files: [file], flags: MessageFlags.IsComponentsV2 };
+  return {
+    components: [container],
+    files: [file],
+    flags: MessageFlags.IsComponentsV2,
+  };
 }
 
 /** Fetch a gear row by id (weapon first, then armor), normalized for the card. */
@@ -158,7 +211,7 @@ async function fetchGear(discordId, gearId) {
        FROM user_weapons uw
        JOIN weapon_roster wr ON uw.weapon_roster_id = wr.weapon_roster_id
       WHERE uw.weapon_id = $1 AND uw.discord_id = $2`,
-    [gearId, discordId]
+    [gearId, discordId],
   );
   if (w.rows.length > 0) return { kind: 'weapon', ...w.rows[0] };
 
@@ -169,7 +222,7 @@ async function fetchGear(discordId, gearId) {
        FROM user_armors ua
        JOIN armor_roster ar ON ua.armor_roster_id = ar.armor_roster_id
       WHERE ua.armor_id = $1 AND ua.discord_id = $2`,
-    [gearId, discordId]
+    [gearId, discordId],
   );
   if (a.rows.length > 0) return { kind: 'armor', ...a.rows[0] };
 
@@ -186,7 +239,7 @@ async function info(message, rawId) {
 
   const g = await fetchGear(message.author.id, gearId);
   if (!g) {
-    await reply(message, { content: 'You don\'t own equipment with that ID.' });
+    await reply(message, { content: "You don't own equipment with that ID." });
     return;
   }
 

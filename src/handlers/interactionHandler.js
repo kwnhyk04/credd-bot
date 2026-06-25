@@ -5,6 +5,7 @@ const registerCmd = require('../commands/rpg/register');
 const createCmd = require('../commands/rpg/create');
 const bagCmd = require('../commands/rpg/bag');
 const bagViews = require('../engine/bagViews');
+const runeCmd = require('../commands/rpg/rune');
 const deityCmd = require('../commands/rpg/deity');
 const enhanceCmd = require('../commands/rpg/enhance');
 const sellCmd = require('../commands/rpg/sell');
@@ -21,6 +22,7 @@ const skinShop = require('../engine/skinShopViews');
  *   create:confirm:<Class>:<uid>
  *   create:back:<uid>
  *   weapons:<prev|next>:<uid>:<page>
+ *   runes:<filter|prev|next>:<uid>:<page>:<lane>
  *   deities:<prev|next>:<uid>:<page>
  *   denhance:<attempt|cancel>:<userDeityId>:<uid>
  *   enhance:attempt:<weaponId>:<uid>
@@ -44,6 +46,7 @@ async function handleInteraction(interaction) {
     // Supporter shop / collection — paginated pages + Preview button (owner-gated).
     if (namespace === 'sshop') { await skinShop.handleShopButton(interaction); return; }
     if (namespace === 'sprev') { await skinShop.handlePreviewButton(interaction); return; }
+    if (namespace === 'runes') { await runeCmd.handleRunesInteraction(interaction); return; }
     if (!isButton) return; // everything below this point is button-only
     if (namespace === 'register' && action === 'confirm') {
       const ownerId = parts[2];

@@ -127,7 +127,9 @@ Goal: gear has sockets; runes drop, socket in, and modify stats/combat.
 2.1 Rune content (SQL: credd_schema_v5b_runes_seasons.sql §A)
 
 - 10 families × tiers. Lanes: offense (Sharpness,Precision,Vampiric,Piercing,Venom),
-  defense (Vitality,Bulwark,Thorns,Warding,Aegis). Tiered values seeded in the SQL (tune later).
+  defense (Vitality,Bulwark,Thorns,Warding,Aegis). `rune_roster.value` is the legacy/default
+  reference value; each owned rune rolls its actual percentage once into `user_runes.rolled_value`
+  from code-side config ranges.
 
   2.2 Socket counts (rolled at gear drop — retro-applies to Phase 1 drops via the placeholders)
   Native slots by tier (native lane = weapon:offense / armor:defense):
@@ -139,6 +141,11 @@ Goal: gear has sockets; runes drop, socket in, and modify stats/combat.
   | Supreme | 4 | guaranteed |
   Opposite slots (opposite lane): NOT rolled — BOUGHT (§2.5). Max opposite: Mythic 1, Legendary 2,
   Supreme 2. Common/Rare cannot buy opposite slots.
+
+  Current implementation override: native sockets are capped at 2 for now
+  (Rare 1-2, Mythic 1-2, Legendary 2, Supreme 2), and opposite socket
+  unlock/socketing is disabled until a future update restores opposite runes
+  and 4-slot caps.
 
   2.3 Rune drop/craft faucet
 
@@ -186,12 +193,12 @@ Goal: gear has sockets; runes drop, socket in, and modify stats/combat.
 
 - `crd essence shop` - Same design embed as crd supporter shop (Header with essence icon)
 - ID's to buy are just increment from 1.
-  1 = Lesser Rune Bag: Cost 10 Mythic essence + 10,000 credux
-  2 = Greater Rune Bag: Cost 10 Legend Essence + 50,000 credux
-  3 = Divine Rune Bag: Cost 10 Supreme Essence + 100,000 credux
-  4 = Mythic Essence: Cost 10 Epic Essence + 10,000 credux
-  5 = Legendary Essence: Cost 10 Mythic Essence + 50,000 credux
-  6 = Supreme Essence: Cost 10 Legendary Essence + 100,000 credux
+  1 = Lesser Rune Bag: Cost 10 Mythic essence + 50,000 credux
+  2 = Greater Rune Bag: Cost 10 Legend Essence + 125,000 credux
+  3 = Divine Rune Bag: Cost 10 Supreme Essence + 250,000 credux
+  4 = Mythic Essence: Cost 10 Epic Essence + 50,000 credux
+  5 = Legendary Essence: Cost 10 Mythic Essence + 125,000 credux
+  6 = Supreme Essence: Cost 10 Legendary Essence + 250,000 credux
 - `crd exchange [id]` — NEVER downward.
 - Emoji Icons are uploaded in Discord bot for rune bags
 
@@ -204,8 +211,8 @@ PHASE 3 — PANTHEON (3 deity slots)
 Goal: collection matters — equip a main + 2 support deities; reputation level gates slots.
 
 3.1 Slots (schema already in Phase 0 §4): active_deity_id (main, 100%/100%),
-active_deity_id_3 (50% stats / 50% blessing), active_deity_id_2 (25% stats / 25% blessing).
-3.2 Believer-level gates: slot 3 unlock at Believer 10, slot 2 at Believer 25 (or your final numbers).
+active_deity_id_3 (25% stats), active_deity_id_2 (25% stats). Unlocking 3rd slot (active_deity_id_3) will unlock slot for 2nd deity passive at 50% effectivity
+3.2 Believer-level gates: slot 3 unlock at Believer 10, slot 2 at Believer 25 (or your final numbers recommend which is better based on the experience required to level up and the length to reach it).
 3.3 blessing_scaling tag: 'scalable' → multiply blessing magnitude by slot % (100/50/25);
 'binary' → fires at FULL but MAIN SLOT ONLY (support slots give only the stat %). Populate the tag.
 3.4 Stat contribution: flat-add per Stat Assembly Step 6 (deities not scaled by runes).
@@ -219,10 +226,17 @@ PHASE 4 — RANKED PvP + LEADERBOARDS
 4.1 Three duel modes (clean walls):
 `crd duel` (casual, no stakes) · `crd duel wager @user [amt]` (Credux, NO rating; cap 50k/duel;
 winnings count vs the 1M/day bestow-shared cap; log all) · `crd ranked` (rating, NO Credux).
-4.2 Elo: pvp_rating default 1000. Brackets Mortal(0–999)/Champion(1000–1999)/Demigod(2000–3499)/
-Ascendant(3500–9999)/Divine(10000+). Match only previous/current/next bracket.
+4.2 Elo: pvp_rating default 1000.
+Brackets Mortal(0–999)/
+Champion(1000–2499)/
+Demigod(2500–4999)/
+Ascendant(5000–9999)/
+Divine(10000+). Match only previous/current/next bracket.
 Points: same +25/−20 · below +12/−35 · above +40/−10. Demotion shield at bracket floor.
 4.3 Ranked runs on level-normalized duels (reuse `crd duel [level N]` normalize) so build decides.
+For crd ranked
+4.3 A: it will automatically generate enemy for him to avoid abuse. For example A demigod rank will be only matched with users with champon, demigod, ascendant pvp rating only. Randomized via userlist
+with the same rule Points: same +25/−20 · below +12/−35 · above +40/−10. Demotion shield at bracket floor.
 4.4 Leaderboards: serverwise + global toggle. Categories: lifetime_credux_earned (NOT bestow/wager/
 casino), Raids Done, Raid Wins, Duel Wins (casual), PvP Rating, Combat Level, Believer Level,
 Boss Kills (participation: boss died + you attacked). `crd leaderboard [category]`.
@@ -233,6 +247,7 @@ Boss Kills (participation: boss died + you attacked). `crd leaderboard [category
 | Demigod | 30k credux + 1 Boss Treasure | season title + credux |
 | Ascendant | 60k credux + 1 Boss Golden | season title + 1 Sacred Relic |
 | Divine | 100k credux + 1 Boss Golden | exclusive seasonal title + 1 Supreme Relic + 1 Supreme chest | - Weekly: paid on the weekly PHT reset to each player's CURRENT bracket; one claim per week; auto credit to bags
+
 (`crd ranked claim` or auto-grant). Season-end: paid on season rollover by PEAK bracket reached. - Anti-abuse: weekly reward requires a minimum games-played threshold that week (e.g. >=5 ranked
 games) so an idle Champion can't farm weekly chests without laddering. Tune the threshold. - Reward amounts live in the ranked_reward config table (credd_schema_v5b_runes_seasons.sql §E).
 

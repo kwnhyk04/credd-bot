@@ -95,15 +95,15 @@ function uidsFrom(arr) {
  */
 async function accumulateRuneStats(db, r) {
   const uids = [
-    ...uidsFrom(r.w_native), ...uidsFrom(r.w_opposite),
-    ...uidsFrom(r.a_native), ...uidsFrom(r.a_opposite),
+    ...uidsFrom(r.w_native),
+    ...uidsFrom(r.a_native),
   ];
   const mods = { atkPct: 0, hpPct: 0, defPct: 0, critPts: 0 };
   const effects = [];
   if (uids.length === 0) return { mods, effects };
 
   const { rows } = await db.query(
-    'SELECT effect_key, value FROM rune_roster rn JOIN user_runes ur ON ur.rune_id = rn.rune_id WHERE ur.rune_uid = ANY($1::varchar[])',
+    'SELECT effect_key, COALESCE(ur.rolled_value, rn.value) AS value FROM rune_roster rn JOIN user_runes ur ON ur.rune_id = rn.rune_id WHERE ur.rune_uid = ANY($1::varchar[])',
     [uids]
   );
   for (const row of rows) {

@@ -8,6 +8,9 @@
 -- drop tables (its `rune_pool` weighted tier tables). Its `open_command`/cost
 -- columns are superseded — the open aliases (lb/gb/db -> lesser/greater/divine)
 -- and the 6 essence-shop purchase costs live in code (src/config/runes.js).
+-- Current rune bag prices: Lesser 10 Mythic + 50,000 Credux; Greater
+-- 10 Legendary + 125,000 Credux; Divine 10 Supreme + 250,000 Credux.
+-- Essence upgrade prices use the same Credux ladder.
 -- =====================================================================
 
 BEGIN;

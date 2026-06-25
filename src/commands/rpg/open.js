@@ -12,7 +12,10 @@ const { runSummon } = require('../../engine/summonEngine');
 const { TIER_ALIAS } = require('../../config/gachaRates');
 const { playAnimatedOpen, buildWeaponResultPayload, buildRuneResultPayload } = require('../../engine/chestOpen');
 const { buildResultMessage } = require('../../engine/renderSummon');
-const { BAGS, BAG_ALIAS, BAG_ALIASES, RUNE_BAG_MAX_OPEN, bagEmoji, runeEmojiName } = require('../../config/runes');
+const {
+  BAGS, BAG_ALIAS, BAG_ALIASES, RUNE_BAG_MAX_OPEN,
+  bagEmoji, runeEmojiName, rollRuneValue, runeDescription,
+} = require('../../config/runes');
 
 const RUNES_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'items', 'runes');
 const BAG_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'items', 'rune bag');
@@ -375,13 +378,14 @@ async function openRuneBagsTxn(discordId, bagKey, amount) {
       );
       if (rr.rows.length === 0) { await client.query('ROLLBACK'); return { ok: false, reason: 'no_rune_pool' }; }
       const rune = rr.rows[0];
+      const rolledValue = rollRuneValue(rune.effect_key, rune.tier) ?? Number(rune.value);
       const runeUid = await generateUniqueRuneUid(client);
       await client.query(
-        `INSERT INTO user_runes (rune_uid, discord_id, rune_id, socketed_into, is_locked)
-         VALUES ($1, $2, $3, NULL, FALSE)`,
-        [runeUid, discordId, rune.rune_id]
+        `INSERT INTO user_runes (rune_uid, discord_id, rune_id, socketed_into, is_locked, rolled_value)
+         VALUES ($1, $2, $3, NULL, FALSE, $4)`,
+        [runeUid, discordId, rune.rune_id, rolledValue]
       );
-      drops.push({ id: runeUid, name: rune.name, tier: rune.tier, effect_key: rune.effect_key, value: rune.value });
+      drops.push({ id: runeUid, name: rune.name, tier: rune.tier, effect_key: rune.effect_key, value: rolledValue });
     }
 
     const remaining = previous - amount;
@@ -424,7 +428,7 @@ async function openRuneBags(message, alias, rawAmount) {
   }
 
   const items = res.drops.map((d) => ({
-    id: d.id, name: d.name, tier: d.tier, stats: `${d.effect_key} ${d.value}`,
+    id: d.id, name: d.name, tier: d.tier, stats: runeDescription(d.effect_key, d.value),
     // [v5 #5] rune sprite from assets/items/runes/<key>_rune.png.
     imagePath: path.join(RUNES_DIR, `${runeEmojiName(d.effect_key)}.png`),
   }));
