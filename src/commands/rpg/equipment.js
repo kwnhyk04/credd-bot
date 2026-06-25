@@ -21,7 +21,7 @@ const path = require('path');
 const pool = require('../../db/pool');
 const { resolveName } = require('../../utils/emojis');
 const { renderPortraitCard } = require('../../engine/renderPortraitCard');
-const { runeEmojiName, runeDescription } = require('../../config/runes');
+const { runeEmojiName } = require('../../config/runes');
 
 const RUNES_DIR = path.join(
   __dirname,
@@ -59,7 +59,7 @@ async function socketSlots(g) {
     const { rows } = await pool.query(
       `SELECT ur.rune_uid, rn.name, rn.tier,
               COALESCE(ur.rolled_value, rn.value) AS value,
-              rn.effect_key, rn.description
+              rn.effect_key
          FROM user_runes ur JOIN rune_roster rn ON ur.rune_id = rn.rune_id
         WHERE ur.rune_uid = ANY($1::varchar[])`,
       [uids],
@@ -81,7 +81,7 @@ async function socketSlots(g) {
                 RUNES_DIR,
                 `${runeEmojiName(rune.effect_key)}.png`,
               ),
-              label: `${rune.name} ${runeDescription(rune.effect_key, rune.value, rune.description)}`,
+              label: rune.name,
               tier: rune.tier,
               lane,
             }
