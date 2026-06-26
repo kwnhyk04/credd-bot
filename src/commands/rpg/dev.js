@@ -370,11 +370,11 @@ async function resetWeapons(message, args, devId) {
 
     // Null equips first (FK-safe for equipped_weapon_id), then delete both gear tables.
     await client.query(
-      'UPDATE user_character SET equipped_weapon_id = NULL, equipped_armor_id = NULL WHERE discord_id = $1',
+      `UPDATE user_character SET equipped_weapon_id = NULL, equipped_armor_id = NULL,
+              active_deity_id_2 = NULL, active_deity_id_3 = NULL, active_echo_deity_id = NULL
+       WHERE discord_id = $1`,
       [target.id]
     );
-    // [v5 Phase 2] Return any socketed runes to the bag (don't orphan them) before
-    // the gear they point at is deleted (Blueprint §1.4a extension).
     await client.query('UPDATE user_runes SET socketed_into = NULL WHERE discord_id = $1 AND socketed_into IS NOT NULL', [target.id]);
     await client.query('DELETE FROM user_weapons WHERE discord_id = $1', [target.id]);
     await client.query('DELETE FROM user_armors WHERE discord_id = $1', [target.id]);
@@ -403,7 +403,7 @@ async function resetAllWeapons(message, devId) {
     const ac = await client.query('SELECT count(*)::int AS n FROM user_armors');
     const weapons = wc.rows[0].n;
     const armors = ac.rows[0].n;
-    await client.query('UPDATE user_character SET equipped_weapon_id = NULL, equipped_armor_id = NULL');
+    await client.query('UPDATE user_character SET equipped_weapon_id = NULL, equipped_armor_id = NULL, active_deity_id_2 = NULL, active_deity_id_3 = NULL, active_echo_deity_id = NULL');
     await client.query('UPDATE user_runes SET socketed_into = NULL WHERE socketed_into IS NOT NULL');
     await client.query('DELETE FROM user_weapons');
     await client.query('DELETE FROM user_armors');
@@ -420,6 +420,20 @@ async function resetAllWeapons(message, devId) {
   } finally {
     client.release();
   }
+}
+
+// ── crd dev believerlevel @user <level> ───────────────────────────────────
+async function setBelieverLevel(message, args, devId) {
+  const target = message.mentions.users.first() || { id: devId };
+  const level = parseInt(args[args.length - 1], 10);
+  if (isNaN(level) || level < 0) {
+    return reply(message, 'Usage: `crd dev believerlevel [@user] <level>`');
+  }
+  await pool.query(
+    'UPDATE user_character SET believer_level = $1 WHERE discord_id = $2',
+    [level, target.id]
+  );
+  return reply(message, `✅ Set <@${target.id}>'s Believer Level to **${level}**.`);
 }
 
 // ── crd dev enhanceequipment <equipment_id> <+level> ───────────────────────
@@ -927,6 +941,7 @@ async function execute(message, { args }) {
     case 'unban':            return setBan(message, devId, false);
     case 'resetplayer':      return resetPlayer(message, devId);
     case 'resetweapons':     return resetWeapons(message, args, devId);
+    case 'believerlevel':    return setBelieverLevel(message, args, devId);
     case 'enhanceequipment': return enhanceEquipment(message, args, devId);
     case 'enhanceweapon':    return enhanceEquipment(message, args, devId); // back-compat alias
     case 'enhancedeity':     return enhanceDeity(message, args, devId);

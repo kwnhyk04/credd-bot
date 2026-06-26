@@ -18,9 +18,11 @@ const { emojiForDisplay, emoji } = require('../../utils/emojis');
 const { RARITY_SYMBOLS } = require('../../engine/renderSummon');
 const { renderPortraitCard } = require('../../engine/renderPortraitCard');
 const { computeDeityStats, nextDeityAttempt, MAX_ENHANCEMENT } = require('../../engine/deityEnhancement');
-
-// TODO Phase-rep: grant reputation on deity enhance (§18), 5,000/day cap — wire when awardReputation
-//   is extracted to a shared util (do not duplicate cap/rollover logic)
+const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const {
+  DIVINE_BLESSING_DEITIES, ECHO_BLESSING_DEITIES, ECHO_BLESSING_KEY_MAP,
+  SLOT_UNLOCK_GATES, computeResonanceMods, DOMAIN_RESONANCES, MYTHOLOGY_RESONANCES,
+} = require('../../config/blessings');
 
 const BRAND = 0x9b59b6;
 
@@ -97,9 +99,10 @@ async function buildListPage({ user, deities, mythology, page, totalPages }) {
       const alias = TIER_ALIAS[d.tier];
       const symbol = RARITY_SYMBOLS[alias] ?? '◆';
       const icon = emojiForDisplay(d.name, '🕯️');
+      const btype = DIVINE_BLESSING_DEITIES.has(d.name) ? 'Divine' : 'Echo';
       return d.owned
-        ? `${icon} **${d.name}** — ${symbol} ${alias} *(${d.tier})*`
-        : `🔒 ${icon} *${d.name}* — ${symbol} ${alias}`;
+        ? `${symbol} ${alias} ${icon} **${d.name}** — ${btype} Blessing`
+        : `${symbol} ${alias} 🔒 *${d.name}* — ${btype} Blessing`;
     });
     container.addTextDisplayComponents((td) => td.setContent(rows.join('\n')));
   }
@@ -212,7 +215,7 @@ async function info(message, name) {
     if (fs.existsSync(p)) { portraitPath = p; break; }
   }
 
-  await reply(message, await buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath }));
+  await reply(message, await buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, username: message.author.username }));
 }
 
 const AI_DISCLAIMER = '-# Images are AI-generated interpretations and may not be accurate; used for in-game illustration only.';
@@ -221,10 +224,11 @@ const AI_DISCLAIMER = '-# Images are AI-generated interpretations and may not be
  * Deity-info payload: portrait card (art LEFT, name/mythology/blessing/stats RIGHT)
  * then lore + AI disclaimer + enhance hint as text. Mirrors the weapon-info card.
  */
-async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath }) {
+async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, username }) {
   const accentHex = `#${(TIER_COLOR[d.tier] ?? BRAND).toString(16).padStart(6, '0')}`;
+  const btype = DIVINE_BLESSING_DEITIES.has(d.name) ? 'Divine' : 'Echo';
   const sections = [
-    { heading: `Blessing — ${d.blessing_name}`, body: d.blessing_description },
+    { heading: `${btype} Blessing — ${d.blessing_name}`, body: d.blessing_description },
     { heading: 'Stats', body: `ATK   ${d.curr_atk}\nHP    ${d.curr_hp}\nDEF   ${d.curr_def}` },
   ];
 
@@ -244,19 +248,21 @@ async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath })
 
   const hasLore = typeof d.lore === 'string' && d.lore.trim().length > 0;
   const loreBlock = hasLore ? `*${d.lore.trim()}*` : '-# No lore recorded yet.';
+  const headerName = username ? `${username}'s` : '';
 
   const container = new ContainerBuilder().setAccentColor(TIER_COLOR[d.tier] ?? BRAND);
+  container.addTextDisplayComponents((td) => td.setContent(`## ${headerName} ${d.name}`));
+  container.addSeparatorComponents(sep);
   if (file) {
     container
       .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL('attachment://deity_card.png')))
       .addSeparatorComponents(sep);
   } else {
-    // Render failed → fall back to a text header so info is still delivered.
     container
       .addTextDisplayComponents((td) =>
         td.setContent(
-          `## ${emojiForDisplay(d.name, '🕯️')} ${d.name} +${d.enhancement - 1}\n-# ${mythologyLabel} (${alias})\n\n` +
-          `**Blessing — ${d.blessing_name}**\n${d.blessing_description}\n\n` +
+          `-# ${mythologyLabel} (${alias})\n\n` +
+          `**${btype} Blessing — ${d.blessing_name}**\n${d.blessing_description}\n\n` +
           `ATK **${d.curr_atk}** · HP **${d.curr_hp}** · DEF **${d.curr_def}**`
         )
       )
@@ -566,34 +572,336 @@ async function handleEnhanceCancel(interaction, userDeityId, ownerId) {
   await interaction.update({ components: keep, flags: MessageFlags.IsComponentsV2 });
 }
 
-// ── crd deity equip <name> ────────────────────────────────────────────────
-async function equip(message, name) {
-  if (!name) {
-    await reply(message, { content: 'Usage: `crd deity equip <deity name>`' });
+// ── crd deity equip <name> [slot] ─────────────────────────────────────────
+const SLOT_COLUMNS = { 1: 'active_deity_id', 2: 'active_deity_id_2', 3: 'active_deity_id_3' };
+
+async function equip(message, rest) {
+  if (!rest) {
+    await reply(message, { content: 'Usage: `crd deity equip <deity name> [1|2|3]`' });
     return;
   }
   const discordId = message.author.id;
+  const parts = rest.split(/\s+/);
+  let slot = 1;
+  const lastPart = parts[parts.length - 1];
+  if (/^[123]$/.test(lastPart) && parts.length > 1) {
+    slot = Number(lastPart);
+    parts.pop();
+  }
+  const name = parts.join(' ');
+
+  // Check believer level gate for slots 2/3
+  if (slot > 1) {
+    const charRes = await pool.query(
+      'SELECT believer_level FROM user_character WHERE discord_id = $1', [discordId]
+    );
+    if (charRes.rows.length === 0) { await reply(message, { content: 'No character found.' }); return; }
+    const blvl = charRes.rows[0].believer_level || 0;
+    const required = SLOT_UNLOCK_GATES[slot];
+    if (blvl < required) {
+      await reply(message, { content: `Slot ${slot} requires **Believer Level ${required}**. You are level ${blvl}.` });
+      return;
+    }
+  }
+
+  // Find owned deity
   const { rows } = await pool.query(
     `SELECT ud.user_deity_id, dr.name, dr.tier
        FROM deity_roster dr
-       JOIN user_deities ud
-         ON ud.deity_id = dr.deity_id AND ud.discord_id = $1
+       JOIN user_deities ud ON ud.deity_id = dr.deity_id AND ud.discord_id = $1
       WHERE LOWER(dr.name) = LOWER($2)`,
     [discordId, name]
   );
   if (rows.length === 0) {
-    await reply(message, { content: `You haven't summoned ${name} yet.` });
+    await reply(message, { content: `You haven't summoned **${name}** yet.` });
     return;
   }
   const { user_deity_id, name: deityName, tier } = rows[0];
+
+  // Check deity not already in another slot
+  const slotRes = await pool.query(
+    `SELECT active_deity_id, active_deity_id_2, active_deity_id_3 FROM user_character WHERE discord_id = $1`,
+    [discordId]
+  );
+  const current = slotRes.rows[0];
+  const occupied = [
+    { s: 1, id: current.active_deity_id },
+    { s: 2, id: current.active_deity_id_2 },
+    { s: 3, id: current.active_deity_id_3 },
+  ];
+  const dup = occupied.find(o => o.id === user_deity_id && o.s !== slot);
+  if (dup) {
+    await reply(message, { content: `**${deityName}** is already in Slot ${dup.s}. Unequip first.` });
+    return;
+  }
+
+  // If removing from the slot that was the echo source, clear echo
+  const col = SLOT_COLUMNS[slot];
+  const echoCol = slot === 2 || slot === 3 ? '' : '';
+  // Check if the old deity in this slot was the echo source
+  let clearEcho = '';
+  if (slot === 2 || slot === 3) {
+    const echoRes = await pool.query(
+      'SELECT active_echo_deity_id FROM user_character WHERE discord_id = $1', [discordId]
+    );
+    const echoId = echoRes.rows[0]?.active_echo_deity_id;
+    const oldSlotId = slot === 2 ? current.active_deity_id_2 : current.active_deity_id_3;
+    if (echoId && echoId === oldSlotId) {
+      clearEcho = ', active_echo_deity_id = NULL';
+    }
+  }
+
   await pool.query(
-    'UPDATE user_character SET active_deity_id = $1 WHERE discord_id = $2',
+    `UPDATE user_character SET ${col} = $1${clearEcho} WHERE discord_id = $2`,
     [user_deity_id, discordId]
   );
-  await reply(message, { content: `**${deityName}** (${TIER_ALIAS[tier]}) is now your active deity.` });
+  await reply(message, { content: `**${deityName}** (${TIER_ALIAS[tier]}) equipped to **Slot ${slot}**.` });
 }
 
-// ── dispatcher: crd deity [collection|list|info|equip|enhance] ─────────────
+// ── crd deity unequip [slot] ─────────────────────────────────────────────
+async function unequip(message, rest) {
+  const slot = Number(rest) || 0;
+  if (slot < 1 || slot > 3) {
+    await reply(message, { content: 'Usage: `crd deity unequip <1|2|3>`' });
+    return;
+  }
+  const discordId = message.author.id;
+  const col = SLOT_COLUMNS[slot];
+
+  // If this slot was the echo source, clear echo too
+  let clearEcho = '';
+  if (slot === 2 || slot === 3) {
+    const res = await pool.query(
+      `SELECT ${col}, active_echo_deity_id FROM user_character WHERE discord_id = $1`, [discordId]
+    );
+    const row = res.rows[0];
+    if (row && row.active_echo_deity_id && row.active_echo_deity_id === row[col]) {
+      clearEcho = ', active_echo_deity_id = NULL';
+    }
+  }
+
+  await pool.query(`UPDATE user_character SET ${col} = NULL${clearEcho} WHERE discord_id = $1`, [discordId]);
+  await reply(message, { content: `Slot ${slot} cleared.` });
+}
+
+// ── crd deity echo <name> ────────────────────────────────────────────────
+async function echo(message, name) {
+  if (!name) {
+    await reply(message, { content: 'Usage: `crd deity echo <deity name>` — choose an Echo Blessing from Slot 2 or 3.' });
+    return;
+  }
+  const discordId = message.author.id;
+
+  // Check slot 3 unlocked
+  const charRes = await pool.query(
+    'SELECT believer_level, active_deity_id_2, active_deity_id_3 FROM user_character WHERE discord_id = $1',
+    [discordId]
+  );
+  if (charRes.rows.length === 0) { await reply(message, { content: 'No character found.' }); return; }
+  const char = charRes.rows[0];
+  if ((char.believer_level || 0) < SLOT_UNLOCK_GATES[3]) {
+    await reply(message, { content: `Echo Blessings unlock at **Believer Level ${SLOT_UNLOCK_GATES[3]}**.` });
+    return;
+  }
+
+  // Find the deity in slot 2 or 3
+  const slotIds = [char.active_deity_id_2, char.active_deity_id_3].filter(Boolean);
+  if (slotIds.length === 0) {
+    await reply(message, { content: 'You need a deity in Slot 2 or 3 to set an Echo Blessing.' });
+    return;
+  }
+
+  const deityRes = await pool.query(
+    `SELECT ud.user_deity_id, dr.name, dr.tier
+       FROM user_deities ud
+       JOIN deity_roster dr ON dr.deity_id = ud.deity_id
+      WHERE ud.user_deity_id = ANY($1::int[]) AND LOWER(dr.name) = LOWER($2)`,
+    [slotIds, name]
+  );
+  if (deityRes.rows.length === 0) {
+    await reply(message, { content: `**${name}** is not in Slot 2 or 3.` });
+    return;
+  }
+  const deity = deityRes.rows[0];
+
+  // Must be an echo-type deity
+  if (!ECHO_BLESSING_DEITIES.has(deity.name)) {
+    await reply(message, { content: `**${deity.name}** has a Divine Blessing, not an Echo Blessing. Only Echo-type deities can activate echo blessings.` });
+    return;
+  }
+
+  await pool.query(
+    'UPDATE user_character SET active_echo_deity_id = $1 WHERE discord_id = $2',
+    [deity.user_deity_id, discordId]
+  );
+  const echoKey = ECHO_BLESSING_KEY_MAP[deity.name] || deity.name;
+  await reply(message, { content: `**Echo Blessing** set: **${deity.name}** (${TIER_ALIAS[deity.tier]}).` });
+}
+
+// ── crd deities ──────────────────────────────────────────────────────────
+const TIER_SLOT_COLOR = {
+  Epic: '#8B5CF6', Mythic: '#3B82F6', Legendary: '#F59E0B', Supreme: '#EF4444',
+};
+const SLOT_LAYOUT = [
+  { slot: 2, x: 25,  label: 'Slot 2' },
+  { slot: 1, x: 220, label: 'Slot 1' },
+  { slot: 3, x: 415, label: 'Slot 3' },
+];
+
+async function deities(message) {
+  const discordId = message.author.id;
+  const res = await pool.query(
+    `SELECT uc.active_deity_id, uc.active_deity_id_2, uc.active_deity_id_3,
+            uc.active_echo_deity_id, uc.believer_level,
+            d1r.name AS n1, d1r.tier AS t1, d1r.mythology AS m1, d1r.image_filename AS img1,
+            d1r.blessing_name AS bn1, d1r.blessing_description AS bd1,
+            d2r.name AS n2, d2r.tier AS t2, d2r.mythology AS m2, d2r.image_filename AS img2,
+            d3r.name AS n3, d3r.tier AS t3, d3r.mythology AS m3, d3r.image_filename AS img3,
+            der.name AS echo_name, der.blessing_name AS echo_bn, der.blessing_description AS echo_bd
+       FROM user_character uc
+       LEFT JOIN user_deities d1  ON d1.user_deity_id = uc.active_deity_id
+       LEFT JOIN deity_roster d1r ON d1r.deity_id = d1.deity_id
+       LEFT JOIN user_deities d2  ON d2.user_deity_id = uc.active_deity_id_2
+       LEFT JOIN deity_roster d2r ON d2r.deity_id = d2.deity_id
+       LEFT JOIN user_deities d3  ON d3.user_deity_id = uc.active_deity_id_3
+       LEFT JOIN deity_roster d3r ON d3r.deity_id = d3.deity_id
+       LEFT JOIN user_deities de  ON de.user_deity_id = uc.active_echo_deity_id
+       LEFT JOIN deity_roster der ON der.deity_id = de.deity_id
+      WHERE uc.discord_id = $1`,
+    [discordId]
+  );
+  if (res.rows.length === 0) { await reply(message, { content: 'No character found.' }); return; }
+  const r = res.rows[0];
+
+  const slots = [
+    { name: r.n1, tier: r.t1, mythology: r.m1, img: r.img1 },
+    { name: r.n2, tier: r.t2, mythology: r.m2, img: r.img2 },
+    { name: r.n3, tier: r.t3, mythology: r.m3, img: r.img3 },
+  ];
+
+  // Canvas: 3 slot boxes — image fills each box exactly
+  const W = 590, H = 250;
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+
+  const BOX_W = 150, BOX_H = 170, BOX_Y = 30, RAD = 8;
+
+  for (const layout of SLOT_LAYOUT) {
+    const idx = layout.slot - 1;
+    const s = slots[idx];
+    const x = layout.x;
+
+    // Slot label on top
+    ctx.fillStyle = '#9CA3AF';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(layout.label, x + BOX_W / 2, BOX_Y - 8);
+
+    // Fill dark bg
+    ctx.fillStyle = 'rgba(30, 30, 40, 0.8)';
+    ctx.beginPath();
+    ctx.roundRect(x, BOX_Y, BOX_W, BOX_H, RAD);
+    ctx.fill();
+
+    if (s.name) {
+      // Portrait fills box
+      const mythDir = MYTHOLOGY_DIR[s.mythology] || s.mythology?.toLowerCase();
+      const imgName = s.img || `${s.name.toLowerCase().replace(/\s+/g, '_')}.png`;
+      const imgPath = path.join(DEITIES_DIR, mythDir || '', imgName);
+      try {
+        if (fs.existsSync(imgPath)) {
+          const portrait = await loadImage(imgPath);
+          ctx.save();
+          ctx.beginPath();
+          ctx.roundRect(x, BOX_Y, BOX_W, BOX_H, RAD);
+          ctx.clip();
+          // Cover-fit: scale to fill, center crop
+          const scale = Math.max(BOX_W / portrait.width, BOX_H / portrait.height);
+          const sw = portrait.width * scale;
+          const sh = portrait.height * scale;
+          ctx.drawImage(portrait, x + (BOX_W - sw) / 2, BOX_Y + (BOX_H - sh) / 2, sw, sh);
+          ctx.restore();
+        }
+      } catch { /* no portrait */ }
+
+      // Box outline (on top of image)
+      ctx.strokeStyle = TIER_SLOT_COLOR[s.tier] || '#6B7280';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.roundRect(x, BOX_Y, BOX_W, BOX_H, RAD);
+      ctx.stroke();
+
+      // Deity name below box
+      ctx.fillStyle = TIER_SLOT_COLOR[s.tier] || '#FFFFFF';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(s.name, x + BOX_W / 2, BOX_Y + BOX_H + 20);
+    } else {
+      // Empty slot outline + dash
+      ctx.strokeStyle = '#4B5563';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(x, BOX_Y, BOX_W, BOX_H, RAD);
+      ctx.stroke();
+      ctx.fillStyle = '#6B7280';
+      ctx.font = '36px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('—', x + BOX_W / 2, BOX_Y + BOX_H / 2 + 12);
+    }
+  }
+
+  const attachment = new AttachmentBuilder(canvas.toBuffer('image/png'), { name: 'deities.png' });
+
+  // Build resonance info
+  const deityInfos = slots.map(s => s.name ? { name: s.name, mythology: s.mythology } : null);
+  const resMods = computeResonanceMods(deityInfos);
+  const resLines = [];
+  if (resMods.atkPct) resLines.push(`ATK +${resMods.atkPct}%`);
+  if (resMods.hpPct) resLines.push(`HP +${resMods.hpPct}%`);
+  if (resMods.defPct) resLines.push(`DEF +${resMods.defPct}%`);
+  if (resMods.critPts) resLines.push(`CRIT +${resMods.critPts}`);
+
+  // Blessing info
+  let blessingText = '';
+  if (r.n1) {
+    const btype = DIVINE_BLESSING_DEITIES.has(r.n1) ? 'Divine' : 'Echo';
+    blessingText += `**${btype} Blessing:** ${r.bn1 || r.n1}`;
+    if (r.bd1) blessingText += `\n-# ${r.bd1}`;
+  } else {
+    blessingText += '**Divine Blessing:** None';
+  }
+  if (r.echo_name) {
+    blessingText += `\n**Echo Blessing:** ${r.echo_bn || r.echo_name}`;
+    if (r.echo_bd) blessingText += `\n-# ${r.echo_bd}`;
+  } else {
+    blessingText += '\n**Echo Blessing:** None';
+  }
+
+  const container = new ContainerBuilder();
+  container.addTextDisplayComponents(td => td.setContent(`## ${message.author.username}'s Equipped Deities`));
+  container.addSeparatorComponents(sep);
+  container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL('attachment://deities.png')));
+  container.addSeparatorComponents(sep);
+  container.addTextDisplayComponents(td => td.setContent(blessingText));
+  container.addSeparatorComponents(sep);
+  container.addTextDisplayComponents(td => td.setContent(
+    resLines.length > 0
+      ? `✨ **Divine Resonance:** ${resLines.join(' · ')}`
+      : '✨ **Divine Resonance:** None'
+  ));
+  container.addSeparatorComponents(sep);
+  container.addTextDisplayComponents(td => td.setContent(
+    '-# 💡 `crd deity equip <name> [1|2|3]` · `crd deity echo <name>` · `crd deity unequip <1|2|3>`'
+  ));
+
+  await reply(message, {
+    components: [container],
+    files: [attachment],
+    flags: MessageFlags.IsComponentsV2,
+  });
+}
+
+// ── dispatcher: crd deity [collection|list|info|equip|enhance|echo|deities|unequip] ──
 async function execute(message, { args }) {
   const sub = (args[0] || '').toLowerCase();
   const rest = args.slice(1).join(' ').trim();
@@ -602,8 +910,11 @@ async function execute(message, { args }) {
   if (sub === 'info') return info(message, rest);
   if (sub === 'equip') return equip(message, rest);
   if (sub === 'enhance') return enhance(message, rest);
+  if (sub === 'echo') return echo(message, rest);
+  if (sub === 'deities' || sub === 'party') return deities(message);
+  if (sub === 'unequip') return unequip(message, rest);
 
-  await reply(message, { content: 'Usage: `crd deity collection` · `crd deity info <name>` · `crd deity equip <name>` · `crd deity enhance <name>`' });
+  await reply(message, { content: 'Usage: `crd deity collection` · `crd deity info <name>` · `crd deity equip <name> [1|2|3]` · `crd deity enhance <name>` · `crd deity echo <name>` · `crd deities`' });
 }
 
-module.exports = { execute, handleListButton, handleEnhanceAttempt, handleEnhanceCancel, buildDeityInfoPayload };
+module.exports = { execute, deities, handleListButton, handleEnhanceAttempt, handleEnhanceCancel, buildDeityInfoPayload };

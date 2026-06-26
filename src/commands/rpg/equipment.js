@@ -22,6 +22,7 @@ const pool = require('../../db/pool');
 const { resolveName } = require('../../utils/emojis');
 const { renderPortraitCard } = require('../../engine/renderPortraitCard');
 const { runeEmojiName } = require('../../config/runes');
+const { SELL_PRICES } = require('../../config/sellPrices');
 
 const RUNES_DIR = path.join(
   __dirname,
@@ -139,7 +140,7 @@ function artworkPath(baseDir, name) {
 }
 
 /** Build the unified info payload from a normalized gear row (kind = weapon|armor). */
-async function buildInfoPayload(g, gearId) {
+async function buildInfoPayload(g, gearId, username) {
   const hasPassive = g.passive_name && g.passive_name.toLowerCase() !== 'none';
 
   const statLines =
@@ -175,8 +176,15 @@ async function buildInfoPayload(g, gearId) {
   });
   const file = new AttachmentBuilder(buffer, { name: 'equipment_card.png' });
 
+  const headerName = username ? `${username}'s` : '';
+  const sellValue = SELL_PRICES[g.tier] || 0;
+  const sellDisplay = sellValue.toLocaleString();
+
   const container = new ContainerBuilder()
-    .setAccentColor(TIER_COLOR[g.tier] ?? TIER_COLOR.Common)
+    .setAccentColor(TIER_COLOR[g.tier] ?? TIER_COLOR.Common);
+  container.addTextDisplayComponents((td) => td.setContent(`## ${headerName} ${g.name}`));
+  container.addSeparatorComponents(sep);
+  container
     .addMediaGalleryComponents((gal) =>
       gal.addItems((item) => item.setURL('attachment://equipment_card.png')),
     )
@@ -187,6 +195,10 @@ async function buildInfoPayload(g, gearId) {
   container
     .addTextDisplayComponents((td) =>
       td.setContent(`${loreBlock}\n\n${AI_DISCLAIMER}`),
+    )
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) =>
+      td.setContent(`${g.kind === 'weapon' ? '⚔️' : '🛡️'} **ID:** \`${gearId}\`\n💰 **Sell Value:** ${sellDisplay} Credux`),
     )
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) =>
@@ -243,7 +255,7 @@ async function info(message, rawId) {
     return;
   }
 
-  await reply(message, await buildInfoPayload(g, gearId));
+  await reply(message, await buildInfoPayload(g, gearId, message.author.username));
 }
 
 // ── dispatcher: crd equipment info <id> ─────────────────────────────────────

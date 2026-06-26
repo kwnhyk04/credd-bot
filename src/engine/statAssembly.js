@@ -22,6 +22,7 @@
 
 const { CLASSES } = require('../config/classes');
 const { ELITE_SPAWN_CHANCE } = require('../config/raidLoot');
+const { ECHO_BLESSING_KEY_MAP, DIVINE_BLESSING_DEITIES, computeResonanceMods } = require('../config/blessings');
 
 const MOB_LEVEL_MIN = 1;
 const MOB_LEVEL_MAX = 55;
@@ -56,25 +57,38 @@ function computeClassBattleStats(className, level) {
  *   ATK  = class + weapon + deity       (armor carries no ATK)
  *   DEF  = class + armor + deity        (weapon no longer carries DEF)
  *   CRIT = class + weapon               (UNCAPPED — v5 removed the 40/45 ceiling)
- * Runes (Phase 2) and pantheon slots 2/3 (Phase 3) are not summed here yet.
  * NULL slots = zero contribution, never an error.
  * weapon: { curr_atk, crit } | null   armor: { curr_hp, curr_def } | null
- * deity:  { curr_atk, curr_hp, curr_def } | null
+ * deity:  { curr_atk, curr_hp, curr_def } | null  (slot 1, 100%)
+ * pantheonMods (Phase 3): { slot2, slot3, resonance } — optional
  */
-function assemblePlayerStats(className, level, weapon, armor, deity, runeMods = null) {
+function assemblePlayerStats(className, level, weapon, armor, deity, runeMods = null, pantheonMods = null) {
   const cls = computeClassBattleStats(className, level);
   const wCrit = weapon ? Number(weapon.crit) || 0 : 0;
-  // [v5 Phase 2 §2.4] stat-% runes multiply the COMBINED class+gear base; deities
-  // are flat-added AFTER (not scaled by runes — Stat Assembly Step 6).
   const m = runeMods || { atkPct: 0, hpPct: 0, defPct: 0, critPts: 0 };
+  const res = pantheonMods && pantheonMods.resonance ? pantheonMods.resonance : { atkPct: 0, hpPct: 0, defPct: 0, critPts: 0 };
   const baseAtk = cls.atk + (weapon ? weapon.curr_atk : 0);
   const baseHp = cls.hp + (armor ? armor.curr_hp : 0);
   const baseDef = cls.def + (armor ? armor.curr_def : 0);
+
+  // Slot 1 deity: 100% stats flat-added after rune+resonance scaling
+  let dAtk = deity ? deity.curr_atk : 0;
+  let dHp = deity ? deity.curr_hp : 0;
+  let dDef = deity ? deity.curr_def : 0;
+
+  // Slots 2/3: 50% stats flat-added (Phase 3)
+  if (pantheonMods) {
+    const s2 = pantheonMods.slot2;
+    const s3 = pantheonMods.slot3;
+    if (s2) { dAtk += Math.floor(s2.curr_atk * 0.5); dHp += Math.floor(s2.curr_hp * 0.5); dDef += Math.floor(s2.curr_def * 0.5); }
+    if (s3) { dAtk += Math.floor(s3.curr_atk * 0.5); dHp += Math.floor(s3.curr_hp * 0.5); dDef += Math.floor(s3.curr_def * 0.5); }
+  }
+
   return {
-    atk: Math.floor(baseAtk * (1 + m.atkPct / 100) + (deity ? deity.curr_atk : 0)),
-    hp: Math.floor(baseHp * (1 + m.hpPct / 100) + (deity ? deity.curr_hp : 0)),
-    def: Math.floor(baseDef * (1 + m.defPct / 100) + (deity ? deity.curr_def : 0)),
-    crit: cls.crit + wCrit + m.critPts, // uncapped (v5 §B.3)
+    atk: Math.floor(baseAtk * (1 + (m.atkPct + res.atkPct) / 100) + dAtk),
+    hp: Math.floor(baseHp * (1 + (m.hpPct + res.hpPct) / 100) + dHp),
+    def: Math.floor(baseDef * (1 + (m.defPct + res.defPct) / 100) + dDef),
+    crit: cls.crit + wCrit + m.critPts + res.critPts,
   };
 }
 
@@ -153,7 +167,13 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
             am.native_sockets AS a_native, am.opposite_sockets AS a_opposite,
             ar.name     AS armor_name, ar.passive_key AS armor_passive_key,
             ud.curr_atk AS d_atk, ud.curr_hp AS d_hp, ud.curr_def AS d_def,
-            dr.name     AS deity_name, dr.blessing_key
+            dr.name     AS deity_name, dr.blessing_key, dr.mythology AS d1_myth,
+            ud2.curr_atk AS d2_atk, ud2.curr_hp AS d2_hp, ud2.curr_def AS d2_def,
+            dr2.name     AS deity2_name, dr2.blessing_key AS blessing_key_2, dr2.mythology AS d2_myth,
+            ud3.curr_atk AS d3_atk, ud3.curr_hp AS d3_hp, ud3.curr_def AS d3_def,
+            dr3.name     AS deity3_name, dr3.blessing_key AS blessing_key_3, dr3.mythology AS d3_myth,
+            ude.user_deity_id AS echo_udid,
+            dre.name     AS echo_deity_name, dre.blessing_key AS echo_blessing_key
        FROM user_character uc
        JOIN users u            ON u.discord_id = uc.discord_id
        LEFT JOIN user_weapons w  ON w.weapon_id = uc.equipped_weapon_id
@@ -162,6 +182,12 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
        LEFT JOIN armor_roster ar ON ar.armor_roster_id = am.armor_roster_id
        LEFT JOIN user_deities ud ON ud.user_deity_id = uc.active_deity_id
        LEFT JOIN deity_roster dr ON dr.deity_id = ud.deity_id
+       LEFT JOIN user_deities ud2 ON ud2.user_deity_id = uc.active_deity_id_2
+       LEFT JOIN deity_roster dr2 ON dr2.deity_id = ud2.deity_id
+       LEFT JOIN user_deities ud3 ON ud3.user_deity_id = uc.active_deity_id_3
+       LEFT JOIN deity_roster dr3 ON dr3.deity_id = ud3.deity_id
+       LEFT JOIN user_deities ude ON ude.user_deity_id = uc.active_echo_deity_id
+       LEFT JOIN deity_roster dre ON dre.deity_id = ude.deity_id
       WHERE uc.discord_id = $1`,
     [discordId]
   );
@@ -177,14 +203,41 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
   const deity = r.d_atk != null
     ? { curr_atk: r.d_atk, curr_hp: r.d_hp, curr_def: r.d_def }
     : null;
-  // [Jun-2026 patch §3] duel level-normalization recomputes ONLY the class component at N.
+
+  // [v5 Phase 3] Pantheon slots 2/3 + resonance
+  const slot2 = r.d2_atk != null ? { curr_atk: r.d2_atk, curr_hp: r.d2_hp, curr_def: r.d2_def } : null;
+  const slot3 = r.d3_atk != null ? { curr_atk: r.d3_atk, curr_hp: r.d3_hp, curr_def: r.d3_def } : null;
+  const deityInfos = [
+    r.deity_name ? { name: r.deity_name, mythology: r.d1_myth } : null,
+    r.deity2_name ? { name: r.deity2_name, mythology: r.d2_myth } : null,
+    r.deity3_name ? { name: r.deity3_name, mythology: r.d3_myth } : null,
+  ];
+  const resonance = computeResonanceMods(deityInfos);
+  const pantheonMods = (slot2 || slot3 || resonance.atkPct || resonance.hpPct || resonance.defPct || resonance.critPts)
+    ? { slot2, slot3, resonance }
+    : null;
+
+  // Slot 1 blessing: divine key if divine deity, echo key if echo deity
+  let slot1BlessingKey = 'none';
+  if (r.deity_name && r.blessing_key) {
+    if (DIVINE_BLESSING_DEITIES.has(r.deity_name)) {
+      slot1BlessingKey = r.blessing_key;
+    } else {
+      slot1BlessingKey = ECHO_BLESSING_KEY_MAP[r.deity_name] || r.blessing_key;
+    }
+  }
+
+  // Echo blessing from slot 2/3 (chosen via crd deity echo)
+  let echoBlessingKey = 'none';
+  if (r.echo_deity_name) {
+    echoBlessingKey = ECHO_BLESSING_KEY_MAP[r.echo_deity_name] || 'none';
+  }
+
   const effLevel = levelOverride != null
     ? Math.max(MOB_LEVEL_MIN, Math.min(50, Math.floor(levelOverride)))
     : r.combat_level;
-  // [v5 Phase 2] socketed runes: stat-% mods feed the assembly, effect runes are
-  // handed to the engine as combat hooks.
   const { mods: runeMods, effects: effectRunes } = await accumulateRuneStats(db, r);
-  const stats = assemblePlayerStats(r.class, effLevel, weapon, armor, deity, runeMods);
+  const stats = assemblePlayerStats(r.class, effLevel, weapon, armor, deity, runeMods, pantheonMods);
 
   return {
     name: r.username,
@@ -196,14 +249,17 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
     hp: stats.hp,
     def: stats.def,
     crit: stats.crit,
-    bonusDmgPct: Number(r.bonus_dmg_pct) || 0,   // unified damage % (§35.2)
+    bonusDmgPct: Number(r.bonus_dmg_pct) || 0,
     weaponPassiveKey: weapon ? r.passive_key : 'none',
     weaponName: weapon ? r.weapon_name : null,
-    armorPassiveKey: armor ? r.armor_passive_key : 'none', // [v5] armor passive fires alongside weapon/deity
+    armorPassiveKey: armor ? r.armor_passive_key : 'none',
     armorName: armor ? r.armor_name : null,
-    deityBlessingKey: deity ? r.blessing_key : 'none',
+    deityBlessingKey: slot1BlessingKey,
     deityName: deity ? r.deity_name : null,
-    effectRunes, // [v5 Phase 2] socketed effect runes (vampiric/piercing/venom/thorns/warding/aegis_rune)
+    echoBlessingKey,
+    echoDeityName: r.echo_deity_name || null,
+    deityNames: [r.deity_name || null, r.deity2_name || null, r.deity3_name || null],
+    effectRunes,
   };
 }
 

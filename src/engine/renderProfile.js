@@ -323,7 +323,7 @@ async function renderProfileImage(d) {
   // Active deity — mirrors the weapon block: emoji + name +enh, then a Blessing: line.
   ctx.font = F(13, true);
   ctx.fillStyle = DIM_COLOR;
-  ctx.fillText('Active Deity:', PAD, by);
+  ctx.fillText('Deity:', PAD, by);
   by += LH;
   if (d.deityName) {
     let dx = PAD;
@@ -336,6 +336,13 @@ async function renderProfileImage(d) {
     ctx.font = F(12);
     ctx.fillStyle = SUB_COLOR;
     ctx.fillText(fitText(ctx, `Blessing: ${d.blessingName || '—'}`, W - PAD * 2), PAD, by);
+    by += LH - 2;
+    if (d.deity2Name || d.deity3Name) {
+      ctx.font = F(12);
+      ctx.fillStyle = SUB_COLOR;
+      const slotNames = [d.deity2Name ? `S2: ${d.deity2Name}` : null, d.deity3Name ? `S3: ${d.deity3Name}` : null].filter(Boolean).join(' · ');
+      ctx.fillText(fitText(ctx, slotNames, W - PAD * 2), PAD, by);
+    }
   } else {
     ctx.font = F(15, true);
     ctx.fillStyle = SUB_COLOR;

@@ -966,6 +966,130 @@ const PASSIVE_REGISTRY = {
 
   'nike_wings_of_victory': constantSelfBuff(0.25, 0, 0),
 
+  // ── ECHO BLESSINGS — Greek ──────────────────────────────────────────────
+
+  'echo_nike': constantSelfBuff(0.12, 0, 0),
+
+  'echo_persephone': regenSelf(3, 0.03,
+    (heal) => `🌸 Echo · Persephone: Renewal — Regenerated ${heal} HP!`),
+
+  'echo_hades': (bs) => {
+    if (bs.enemyHP / bs.enemyMaxHP < 0.30) {
+      bs.playerAtkMult += 0.15;
+      if (!bs.flags.echo_hades_logged) {
+        bs.flags.echo_hades_logged = true;
+        bs.log.push('💀 Echo · Hades: Soul Harvest — Enemy HP critical! ATK +15%!');
+      }
+    }
+  },
+
+  'echo_hera': (bs) => {
+    if (bs.flags.player_was_critted && !bs.flags.echo_hera_active) {
+      bs.flags.echo_hera_active = 2;
+      bs.log.push('👑 Echo · Hera: Divine Wrath — Critted! DEF +15% for 2 turns!');
+    }
+    if (bs.flags.echo_hera_active > 0) {
+      bs.playerDefMult += 0.15;
+      bs.flags.echo_hera_active -= 1;
+    }
+  },
+
+  'echo_ares': stackingAtk('echo_ares_stack', 0.04, 0.16, 2),
+
+  'echo_hephaestus': constantSelfBuff(0, 0.15, 0),
+
+  'echo_apollo': constantSelfBuff(0.10, 0, 0),
+
+  // ── ECHO BLESSINGS — Norse ──────────────────────────────────────────────
+
+  'echo_bragi': (bs) => {
+    if (bs.currentTurn % 4 === 0) {
+      bs.flags.echo_bragi_buff = 1;
+      bs.log.push('🎵 Echo · Bragi: Battle Hymn — ATK +10% this turn!');
+    }
+    if (bs.flags.echo_bragi_buff > 0) {
+      bs.playerAtkMult += 0.10;
+      bs.flags.echo_bragi_buff -= 1;
+    }
+  },
+
+  'echo_idunn': regenSelf(2, 0.02,
+    (heal) => `🍎 Echo · Idunn: Golden Apple — Regenerated ${heal} HP!`),
+
+  'echo_freyr': regenSelf(3, 0.03,
+    (heal) => `🌾 Echo · Freyr: Harvest Bounty — Regenerated ${heal} HP!`),
+
+  'echo_vidar': (bs) => {
+    if (bs.flags.player_was_critted) {
+      bs.flags.echo_vidar_revenge = true;
+      bs.log.push('⚔️ Echo · Vidar: Silent Vengeance — Next attack +30% ATK!');
+    }
+    if (bs.flags.echo_vidar_revenge) {
+      bs.playerAtkMult += 0.30;
+      bs.flags.echo_vidar_revenge = false;
+    }
+  },
+
+  'echo_magni': (bs) => {
+    const hpLostPct = (bs.playerMaxHP - bs.playerHP) / bs.playerMaxHP;
+    const stacks = Math.min(Math.floor(hpLostPct / 0.10), 5);
+    if (stacks > 0) bs.playerAtkMult += stacks * 0.03;
+  },
+
+  'echo_njord': chanceFlag(0.10, 'echo_njord_block_check',
+    '🌊 Echo · Njord: Sea\'s Favor — Incoming damage reduced by 20%!',
+    (bs) => { bs.flags.echo_njord_block_pct = 0.20; }),
+
+  'echo_freya': hpThresholdBuff(0.40, 0, 0.20),
+
+  'echo_tyr': constantSelfBuff(0, 0.10, 0),
+
+  'echo_surt': (bs) => {
+    if (bs.currentTurn % 3 === 0 && !bs.enemyImmune('burn')) {
+      bs.applyDebuff('burn', 2, bs.playerATK * 0.10);
+      bs.log.push('🔥 Echo · Surt: Muspell\'s Flame — Burn applied! 10% ATK for 2 turns!');
+    }
+  },
+
+  'echo_hel': hpThresholdBuff(0.50, 0.08, 0.08),
+
+  'echo_mimir': everyNthRider(5, 0.30, '📖 Echo · Mimir: Runic Knowledge — +30% ATK this turn!'),
+
+  // ── ECHO BLESSINGS — Philippine ─────────────────────────────────────────
+
+  'echo_idiyanale': (bs) => {
+    if (bs.currentTurn % 6 === 0) {
+      bs.nextAttackDouble = true;
+      bs.log.push('⚙️ Echo · Idiyanale: Persistence — Next attack deals double damage!');
+    }
+  },
+
+  'echo_lakapati': regenSelf(1, 0.02,
+    (heal) => `🌱 Echo · Lakapati: Abundance — Regenerated ${heal} HP!`),
+
+  'echo_habagat': chanceRider(0.15, 0.30,
+    '🌩️ Echo · Habagat: Monsoon Fury — +30% ATK!'),
+
+  'echo_mandarangan': (bs) => {
+    const stacks = Math.min(bs.currentTurn, 3);
+    bs.playerAtkMult += stacks * 0.05;
+  },
+
+  'echo_magwayen': (bs) => {
+    bs.flags.echo_soul_drain_active = true;
+  },
+
+  'echo_dian_masalanta': hpThresholdBuff(0.30, 0.12, 0),
+
+  'echo_mayari': hpThresholdBuff(0.50, 0, 0.15),
+
+  'echo_apolaki': (bs) => {
+    if (bs.currentTurn % 4 === 0 && !bs.enemyImmune('burn')) {
+      bs.applyDebuff('burn', 2, bs.playerATK * 0.08);
+      bs.log.push('☀️ Echo · Apolaki: Solar Burn — Burn applied! 8% ATK for 2 turns!');
+    }
+  },
+
   // ── MOB / BOSS SKILLS — Philippine ───────────────────────────────────────
 
   'dwende_black_hex': chancePlayerDebuff(0.25,

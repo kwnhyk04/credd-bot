@@ -27,6 +27,9 @@ module.exports = {
   di: 'deity info',
   de: 'deity equip',
   deh: 'deity enhance',
+  dec: 'deity echo',
+  du: 'deity unequip',
+  dp: 'deities',
   // Inventory
   b: 'bag',
   bc: 'bag chests',

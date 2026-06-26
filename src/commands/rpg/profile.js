@@ -3,6 +3,7 @@
 const { AttachmentBuilder } = require('discord.js');
 const pool = require('../../db/pool');
 const { assemblePlayerStats } = require('../../engine/statAssembly');
+const { computeResonanceMods } = require('../../config/blessings');
 const { EXP_REQUIRED, MAX_COMBAT_LEVEL } = require('../../config/combatExp');
 const { renderProfileImage } = require('../../engine/renderProfile');
 const { resolveSkin, resolveProfileLabel } = require('../../engine/skinResolver');
@@ -44,7 +45,12 @@ async function execute(message) {
             ar.name  AS armor_name, ar.type AS armor_type,
             ua.enhancement AS armor_enh, ua.curr_hp AS a_hp, ua.curr_def AS a_def,
             dr.name  AS deity_name, dr.blessing_name, ud.enhancement AS deity_enh,
-            ud.curr_atk AS d_atk, ud.curr_hp AS d_hp, ud.curr_def AS d_def
+            ud.curr_atk AS d_atk, ud.curr_hp AS d_hp, ud.curr_def AS d_def,
+            dr.mythology AS d1_myth,
+            d2r.name AS deity2_name, ud2.curr_atk AS d2_atk, ud2.curr_hp AS d2_hp, ud2.curr_def AS d2_def,
+            d2r.mythology AS d2_myth,
+            d3r.name AS deity3_name, ud3.curr_atk AS d3_atk, ud3.curr_hp AS d3_hp, ud3.curr_def AS d3_def,
+            d3r.mythology AS d3_myth
        FROM user_character uc
        LEFT JOIN user_weapons  uw ON uc.equipped_weapon_id = uw.weapon_id
        LEFT JOIN weapon_roster wr ON uw.weapon_roster_id   = wr.weapon_roster_id
@@ -52,6 +58,10 @@ async function execute(message) {
        LEFT JOIN armor_roster  ar ON ua.armor_roster_id    = ar.armor_roster_id
        LEFT JOIN user_deities  ud ON uc.active_deity_id     = ud.user_deity_id
        LEFT JOIN deity_roster  dr ON ud.deity_id            = dr.deity_id
+       LEFT JOIN user_deities  ud2 ON uc.active_deity_id_2  = ud2.user_deity_id
+       LEFT JOIN deity_roster  d2r ON ud2.deity_id          = d2r.deity_id
+       LEFT JOIN user_deities  ud3 ON uc.active_deity_id_3  = ud3.user_deity_id
+       LEFT JOIN deity_roster  d3r ON ud3.deity_id          = d3r.deity_id
        WHERE uc.discord_id = $1`,
       [discordId]
     ),
@@ -118,7 +128,17 @@ async function execute(message) {
   const deity = r.d_atk != null
     ? { curr_atk: r.d_atk, curr_hp: r.d_hp, curr_def: r.d_def }
     : null;
-  const stats = assemblePlayerStats(r.class, r.combat_level, weapon, armor, deity);
+  const slot2 = r.d2_atk != null ? { curr_atk: r.d2_atk, curr_hp: r.d2_hp, curr_def: r.d2_def } : null;
+  const slot3 = r.d3_atk != null ? { curr_atk: r.d3_atk, curr_hp: r.d3_hp, curr_def: r.d3_def } : null;
+  const deityInfos = [
+    r.deity_name ? { name: r.deity_name, mythology: r.d1_myth } : null,
+    r.deity2_name ? { name: r.deity2_name, mythology: r.d2_myth } : null,
+    r.deity3_name ? { name: r.deity3_name, mythology: r.d3_myth } : null,
+  ];
+  const resonance = computeResonanceMods(deityInfos);
+  const pantheonMods = (slot2 || slot3 || resonance.atkPct || resonance.hpPct || resonance.defPct || resonance.critPts)
+    ? { slot2, slot3, resonance } : null;
+  const stats = assemblePlayerStats(r.class, r.combat_level, weapon, armor, deity, null, pantheonMods);
 
   // enhancement column: 1 = +0; display level is enhancement − 1.
   const weaponEnh = r.weapon_name ? Math.max(0, (r.weapon_enh || 1) - 1) : 0;
@@ -154,6 +174,8 @@ async function execute(message) {
     armorType: r.armor_type || null,
     armorEnh,
     deityName: r.deity_name || null,
+    deity2Name: r.deity2_name || null,
+    deity3Name: r.deity3_name || null,
     deityEnh,
     blessingName: r.deity_name ? (r.blessing_name || null) : null,
 

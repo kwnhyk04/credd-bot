@@ -242,6 +242,7 @@ function resolveBattle(a, b, opts = {}) {
     weaponPassiveKey: f.weaponPassiveKey || 'none',
     armorPassiveKey: f.armorPassiveKey || 'none',   // [v5] equipped-armor passive
     deityBlessingKey: f.deityBlessingKey || 'none',
+    echoBlessingKey: f.echoBlessingKey || 'none',
     skillKey: f.skillKey || 'none',
     immunityTags: Array.isArray(f.immunityTags) ? f.immunityTags : [],
     specialFlags: f.specialFlags || {},
@@ -491,6 +492,7 @@ function resolveBattle(a, b, opts = {}) {
     if (F.steel_kite_shield_block) dmg *= 0.85;
     if (F.pelte_block_check) dmg *= 1 - (F.pelte_block_pct || 0);
     if (F.njord_block_check) dmg *= 1 - (F.njord_block_pct || 0);
+    if (F.echo_njord_block_check) dmg *= 1 - (F.echo_njord_block_pct || 0);
 
     dmg *= 1 + O.scratch.bonusIncomingDmgMult;       // additive lane (damocles/vatican/kalasag/hoplite/mail)
     if (O.classPassive === 'damage_reduction') dmg *= KNIGHT_DR;
@@ -619,7 +621,8 @@ function resolveBattle(a, b, opts = {}) {
       if (res.applied > 0) {
         if (S.flags.japanese_bo_active) heal(S, res.applied * 0.5);
         if (S.flags.soul_drain_active) heal(S, res.applied * 0.1);
-        if (S.flags.rune_lifesteal_pct > 0) heal(S, res.applied * S.flags.rune_lifesteal_pct); // [v5 Phase 2] Vampiric rune
+        if (S.flags.echo_soul_drain_active) heal(S, res.applied * 0.05);
+        if (S.flags.rune_lifesteal_pct > 0) heal(S, res.applied * S.flags.rune_lifesteal_pct);
       }
       if (mainHit && S.flags.gungnir_full_pierce) S.flags.gungnir_full_pierce = false;
     };
@@ -910,15 +913,17 @@ function resolveBattle(a, b, opts = {}) {
         const P = perspectiveOf(side);
         runRegistry(side.weaponPassiveKey, P);
         runRegistry(side.deityBlessingKey, P);
-        runRegistry(side.armorPassiveKey, P); // [v5] armor after deity (evade cap sees deity evade)
-        applyRunes(side, P);                  // [v5 Phase 2] socketed effect runes
+        runRegistry(side.echoBlessingKey, P);  // [v5 Phase 3] echo blessing
+        runRegistry(side.armorPassiveKey, P);
+        applyRunes(side, P);
       }
     } else {
       runRegistry(A.weaponPassiveKey, PA);
       runRegistry(A.deityBlessingKey, PA);
-      runRegistry(A.armorPassiveKey, PA);     // [v5] armor after deity (evade cap sees deity evade)
-      applyRunes(A, PA);                       // [v5 Phase 2] socketed effect runes
-      runRegistry(B.skillKey, PA); // mob skill runs on the player's perspective
+      runRegistry(A.echoBlessingKey, PA);      // [v5 Phase 3] echo blessing
+      runRegistry(A.armorPassiveKey, PA);
+      applyRunes(A, PA);
+      runRegistry(B.skillKey, PA);
     }
     // consume hydra local regen (local mirror only — never the shared pool)
     if (!result && A.flags.hydra_local_regen > 0) {
