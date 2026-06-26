@@ -11,6 +11,7 @@ const guildConfig = require('./src/handlers/guildConfigCache');
 const { startBattleReaper } = require('./src/schedulers/battleReaper');
 const { startResetScheduler } = require('./src/schedulers/resetScheduler');
 const { startBossScheduler } = require('./src/schedulers/bossScheduler');
+const { startSeasonScheduler } = require('./src/schedulers/seasonScheduler');
 const pool = require('./src/db/pool');
 const { auditWeaponEmojis, reconcileEmojiIds } = require('./src/utils/emojis');
 
@@ -36,6 +37,7 @@ client.once('ready', async () => {
   await startBattleReaper();
   startResetScheduler();
   startBossScheduler(client);
+  startSeasonScheduler();
   // Emoji diagnostics (warn-only, never blocks startup).
   auditWeaponEmojis(pool);
   reconcileEmojiIds(client);

@@ -107,10 +107,18 @@ ranked_logs; wager_logs). Ranked rewards seeded in credd_schema_v5b_runes_season
 =======================================================================
 §V5-6. SEASONS · BANNERS · TITLES  (Blueprint Phase 5; v5b SQL §C)
 =======================================================================
-Season = 2 months (6/yr): ranked soft reset (×0.6, min 1000) + featured banner + event modifier +
-reward track. Banner = weight gacha step-2 toward featured deity (~50%) + banner pity (non-featured
-Legendary → next Legendary guaranteed featured) + limited banner-only deities. Titles via `crd title`;
-12-month Divine-tier exclusive titles seeded (Embercrowned → Herald of the Last Dawn).
+Season = 2 months [IMPLEMENTED]: seasonEngine.rolloverIfDue (cron daily 00:05 PHT + `crd dev season
+start|end|rollover|info`). Rollover = season-end payout by PEAK bracket (ranked_reward.season_end_payload:
+credux/chests/relics + season-rank title) → soft ranked reset (rating×0.6, min 1000; peak/shield reset)
+→ next season activated.
+Titles [IMPLEMENTED]: `crd title` (`crd t`) — category dropdown + 10/page + `equip`/`unequip`; equipped
+title shows on `crd profile`. Sources: believer milestones, season rank (Divine = rotating exclusive
+seeds; lower = per-season title), boss feats (Godslayer 50 / World-Ender 200 kills), collection
+(Pantheon Keeper = own all deities), event (`crd dev granttitle`). Grant conditions in src/config/titles.js
+(tunable). title_catalog has how_to + image_filename (OPTIONAL PNG art — text-only until set).
+Schema: credd_schema_v5_phase5.sql.
+BANNER — DEFERRED (featured weighting + banner pity + limited deities not built).
+REWARD TRACK — DEFERRED.
 
 =======================================================================
 §V5-7. POWER-BUDGET RETUNE  (LAUNCH GATE — Blueprint Phase 6)

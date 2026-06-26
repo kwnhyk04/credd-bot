@@ -53,6 +53,7 @@ module.exports = {
   lb: 'leaderboards',
   rk: 'ranked',
   rc: 'ranked claim',
+  t: 'title',
   // Economy
   g: 'cred',          // [v4.9] back-compat
   bs: 'bestow',

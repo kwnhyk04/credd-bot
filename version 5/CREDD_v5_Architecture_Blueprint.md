@@ -16,6 +16,8 @@
 
 # - credd_schema_v5_phase4_indexes.sql (Phase 4 — DESC leaderboard indexes; `crd leaderboards` top-15) [IMPLEMENTED]
 
+# - credd_schema_v5_phase5.sql (Phase 5 — title how_to/image_filename, believer+event title seeds, user_titles index) [IMPLEMENTED; banner+reward-track DEFERRED]
+
 # - CREDD_v5_Gear_Overhaul.md (armor/weapon rosters + stat banding)
 
 # - CREDD_v5_Stat_Assembly.md (final-stat pipeline)

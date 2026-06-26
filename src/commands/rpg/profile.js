@@ -50,7 +50,8 @@ async function execute(message) {
             d2r.name AS deity2_name, ud2.curr_atk AS d2_atk, ud2.curr_hp AS d2_hp, ud2.curr_def AS d2_def,
             d2r.mythology AS d2_myth,
             d3r.name AS deity3_name, ud3.curr_atk AS d3_atk, ud3.curr_hp AS d3_hp, ud3.curr_def AS d3_def,
-            d3r.mythology AS d3_myth
+            d3r.mythology AS d3_myth,
+            tcq.display AS equipped_title
        FROM user_character uc
        LEFT JOIN user_weapons  uw ON uc.equipped_weapon_id = uw.weapon_id
        LEFT JOIN weapon_roster wr ON uw.weapon_roster_id   = wr.weapon_roster_id
@@ -62,6 +63,7 @@ async function execute(message) {
        LEFT JOIN deity_roster  d2r ON ud2.deity_id          = d2r.deity_id
        LEFT JOIN user_deities  ud3 ON uc.active_deity_id_3  = ud3.user_deity_id
        LEFT JOIN deity_roster  d3r ON ud3.deity_id          = d3r.deity_id
+       LEFT JOIN title_catalog tcq ON tcq.title_id          = uc.equipped_title_id
        WHERE uc.discord_id = $1`,
       [discordId]
     ),
@@ -160,6 +162,7 @@ async function execute(message) {
 
     believerLevel: r.believer_level,
     believerTitle: believerTitle(r.believer_level),
+    equippedTitle: r.equipped_title || null,
     believerExp: Number(r.believer_exp),
     believerExpMax: BELIEVER_EXP_PER_LEVEL,
 

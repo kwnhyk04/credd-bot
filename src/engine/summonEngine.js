@@ -32,6 +32,8 @@ const {
   BELIEVER_EXP_PER_LEVEL,
   resolveRoll,
 } = require('../config/gachaRates');
+const { grantTitles, grantTitle } = require('../utils/titleGrant');
+const { believerTitlesFor, COLLECTION_PANTHEON_KEEPER } = require('../config/titles');
 
 // Whitelisted essence columns — interpolated into SQL only from this constant
 // map keyed by our own tier strings (never raw user input).
@@ -225,6 +227,16 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
   // ── Reputation: +10/pull, 5,000/day PHT cap, 3,000-flat level roll-up ────
   const reputationAwarded = await awardReputation(client, discordId, char, count);
 
+  // ── Collection title: own every available deity (Pantheon Keeper) ────────
+  if (pulls.some((p) => !p.isDupe)) {
+    const avail = await client.query(
+      "SELECT count(*)::int AS n FROM deity_roster WHERE is_available = TRUE"
+    );
+    if (avail.rows[0].n > 0 && ownedSet.size >= avail.rows[0].n) {
+      await grantTitle(client, discordId, COLLECTION_PANTHEON_KEEPER);
+    }
+  }
+
   // ── Summary for the embed ────────────────────────────────────────────────
   const summary = { Epic: 0, Mythic: 0, Legendary: 0, Supreme: 0 };
   for (const p of pulls) summary[p.tier] += 1;
@@ -271,6 +283,8 @@ async function awardReputation(client, discordId, char, count) {
       WHERE discord_id = $1`,
     [discordId, level, exp, todaySoFar + awarded, today]
   );
+  // Believer-milestone titles for the (possibly new) level — idempotent grants.
+  await grantTitles(client, discordId, believerTitlesFor(level));
   return awarded;
 }
 

@@ -48,6 +48,8 @@ const { logEmbeds } = require('./battleRender');
 const { awardCombatExpMany } = require('../utils/awardCombatExp');
 const { isBanned } = require('../handlers/middleware');
 const { emojiForDisplay } = require('../utils/emojis');
+const { grantTitles } = require('../utils/titleGrant');
+const { bossFeatTitlesFor } = require('../config/titles');
 const {
   isGreaterBoss, bossRewards, rollBossChest, hpMultiplierForChest, pickWeightedBoss,
 } = require('../config/bosses');
@@ -667,10 +669,14 @@ async function distributeRewards(client, guildId, spawnId) {
       await awardCombatExpMany(dbc, attackerIds, reward.exp);
 
       // [v5 Phase 4] boss participation kill — boss died + you attacked (Blueprint §4.4)
-      await dbc.query(
-        'UPDATE user_character SET boss_kills = boss_kills + 1 WHERE discord_id = ANY($1)',
+      const killRes = await dbc.query(
+        'UPDATE user_character SET boss_kills = boss_kills + 1 WHERE discord_id = ANY($1) RETURNING discord_id, boss_kills',
         [attackerIds]
       );
+      // [v5 Phase 5] boss-feat titles at kill thresholds (idempotent).
+      for (const row of killRes.rows) {
+        await grantTitles(dbc, row.discord_id, bossFeatTitlesFor(row.boss_kills));
+      }
 
       // game_logs — one row per currency/item per attacker (action 'Boss'),
       // before/after balances, bulk via unnest

@@ -14,6 +14,7 @@ const blackjackCmd = require('../commands/casino/blackjack');
 const crashCmd = require('../commands/casino/crash');
 const skinShop = require('../engine/skinShopViews');
 const leaderboardCmd = require('../commands/rpg/leaderboard');
+const titleCmd = require('../commands/rpg/title');
 
 /**
  * Routes button interactions by customId.
@@ -49,7 +50,9 @@ async function handleInteraction(interaction) {
     if (namespace === 'sprev') { await skinShop.handlePreviewButton(interaction); return; }
     if (namespace === 'runes') { await runeCmd.handleRunesInteraction(interaction); return; }
     if (namespace === 'lb') { await leaderboardCmd.handleSelect(interaction); return; }
+    if (namespace === 'title' && action === 'cat') { await titleCmd.handleSelect(interaction); return; }
     if (!isButton) return; // everything below this point is button-only
+    if (namespace === 'title') { await titleCmd.handleButton(interaction); return; }
     if (namespace === 'register' && action === 'confirm') {
       const ownerId = parts[2];
       await registerCmd.handleConfirm(interaction, ownerId);

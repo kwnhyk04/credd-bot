@@ -234,11 +234,12 @@ async function renderProfileImage(d) {
   ctx.fillStyle = NAME_COLOR;
   ctx.fillText(fitText(ctx, d.displayName, leftW), PAD, y + 26);
 
-  // Line 2: Believer level + rank title.
+  // Line 2: Believer level + rank title (+ equipped title if any).
   ctx.font = F(15, true);
   ctx.fillStyle = ACCENT;
+  const titleSuffix = d.equippedTitle ? ` · 🎖️ ${d.equippedTitle}` : '';
   ctx.fillText(
-    fitText(ctx, `Believer Level ${d.believerLevel} · ${d.believerTitle}`, leftW),
+    fitText(ctx, `Believer Level ${d.believerLevel} · ${d.believerTitle}${titleSuffix}`, leftW),
     PAD,
     y + 50
   );

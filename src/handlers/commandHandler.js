@@ -22,6 +22,7 @@ const raidCmd = require('../commands/rpg/raid');
 const duelCmd = require('../commands/rpg/duel');
 const rankedCmd = require('../commands/rpg/ranked');
 const leaderboardCmd = require('../commands/rpg/leaderboard');
+const titleCmd = require('../commands/rpg/title');
 const bossCmd = require('../commands/rpg/boss');
 const bestowCmd = require('../commands/economy/bestow');
 const credCmd = require('../commands/economy/cred');
@@ -72,6 +73,7 @@ const IMPLEMENTED = {
   duel:     { mw: 'full', run: duelCmd.execute },
   ranked:   { mw: 'full', run: rankedCmd.execute },
   leaderboards: { mw: 'full', run: leaderboardCmd.execute },
+  title:    { mw: 'full', run: titleCmd.execute },
   boss:     { mw: 'full', run: bossCmd.execute },
   bestow:   { mw: 'full', run: bestowCmd.execute },
   cred:     { mw: 'full', run: credCmd.execute },
@@ -112,6 +114,7 @@ const COMMAND_MAP = {
   duel:      { requiresCharacter: true },
   ranked:    { requiresCharacter: true },
   leaderboards: { requiresCharacter: false },
+  title:       { requiresCharacter: true },
   boss:      { requiresCharacter: false }, // status view; Attack button enforces the gate itself
   summon:    { requiresCharacter: true },
   bag:       { requiresCharacter: true },

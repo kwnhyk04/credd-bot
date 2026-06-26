@@ -27,6 +27,8 @@ const questsCmd = require('../economy/quests');
 const dailyCmd = require('../economy/daily');
 const ent = require('../../engine/supporterEntitlements');
 const { grantTokens } = require('../../engine/supporterTokens');
+const seasonEngine = require('../../engine/seasonEngine');
+const { grantTitle } = require('../../utils/titleGrant');
 const { buildShopPage } = require('../../engine/skinShopViews');
 const { DIRS, SKINS_DIR } = require('../../config/cosmetics');
 
@@ -434,6 +436,44 @@ async function setBelieverLevel(message, args, devId) {
     [level, target.id]
   );
   return reply(message, `✅ Set <@${target.id}>'s Believer Level to **${level}**.`);
+}
+
+// ── crd dev season <start|end|rollover|info> ──────────────────────────────
+async function devSeason(message, args, devId) {
+  const sub = (args[1] || 'info').toLowerCase();
+  try {
+    if (sub === 'start') {
+      const name = args.slice(2).join(' ').trim() || null;
+      const s = await seasonEngine.startSeason(pool, name);
+      return reply(message, `✅ Started **${s.name}** (id ${s.season_id}), ends ${new Date(s.ends_at).toISOString().slice(0, 10)}.`);
+    }
+    if (sub === 'end') {
+      const s = await seasonEngine.endSeasonNow(pool);
+      return reply(message, s ? `✅ Season ${s.season_id} set to end now. Run \`crd dev season rollover\`.` : 'No active season.');
+    }
+    if (sub === 'rollover') {
+      const r = await seasonEngine.rolloverIfDue(pool, { force: true });
+      return reply(message, r.rolled
+        ? `✅ Rolled season ${r.endedSeason} → ${r.nextSeason}. Paid **${r.paid}** players, ratings soft-reset.`
+        : 'No active season to roll.');
+    }
+    const s = await seasonEngine.activeSeason(pool);
+    return reply(message, s
+      ? `📅 **${s.name}** (id ${s.season_id}) — ends ${new Date(s.ends_at).toISOString().slice(0, 10)}.`
+      : 'No active season. `crd dev season start`.');
+  } catch (err) {
+    console.error('[dev season]', err.message);
+    return reply(message, `Season command failed: ${err.message}`);
+  }
+}
+
+// ── crd dev granttitle <code> [@user] ─────────────────────────────────────
+async function devGrantTitle(message, args, devId) {
+  const target = message.mentions.users.first() || { id: devId };
+  const code = (args[1] || '').trim();
+  if (!code) return reply(message, 'Usage: `crd dev granttitle <code> [@user]`');
+  const ok = await grantTitle(pool, target.id, code);
+  return reply(message, ok ? `✅ Granted title \`${code}\` to <@${target.id}>.` : `<@${target.id}> already has \`${code}\` (or code unknown).`);
 }
 
 // ── crd dev setrating @user <rating> ──────────────────────────────────────
@@ -957,6 +997,8 @@ async function execute(message, { args }) {
     case 'resetweapons':     return resetWeapons(message, args, devId);
     case 'believerlevel':    return setBelieverLevel(message, args, devId);
     case 'setrating':        return setRating(message, args, devId);
+    case 'season':           return devSeason(message, args, devId);
+    case 'granttitle':       return devGrantTitle(message, args, devId);
     case 'enhanceequipment': return enhanceEquipment(message, args, devId);
     case 'enhanceweapon':    return enhanceEquipment(message, args, devId); // back-compat alias
     case 'enhancedeity':     return enhanceDeity(message, args, devId);
