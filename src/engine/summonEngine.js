@@ -33,7 +33,7 @@ const {
   resolveRoll,
 } = require('../config/gachaRates');
 const { grantTitles, grantTitle } = require('../utils/titleGrant');
-const { believerTitlesFor, COLLECTION_PANTHEON_KEEPER } = require('../config/titles');
+const { believerTitlesFor, COLLECTION_PANTHEON_KEEPER, MYTHOLOGY_COLLECTION } = require('../config/titles');
 
 // Whitelisted essence columns — interpolated into SQL only from this constant
 // map keyed by our own tier strings (never raw user input).
@@ -227,12 +227,30 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
   // ── Reputation: +10/pull, 5,000/day PHT cap, 3,000-flat level roll-up ────
   const reputationAwarded = await awardReputation(client, discordId, char, count);
 
-  // ── Collection title: own every available deity (Pantheon Keeper) ────────
+  // ── Collection titles: per-mythology completion + full Pantheon Keeper ───
   if (pulls.some((p) => !p.isDupe)) {
-    const avail = await client.query(
-      "SELECT count(*)::int AS n FROM deity_roster WHERE is_available = TRUE"
+    const coll = await client.query(
+      `SELECT dr.mythology,
+              count(*)::int AS avail,
+              count(ud.user_deity_id)::int AS owned
+         FROM deity_roster dr
+         LEFT JOIN user_deities ud
+           ON ud.deity_id = dr.deity_id AND ud.discord_id = $1
+        WHERE dr.is_available = TRUE
+        GROUP BY dr.mythology`,
+      [discordId]
     );
-    if (avail.rows[0].n > 0 && ownedSet.size >= avail.rows[0].n) {
+    let totAvail = 0;
+    let totOwned = 0;
+    for (const row of coll.rows) {
+      totAvail += row.avail;
+      totOwned += row.owned;
+      const code = MYTHOLOGY_COLLECTION[row.mythology];
+      if (code && row.avail > 0 && row.owned >= row.avail) {
+        await grantTitle(client, discordId, code);
+      }
+    }
+    if (totAvail > 0 && totOwned >= totAvail) {
       await grantTitle(client, discordId, COLLECTION_PANTHEON_KEEPER);
     }
   }

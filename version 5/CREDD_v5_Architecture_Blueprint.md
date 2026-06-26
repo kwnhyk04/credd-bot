@@ -18,6 +18,8 @@
 
 # - credd_schema_v5_phase5.sql (Phase 5 — title how_to/image_filename, believer+event title seeds, user_titles index) [IMPLEMENTED; banner+reward-track DEFERRED]
 
+# - credd_schema_v5_phase5b.sql (Phase 5b — boss_top_damage + index, extended boss-feat titles to 1000, per-mythology collection titles) [IMPLEMENTED]
+
 # - CREDD_v5_Gear_Overhaul.md (armor/weapon rosters + stat banding)
 
 # - CREDD_v5_Stat_Assembly.md (final-stat pipeline)

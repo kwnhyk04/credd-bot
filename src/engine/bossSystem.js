@@ -856,6 +856,11 @@ async function handleAttack(interaction) {
           await dbc.query('ROLLBACK');
           return fail('You already attacked this boss.'); // double-press race
         }
+        // [v5 Phase 5b] track highest single-attack boss damage (leaderboard metric)
+        await dbc.query(
+          'UPDATE user_character SET boss_top_damage = GREATEST(boss_top_damage, $2) WHERE discord_id = $1',
+          [discordId, net]
+        );
         if (!isDev) {
           // test bosses never consume the global daily lock
           await dbc.query(

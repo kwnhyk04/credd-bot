@@ -95,10 +95,11 @@ Ranked matchmaking: random eligible real-user SNAPSHOT in the adjacent-bracket r
 at TRUE levels/stats/equipment (NO level normalization); ONLY the challenger's pvp_rating moves
 (opponent offline-safe).
 Leaderboards: ONE command `crd leaderboards` (`crd lb`) — header + two dropdowns (category, scope
-server/global), top 15. Categories: PvP Rating, lifetime_credux_earned (grind/sell/quest/daily/boss —
-bestow/wager/casino excluded), Raids Done/Wins, Duel Wins (casual), Combat/Believer Level, Boss Kills
-(participation). DESC indexes per metric (credd_schema_v5_phase4_indexes.sql) keep each board an
-index scan.
+server/global), top 15, themed footer quote. Categories: PvP Rating, lifetime_credux_earned
+(grind/sell/quest/daily/boss — bestow/wager/casino excluded), Raids Done/Wins, Duel Wins (casual),
+Combat/Believer Level, Boss Defeats (participation = boss_kills), Boss Top Hit (highest single-attack
+boss damage = boss_top_damage, Phase 5b). DESC indexes per metric (credd_schema_v5_phase4_indexes.sql
++ idx_uc_boss_top_damage) keep each board an index scan.
 Weekly reward: `crd ranked claim` — current bracket from ranked_reward table, gated ≥5 ranked games
 that PHT week, one claim/week (season-end by peak bracket deferred to Phase 5).
 Schema: credd_schema_v5_phase4.sql (pvp_peak, last_weekly_claim_week, pvp_demotion_shield;
@@ -112,11 +113,12 @@ start|end|rollover|info`). Rollover = season-end payout by PEAK bracket (ranked_
 credux/chests/relics + season-rank title) → soft ranked reset (rating×0.6, min 1000; peak/shield reset)
 → next season activated.
 Titles [IMPLEMENTED]: `crd title` (`crd t`) — category dropdown + 10/page + `equip`/`unequip`; equipped
-title shows on `crd profile`. Sources: believer milestones, season rank (Divine = rotating exclusive
-seeds; lower = per-season title), boss feats (Godslayer 50 / World-Ender 200 kills), collection
-(Pantheon Keeper = own all deities), event (`crd dev granttitle`). Grant conditions in src/config/titles.js
-(tunable). title_catalog has how_to + image_filename (OPTIONAL PNG art — text-only until set).
-Schema: credd_schema_v5_phase5.sql.
+title shows on `crd profile`. Sources: believer milestones; season rank (Divine = rotating exclusive
+seeds; lower = per-season title); boss feats (Godslayer 50 / World-Ender 200 / Deicide 400 /
+Ragnarok Bringer 700 / Eternal Vanquisher 1000 kills); collection (Anito Sovereign = all PH, Aesir
+Warden = all Norse, Olympian Ascendant = all Greek, Pantheon Keeper = all deities); event
+(`crd dev granttitle`). Grant conditions in src/config/titles.js (tunable). title_catalog has how_to +
+image_filename (OPTIONAL PNG art — text-only until set). Schema: credd_schema_v5_phase5.sql + _phase5b.sql.
 BANNER — DEFERRED (featured weighting + banner pity + limited deities not built).
 REWARD TRACK — DEFERRED.
 

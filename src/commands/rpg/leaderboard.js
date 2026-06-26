@@ -17,6 +17,7 @@ const BRAND = 0xf0b232;
 const LIMIT = 15;
 const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 const MEDALS = ['🥇', '🥈', '🥉'];
+const LB_QUOTE = '-# *"The gods remember only those whose names are carved at the summit."*';
 
 // key → { label, col (SELECT value), fmt }
 const CATEGORIES = {
@@ -27,7 +28,8 @@ const CATEGORIES = {
   duels:    { label: 'Duel Wins',       col: 'uc.pvp_wins', fmt: (v) => `${v}` },
   combat:   { label: 'Combat Level',    col: 'uc.combat_level', fmt: (v) => `Lv ${v}` },
   believer: { label: 'Believer Level',  col: 'uc.believer_level', fmt: (v) => `Lv ${v}` },
-  boss:     { label: 'Boss Kills',      col: 'uc.boss_kills', fmt: (v) => `${v}` },
+  boss:     { label: 'Boss Defeats',    col: 'uc.boss_kills', fmt: (v) => `${v}` },
+  bossdmg:  { label: 'Boss Top Hit',    col: 'uc.boss_top_damage', fmt: (v) => Number(v).toLocaleString() },
 };
 const CAT_KEYS = Object.keys(CATEGORIES);
 
@@ -103,6 +105,9 @@ async function buildPayload(catKey, scope, guild, ownerId) {
     });
     container.addTextDisplayComponents((td) => td.setContent(lines.join('\n')));
   }
+
+  container.addSeparatorComponents(sep);
+  container.addTextDisplayComponents((td) => td.setContent(LB_QUOTE));
 
   return { components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
 }

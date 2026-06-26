@@ -19,12 +19,21 @@ const BELIEVER_TITLE_THRESHOLDS = [
 
 // boss_kills (participation) → feat title code.
 const BOSS_FEAT_THRESHOLDS = [
-  { kills: 50,  code: 'feat_godslayer' },
-  { kills: 200, code: 'feat_world_ender' },
+  { kills: 50,   code: 'feat_godslayer' },
+  { kills: 200,  code: 'feat_world_ender' },
+  { kills: 400,  code: 'feat_deicide' },
+  { kills: 700,  code: 'feat_ragnarok_bringer' },
+  { kills: 1000, code: 'feat_eternal_vanquisher' },
 ];
 
 // Collection: own every available deity.
 const COLLECTION_PANTHEON_KEEPER = 'coll_pantheon_keeper';
+// Own every deity of a single mythology (deity_roster.mythology → title code).
+const MYTHOLOGY_COLLECTION = {
+  PH: 'coll_ph_keeper',
+  Norse: 'coll_norse_keeper',
+  Greek: 'coll_greek_keeper',
+};
 
 // Season-end rank titles by PEAK bracket. Divine = the season's exclusive rotating
 // title (divine_* seeds, by season order); lower brackets get NO permanent title here
@@ -67,6 +76,7 @@ module.exports = {
   BELIEVER_TITLE_THRESHOLDS,
   BOSS_FEAT_THRESHOLDS,
   COLLECTION_PANTHEON_KEEPER,
+  MYTHOLOGY_COLLECTION,
   DIVINE_SEASON_TITLES,
   TITLE_CATEGORIES,
   believerTitlesFor,
