@@ -82,12 +82,17 @@ async function buildPayload(catKey, scope, guild, ownerId) {
   const memberIds = scope === 'server' ? serverMemberIds(guild) : null;
   const rows = await queryBoard(catKey, memberIds);
 
+  const [catRow, scopeRow] = buildSelects(catKey, scope, ownerId);
   const container = new ContainerBuilder()
     .setAccentColor(BRAND)
-    .addTextDisplayComponents((td) => td.setContent(
-      `## 🏆 Leaderboards\n-# ${cat.label} · ${scope === 'global' ? '🌐 Global' : '🏠 Server'}`
-    ))
-    .addSeparatorComponents(sep);
+    .addTextDisplayComponents((td) => td.setContent('## 🏆 Leaderboards'));
+  // Dropdowns live in the header: scope (server/global) first, then category.
+  container.addActionRowComponents(() => scopeRow);
+  container.addActionRowComponents(() => catRow);
+  container.addSeparatorComponents(sep);
+  container.addTextDisplayComponents((td) => td.setContent(
+    `-# ${cat.label} · ${scope === 'global' ? '🌐 Global' : '🏠 Server'}`
+  ));
 
   if (rows.length === 0) {
     container.addTextDisplayComponents((td) => td.setContent('*No ranked players yet.*'));
@@ -98,11 +103,6 @@ async function buildPayload(catKey, scope, guild, ownerId) {
     });
     container.addTextDisplayComponents((td) => td.setContent(lines.join('\n')));
   }
-
-  const [catRow, scopeRow] = buildSelects(catKey, scope, ownerId);
-  container.addSeparatorComponents(sep);
-  container.addActionRowComponents(() => catRow);
-  container.addActionRowComponents(() => scopeRow);
 
   return { components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
 }
