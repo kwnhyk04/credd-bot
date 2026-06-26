@@ -71,7 +71,7 @@ const IMPLEMENTED = {
   raid:     { mw: 'full', run: raidCmd.execute },
   duel:     { mw: 'full', run: duelCmd.execute },
   ranked:   { mw: 'full', run: rankedCmd.execute },
-  leaderboard: { mw: 'full', run: leaderboardCmd.execute },
+  leaderboards: { mw: 'full', run: leaderboardCmd.execute },
   boss:     { mw: 'full', run: bossCmd.execute },
   bestow:   { mw: 'full', run: bestowCmd.execute },
   cred:     { mw: 'full', run: credCmd.execute },
@@ -111,7 +111,7 @@ const COMMAND_MAP = {
   raid:      { requiresCharacter: true },
   duel:      { requiresCharacter: true },
   ranked:    { requiresCharacter: true },
-  leaderboard: { requiresCharacter: false },
+  leaderboards: { requiresCharacter: false },
   boss:      { requiresCharacter: false }, // status view; Attack button enforces the gate itself
   summon:    { requiresCharacter: true },
   bag:       { requiresCharacter: true },

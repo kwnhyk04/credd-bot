@@ -50,7 +50,7 @@ module.exports = {
   so: 'socket',
   uso: 'unsocket',
   // Ranked / leaderboards (Phase 4)
-  lb: 'leaderboard',
+  lb: 'leaderboards',
   rk: 'ranked',
   rc: 'ranked claim',
   // Economy

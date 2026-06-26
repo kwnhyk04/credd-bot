@@ -92,10 +92,13 @@ Elo brackets [IMPLEMENTED — Blueprint Phase 4 cutoffs are authoritative]:
 Match prev/current/next bracket only. Points: same +25/−20 · below +12/−35 · above +40/−10. Demotion
 shield at bracket floor (one protected loss; consumed at floor, refreshed on promote).
 Ranked matchmaking: random eligible real-user SNAPSHOT in the adjacent-bracket rating window, fought
-level-normalized in duel mode; ONLY the challenger's pvp_rating moves (opponent offline-safe).
-Leaderboards (server+global, `crd leaderboard [cat] [global]` / `crd lb`): lifetime_credux_earned
-(grind/sell/quest/daily/boss — bestow/wager/casino excluded), Raids Done/Wins, Duel Wins (casual),
-PvP Rating, Combat/Believer Level, Boss Kills (participation).
+at TRUE levels/stats/equipment (NO level normalization); ONLY the challenger's pvp_rating moves
+(opponent offline-safe).
+Leaderboards: ONE command `crd leaderboards` (`crd lb`) — header + two dropdowns (category, scope
+server/global), top 15. Categories: PvP Rating, lifetime_credux_earned (grind/sell/quest/daily/boss —
+bestow/wager/casino excluded), Raids Done/Wins, Duel Wins (casual), Combat/Believer Level, Boss Kills
+(participation). DESC indexes per metric (credd_schema_v5_phase4_indexes.sql) keep each board an
+index scan.
 Weekly reward: `crd ranked claim` — current bracket from ranked_reward table, gated ≥5 ranked games
 that PHT week, one claim/week (season-end by peak bracket deferred to Phase 5).
 Schema: credd_schema_v5_phase4.sql (pvp_peak, last_weekly_claim_week, pvp_demotion_shield;

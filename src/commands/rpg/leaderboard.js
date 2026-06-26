@@ -1,79 +1,92 @@
 'use strict';
 
 /**
- * `crd leaderboard [category] [global]` (alias `crd lb`) — v5 Phase 4 §4.4.
- * Server scope by default (guild members only); `global` keyword widens to all users.
- * Components V2 container per the CLAUDE.md UI standard.
+ * `crd leaderboards` (alias `crd lb`) — v5 Phase 4 §4.4.
+ * Single command: header + two dropdowns (category, scope). Top 15 only.
+ * Selections re-render in place via the `lb` select-menu namespace.
  */
 
-const { ContainerBuilder, SeparatorSpacingSize, MessageFlags } = require('discord.js');
+const {
+  ContainerBuilder, SeparatorSpacingSize, ActionRowBuilder, StringSelectMenuBuilder,
+  MessageFlags,
+} = require('discord.js');
 const pool = require('../../db/pool');
 const { bracketOf } = require('../../config/ranked');
 
 const BRAND = 0xf0b232;
+const LIMIT = 15;
 const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 const MEDALS = ['🥇', '🥈', '🥉'];
 
-// category alias → { label, col (SELECT value), fmt }
+// key → { label, col (SELECT value), fmt }
 const CATEGORIES = {
+  rating:   { label: 'PvP Rating',      col: 'uc.pvp_rating', fmt: (v) => `${v} (${bracketOf(v).name})` },
   credux:   { label: 'Lifetime Credux', col: 'ub.lifetime_credux_earned', fmt: (v) => Number(v).toLocaleString() },
   raids:    { label: 'Raids Done',      col: '(uc.raids_won + uc.raids_lost)', fmt: (v) => `${v}` },
   raidwins: { label: 'Raid Wins',       col: 'uc.raids_won', fmt: (v) => `${v}` },
   duels:    { label: 'Duel Wins',       col: 'uc.pvp_wins', fmt: (v) => `${v}` },
-  rating:   { label: 'PvP Rating',      col: 'uc.pvp_rating', fmt: (v) => `${v} (${bracketOf(v).name})` },
   combat:   { label: 'Combat Level',    col: 'uc.combat_level', fmt: (v) => `Lv ${v}` },
   believer: { label: 'Believer Level',  col: 'uc.believer_level', fmt: (v) => `Lv ${v}` },
   boss:     { label: 'Boss Kills',      col: 'uc.boss_kills', fmt: (v) => `${v}` },
 };
-const ALIASES = { pvp: 'rating', elo: 'rating', raidwin: 'raidwins', duel: 'duels', bosskills: 'boss' };
+const CAT_KEYS = Object.keys(CATEGORIES);
 
-function reply(message, content) {
-  return message.reply({ content, allowedMentions: { repliedUser: false } });
-}
-
-async function execute(message, { args }) {
-  const tokens = (args || []).map((a) => a.toLowerCase());
-  const isGlobal = tokens.includes('global');
-  const catKey = tokens.find((t) => t !== 'global') || 'rating';
-  const resolved = CATEGORIES[catKey] ? catKey : (ALIASES[catKey] || null);
-  if (!resolved) {
-    return reply(message, `Unknown category. Try: \`${Object.keys(CATEGORIES).join('`, `')}\`.`);
-  }
-  const cat = CATEGORIES[resolved];
-
-  // Server scope: restrict to this guild's members.
-  let memberIds = null;
-  if (!isGlobal && message.guild) {
-    try {
-      const members = await message.guild.members.fetch();
-      memberIds = [...members.keys()];
-    } catch {
-      memberIds = [...(message.guild.members.cache.keys())];
-    }
-  }
-
+/** Run the ranked query for a category + scope. memberIds=null → global. */
+async function queryBoard(catKey, memberIds) {
+  const cat = CATEGORIES[catKey];
   const params = [];
-  let whereClause = '';
-  if (memberIds) {
-    params.push(memberIds);
-    whereClause = `WHERE uc.discord_id = ANY($1)`;
-  }
-
+  let where = '';
+  if (memberIds) { params.push(memberIds); where = 'WHERE uc.discord_id = ANY($1)'; }
+  // credux is the only metric on users_bag — only JOIN it when needed (keeps the
+  // common user_character-only boards index-friendly).
+  const needsBag = cat.col.startsWith('ub.');
   const { rows } = await pool.query(
-    `SELECT uc.discord_id, u.username, ${cat.col} AS value
+    `SELECT u.username, ${cat.col} AS value
        FROM user_character uc
        JOIN users u ON u.discord_id = uc.discord_id
-       JOIN users_bag ub ON ub.discord_id = uc.discord_id
-       ${whereClause}
+       ${needsBag ? 'JOIN users_bag ub ON ub.discord_id = uc.discord_id' : ''}
+       ${where}
       ORDER BY value DESC NULLS LAST
-      LIMIT 10`,
+      LIMIT ${LIMIT}`,
     params
   );
+  return rows;
+}
 
-  const scopeLabel = isGlobal ? '🌐 Global' : '🏠 Server';
+/** Resolve guild member ids for server scope (cache-first — avoids a slow API fetch). */
+function serverMemberIds(guild) {
+  if (!guild) return null;
+  const ids = [...guild.members.cache.keys()];
+  return ids.length ? ids : null;
+}
+
+function buildSelects(catKey, scope, ownerId) {
+  const catMenu = new StringSelectMenuBuilder()
+    .setCustomId(`lb:cat:${ownerId}:${scope}`)
+    .setPlaceholder('Category')
+    .addOptions(CAT_KEYS.map((k) => ({
+      label: CATEGORIES[k].label, value: k, default: k === catKey,
+    })));
+  const scopeMenu = new StringSelectMenuBuilder()
+    .setCustomId(`lb:scope:${ownerId}:${catKey}`)
+    .setPlaceholder('Scope')
+    .addOptions(
+      { label: 'Server', value: 'server', default: scope === 'server' },
+      { label: 'Global', value: 'global', default: scope === 'global' },
+    );
+  return [new ActionRowBuilder().addComponents(catMenu), new ActionRowBuilder().addComponents(scopeMenu)];
+}
+
+async function buildPayload(catKey, scope, guild, ownerId) {
+  const cat = CATEGORIES[catKey];
+  const memberIds = scope === 'server' ? serverMemberIds(guild) : null;
+  const rows = await queryBoard(catKey, memberIds);
+
   const container = new ContainerBuilder()
     .setAccentColor(BRAND)
-    .addTextDisplayComponents((td) => td.setContent(`## 🏆 Leaderboard — ${cat.label}\n-# ${scopeLabel}`))
+    .addTextDisplayComponents((td) => td.setContent(
+      `## 🏆 Leaderboards\n-# ${cat.label} · ${scope === 'global' ? '🌐 Global' : '🏠 Server'}`
+    ))
     .addSeparatorComponents(sep);
 
   if (rows.length === 0) {
@@ -81,23 +94,45 @@ async function execute(message, { args }) {
   } else {
     const lines = rows.map((r, i) => {
       const rank = i < 3 ? MEDALS[i] : `**${i + 1}.**`;
-      const self = r.discord_id === message.author.id ? ' ◀' : '';
-      return `${rank} ${r.username} — ${cat.fmt(r.value)}${self}`;
+      return `${rank} ${r.username} — ${cat.fmt(r.value)}`;
     });
     container.addTextDisplayComponents((td) => td.setContent(lines.join('\n')));
   }
 
-  container
-    .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) =>
-      td.setContent('-# 💡 `crd lb <category> [global]` · categories: rating, credux, raids, raidwins, duels, combat, believer, boss')
-    );
+  const [catRow, scopeRow] = buildSelects(catKey, scope, ownerId);
+  container.addSeparatorComponents(sep);
+  container.addActionRowComponents(() => catRow);
+  container.addActionRowComponents(() => scopeRow);
 
-  return message.reply({
-    components: [container],
-    flags: MessageFlags.IsComponentsV2,
-    allowedMentions: { parse: [] },
-  });
+  return { components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
 }
 
-module.exports = { execute };
+async function execute(message) {
+  const payload = await buildPayload('rating', 'server', message.guild, message.author.id);
+  return message.reply({ ...payload });
+}
+
+// Select menu: lb:cat:<owner>:<scope>  |  lb:scope:<owner>:<cat>
+async function handleSelect(interaction) {
+  const parts = interaction.customId.split(':');
+  const [, which, ownerId] = parts;
+  if (interaction.user.id !== ownerId) {
+    await interaction.reply({ content: 'Run `crd leaderboards` yourself to browse.', flags: MessageFlags.Ephemeral });
+    return;
+  }
+  let catKey;
+  let scope;
+  if (which === 'cat') {
+    catKey = interaction.values[0];
+    scope = parts[3];
+  } else { // scope
+    scope = interaction.values[0];
+    catKey = parts[3];
+  }
+  if (!CATEGORIES[catKey]) catKey = 'rating';
+  if (scope !== 'global' && scope !== 'server') scope = 'server';
+  const payload = await buildPayload(catKey, scope, interaction.guild, ownerId);
+  await interaction.update(payload);
+}
+
+module.exports = { execute, handleSelect };

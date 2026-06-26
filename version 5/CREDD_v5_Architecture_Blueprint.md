@@ -14,6 +14,8 @@
 
 # - credd_schema_v5_phase4.sql (Phase 4 — pvp_peak/last_weekly_claim_week/pvp_demotion_shield, ranked_logs, wager_logs) [IMPLEMENTED]
 
+# - credd_schema_v5_phase4_indexes.sql (Phase 4 — DESC leaderboard indexes; `crd leaderboards` top-15) [IMPLEMENTED]
+
 # - CREDD_v5_Gear_Overhaul.md (armor/weapon rosters + stat banding)
 
 # - CREDD_v5_Stat_Assembly.md (final-stat pipeline)

@@ -20,7 +20,6 @@ const {
   bracketOf, bracketFloor, matchRange, pointsFor, phtWeek, WEEKLY_MIN_GAMES,
 } = require('../../config/ranked');
 
-const MAX_NORM_LEVEL = 50;
 const GOLD = 0xf0b232;
 const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
@@ -60,7 +59,7 @@ function applyRating(ratingBefore, shieldBefore, delta) {
 async function fight(message) {
   const me = message.author.id;
   const selfRes = await pool.query(
-    'SELECT pvp_rating, pvp_demotion_shield, pvp_peak, combat_level FROM user_character WHERE discord_id = $1',
+    'SELECT pvp_rating, pvp_demotion_shield, pvp_peak FROM user_character WHERE discord_id = $1',
     [me]
   );
   if (selfRes.rows.length === 0) return reply(message, 'No character found.');
@@ -81,10 +80,10 @@ async function fight(message) {
   const opp = oppRes.rows[0];
   const oppRating = opp.pvp_rating;
 
-  const normLevel = Math.min(MAX_NORM_LEVEL, Math.max(1, self.combat_level));
+  // Ranked fights at TRUE levels/stats/equipment — no normalization (build + level both matter).
   const [p1, p2] = await Promise.all([
-    buildPlayerFighter(pool, me, { levelOverride: normLevel }),
-    buildPlayerFighter(pool, opp.discord_id, { levelOverride: normLevel }),
+    buildPlayerFighter(pool, me),
+    buildPlayerFighter(pool, opp.discord_id),
   ]);
   if (!p1 || !p2) return reply(message, 'Ranked cancelled — a combatant has no character.');
 
