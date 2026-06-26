@@ -113,7 +113,8 @@ async function claimDaily(client, discordId, { bypass = false } = {}) {
 
   const bagUpd = await client.query(
     `UPDATE users_bag
-        SET credux = credux + $2, belief_shards = belief_shards + $3, ${col} = ${col} + 1
+        SET credux = credux + $2, belief_shards = belief_shards + $3, ${col} = ${col} + 1,
+            lifetime_credux_earned = lifetime_credux_earned + $2
       WHERE discord_id = $1
       RETURNING credux, belief_shards, ${col} AS chest_count`,
     [discordId, rw.credux, rw.shards]

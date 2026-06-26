@@ -29,6 +29,8 @@ const { progressQuests } = require('../../utils/questProgress');
 
 const CHALLENGE_WINDOW_MS = 60_000;
 const MAX_DUEL_LEVEL = 50; // [Jun-2026 §3] current max combat level
+const WAGER_CAP = 50_000;          // [v5 §4.1] max Credux staked per wager duel
+const BESTOW_DAILY_CAP = 1_000_000; // [v5 §4.1] wager winnings share the bestow daily cap
 
 function reply(message, content) {
   return message.reply({ content, allowedMentions: { repliedUser: false } });
@@ -124,8 +126,181 @@ async function commitDuelResult(challengerId, opponentId, sim) {
   }
 }
 
+/**
+ * Settle a wager duel: zero-sum Credux transfer (winner +stake, loser −stake),
+ * clamped to the winner's remaining bestow-shared 1M/day headroom. NO rating, NO
+ * casual win/loss counters. Logs to wager_logs. Returns { moved } actually transferred.
+ */
+async function commitWagerResult(challengerId, opponentId, winnerId, stake) {
+  const loserId = winnerId === challengerId ? opponentId : challengerId;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const ids = [challengerId, opponentId].sort();
+    const bagRes = await client.query(
+      'SELECT discord_id, credux FROM users_bag WHERE discord_id = ANY($1) ORDER BY discord_id FOR UPDATE',
+      [ids]
+    );
+    const byId = Object.fromEntries(bagRes.rows.map((r) => [r.discord_id, r]));
+    // winner's daily-cap headroom (bestow-shared)
+    const uRes = await client.query(
+      `SELECT bestow_received_today,
+              (last_bestow_received = (NOW() AT TIME ZONE 'Asia/Manila')::date) AS is_today
+         FROM users WHERE discord_id = $1 FOR UPDATE`,
+      [winnerId]
+    );
+    const receivedToday = uRes.rows[0]?.is_today ? Number(uRes.rows[0].bestow_received_today) : 0;
+    const headroom = Math.max(0, BESTOW_DAILY_CAP - receivedToday);
+    // zero-sum: move only what the loser has AND the winner can still receive today
+    const moved = Math.min(stake, Number(byId[loserId].credux), headroom);
+    if (moved > 0) {
+      await client.query('UPDATE users_bag SET credux = credux - $2 WHERE discord_id = $1', [loserId, moved]);
+      await client.query('UPDATE users_bag SET credux = credux + $2 WHERE discord_id = $1', [winnerId, moved]);
+      await client.query(
+        `UPDATE users SET bestow_received_today = $2,
+                          last_bestow_received  = (NOW() AT TIME ZONE 'Asia/Manila')::date
+          WHERE discord_id = $1`,
+        [winnerId, receivedToday + moved]
+      );
+    }
+    await client.query(
+      `INSERT INTO wager_logs (challenger_id, opponent_id, winner_id, amount) VALUES ($1, $2, $3, $4)`,
+      [challengerId, opponentId, winnerId, moved]
+    );
+    await client.query('COMMIT');
+    return { moved };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// ── crd duel wager @user <amount> ──────────────────────────────────────────
+async function runWager(message, challenger, target, stake) {
+  if (await inLiveBattle(challenger.id)) {
+    return reply(message, '⚔️ You are in a battle — finish it before wagering.');
+  }
+  const targetCheck = await pool.query('SELECT 1 FROM user_character WHERE discord_id = $1', [target.id]);
+  if (targetCheck.rows.length === 0) {
+    return reply(message, `<@${target.id}> has no character yet.`);
+  }
+  if (await isBanned(target.id)) return reply(message, `<@${target.id}> cannot be dueled right now.`);
+  if (await inLiveBattle(target.id)) return reply(message, `<@${target.id}> is in a battle.`);
+
+  // both must currently afford the stake
+  const balRes = await pool.query(
+    'SELECT discord_id, credux FROM users_bag WHERE discord_id = ANY($1)', [[challenger.id, target.id]]
+  );
+  const bal = Object.fromEntries(balRes.rows.map((r) => [r.discord_id, Number(r.credux)]));
+  if ((bal[challenger.id] || 0) < stake) return reply(message, `You don't have **${stake.toLocaleString()}** Credux to wager.`);
+  if ((bal[target.id] || 0) < stake) return reply(message, `<@${target.id}> doesn't have **${stake.toLocaleString()}** Credux to wager.`);
+
+  const embed = new EmbedBuilder()
+    .setColor(0xf0b232)
+    .setTitle('💰 Wager Duel')
+    .setDescription(
+      `**${challenger.username}** stakes **${stake.toLocaleString()} Credux** against <@${target.id}>!\n` +
+      '-# Winner takes the stake (shares the 1M/day cap). No rating. 60s to respond.'
+    );
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('duel_accept').setLabel('Accept').setEmoji('💰').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('duel_decline').setLabel('Decline').setEmoji('🏃').setStyle(ButtonStyle.Danger),
+  );
+  const challengeMsg = await message.reply({
+    content: `<@${target.id}>`, embeds: [embed], components: [row],
+    allowedMentions: { users: [target.id], repliedUser: false },
+  });
+
+  const collector = challengeMsg.createMessageComponentCollector({ time: CHALLENGE_WINDOW_MS });
+  let settled = false;
+  collector.on('collect', async (i) => {
+    try {
+      if (i.user.id !== target.id) {
+        await i.reply({ content: 'Only the challenged player can respond.', flags: MessageFlags.Ephemeral });
+        return;
+      }
+      if (settled) { await i.deferUpdate().catch(() => {}); return; }
+      settled = true;
+      collector.stop('settled');
+
+      if (i.customId === 'duel_decline') {
+        await i.update({
+          embeds: [EmbedBuilder.from(embed).setColor(0xf23f43).setDescription(`🏃 **${target.username}** declined the wager.`)],
+          components: [],
+        });
+        return;
+      }
+      const [cBusy, tBusy] = await Promise.all([inLiveBattle(challenger.id), inLiveBattle(target.id)]);
+      if (cBusy || tBusy) {
+        await i.update({
+          embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6).setDescription('💰 Wager cancelled — a duelist is mid-battle.')],
+          components: [],
+        });
+        return;
+      }
+      await i.update({
+        embeds: [EmbedBuilder.from(embed).setColor(0x43d675).setDescription(`💰 **${target.username}** accepts! The duel begins...`)],
+        components: [],
+      });
+
+      const [p1, p2] = await Promise.all([
+        buildPlayerFighter(pool, challenger.id),
+        buildPlayerFighter(pool, target.id),
+      ]);
+      if (!p1 || !p2) { await challengeMsg.channel.send('Wager cancelled — a duelist no longer has a character.'); return; }
+
+      const sim = resolveBattle(p1, p2, { mode: 'duel', seed: Date.now() >>> 0 });
+      const winnerId = sim.winner === 'a' ? challenger.id : target.id;
+      const { moved } = await commitWagerResult(challenger.id, target.id, winnerId, stake);
+      const winnerName = winnerId === challenger.id ? challenger.username : target.username;
+      const stakeLine = moved > 0
+        ? `💰 **${winnerName}** wins **${moved.toLocaleString()} Credux**!`
+        : `💰 **${winnerName}** wins — but the daily cap left no Credux to transfer.`;
+
+      let battleSkinPath = null;
+      let resultSkinPath = null;
+      try {
+        battleSkinPath = (await resolveSkin(pool, challenger.id, 'battle')).path;
+        const variant = sim.winner === 'a' ? 'victory' : 'defeated';
+        resultSkinPath = (await resolveSkin(pool, challenger.id, 'battle_result', { variant })).path;
+      } catch (err) {
+        console.warn('[wager] skin resolution:', err.message);
+      }
+      await runBattle(challengeMsg.channel, { mode: 'duel', sim, notices: [stakeLine], battleSkinPath, resultSkinPath });
+    } catch (err) {
+      console.error('[wager]', err);
+      await challengeMsg.channel.send('Something went wrong running the wager.').catch(() => {});
+    }
+  });
+  collector.on('end', (_c, reason) => {
+    if (reason === 'settled') return;
+    challengeMsg.edit({
+      embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6).setDescription(`⌛ The wager to **${target.username}** expired.`)],
+      components: [],
+    }).catch(() => {});
+  });
+}
+
 async function execute(message) {
   const challenger = message.author;
+
+  // [v5 §4.1] wager mode: `crd duel wager @user <amount>`
+  if ((message.args[0] || '').toLowerCase() === 'wager') {
+    const wTarget = message.getMention(0);
+    if (!wTarget) return reply(message, 'Usage: `crd duel wager @user <amount>`');
+    if (wTarget.id === challenger.id) return reply(message, 'You cannot wager against yourself.');
+    if (wTarget.bot) return reply(message, 'You cannot wager against a bot.');
+    const amtToken = message.args.map((a) => a.replace(/,/g, '')).find((a) => /^\d+$/.test(a));
+    const stake = Number(amtToken);
+    if (!amtToken || !Number.isInteger(stake) || stake <= 0) {
+      return reply(message, 'Enter a positive stake — e.g. `crd duel wager @user 10000`.');
+    }
+    if (stake > WAGER_CAP) return reply(message, `Wager cap is **${WAGER_CAP.toLocaleString()}** Credux per duel.`);
+    return runWager(message, challenger, wTarget, stake);
+  }
+
   const target = message.getMention(0); // [v4.9] prefix @mention or slash user option
   if (!target) return reply(message, 'Usage: `crd duel @user`');
   if (target.id === challenger.id) return reply(message, 'You cannot duel yourself.');

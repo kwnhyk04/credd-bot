@@ -8,7 +8,11 @@
 
 # - credd_schema_v5_migration.sql (Phase 0 — already written; gear split + scaffolding)
 
-# - credd_schema_v5b_runes_seasons.sql (Phase 2+ — runes values, rune shop, season/title tables)
+# - credd_schema_v5b_runes_seasons.sql (Phase 2+ — runes values, rune shop, season/title tables, §E ranked_reward)
+
+# - credd_schema_v5_phase3.sql (Phase 3 — active_echo_deity_id + binary blessing tags) [IMPLEMENTED]
+
+# - credd_schema_v5_phase4.sql (Phase 4 — pvp_peak/last_weekly_claim_week/pvp_demotion_shield, ranked_logs, wager_logs) [IMPLEMENTED]
 
 # - CREDD_v5_Gear_Overhaul.md (armor/weapon rosters + stat banding)
 
@@ -17,6 +21,8 @@
 # - credd_v5_new_armor_passives.js (8 new armor passive functions)
 
 # - CREDD_v5_Naming_Conventions.md (slugs/keys/paths/JSONB shapes — READ FIRST)
+
+# - CREDD_v5_Blessing_System.md (Deity system - READ FIRST)
 
 #
 
@@ -127,9 +133,7 @@ Goal: gear has sockets; runes drop, socket in, and modify stats/combat.
 2.1 Rune content (SQL: credd_schema_v5b_runes_seasons.sql §A)
 
 - 10 families × tiers. Lanes: offense (Sharpness,Precision,Vampiric,Piercing,Venom),
-  defense (Vitality,Bulwark,Thorns,Warding,Aegis). `rune_roster.value` is the legacy/default
-  reference value; each owned rune rolls its actual percentage once into `user_runes.rolled_value`
-  from code-side config ranges.
+  defense (Vitality,Bulwark,Thorns,Warding,Aegis). Tiered values seeded in the SQL (tune later).
 
   2.2 Socket counts (rolled at gear drop — retro-applies to Phase 1 drops via the placeholders)
   Native slots by tier (native lane = weapon:offense / armor:defense):
@@ -141,11 +145,6 @@ Goal: gear has sockets; runes drop, socket in, and modify stats/combat.
   | Supreme | 4 | guaranteed |
   Opposite slots (opposite lane): NOT rolled — BOUGHT (§2.5). Max opposite: Mythic 1, Legendary 2,
   Supreme 2. Common/Rare cannot buy opposite slots.
-
-  Current implementation override: native sockets are capped at 2 for now
-  (Rare 1-2, Mythic 1-2, Legendary 2, Supreme 2), and opposite socket
-  unlock/socketing is disabled until a future update restores opposite runes
-  and 4-slot caps.
 
   2.3 Rune drop/craft faucet
 
@@ -193,12 +192,12 @@ Goal: gear has sockets; runes drop, socket in, and modify stats/combat.
 
 - `crd essence shop` - Same design embed as crd supporter shop (Header with essence icon)
 - ID's to buy are just increment from 1.
-  1 = Lesser Rune Bag: Cost 10 Mythic essence + 50,000 credux
-  2 = Greater Rune Bag: Cost 10 Legend Essence + 125,000 credux
-  3 = Divine Rune Bag: Cost 10 Supreme Essence + 250,000 credux
-  4 = Mythic Essence: Cost 10 Epic Essence + 50,000 credux
-  5 = Legendary Essence: Cost 10 Mythic Essence + 125,000 credux
-  6 = Supreme Essence: Cost 10 Legendary Essence + 250,000 credux
+  1 = Lesser Rune Bag: Cost 10 Mythic essence + 10,000 credux
+  2 = Greater Rune Bag: Cost 10 Legend Essence + 50,000 credux
+  3 = Divine Rune Bag: Cost 10 Supreme Essence + 100,000 credux
+  4 = Mythic Essence: Cost 10 Epic Essence + 10,000 credux
+  5 = Legendary Essence: Cost 10 Mythic Essence + 50,000 credux
+  6 = Supreme Essence: Cost 10 Legendary Essence + 100,000 credux
 - `crd exchange [id]` — NEVER downward.
 - Emoji Icons are uploaded in Discord bot for rune bags
 
@@ -210,15 +209,24 @@ PHASE 3 — PANTHEON (3 deity slots)
 =======================================================================
 Goal: collection matters — equip a main + 2 support deities; reputation level gates slots.
 
+Read CREDD_v5_Blessing_System.md for the full updated mechanics.
+
 3.1 Slots (schema already in Phase 0 §4): active_deity_id (main, 100%/100%),
-active_deity_id_3 (25% stats), active_deity_id_2 (25% stats). Unlocking 3rd slot (active_deity_id_3) will unlock slot for 2nd deity passive at 50% effectivity
+active_deity_id_3 (50% stats), active_deity_id_2 (50% stats). Unlocking 3rd slot (active_deity_id_3) will unlock slot for 2nd deity passive, user has to choose which passive will be effective from slot 2 or 3.
 3.2 Believer-level gates: slot 3 unlock at Believer 10, slot 2 at Believer 25 (or your final numbers recommend which is better based on the experience required to level up and the length to reach it).
-3.3 blessing_scaling tag: 'scalable' → multiply blessing magnitude by slot % (100/50/25);
-'binary' → fires at FULL but MAIN SLOT ONLY (support slots give only the stat %). Populate the tag.
-3.4 Stat contribution: flat-add per Stat Assembly Step 6 (deities not scaled by runes).
-3.5 Same-family blessing no-stack: reuse §13.1 conflict resolution (strongest of a family fires).
-3.6 Caps: total evade <=40% (shared with armor); cap combined sustain (heal+heal+lifesteal).
-3.7 Commands: `crd deity equip [name] [slot]` (slot 1/2/3); profile shows all 3 + which blessings active.
+3.3 Stat contribution: flat-add per Stat Assembly Step 6 (deities not scaled by runes).
+3.4 Same-family blessing no-stack: reuse §13.1 conflict resolution (strongest of a family fires).
+3.5 Caps: total evade <=40% (shared with armor); cap combined sustain (heal+heal+lifesteal).
+3.6 Commands: `crd deity equip [name] [slot]` (slot 1/2/3); profile shows all 3 + which blessings active.
+`crd deities` - Show All deities equipped.
+Header: @users's equipped deities
+Separator:
+Body: Canvas image of 3 deities slot box. Slot 2 left, slot 1 middle, slot 3 right, Autocenter. Blank slot = Grey, equipped slot = outline same color as the deity tier.
+Display Slot 1, slot 2, or slot 3 on the top of the squared slot canvas, Deity name only below
+Next line outside the canvas:
+Divine Resonance Blessing: Stats blessing info
+Separator:
+Footer: commands help
 
 =======================================================================
 PHASE 4 — RANKED PvP + LEADERBOARDS

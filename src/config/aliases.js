@@ -49,6 +49,10 @@ module.exports = {
   rn: 'runes',
   so: 'socket',
   uso: 'unsocket',
+  // Ranked / leaderboards (Phase 4)
+  lb: 'leaderboard',
+  rk: 'ranked',
+  rc: 'ranked claim',
   // Economy
   g: 'cred',          // [v4.9] back-compat
   bs: 'bestow',

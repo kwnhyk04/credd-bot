@@ -35,7 +35,7 @@ async function trySellRune(message, discordId, arg) {
       [arg, discordId]
     );
     if (del.rowCount === 0) { await client.query('ROLLBACK'); await reply(message, 'That rune is no longer sellable.'); return true; }
-    await client.query('UPDATE users_bag SET credux = credux + $2 WHERE discord_id = $1', [discordId, price]);
+    await client.query('UPDATE users_bag SET credux = credux + $2, lifetime_credux_earned = lifetime_credux_earned + $2 WHERE discord_id = $1', [discordId, price]);
     await client.query(
       `INSERT INTO game_logs (discord_id, action, item_type) VALUES ($1, 'Sell Rune', $2)`,
       [discordId, rune.tier]
@@ -245,7 +245,7 @@ async function handleConfirm(interaction, mode, arg, ownerId) {
 
         if (weaponIds.length) await client.query('DELETE FROM user_weapons WHERE weapon_id = ANY($1::varchar[])', [weaponIds]);
         if (armorIds.length) await client.query('DELETE FROM user_armors WHERE armor_id = ANY($1::varchar[])', [armorIds]);
-        await client.query('UPDATE users_bag SET credux = credux + $2 WHERE discord_id = $1', [ownerId, total]);
+        await client.query('UPDATE users_bag SET credux = credux + $2, lifetime_credux_earned = lifetime_credux_earned + $2 WHERE discord_id = $1', [ownerId, total]);
         await client.query(
           `INSERT INTO game_logs (discord_id, action, item_type, previous_credux, updated_credux)
            VALUES ($1, 'Sell Gear', $2, $3, $4)`,

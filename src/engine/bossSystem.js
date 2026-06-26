@@ -657,6 +657,7 @@ async function distributeRewards(client, guildId, spawnId) {
         `UPDATE users_bag
             SET credux = credux + $2,
                 belief_shards = belief_shards + $3,
+                lifetime_credux_earned = lifetime_credux_earned + $2,
                 ${chest.column} = ${chest.column} + $4
           WHERE discord_id = ANY($1)
           RETURNING discord_id, credux, belief_shards, ${chest.column} AS chest_count`,
@@ -664,6 +665,12 @@ async function distributeRewards(client, guildId, spawnId) {
       );
 
       await awardCombatExpMany(dbc, attackerIds, reward.exp);
+
+      // [v5 Phase 4] boss participation kill — boss died + you attacked (Blueprint §4.4)
+      await dbc.query(
+        'UPDATE user_character SET boss_kills = boss_kills + 1 WHERE discord_id = ANY($1)',
+        [attackerIds]
+      );
 
       // game_logs — one row per currency/item per attacker (action 'Boss'),
       // before/after balances, bulk via unnest

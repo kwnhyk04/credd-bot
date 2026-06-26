@@ -20,6 +20,8 @@ const weaponCmd = require('../commands/rpg/weapon');
 const equipmentCmd = require('../commands/rpg/equipment');
 const raidCmd = require('../commands/rpg/raid');
 const duelCmd = require('../commands/rpg/duel');
+const rankedCmd = require('../commands/rpg/ranked');
+const leaderboardCmd = require('../commands/rpg/leaderboard');
 const bossCmd = require('../commands/rpg/boss');
 const bestowCmd = require('../commands/economy/bestow');
 const credCmd = require('../commands/economy/cred');
@@ -68,6 +70,8 @@ const IMPLEMENTED = {
   equipment: { mw: 'full', run: equipmentCmd.execute },
   raid:     { mw: 'full', run: raidCmd.execute },
   duel:     { mw: 'full', run: duelCmd.execute },
+  ranked:   { mw: 'full', run: rankedCmd.execute },
+  leaderboard: { mw: 'full', run: leaderboardCmd.execute },
   boss:     { mw: 'full', run: bossCmd.execute },
   bestow:   { mw: 'full', run: bestowCmd.execute },
   cred:     { mw: 'full', run: credCmd.execute },
@@ -106,6 +110,8 @@ const COMMAND_MAP = {
   stats:     { requiresCharacter: true },
   raid:      { requiresCharacter: true },
   duel:      { requiresCharacter: true },
+  ranked:    { requiresCharacter: true },
+  leaderboard: { requiresCharacter: false },
   boss:      { requiresCharacter: false }, // status view; Attack button enforces the gate itself
   summon:    { requiresCharacter: true },
   bag:       { requiresCharacter: true },

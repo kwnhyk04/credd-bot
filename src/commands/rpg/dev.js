@@ -436,6 +436,20 @@ async function setBelieverLevel(message, args, devId) {
   return reply(message, `✅ Set <@${target.id}>'s Believer Level to **${level}**.`);
 }
 
+// ── crd dev setrating @user <rating> ──────────────────────────────────────
+async function setRating(message, args, devId) {
+  const target = message.mentions.users.first() || { id: devId };
+  const rating = parseInt(args[args.length - 1], 10);
+  if (isNaN(rating) || rating < 0) {
+    return reply(message, 'Usage: `crd dev setrating [@user] <rating>`');
+  }
+  await pool.query(
+    'UPDATE user_character SET pvp_rating = $1, pvp_peak = GREATEST(pvp_peak, $1) WHERE discord_id = $2',
+    [rating, target.id]
+  );
+  return reply(message, `✅ Set <@${target.id}>'s PvP Rating to **${rating}**.`);
+}
+
 // ── crd dev enhanceequipment <equipment_id> <+level> ───────────────────────
 // [v5] id-detect weapon vs armor: weapon scales ATK, armor scales HP/DEF.
 async function enhanceEquipment(message, args, devId) {
@@ -942,6 +956,7 @@ async function execute(message, { args }) {
     case 'resetplayer':      return resetPlayer(message, devId);
     case 'resetweapons':     return resetWeapons(message, args, devId);
     case 'believerlevel':    return setBelieverLevel(message, args, devId);
+    case 'setrating':        return setRating(message, args, devId);
     case 'enhanceequipment': return enhanceEquipment(message, args, devId);
     case 'enhanceweapon':    return enhanceEquipment(message, args, devId); // back-compat alias
     case 'enhancedeity':     return enhanceDeity(message, args, devId);

@@ -162,7 +162,8 @@ async function progressQuests(client, discordId, deltas) {
     const credux = Number(q.reward_credux);
     const shards = Number(q.reward_belief_shards);
     const bag = await client.query(
-      `UPDATE users_bag SET credux = credux + $2, belief_shards = belief_shards + $3
+      `UPDATE users_bag SET credux = credux + $2, belief_shards = belief_shards + $3,
+              lifetime_credux_earned = lifetime_credux_earned + $2
         WHERE discord_id = $1 RETURNING credux, belief_shards`,
       [discordId, credux, shards]
     );

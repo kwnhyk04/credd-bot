@@ -115,7 +115,8 @@ async function commitRewards(discordId, sim, mobRow, rng) {
     const bagUpd = await client.query(
       `UPDATE users_bag
           SET credux = credux + $2,
-              belief_shards = belief_shards + $3
+              belief_shards = belief_shards + $3,
+              lifetime_credux_earned = lifetime_credux_earned + $2
               ${chestCol ? `, ${chestCol} = ${chestCol} + 1` : ''}
         WHERE discord_id = $1
         RETURNING credux, belief_shards${chestCol ? `, ${chestCol}` : ''}`,
