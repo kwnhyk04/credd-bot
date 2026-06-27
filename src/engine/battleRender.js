@@ -502,8 +502,8 @@ function logEmbeds(sim) {
  *                                          frame only. No-op when empty.
  */
 async function runBattle(channel, {
-  mode, sim, rewards = null, onMessage = null, notices = [], battleSkinPath = null,
-  resultSkinPath = null,
+  mode, sim, rewards = null, onMessage = null, notices = [], footer = null, header = null,
+  battleSkinPath = null, resultSkinPath = null,
 }) {
   const mirror = mode === 'duel';
   // STRICT outcome: resultSkinPath is the victory OR defeated canvas already
@@ -544,6 +544,10 @@ async function runBattle(channel, {
   const frame = (i) => {
     const over = i >= sim.snapshots.length - 1;
     const base = battleEmbed(sim, i, { mode });
+    // Phase 6: ranked threads its result into the embed — the tier matchup in the
+    // HEADER (author, top), the outcome + rating move + Valor in the FOOTER (bottom).
+    if (over && header) base.setAuthor({ name: header });
+    if (over && footer) base.setFooter({ text: footer });
     const showRewards = over && resultEmbed;
     return {
       content: over && noticeLine ? noticeLine : '',

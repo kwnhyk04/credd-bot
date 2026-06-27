@@ -61,7 +61,8 @@ async function buildEssenceShop(viewerId) {
   const container = new ContainerBuilder().setAccentColor(BRAND);
   container.addTextDisplayComponents((td) => td.setContent(`## ${emoji('general_essence')} Essence Shop`));
   container.addTextDisplayComponents((td) => td.setContent(
-    '-# One-way exchange — spend essence + Credux. Buy with `crd exchange <id>`.'
+    '-# Rune bags — buy with `crd exchange <lb|gb|db> [qty]`. '
+    + 'Essence tier-ups moved to `crd exchange essence`.'
   ));
   container.addSeparatorComponents(sep);
   container.addMediaGalleryComponents((g) => g.addItems((i) => i.setURL('attachment://essence_shop.png')));

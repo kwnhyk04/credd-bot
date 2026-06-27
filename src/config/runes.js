@@ -80,8 +80,9 @@ const ESSENCE_COLUMN = {
   legendary: 'legendary_essence', supreme: 'supreme_essence',
 };
 
-// ── Essence shop catalog — `crd essence shop` / `crd exchange [id]` (§2.7) ────
-// One-way only (never downward). cost.essence/credux spent → grant.column +amount.
+// ── Essence shop catalog — `crd essence shop` / `crd exchange <id|lb|gb|db> [qty]` ─
+// One-way rune-bag buys only (essence tier-ups moved to `crd exchange essence`, §E).
+// cost.essence/credux spent → grant.column +amount. Letter ids: lb/gb/db (see EXCHANGE_IDS).
 const ESSENCE_SHOP = [
   { id: 1, name: 'Lesser Rune Bag',  emojiName: 'lesser_rune_bag',
     cost: { essence: 'mythic',    amount: 10, credux: 50000 },  grant: { column: 'lesser_rune_bag',  amount: 1 } },
@@ -89,13 +90,18 @@ const ESSENCE_SHOP = [
     cost: { essence: 'legendary', amount: 10, credux: 125000 }, grant: { column: 'greater_rune_bag', amount: 1 } },
   { id: 3, name: 'Divine Rune Bag',  emojiName: 'divine_rune_bag',
     cost: { essence: 'supreme',   amount: 10, credux: 250000 }, grant: { column: 'divine_rune_bag',  amount: 1 } },
-  { id: 4, name: 'Mythic Essence',    emojiName: 'mythic_essence',
-    cost: { essence: 'epic',      amount: 10, credux: 50000 },  grant: { column: 'mythic_essence',    amount: 1 } },
-  { id: 5, name: 'Legendary Essence', emojiName: 'legendary_essence',
-    cost: { essence: 'mythic',    amount: 10, credux: 125000 }, grant: { column: 'legendary_essence', amount: 1 } },
-  { id: 6, name: 'Supreme Essence',   emojiName: 'supreme_essence',
-    cost: { essence: 'legendary', amount: 10, credux: 250000 }, grant: { column: 'supreme_essence',   amount: 1 } },
 ];
+
+// Letter aliases for `crd exchange` (Phase 6): lb→1 Lesser, gb→2 Greater, db→3 Divine.
+const EXCHANGE_IDS = { lb: 1, gb: 2, db: 3 };
+
+// ── Essence tier-up conversion — `crd exchange essence` (Phase 6, §E) ─────────
+// Continuous enhance-style flow keyed by TARGET tier. 10 of the lower tier + Credux → 1.
+const ESSENCE_CONVERT = {
+  mythic:    { target: 'mythic_essence',    targetName: 'Mythic Essence',    from: 'epic',      amount: 10, credux: 50000 },
+  legendary: { target: 'legendary_essence', targetName: 'Legendary Essence', from: 'mythic',    amount: 10, credux: 125000 },
+  supreme:   { target: 'supreme_essence',   targetName: 'Supreme Essence',   from: 'legendary', amount: 10, credux: 250000 },
+};
 
 // ── Unsocket cost (Credux; rune returned to bag) + rune sell payout — by tier ─
 const UNSOCKET_COST = { Rare: 5000, Mythic: 15000, Legendary: 40000, Supreme: 100000 };
@@ -161,7 +167,7 @@ module.exports = {
   STAT_EFFECT_KEYS, COMBAT_EFFECT_KEYS, OFFENSE_KEYS, DEFENSE_KEYS,
   RUNE_VALUE_RANGES,
   BAGS, BAG_ALIAS, BAG_ALIASES, RUNE_BAG_MAX_OPEN,
-  ESSENCE_COLUMN, ESSENCE_SHOP,
+  ESSENCE_COLUMN, ESSENCE_SHOP, EXCHANGE_IDS, ESSENCE_CONVERT,
   UNSOCKET_COST, RUNE_SELL_PRICE,
   runeEmojiName, runeEmoji, bagEmoji, shopEmoji, runeArtRel,
   rollRuneValue, formatRuneValue, runeDescription,

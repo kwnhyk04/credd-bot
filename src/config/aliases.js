@@ -53,6 +53,7 @@ module.exports = {
   lb: 'leaderboards',
   rk: 'ranked',
   rc: 'ranked claim',
+  ps: 'pvp shop',
   t: 'title',
   // Economy
   g: 'cred',          // [v4.9] back-compat

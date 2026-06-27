@@ -61,9 +61,7 @@ class HP alone. Grant the starter, or accept fresh characters are glass by desig
 ### Step 4 — Rune contribution (from BOTH gear pieces' sockets)
 Walk every socketed rune on the equipped weapon AND the equipped armor — native and opposite slots —
 and accumulate by stat. Runes are stored in `native_sockets` / `opposite_sockets` JSONB on each gear
-row; each entry resolves to a `user_runes` + `rune_roster` row. Use
-`COALESCE(user_runes.rolled_value, rune_roster.value)` as the rune value:
-owned runes roll once at acquisition, while rune_roster.value remains the fallback.
+row; each entry resolves to a `rune_roster` row (effect_key + value).
 
 ```
 Σ runeATK%   = sum of Sharpness  values   (offense lane)

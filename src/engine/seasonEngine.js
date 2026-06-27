@@ -78,18 +78,24 @@ async function rolloverIfDue(db, { force = false } = {}) {
     if (sres.rows.length === 0) { await client.query('ROLLBACK'); return { rolled: false }; }
     const season = sres.rows[0];
 
-    const rwRes = await client.query('SELECT bracket, season_end_payload FROM ranked_reward');
+    const rwRes = await client.query('SELECT bracket, season_end_payload, season_valor FROM ranked_reward');
     const payloadByBracket = Object.fromEntries(rwRes.rows.map((r) => [r.bracket, r.season_end_payload]));
+    const valorByBracket = Object.fromEntries(rwRes.rows.map((r) => [r.bracket, Number(r.season_valor) || 0]));
 
     const players = await client.query('SELECT discord_id, pvp_peak FROM user_character');
     let paid = 0;
     for (const pl of players.rows) {
       const bracket = bracketOf(pl.pvp_peak).name;
       const payload = payloadByBracket[bracket];
+      const valor = valorByBracket[bracket] || 0;
+      // Phase 6: season-end Valor Medals by PEAK bracket (the "monthly" rank payout).
+      if (valor > 0) {
+        await client.query('UPDATE users_bag SET valor_medals = valor_medals + $2 WHERE discord_id = $1', [pl.discord_id, valor]);
+      }
       if (payload && payload.length) {
         await grantSeasonEnd(client, pl.discord_id, bracket, payload, season.season_id, season.name);
-        paid += 1;
       }
+      if ((payload && payload.length) || valor > 0) paid += 1;
     }
 
     // soft ranked reset for everyone

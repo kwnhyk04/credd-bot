@@ -22,6 +22,7 @@ const LB_QUOTE = '-# *"The gods remember only those whose names are carved at th
 // key → { label, col (SELECT value), fmt }
 const CATEGORIES = {
   rating:   { label: 'PvP Rating',      col: 'uc.pvp_rating', fmt: (v) => `${v} (${bracketOf(v).name})` },
+  valor:    { label: 'Valor Medals',    col: 'ub.valor_medals', fmt: (v) => Number(v).toLocaleString() },
   credux:   { label: 'Lifetime Credux', col: 'ub.lifetime_credux_earned', fmt: (v) => Number(v).toLocaleString() },
   raids:    { label: 'Raids Done',      col: '(uc.raids_won + uc.raids_lost)', fmt: (v) => `${v}` },
   raidwins: { label: 'Raid Wins',       col: 'uc.raids_won', fmt: (v) => `${v}` },

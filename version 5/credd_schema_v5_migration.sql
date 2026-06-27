@@ -108,7 +108,6 @@ CREATE TABLE user_runes (
     rune_uid      VARCHAR(8)  PRIMARY KEY,                      -- app-generated 8-char unique id
     discord_id    VARCHAR(20) NOT NULL REFERENCES users (discord_id),
     rune_id       INTEGER     NOT NULL REFERENCES rune_roster (rune_id),
-    rolled_value  DECIMAL(6,2),                                  -- per-owned roll; NULL falls back to rune_roster.value
     socketed_into VARCHAR(8),                                   -- weapon_id or armor_id; NULL = unsocketed
     is_locked     BOOLEAN     NOT NULL DEFAULT FALSE,
     obtained_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()

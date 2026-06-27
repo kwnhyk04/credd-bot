@@ -17,7 +17,8 @@ const { buildPlayerFighter } = require('../../engine/statAssembly');
 const { runBattle } = require('../../engine/battleRender');
 const { resolveSkin } = require('../../engine/skinResolver');
 const {
-  bracketOf, bracketFloor, matchRange, pointsFor, phtWeek, WEEKLY_MIN_GAMES,
+  bracketOf, bracketFloor, bracketIndex, matchRange, matchRangeWide,
+  eloDelta, valorForResult, phtWeek, WEEKLY_MIN_GAMES,
 } = require('../../config/ranked');
 
 const GOLD = 0xf0b232;
@@ -65,19 +66,39 @@ async function fight(message) {
   if (selfRes.rows.length === 0) return reply(message, 'No character found.');
   const self = selfRes.rows[0];
   const rating = self.pvp_rating;
-  const { lo, hi } = matchRange(rating);
 
-  const oppRes = await pool.query(
-    `SELECT uc.discord_id, u.username, uc.pvp_rating
-       FROM user_character uc JOIN users u ON u.discord_id = uc.discord_id
-      WHERE uc.pvp_rating BETWEEN $1 AND $2 AND uc.discord_id <> $3
-      ORDER BY random() LIMIT 1`,
-    [lo, hi, me]
+  // Avoid an immediate rematch: the most recent opponent is excluded first, so a
+  // thin bracket doesn't pit you against the same player twice in a row.
+  const lastRes = await pool.query(
+    'SELECT opponent_id FROM ranked_logs WHERE player_id = $1 ORDER BY timestamp DESC LIMIT 1',
+    [me]
   );
-  if (oppRes.rows.length === 0) {
+  const lastOpp = lastRes.rows[0]?.opponent_id || null;
+
+  // Pull a random eligible opponent in a rating window. exclude=true drops the
+  // just-fought player; widen jumps from ±1 to ±2 brackets when the pool is thin.
+  async function pickOpponent(span, excludeLast) {
+    const { lo, hi } = matchRangeWide(rating, span);
+    const params = [lo, hi, me];
+    let extra = '';
+    if (excludeLast && lastOpp) { params.push(lastOpp); extra = `AND uc.discord_id <> $${params.length}`; }
+    const res = await pool.query(
+      `SELECT uc.discord_id, u.username, uc.pvp_rating
+         FROM user_character uc JOIN users u ON u.discord_id = uc.discord_id
+        WHERE uc.pvp_rating BETWEEN $1 AND $2 AND uc.discord_id <> $3 ${extra}
+        ORDER BY random() LIMIT 1`,
+      params
+    );
+    return res.rows[0] || null;
+  }
+
+  // ±1 (no rematch) → ±2 (no rematch) → ±2 (allow rematch as last resort).
+  let opp = await pickOpponent(1, true);
+  if (!opp) opp = await pickOpponent(2, true);
+  if (!opp) opp = await pickOpponent(2, false);
+  if (!opp) {
     return reply(message, '⚔️ No eligible opponent in your bracket range right now — try again later.');
   }
-  const opp = oppRes.rows[0];
   const oppRating = opp.pvp_rating;
 
   // Ranked fights at TRUE levels/stats/equipment — no normalization (build + level both matter).
@@ -89,7 +110,8 @@ async function fight(message) {
 
   const sim = resolveBattle(p1, p2, { mode: 'duel', seed: Date.now() >>> 0 });
   const won = sim.winner === 'a';
-  const delta = pointsFor(rating, oppRating, won);
+  const delta = eloDelta(rating, oppRating, won);          // dynamic — scales with rank gap
+  const medals = valorForResult(rating, oppRating, won);   // Valor for win AND loss
   const { rating: newRating, shield } = applyRating(rating, self.pvp_demotion_shield, delta);
   const newPeak = Math.max(self.pvp_peak, newRating);
 
@@ -98,13 +120,24 @@ async function fight(message) {
     [me, newRating, shield, newPeak]
   );
   await pool.query(
+    'UPDATE users_bag SET valor_medals = valor_medals + $2 WHERE discord_id = $1',
+    [me, medals]
+  );
+  await pool.query(
     `INSERT INTO ranked_logs (player_id, opponent_id, result, rating_before, rating_after)
      VALUES ($1, $2, $3, $4, $5)`,
     [me, opp.discord_id, won ? 'win' : 'loss', rating, newRating]
   );
 
+  // Result rendered INSIDE the embed (Phase 6): the tier matchup sits in the HEADER
+  // (embed author, top), the outcome + rating move + Valor in the footer (bottom).
   const sign = delta >= 0 ? '+' : '';
-  const ratingLine = `${won ? '🏆 Victory' : '💀 Defeat'} vs **${opp.username}** · Rating ${sign}${delta} → **${newRating}** (${bracketOf(newRating).name})`;
+  const myBracket = bracketOf(newRating);
+  const oppBracket = bracketOf(oppRating);
+  const myTier = bracketIndex(myBracket.name) + 1;
+  const oppTier = bracketIndex(oppBracket.name) + 1;
+  const header = `You: Tier ${myTier} ${myBracket.name}   ·   ${opp.username}: Tier ${oppTier} ${oppBracket.name}`;
+  const footer = `${won ? '🏆 Victory' : '💀 Defeat'} vs ${opp.username}  ·  Rating ${sign}${delta} → ${newRating} (${myBracket.name})  ·  +${medals} Valor`;
 
   let battleSkinPath = null;
   let resultSkinPath = null;
@@ -116,7 +149,7 @@ async function fight(message) {
     console.warn('[ranked] skin resolution:', err.message);
   }
   await runBattle(message.channel, {
-    mode: 'duel', sim, notices: [ratingLine], battleSkinPath, resultSkinPath,
+    mode: 'duel', sim, header, footer, battleSkinPath, resultSkinPath,
   });
 }
 
@@ -147,10 +180,10 @@ async function claim(message) {
 
   const bracket = bracketOf(pvp_rating).name;
   const rewardRes = await pool.query(
-    'SELECT weekly_credux, weekly_payload FROM ranked_reward WHERE bracket = $1', [bracket]
+    'SELECT weekly_credux, weekly_valor, weekly_payload FROM ranked_reward WHERE bracket = $1', [bracket]
   );
   if (rewardRes.rows.length === 0) return reply(message, 'No reward configured for your bracket.');
-  const { weekly_credux, weekly_payload } = rewardRes.rows[0];
+  const { weekly_credux, weekly_valor, weekly_payload } = rewardRes.rows[0];
 
   const client = await pool.connect();
   try {
@@ -160,6 +193,10 @@ async function claim(message) {
     if (Number(weekly_credux) > 0) {
       await client.query('UPDATE users_bag SET credux = credux + $2 WHERE discord_id = $1', [me, weekly_credux]);
       grants.push(`${Number(weekly_credux).toLocaleString()} Credux`);
+    }
+    if (Number(weekly_valor) > 0) {
+      await client.query('UPDATE users_bag SET valor_medals = valor_medals + $2 WHERE discord_id = $1', [me, weekly_valor]);
+      grants.push(`${Number(weekly_valor).toLocaleString()} Valor Medals`);
     }
     for (const entry of (weekly_payload || [])) {
       const col = ITEM_COLUMN[entry.item];

@@ -940,7 +940,11 @@ function resolveBattle(a, b, opts = {}) {
 
     // 4. actions
     const procEnd = shared.events.length; // events so far = this round's passive procs
-    for (const side of order) act(side);
+    let act2Start = -1;                    // index where the SECOND actor's segment begins
+    for (let oi = 0; oi < order.length; oi++) {
+      act(order[oi]);
+      if (oi === 0) act2Start = shared.events.length; // close the first actor's segment
+    }
     const actionEnd = shared.events.length; // procEnd..actionEnd = the attack events
     // Capture the active moves before end-of-round DOT ticks/expiry alter their
     // damage and freshly-applied debuff durations.
@@ -988,13 +992,19 @@ function resolveBattle(a, b, opts = {}) {
       }
     }
 
-    // [Jun-2026] Log DISPLAY order only (execution is unchanged — passives still resolve
-    // before the attacks to set up the hits): show each round's passive procs AFTER the
-    // attacks. Segments: [attacks] → [passive procs] → [end-of-round DOT / sudden death].
+    // [Phase 6] Log DISPLAY order only (execution is unchanged — passives still resolve
+    // before the attacks to set up the hits). Interleave per the per-turn template:
+    //   [actor-1 attack + its weapon procs/reactive] → [passive HP/DEF buffs] →
+    //   [actor-2 attack + its dodge/thorns] → [end-of-round DOT / sudden death].
+    // Weapon procs, dodge/evade and reflect are pushed inside each actor's own segment,
+    // so they stay attached to the right attack; only the passive-buff block moves between
+    // the two attacks.
+    const seg2 = act2Start < 0 ? actionEnd : act2Start;
     shared.events = [
-      ...shared.events.slice(procEnd, actionEnd),
-      ...shared.events.slice(0, procEnd),
-      ...shared.events.slice(actionEnd),
+      ...shared.events.slice(procEnd, seg2),     // actor 1: attack + weapon procs + reactive
+      ...shared.events.slice(0, procEnd),        // passive HP/DEF buffs (deity/armor)
+      ...shared.events.slice(seg2, actionEnd),   // actor 2: attack + dodge/thorns
+      ...shared.events.slice(actionEnd),         // DOT ticks / sudden death
     ];
     rounds.push({ round, events: shared.events, actions: lastActions });
     // [v4.8] snapshot cadence is mode-dependent: raid + duel snapshot on rounds 1,4,16,…

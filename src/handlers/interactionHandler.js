@@ -15,6 +15,8 @@ const crashCmd = require('../commands/casino/crash');
 const skinShop = require('../engine/skinShopViews');
 const leaderboardCmd = require('../commands/rpg/leaderboard');
 const titleCmd = require('../commands/rpg/title');
+const exchangeEssenceCmd = require('../commands/rpg/exchangeEssence');
+const questsCmd = require('../commands/economy/quests');
 
 /**
  * Routes button interactions by customId.
@@ -51,7 +53,17 @@ async function handleInteraction(interaction) {
     if (namespace === 'runes') { await runeCmd.handleRunesInteraction(interaction); return; }
     if (namespace === 'lb') { await leaderboardCmd.handleSelect(interaction); return; }
     if (namespace === 'title' && action === 'cat') { await titleCmd.handleSelect(interaction); return; }
+    if (namespace === 'essx' && action === 'tier') { await exchangeEssenceCmd.handleSelect(interaction); return; }
+    if (namespace === 'quest' && action === 'scope') { await questsCmd.handleScopeSelect(interaction); return; }
     if (!isButton) return; // everything below this point is button-only
+    if (namespace === 'essx' && action === 'convert') {
+      await exchangeEssenceCmd.handleConvert(interaction, parts[2], parts[3]);
+      return;
+    }
+    if (namespace === 'quest' && action === 'claim') {
+      await questsCmd.handleClaimButton(interaction);
+      return;
+    }
     if (namespace === 'title') { await titleCmd.handleButton(interaction); return; }
     if (namespace === 'register' && action === 'confirm') {
       const ownerId = parts[2];

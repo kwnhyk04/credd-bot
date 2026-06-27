@@ -186,7 +186,10 @@ async function progressQuests(client, discordId, deltas) {
     }
     notices.push(completionNotice(type, q.target_count, credux, shards));
   }
-  return notices;
+  // [Phase 6] The same deltas drive the weekly board (its 5 lines reuse daily keys),
+  // so callers get weekly progress for free wherever they already report daily progress.
+  const weeklyNotices = await progressWeekly(client, discordId, deltas);
+  return notices.concat(weeklyNotices);
 }
 
 /** Refreshes used today (PHT-anchored; stale date → 0). */
@@ -277,6 +280,171 @@ function describeQuest(row) {
   };
 }
 
+// =====================================================================
+// WEEKLY QUESTS (Phase 6) — 5 fixed lines per PHT ISO week, harder than dailies.
+// Each completion pays Credux + Valor Medals; clearing ALL 5 unlocks the grand
+// bundle (1 Sacred Relic + bonus) via claimWeeklyGrand. Bucketed by phtWeek().
+// =====================================================================
+const { phtWeek } = require('../config/ranked');
+
+// reward is fixed per line: [credux, valor]. Targets are weekly-scale (a week of play).
+// credux_spent stores its target in thousands (same lossless trick as daily).
+const WEEKLY_QUEST_DEFS = {
+  raid_wins:           { progressUnit: 1,    roll: (rng) => randInt(rng, 20, 40), reward: () => [20000, 40], label: (n) => `Win ${n} raids this week` },
+  elite_defeats:       { progressUnit: 1,    roll: (rng) => randInt(rng, 15, 30), reward: () => [20000, 40], label: (n) => `Defeat ${n} elite mobs this week` },
+  credux_spent:        { progressUnit: 1000, roll: (rng) => randInt(rng, 100, 300), reward: () => [25000, 50], label: (n) => `Spend ${(n * 1000).toLocaleString()} Credux on enhancement` },
+  weapon_enhancements: { progressUnit: 1,    roll: (rng) => randInt(rng, 10, 20), reward: () => [20000, 40], label: (n) => `Enhance gear ${n} times this week` },
+  duel_wins:           { progressUnit: 1,    roll: (rng) => randInt(rng, 5, 12),  reward: () => [25000, 50], label: (n) => `Win ${n} duels this week` },
+};
+const WEEKLY_QUEST_TYPES = Object.keys(WEEKLY_QUEST_DEFS); // exactly the 5 weekly lines
+const WEEKLY_GRAND_CREDUX = 50000;
+const WEEKLY_GRAND_VALOR = 150;
+const WEEKLY_GRAND_RELICS = 1; // the Sacred Relic the weekly board is built around
+
+/** Roll the 5 weekly quests for (discordId, this PHT week) if none exist yet. */
+async function rollWeeklyIfMissing(client, discordId, rng = Math.random) {
+  const week = phtWeek();
+  await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`weekly:${discordId}`]);
+  const existing = await client.query(
+    'SELECT 1 FROM weekly_quests WHERE discord_id = $1 AND quest_week = $2 LIMIT 1',
+    [discordId, week]
+  );
+  if (existing.rows.length > 0) return false;
+  for (const type of WEEKLY_QUEST_TYPES) {
+    const def = WEEKLY_QUEST_DEFS[type];
+    const target = def.roll(rng);
+    const [credux, valor] = def.reward(target);
+    await client.query(
+      `INSERT INTO weekly_quests
+         (discord_id, quest_type, target_count, current_count, reward_credux, reward_valor, quest_week)
+       VALUES ($1, $2, $3, 0, $4, $5, $6)
+       ON CONFLICT (discord_id, quest_type, quest_week) DO NOTHING`,
+      [discordId, type, target, credux, valor, week]
+    );
+  }
+  return true;
+}
+
+/** `🗓️ Weekly complete: <label> — +X Credux, +Y Valor` */
+function weeklyCompletionNotice(questType, target, credux, valor) {
+  const def = WEEKLY_QUEST_DEFS[questType];
+  const label = def ? def.label(target) : questType;
+  return `🗓️ Weekly complete: ${label} — +${Number(credux).toLocaleString()} Credux, +${valor} Valor`;
+}
+
+/**
+ * Apply progress to this week's quests and auto-grant any that complete (Credux +
+ * Valor). Same contract as progressQuests (runs in the caller's txn under the bag
+ * lock). Returns completion-notice strings.
+ */
+async function progressWeekly(client, discordId, deltas) {
+  await rollWeeklyIfMissing(client, discordId);
+  const week = phtWeek();
+  const notices = [];
+  for (const [type, raw] of Object.entries(deltas)) {
+    if (!WEEKLY_QUEST_DEFS[type]) continue; // weekly only tracks its 5 lines
+    const inc = Math.floor(raw);
+    if (!(inc > 0)) continue;
+
+    const upd = await client.query(
+      `UPDATE weekly_quests
+          SET current_count = LEAST(target_count, current_count + $3)
+        WHERE discord_id = $1 AND quest_week = $2::int
+          AND quest_type = $4 AND completed = FALSE
+        RETURNING id, target_count, current_count, reward_credux, reward_valor`,
+      [discordId, week, inc, type]
+    );
+    if (upd.rows.length === 0) continue;
+    const q = upd.rows[0];
+    if (q.current_count < q.target_count) continue;
+
+    const done = await client.query(
+      'UPDATE weekly_quests SET completed = TRUE WHERE id = $1 AND completed = FALSE RETURNING id',
+      [q.id]
+    );
+    if (done.rows.length === 0) continue;
+
+    const credux = Number(q.reward_credux);
+    const valor = Number(q.reward_valor);
+    const bag = await client.query(
+      `UPDATE users_bag SET credux = credux + $2, valor_medals = valor_medals + $3,
+              lifetime_credux_earned = lifetime_credux_earned + $2
+        WHERE discord_id = $1 RETURNING credux`,
+      [discordId, credux, valor]
+    );
+    if (bag.rows.length === 0) continue;
+    if (credux > 0) {
+      const afterC = Number(bag.rows[0].credux);
+      await client.query(
+        `INSERT INTO game_logs (discord_id, action, previous_credux, updated_credux)
+         VALUES ($1, 'WeeklyQuest', $2, $3)`,
+        [discordId, afterC - credux, afterC]
+      );
+    }
+    notices.push(weeklyCompletionNotice(type, q.target_count, credux, valor));
+  }
+  return notices;
+}
+
+/** Shape a weekly_quests row for rendering (actual-unit current/target + reward). */
+function describeWeekly(row) {
+  const def = WEEKLY_QUEST_DEFS[row.quest_type] || { progressUnit: 1, label: () => row.quest_type };
+  const unit = def.progressUnit;
+  return {
+    type: row.quest_type,
+    name: def.label(row.target_count),
+    current: Number(row.current_count) * unit,
+    target: Number(row.target_count) * unit,
+    rewardCredux: Number(row.reward_credux),
+    rewardValor: Number(row.reward_valor),
+    completed: row.completed === true,
+  };
+}
+
+/**
+ * Claim the grand reward when all 5 weekly quests are complete this week. Idempotent
+ * via weekly_grand (one bundle per player per week). Runs in the caller's txn under
+ * the bag lock. Returns a tagged result: ok / incomplete / already.
+ */
+async function claimWeeklyGrand(client, discordId) {
+  const week = phtWeek();
+  await rollWeeklyIfMissing(client, discordId);
+
+  const cnt = await client.query(
+    `SELECT count(*)::int AS total, count(*) FILTER (WHERE completed)::int AS done
+       FROM weekly_quests WHERE discord_id = $1 AND quest_week = $2`,
+    [discordId, week]
+  );
+  const { total, done } = cnt.rows[0];
+  if (total === 0 || done < total) return { status: 'incomplete', done, total };
+
+  // one-shot guard
+  const guard = await client.query(
+    `INSERT INTO weekly_grand (discord_id, quest_week, claimed)
+     VALUES ($1, $2, TRUE)
+     ON CONFLICT (discord_id, quest_week) DO UPDATE SET claimed = TRUE
+       WHERE weekly_grand.claimed = FALSE
+     RETURNING discord_id`,
+    [discordId, week]
+  );
+  if (guard.rows.length === 0) return { status: 'already' };
+
+  await client.query(
+    `UPDATE users_bag
+        SET credux = credux + $2, valor_medals = valor_medals + $3,
+            sacred_relics = sacred_relics + $4,
+            lifetime_credux_earned = lifetime_credux_earned + $2
+      WHERE discord_id = $1`,
+    [discordId, WEEKLY_GRAND_CREDUX, WEEKLY_GRAND_VALOR, WEEKLY_GRAND_RELICS]
+  );
+  return {
+    status: 'ok',
+    credux: WEEKLY_GRAND_CREDUX,
+    valor: WEEKLY_GRAND_VALOR,
+    relics: WEEKLY_GRAND_RELICS,
+  };
+}
+
 /** Whole hours remaining until the next midnight PHT (rounded up, min 1). */
 function hoursUntilMidnightPHT(now = new Date()) {
   // PHT = UTC+8, no DST. Compute the current PHT wall-clock from the UTC instant.
@@ -297,4 +465,11 @@ module.exports = {
   describeQuest,
   completionNotice,
   hoursUntilMidnightPHT,
+  // Phase 6 weekly
+  WEEKLY_QUEST_DEFS,
+  WEEKLY_QUEST_TYPES,
+  rollWeeklyIfMissing,
+  progressWeekly,
+  describeWeekly,
+  claimWeeklyGrand,
 };

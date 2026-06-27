@@ -89,9 +89,18 @@ only the stat %. Same-family blessings don't stack (§13.1). Caps: total evade �
 Duels: casual / wager (Credux, 50k cap, counts vs 1M/day bestow-shared cap) / ranked (rating only).
 Elo brackets [IMPLEMENTED — Blueprint Phase 4 cutoffs are authoritative]:
   Mortal 0–999 · Champion 1000–2499 · Demigod 2500–4999 · Ascendant 5000–9999 · Divine 10000+.
-Match prev/current/next bracket only. Points: same +25/−20 · below +12/−35 · above +40/−10. Demotion
-shield at bracket floor (one protected loss; consumed at floor, refreshed on promote).
-Ranked matchmaking: random eligible real-user SNAPSHOT in the adjacent-bracket rating window, fought
+Demotion shield at bracket floor (one protected loss; consumed at floor, refreshed on promote).
+[PHASE 6] Points are now DYNAMIC (config/ranked.eloDelta) — rank difference is the only factor:
+  expected = 1/(1+10^((opp−self)/1000)); won → clamp(round(32·(1−E)), +8, +32); loss → clamp(round(32·(0−E)),
+  −32, −8). Beat a stronger foe = more; lose to a weaker one = costs more. (Old fixed +25/−20 table retired;
+  pointsFor is a back-compat shim over eloDelta.)
+[PHASE 6] Matchmaking avoids an immediate rematch (excludes the most-recent opponent) and WIDENS from ±1
+  to ±2 brackets (config/ranked.matchRangeWide) when the ±1 pool is thin, falling back to allow the last
+  opponent only if nobody else qualifies.
+[PHASE 6] Valor Medals (PvP currency, users_bag.valor_medals) drop on EVERY ranked result — win AND loss —
+  scaled by the same expectancy (win 10–25, loss 3–8). The ranked result now renders INSIDE the embed FOOTER
+  (battleRender footer param): your Tier #/name + opponent Tier #/name + rating move + Valor earned.
+Ranked matchmaking: random eligible real-user SNAPSHOT in the rating window, fought
 at TRUE levels/stats/equipment (NO level normalization); ONLY the challenger's pvp_rating moves
 (opponent offline-safe).
 Leaderboards: ONE command `crd leaderboards` (`crd lb`) — header + two dropdowns (category, scope
@@ -101,7 +110,13 @@ Combat/Believer Level, Boss Defeats (participation = boss_kills), Boss Top Hit (
 boss damage = boss_top_damage, Phase 5b). DESC indexes per metric (credd_schema_v5_phase4_indexes.sql
 + idx_uc_boss_top_damage) keep each board an index scan.
 Weekly reward: `crd ranked claim` — current bracket from ranked_reward table, gated ≥5 ranked games
-that PHT week, one claim/week (season-end by peak bracket deferred to Phase 5).
+that PHT week, one claim/week (now also grants ranked_reward.weekly_valor). Season-end (rolloverIfDue)
+grants ranked_reward.season_valor by PEAK bracket — the "monthly" rank payout.
+[PHASE 6] PvP SHOP — `crd pvp shop` (`crd ps`) + `crd pvp buy <id> [qty]` (src/commands/rpg/pvpShop.js).
+  The Valor sink, rendered in the same canvas style as `crd essence shop` (renderBagItemsImage). Items with
+  PER-SEASON caps tracked in pvp_shop_purchases (reset each season_id via active season): Sacred Relic 800 Valor
+  (cap 10/season), Supreme Chest 6,000 (cap 1), Supreme Relic 9,000 (cap 1). Priced so a Supreme item is ~2–3
+  months of steady Valor inflow. Buys are atomic with cap + balance checks.
 Schema: credd_schema_v5_phase4.sql (pvp_peak, last_weekly_claim_week, pvp_demotion_shield;
 ranked_logs; wager_logs). Ranked rewards seeded in credd_schema_v5b_runes_seasons.sql §E.
 
@@ -123,20 +138,30 @@ BANNER — DEFERRED (featured weighting + banner pity + limited deities not buil
 REWARD TRACK — DEFERRED.
 
 =======================================================================
-§V5-7. POWER-BUDGET RETUNE  (LAUNCH GATE — Blueprint Phase 6)
+§V5-7. POWER-BUDGET RETUNE  (LAUNCH GATE — Blueprint Phase 6) [IMPLEMENTED]
 =======================================================================
-Model a MAX build through the assembly pipeline (pantheon 175% + 6 weapon runes + 6 armor runes +
-uncapped crit + best gear + Mantle of Bathala ramp). Set ceiling (~2.3× current single build) and
-re-tune mob_roster boss HP/ATK/DEF + Greater Boss 2× HP to it. ENFORCE at resolver: total evade ≤40%;
-combined damage-reduction floor (incoming never < 25% of post-DEF value, applied AFTER runes+passives);
-sustain cap. Confirm no path re-imposes the old 45% crit clamp. Re-check Credux sinks vs new faucets.
+v5 power creep (3-slot pantheon 175% + rune sockets + UNCAPPED crit) raised max-build burst, so endgame
+bosses were rescaled (credd_schema_v6_mob_retune.sql, idempotent via special_flags.retune_v6):
+  boss base_hp & hp_per_level ×1.6 · base_def & def_per_level ×1.3 · atk_per_level ×1.15.
+Greater (×2 HP) / Golden (×3 HP) multipliers (src/config/bosses.js) stack on the new bases unchanged.
+Caps VERIFIED present, no regression: total evade ≤40% (battleEngine TOTAL_EVADE_CAP + passiveRegistry
+summation); incoming-damage floor 25% post-DEF (battleEngine INCOMING_DR_FLOOR, line ~501); crit UNCAPPED
+(no 45% clamp anywhere). Elite/regular (raid) mob tuning DEFERRED to a data-driven pass.
+Credux faucets/sinks: the new Valor PvP shop (§V5-5) diverts some PvP grind off Credux; armor sells +
+exchange-essence + rune unsocket remain the core sinks.
+[BATTLE LOG] Per-turn DISPLAY order resequenced (execution/RNG unchanged): actor-1 attack + weapon procs
+→ passive HP/DEF buffs → actor-2 attack + dodge/thorns → end-of-round DOT (battleEngine ~§4 actions).
 
 =======================================================================
 §V5-8. NEW COMMANDS  (canonical; see CREDD_v5_Naming_Conventions §7)
 =======================================================================
 crd bag armors · crd bag runes · crd equipment info [id] (alias eq info; weapon info deprecated) ·
-crd socket / unsocket · crd unlock socket · crd open eb/geb/deb · crd exchange · crd deity equip [name][slot] ·
+crd socket / unsocket · crd unlock socket · crd open eb/geb/deb · crd deity equip [name][slot] ·
 crd ranked · crd duel wager · crd leaderboard [cat] · crd title · crd dev resetweapons [@user].
+[PHASE 6] crd exchange <lb|gb|db|1|2|3> [qty] (rune bags, letter ids + quantity, default 1) ·
+crd exchange essence (continuous enhance-style tier-up; Mythic/Legendary/Supreme dropdown header) ·
+crd pvp shop (`crd ps`) / crd pvp buy <id> [qty] (Valor sink) ·
+crd quest [daily|weekly] + Daily/Weekly dropdown header · crd quest claim (weekly grand: 1 Sacred Relic).
 (crd equip / enhance / lock / sell extend to armor via id-type detection. No crd open ac — combined chest.)
 
 *End of Master Export v5 overlay. v4.2 remains the authoritative base for all unlisted systems.*

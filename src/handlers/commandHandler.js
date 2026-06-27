@@ -8,6 +8,7 @@ const ALIASES = require('../config/aliases');
 const registerCmd = require('../commands/rpg/register');
 const createCmd = require('../commands/rpg/create');
 const profileCmd = require('../commands/rpg/profile');
+const statsCmd = require('../commands/rpg/stats');
 const bagCmd = require('../commands/rpg/bag');
 const openCmd = require('../commands/rpg/open');
 const equipCmd = require('../commands/rpg/equip');
@@ -31,6 +32,7 @@ const dailyCmd = require('../commands/economy/daily');
 const devCmd = require('../commands/rpg/dev');
 const essenceShopCmd = require('../commands/rpg/essenceShop');
 const exchangeCmd = require('../commands/rpg/exchange');
+const pvpShopCmd = require('../commands/rpg/pvpShop');
 const socketCmd = require('../commands/rpg/socket');
 const runeCmd = require('../commands/rpg/rune');
 const shopCmd = require('../commands/rpg/shop');
@@ -56,7 +58,7 @@ const IMPLEMENTED = {
   register: { mw: 'ban',  run: registerCmd.execute },
   create:   { mw: 'full', run: createCmd.execute },
   profile:  { mw: 'full', run: profileCmd.execute },
-  stats:    { mw: 'full', run: profileCmd.execute },
+  stats:    { mw: 'full', run: statsCmd.execute },
   bag:      { mw: 'full', run: bagCmd.execute },
   open:     { mw: 'full', run: openCmd.execute },
   equip:    { mw: 'full', run: equipCmd.execute },
@@ -85,6 +87,7 @@ const IMPLEMENTED = {
   dev:      { mw: 'dev',  run: devCmd.execute },
   essence:  { mw: 'full', run: essenceShopCmd.execute },
   exchange: { mw: 'full', run: exchangeCmd.execute },
+  pvp:      { mw: 'full', run: pvpShopCmd.execute },
   socket:   { mw: 'full', run: socketCmd.socket },
   unsocket: { mw: 'full', run: socketCmd.unsocket },
   rune:     { mw: 'full', run: runeCmd.execute },
@@ -144,6 +147,7 @@ const COMMAND_MAP = {
   dev:       { requiresCharacter: false },
   essence:   { requiresCharacter: true },  // essence shop
   exchange:  { requiresCharacter: true },
+  pvp:       { requiresCharacter: true },  // pvp shop (Valor sink)
   socket:    { requiresCharacter: true },
   unsocket:  { requiresCharacter: true },
   rune:      { requiresCharacter: true },  // crd rune bag

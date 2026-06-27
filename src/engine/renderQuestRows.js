@@ -105,7 +105,7 @@ function drawBar(ctx, x, y, w, h, ratio) {
  * @param {Array<{name, current, target, rewardCredux, rewardShards, completed}>} quests
  * @returns {Promise<Buffer>} PNG
  */
-async function renderQuestRowsImage(quests) {
+async function renderQuestRowsImage(quests, { rewardIcon = 'belief_shards' } = {}) {
   const H = PAD * 2 + quests.length * ROW_H + (quests.length - 1) * GAP;
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
@@ -113,7 +113,8 @@ async function renderQuestRowsImage(quests) {
   ctx.fillRect(0, 0, W, H);
 
   const creduxIcon = await getEmojiIcon('credux_coin');
-  const shardIcon = await getEmojiIcon('belief_shards');
+  // [Phase 6] weekly boards pass rewardIcon='valor_medal'; daily keeps belief_shards.
+  const shardIcon = await getEmojiIcon(rewardIcon);
   const typeIcons = await Promise.all(quests.map((q) => getQuestIcon(q.type)));
 
   const TYPE_ICON = 28;
