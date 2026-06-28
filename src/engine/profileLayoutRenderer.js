@@ -290,9 +290,19 @@ function buildView(d) {
     stats: {
       atk: fmt(d.atk), hp: fmt(d.hp), def: fmt(d.def), crit: `${Number(d.crit || 0).toFixed(1)}%`,
     },
-    record_label: 'COMBAT RECORD',
+    record_label: 'RANK COMBAT RECORD',
     record: d.records || {},
     quote: d.quote || '',
+  };
+}
+
+// Relabel the (formerly duel) record columns to RANK without editing every per-skin layout JSON.
+const RANK_LABELS = { duels: 'RANK DUELS', duelWins: 'RANK WINS', duelStreak: 'RANK STREAK' };
+function relabelRankCols(record) {
+  if (!record || !Array.isArray(record.cols)) return record;
+  return {
+    ...record,
+    cols: record.cols.map((c) => (RANK_LABELS[c.key] ? { ...c, label: RANK_LABELS[c.key] } : c)),
   };
 }
 
@@ -318,7 +328,7 @@ async function renderProfileLayoutImage(d, options = {}) {
     if (key === 'top_label' && !layout.top_label.enabled) continue;
     await drawText(ctx, key, view[key], layout, view, images);
   }
-  drawRecord(ctx, layout.record, view.record);
+  drawRecord(ctx, relabelRankCols(layout.record), view.record);
   return canvas.toBuffer('image/png');
 }
 

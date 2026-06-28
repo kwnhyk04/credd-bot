@@ -157,12 +157,14 @@ async function renderStatsImage(d) {
   // Pre-fetch images (frame + avatar + weapon/deity/combat-exp icons) before laying out.
   // [Supporter-stage §6] When a profile skin resolves (d.skinPath), it replaces the default
   // template as the bottom layer; otherwise fall back to the shared default template.
-  const [template, avatar, weaponIcon, armorIcon, deityIcon, expIcon] = await Promise.all([
+  const [template, avatar, weaponIcon, armorIcon, deityIcon, deity2Icon, deity3Icon, expIcon] = await Promise.all([
     d.skinPath ? loadImage(d.skinPath).catch(() => null).then((img) => img || loadTemplate()) : loadTemplate(),
     loadAvatar(d.avatarUrl, d.fallbackAvatarUrl),
     d.weaponName ? getEmojiIcon(resolveName(d.weaponName) || '') : Promise.resolve(null),
     d.armorName ? getEmojiIcon(resolveName(d.armorName) || '') : Promise.resolve(null),
     d.deityName ? getEmojiIcon(resolveName(d.deityName) || '') : Promise.resolve(null),
+    d.deity2Name ? getEmojiIcon(resolveName(d.deity2Name) || '') : Promise.resolve(null),
+    d.deity3Name ? getEmojiIcon(resolveName(d.deity3Name) || '') : Promise.resolve(null),
     getEmojiIcon('combat_exp'),
   ]);
 
@@ -268,7 +270,15 @@ async function renderStatsImage(d) {
   ctx.fillText(`Combat EXP: ${Number(d.combatExp).toLocaleString()} / ${needed}`, cex, by);
   by += LH + 8;
 
-  // Equipments — weapon + armor on ONE horizontal line ("Gungnir +5, Mail of Brokkr +10").
+  // Inline "icon + text" segments on one row (icon optional). Returns the new x cursor.
+  const ICON = 18;
+  function seg(icon, text, x, yy) {
+    if (icon) { ctx.drawImage(icon, x, yy - 15, ICON, ICON); x += ICON + 5; }
+    ctx.fillText(text, x, yy);
+    return x + ctx.measureText(text).width;
+  }
+
+  // Equipments — weapon + armor on ONE horizontal line, each with its emoji icon.
   ctx.font = F(13, true);
   ctx.fillStyle = DIM_COLOR;
   ctx.fillText('Equipments:', PAD, by);
@@ -277,10 +287,12 @@ async function renderStatsImage(d) {
   ctx.fillStyle = NAME_COLOR;
   const wTxt = d.weaponName ? `${d.weaponName}${d.weaponEnh > 0 ? ` +${d.weaponEnh}` : ''}` : 'None';
   const aTxt = d.armorName ? `${d.armorName}${d.armorEnh > 0 ? ` +${d.armorEnh}` : ''}` : 'None';
-  ctx.fillText(fitText(ctx, `${wTxt}, ${aTxt}`, W - PAD * 2), PAD, by);
+  let ex = seg(d.weaponName ? weaponIcon : null, wTxt, PAD, by);
+  ex = seg(null, ',  ', ex, by);
+  seg(d.armorName ? armorIcon : null, aTxt, ex, by);
   by += LH + 12;   // blank space
 
-  // Deities — slots 1/2/3 on ONE horizontal line (slots 2/3 omitted when null).
+  // Deities — slots 1/2/3 on ONE horizontal line, each with its emoji icon (2/3 omitted if null).
   ctx.font = F(13, true);
   ctx.fillStyle = DIM_COLOR;
   ctx.fillText('Deities:', PAD, by);
@@ -288,12 +300,9 @@ async function renderStatsImage(d) {
   ctx.font = F(15, true);
   if (d.deityName) {
     ctx.fillStyle = NAME_COLOR;
-    const dTxt = [
-      `${d.deityName}${d.deityEnh > 0 ? ` +${d.deityEnh}` : ''}`,
-      d.deity2Name || null,
-      d.deity3Name || null,
-    ].filter(Boolean).join(', ');
-    ctx.fillText(fitText(ctx, dTxt, W - PAD * 2), PAD, by);
+    let dx = seg(deityIcon, `${d.deityName}${d.deityEnh > 0 ? ` +${d.deityEnh}` : ''}`, PAD, by);
+    if (d.deity2Name) { dx = seg(null, ',  ', dx, by); dx = seg(deity2Icon, d.deity2Name, dx, by); }
+    if (d.deity3Name) { dx = seg(null, ',  ', dx, by); seg(deity3Icon, d.deity3Name, dx, by); }
     by += LH;
     ctx.font = F(12);
     ctx.fillStyle = SUB_COLOR;

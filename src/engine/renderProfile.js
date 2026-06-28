@@ -210,10 +210,35 @@ async function renderProfileImage(d) {
 
   let y = PAD;
 
-  /* ── HEADER ─────────────────────────────────────────────── */
-  // Avatar (squared, rounded) on the right.
+  function separator(yy) {
+    ctx.strokeStyle = '#36393f';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(PAD, yy);
+    ctx.lineTo(W - PAD, yy);
+    ctx.stroke();
+  }
+
+  /* ── HEADER (before sep1): display name pushed DOWN toward the separator. The supporter
+   *    title ("Founder NNN") is the raw top-band label already drawn above the scaled layout. ── */
+  ctx.textAlign = 'left';
+  ctx.font = F(28, true);
+  ctx.fillStyle = NAME_COLOR;
+  ctx.fillText(fitText(ctx, d.displayName, W - PAD * 2), PAD, headerH - 16);
+
+  y = headerH;
+  separator(y);
+  y += 12;
+
+  const LH = 22;
+
+  /* ── ZONE 2 (after sep1): image + believer level/title + believer EXP bar, then class +
+   *    combat EXP — all pushed DOWN below the separator. ── */
+  let by = y + 30;
+
+  // Avatar (squared, rounded) on the right of zone 2.
   const ax = W - PAD - AVATAR;
-  const ay = y;
+  const ay = by - 24;
   ctx.save();
   roundRectPath(ctx, ax, ay, AVATAR, AVATAR, 16);
   ctx.clip();
@@ -231,48 +256,25 @@ async function renderProfileImage(d) {
 
   const leftW = ax - PAD - 16; // text column width (clears the avatar)
 
-  // Line 1: display name.
-  ctx.textAlign = 'left';
-  ctx.font = F(26, true);
-  ctx.fillStyle = NAME_COLOR;
-  ctx.fillText(fitText(ctx, d.displayName, leftW), PAD, y + 26);
-
-  // Line 2: Believer level + rank title (+ equipped title if any).
-  ctx.font = F(15, true);
+  // Believer level + rank title (+ equipped title if any).
+  ctx.font = F(16, true);
   ctx.fillStyle = ACCENT;
   const titleSuffix = d.equippedTitle ? ` · 🎖️ ${d.equippedTitle}` : '';
   ctx.fillText(
     fitText(ctx, `Believer Level ${d.believerLevel} · ${d.believerTitle}${titleSuffix}`, leftW),
-    PAD,
-    y + 50
+    PAD, by
   );
+  by += 26;
 
-  // Line 3: Believer EXP number + bar.
+  // Believer EXP number + bar.
   ctx.font = F(12);
   ctx.fillStyle = SUB_COLOR;
   const bExp = `${Number(d.believerExp).toLocaleString()} / ${Number(d.believerExpMax).toLocaleString()} EXP`;
-  ctx.fillText(bExp, PAD, y + 70);
-  drawProgress(ctx, PAD, y + 78, leftW, 10, d.believerExp / d.believerExpMax, EXP_FILL);
+  ctx.fillText(bExp, PAD, by);
+  drawProgress(ctx, PAD, by + 8, leftW, 10, d.believerExp / d.believerExpMax, EXP_FILL);
+  by += 38;
 
-  y = headerH;
-
-  /* ── SEPARATOR ──────────────────────────────────────────── */
-  function separator(yy) {
-    ctx.strokeStyle = '#36393f';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(PAD, yy);
-    ctx.lineTo(W - PAD, yy);
-    ctx.stroke();
-  }
-  separator(y);
-  y += 12;
-
-  /* ── BODY ───────────────────────────────────────────────── */
-  let by = y + 18;
-  const LH = 22;
-
-  // Class + combat level.
+  // Class + combat level (pushed down).
   ctx.font = F(16, true);
   ctx.fillStyle = NAME_COLOR;
   ctx.fillText(`Character Class: ${d.className}, Lvl ${d.combatLevel}`, PAD, by);
@@ -286,9 +288,6 @@ async function renderProfileImage(d) {
   const needed = d.combatExpMax == null ? 'MAX' : Number(d.combatExpMax).toLocaleString();
   ctx.fillText(`Combat EXP: ${Number(d.combatExp).toLocaleString()} / ${needed}`, cex, by);
 
-  // [Initial-release] Equipments, deities, and character stats are NOT shown on crd profile
-  // (they moved to crd stats). Profile keeps identity + believer progression + combat records.
-
   y = headerH + 12 + bodyH;
 
   /* ── SEPARATOR ──────────────────────────────────────────── */
@@ -299,16 +298,17 @@ async function renderProfileImage(d) {
   ctx.textAlign = 'left';
   ctx.font = F(12, true);
   ctx.fillStyle = DIM_COLOR;
-  ctx.fillText('Combat Record', PAD, y + 14);
+  ctx.fillText('Rank Combat Record', PAD, y + 14);
   y += 26;
 
+  // raidStreak = current raid win streak; rank cells are ranked PvP (rank streak = current).
   const cells = [
     { label: 'Raids', value: d.records.raids },
     { label: 'Raids Won', value: d.records.raidsWon },
     { label: 'Raid Streak', value: d.records.raidStreak },
-    { label: 'Duels', value: d.records.duels },
-    { label: 'Duel Wins', value: d.records.duelWins },
-    { label: 'Duel Streak', value: d.records.duelStreak },
+    { label: 'Rank Duels', value: d.records.duels },
+    { label: 'Rank Wins', value: d.records.duelWins },
+    { label: 'Rank Streak', value: d.records.duelStreak },
   ];
   const gap = 6;
   const cellW = (W - PAD * 2 - gap * (cells.length - 1)) / cells.length;

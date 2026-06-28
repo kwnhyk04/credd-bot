@@ -369,10 +369,42 @@ function relabelRankCols(record) {
   };
 }
 
+/**
+ * [Initial-release stats] Reposition stats fields without editing every per-skin JSON:
+ *  - Character class, combat EXP, equipments, and deities move to the RIGHT column (where the
+ *    believer block used to sit — that block is gone on stats), stacked from the name anchor.
+ *  - The @user name + supporter title move to the LEFT, centered UNDER the avatar.
+ * Positions derive from each skin's own avatar/name/canvas anchors so every skin auto-fits; the
+ * existing fit-to-width shrink keeps long names/values inside the border. Stats + record stay put.
+ */
+function repositionStats(layout) {
+  const av = layout.avatar;
+  const leftCx = av.x + av.size / 2;
+  const leftTop = av.y + av.size + 30;
+  const colMax = Math.min(av.size + 140, layout.canvas.w - av.x - 20);
+  const rx = layout.name.x;
+  const ry = layout.name.y;
+  const rcw = Math.max(160, layout.canvas.w - rx - 48);
+  const R = (style, y) => ({ ...style, x: rx, y, anchor: 'left', max_width: rcw, align_to: undefined });
+  return {
+    ...layout,
+    top_label: { ...layout.top_label, x: leftCx, y: leftTop, anchor: 'center', align_to: undefined, max_width: colMax },
+    name: { ...layout.name, x: leftCx, y: leftTop + 36, anchor: 'center', max_width: colMax },
+    class: R(layout.class, ry),
+    combat_exp: R(layout.combat_exp, ry + 32),
+    weapon_label: R(layout.weapon_label, ry + 70),
+    weapon_value: R(layout.weapon_value, ry + 96),
+    deity_label: R(layout.deity_label, ry + 134),
+    deity_value: { ...layout.deity_value, x: rx + rcw / 2, y: ry + 162, anchor: 'center', max_width: rcw },
+    blessing: R(layout.blessing, ry + 192),
+  };
+}
+
 async function renderStatsLayoutImage(d, options = {}) {
   const skinPath = options.skinPath || d.skinPath;
   const configPath = options.layoutPath || layoutPathFor(skinPath);
-  const layout = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  const rawLayout = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  const layout = repositionStats(rawLayout);
   const images = await loadRenderImages(d, skinPath, options);
   const view = buildView(d);
 
@@ -388,7 +420,7 @@ async function renderStatsLayoutImage(d, options = {}) {
     'weapon_label', 'weapon_value', 'deity_label', 'blessing',
     'stats_label', 'record_label', 'quote',
   ]) {
-    if (key === 'top_label' && !layout.top_label.enabled) continue;
+    if (key === 'top_label' && !rawLayout.top_label.enabled) continue;
     await drawText(ctx, key, view[key], layout, view, images);
   }
   // Equipments are now one combined weapon+armor line (no separate armor row).
