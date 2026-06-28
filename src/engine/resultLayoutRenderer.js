@@ -200,10 +200,11 @@ async function renderResultPanel(sim, rewards, skin, { loadIcon } = {}) {
     ctx.fillText(`LEVEL UP!   ${rewards.levelFrom} → ${rewards.levelTo}`, cx, y);
   };
 
-  // Reserve a strip at the top of the panel so the first reward clears the art's
-  // "Rewards Obtained" ribbon (the detected zone starts at that ribbon). Rewards
-  // center within the area below it. Tunable per-layout via rewards.top_reserve.
-  const reserve = Math.round(panel.h * (Number.isFinite(rw.top_reserve) ? rw.top_reserve : 0.18));
+  // Center rewards in the FULL panel by default (the panel rect is authored BELOW the art's
+  // "Rewards Obtained" ribbon, so no extra top reserve is needed — a non-zero default just
+  // pushed the rewards low). A skin whose panel includes the ribbon can still set a
+  // rewards.top_reserve override to push the rewards down.
+  const reserve = Math.round(panel.h * (Number.isFinite(rw.top_reserve) ? rw.top_reserve : 0));
   const availY = panel.y + reserve;
   const availH = Math.max(80, panel.h - reserve);
 
