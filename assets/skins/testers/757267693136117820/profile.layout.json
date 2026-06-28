@@ -40,6 +40,16 @@
     "color": "#FFFFFF",
     "max_width": 790
   },
+  "title": {
+    "x": 206,
+    "y": 616,
+    "anchor": "center",
+    "font": "DejaVu Sans",
+    "weight": "normal",
+    "size": 18,
+    "color": "#FFB04A",
+    "max_width": 380
+  },
   "tier_line": {
     "x": 555,
     "y": 310,

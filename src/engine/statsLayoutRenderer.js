@@ -84,6 +84,9 @@ async function loadRenderImages(d, skinPath, options) {
   const weaponPromise = localIcons.weapon
     ? loadOptionalImage(localIcons.weapon)
     : (d.weaponName ? getEmojiIcon(resolveName(d.weaponName) || '') : Promise.resolve(null));
+  const armorPromise = localIcons.armor
+    ? loadOptionalImage(localIcons.armor)
+    : (d.armorName ? getEmojiIcon(resolveName(d.armorName) || '') : Promise.resolve(null));
   const deityPromise = localIcons.deity
     ? loadOptionalImage(localIcons.deity)
     : (d.deityName ? getEmojiIcon(resolveName(d.deityName) || '') : Promise.resolve(null));
@@ -93,10 +96,10 @@ async function loadRenderImages(d, skinPath, options) {
     ? loadOptionalImage(localIcons.combatExp)
     : getEmojiIcon('combat_exp');
 
-  const [skin, avatar, weapon, deity, deity2, deity3, combatExp] = await Promise.all([
-    loadImage(skinPath), avatarPromise, weaponPromise, deityPromise, deity2Promise, deity3Promise, combatExpPromise,
+  const [skin, avatar, weapon, armor, deity, deity2, deity3, combatExp] = await Promise.all([
+    loadImage(skinPath), avatarPromise, weaponPromise, armorPromise, deityPromise, deity2Promise, deity3Promise, combatExpPromise,
   ]);
-  return { skin, avatar, weapon, deity, deity2, deity3, combatExp };
+  return { skin, avatar, weapon, armor, deity, deity2, deity3, combatExp };
 }
 
 function iconFor(style, layout, images) {
@@ -294,6 +297,10 @@ function buildView(d) {
     combat_exp: `Combat EXP  ${fmt(d.combatExp)} / ${combatMax}`,
     weapon_label: 'EQUIPMENTS',
     weapon_value: `${weaponTxt}, ${armorTxt}`,
+    equipment: [
+      { text: weaponTxt, icon: d.weaponName ? 'weapon' : null },
+      { text: armorTxt, icon: d.armorName ? 'armor' : null },
+    ],
     deity_label: 'DEITIES',
     deities,
     deity_value: deities.join('  ·  '),
@@ -325,6 +332,57 @@ async function drawArmorLine(ctx, layout, view, images) {
     y: wv.y + (wv.armor_dy || 26),
   };
   await drawText(ctx, '__armor', view.armor_value, { __armor: style, name: layout.name }, view, images);
+}
+
+function drawEquipmentRow(ctx, layout, view, images) {
+  const style = layout.weapon_value;
+  if (!style) return;
+  const segments = (view.equipment && view.equipment.length)
+    ? view.equipment
+    : [{ text: view.weapon_value, icon: 'weapon' }];
+  const iconSize = style.icon_size || style.size;
+  const iconGap = style.icon_gap || 0;
+  const sep = ', ';
+  const totalWidth = (size) => {
+    ctx.font = fontOf({ ...style, size });
+    return segments.reduce((sum, seg, i) => {
+      const icon = seg.icon ? images[seg.icon] : null;
+      const sepW = i > 0 ? ctx.measureText(sep).width : 0;
+      const iconW = icon ? iconSize + iconGap : 0;
+      return sum + sepW + iconW + ctx.measureText(seg.text).width;
+    }, 0);
+  };
+  let size = style.size;
+  const maxWidth = style.max_width || Infinity;
+  while (size > 10 && totalWidth(size) > maxWidth) size -= 1;
+
+  ctx.font = fontOf({ ...style, size });
+  const width = totalWidth(size);
+  let x = style.x;
+  if (style.anchor === 'center') x -= width / 2;
+  else if (style.anchor === 'right') x -= width;
+
+  ctx.save();
+  ctx.font = fontOf({ ...style, size });
+  ctx.fillStyle = style.color;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.shadowColor = style.shadow_color || 'rgba(0,0,0,0.88)';
+  ctx.shadowBlur = style.shadow_blur ?? 7;
+  for (let i = 0; i < segments.length; i++) {
+    if (i > 0) {
+      ctx.fillText(sep, x, style.y);
+      x += ctx.measureText(sep).width;
+    }
+    const icon = segments[i].icon ? images[segments[i].icon] : null;
+    if (icon) {
+      ctx.drawImage(icon, x, style.y - iconSize / 2, iconSize, iconSize);
+      x += iconSize + iconGap;
+    }
+    ctx.fillText(segments[i].text, x, style.y);
+    x += ctx.measureText(segments[i].text).width;
+  }
+  ctx.restore();
 }
 
 /**
@@ -422,7 +480,7 @@ function repositionStats(layout, skinPath) {
     weapon_value: R(layout.weapon_value, ry + 110, 5),
     deity_label: R(layout.deity_label, ry + 156, 3),
     deity_value: { ...layout.deity_value, x: rx, y: ry + 188, anchor: 'left', max_width: rcw, size: ((layout.deity_value && layout.deity_value.size) || 16) + 5 },
-    blessing: R(layout.blessing, ry + 222, 0),
+    blessing: R(layout.blessing, layout.blessing?.stats_y ?? ry + 222, 0),
   };
 }
 
@@ -443,13 +501,14 @@ async function renderStatsLayoutImage(d, options = {}) {
   // (those live on crd profile). Stats focuses on combat: gear, deities, stats, records.
   for (const key of [
     'top_label', 'name', 'title', 'class', 'combat_exp',
-    'weapon_label', 'weapon_value', 'deity_label', 'blessing',
+    'weapon_label', 'deity_label', 'blessing',
     'stats_label', 'record_label', 'quote',
   ]) {
     if (key === 'top_label' && !rawLayout.top_label.enabled) continue;
     await drawText(ctx, key, view[key], layout, view, images);
   }
-  // Equipments are now one combined weapon+armor line (no separate armor row).
+  // Equipments are one combined row, with separate icons for weapon and armor.
+  drawEquipmentRow(ctx, layout, view, images);
   // Deity slots 1/2/3 left-aligned, each with its emoji icon (blank '—' slots get no icon).
   const deityIcons = [images.deity, images.deity2, images.deity3]
     .map((ic, i) => (view.deities[i] && view.deities[i] !== '—' ? ic : null));

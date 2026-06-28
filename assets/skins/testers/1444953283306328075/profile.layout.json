@@ -39,6 +39,16 @@
     "color": "#FFFFFF",
     "max_width": 760
   },
+  "title": {
+    "x": 355,
+    "y": 638,
+    "anchor": "center",
+    "font": "Segoe Script",
+    "weight": "normal",
+    "size": 18,
+    "color": "#6d8ef2",
+    "max_width": 420
+  },
   "tier_line": {
     "x": 650,
     "y": 372,

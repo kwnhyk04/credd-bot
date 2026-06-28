@@ -315,6 +315,10 @@ function relabelRankCols(record) {
 async function drawCenteredTitle(ctx, layout, view, images) {
   const title = view.title;
   if (!title || !layout.name) return;
+  if (layout.title) {
+    await drawText(ctx, 'title', title, layout, view, images);
+    return;
+  }
   const ns = layout.name;
   const nameText = ns.uppercase ? String(view.name).toUpperCase() : String(view.name);
   const nameSize = fitSize(ctx, nameText, ns);

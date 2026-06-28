@@ -118,7 +118,7 @@
   },
   "deity_label": {
     "x": 365,
-    "y": 790,
+    "y": 770,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -128,7 +128,7 @@
   },
   "deity_value": {
     "x": 365,
-    "y": 810,
+    "y": 780,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -141,7 +141,8 @@
   },
   "blessing": {
     "x": 365,
-    "y": 828,
+    "y": 790,
+    "stats_y": 594,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "normal",
@@ -151,7 +152,7 @@
   },
   "stats_label": {
     "x": 680,
-    "y": 620,
+    "y": 636,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -160,7 +161,7 @@
   },
   "stats": {
     "mode": "inline",
-    "y": 654,
+    "y": 668,
     "seg": 190,
     "marker_size": 14,
     "marker_radius": 4,
@@ -199,7 +200,7 @@
   },
   "record_label": {
     "x": 680,
-    "y": 695,
+    "y": 710,
     "anchor": "left",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -207,7 +208,7 @@
     "color": "#9298A4"
   },
   "record": {
-    "y": 720,
+    "y": 735,
     "box_w": 103,
     "box_h": 50,
     "gap": 22,
@@ -257,7 +258,7 @@
   },
   "quote": {
     "x": 1025,
-    "y": 795,
+    "y": 812,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "normal",
