@@ -276,6 +276,7 @@ function buildView(d) {
   return {
     top_label: d.topLabel?.hasTopLabel ? d.topLabel.word : null,
     name: d.displayName,
+    title: d.equippedTitle || '',
     tier_line: `Believer Level ${fmt(d.believerLevel)}  |  ${profileTitle(d)}`,
     exp_text: `${fmt(d.believerExp)} / ${fmt(d.believerExpMax)} Believer EXP`,
     exp_ratio: Number(d.believerExp) / Math.max(1, Number(d.believerExpMax)),
@@ -306,6 +307,29 @@ function relabelRankCols(record) {
   };
 }
 
+/**
+ * Draw the equipped title centered horizontally under the name. The title centers on the NAME's
+ * measured center (so it reads centered beneath the name regardless of the name's anchor), a few
+ * px below it. Skipped when no title is equipped. Position tunable via name.title_dy.
+ */
+async function drawCenteredTitle(ctx, layout, view, images) {
+  const title = view.title;
+  if (!title || !layout.name) return;
+  const ns = layout.name;
+  const nameText = ns.uppercase ? String(view.name).toUpperCase() : String(view.name);
+  const nameSize = fitSize(ctx, nameText, ns);
+  ctx.font = fontOf({ ...ns, size: nameSize });
+  const w = ctx.measureText(nameText).width;
+  const nameStart = ns.anchor === 'center' ? ns.x - w / 2 : (ns.anchor === 'right' ? ns.x - w : ns.x);
+  const centerX = nameStart + w / 2;
+  const style = {
+    font: ns.font, weight: 'normal', size: Math.max(13, Math.round((ns.size || 40) * 0.40)),
+    color: (layout.tier_line && layout.tier_line.color) || '#67E7FF',
+    x: centerX, y: ns.y + (ns.title_dy || 30), anchor: 'center', max_width: ns.max_width || 600,
+  };
+  await drawText(ctx, '__title', title, { __title: style, name: layout.name }, view, images);
+}
+
 async function renderProfileLayoutImage(d, options = {}) {
   const skinPath = options.skinPath || d.skinPath;
   const configPath = options.layoutPath || layoutPathFor(skinPath);
@@ -328,6 +352,7 @@ async function renderProfileLayoutImage(d, options = {}) {
     if (key === 'top_label' && !layout.top_label.enabled) continue;
     await drawText(ctx, key, view[key], layout, view, images);
   }
+  await drawCenteredTitle(ctx, layout, view, images);
   drawRecord(ctx, relabelRankCols(layout.record), view.record);
   return canvas.toBuffer('image/png');
 }

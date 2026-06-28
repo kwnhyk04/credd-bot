@@ -235,7 +235,17 @@ async function renderStatsImage(d) {
   ctx.textAlign = 'left';
   ctx.font = F(26, true);
   ctx.fillStyle = NAME_COLOR;
-  ctx.fillText(fitText(ctx, d.displayName, leftW), PAD, y + 44);
+  const nameText = fitText(ctx, d.displayName, leftW);
+  ctx.fillText(nameText, PAD, y + 34);
+  // Equipped title centered just below the name.
+  if (d.equippedTitle) {
+    const nameCx = PAD + ctx.measureText(nameText).width / 2;
+    ctx.font = F(14, true);
+    ctx.fillStyle = ACCENT;
+    ctx.textAlign = 'center';
+    ctx.fillText(fitText(ctx, d.equippedTitle, leftW * 1.6), nameCx, y + 58);
+    ctx.textAlign = 'left';
+  }
 
   y = headerH;
 

@@ -224,7 +224,17 @@ async function renderProfileImage(d) {
   ctx.textAlign = 'left';
   ctx.font = F(28, true);
   ctx.fillStyle = NAME_COLOR;
-  ctx.fillText(fitText(ctx, d.displayName, W - PAD * 2), PAD, headerH - 16);
+  const nameText = fitText(ctx, d.displayName, W - PAD * 2);
+  ctx.fillText(nameText, PAD, headerH - 40);
+  // Equipped title centered just below the name.
+  if (d.equippedTitle) {
+    const nameCx = PAD + ctx.measureText(nameText).width / 2;
+    ctx.font = F(15, true);
+    ctx.fillStyle = ACCENT;
+    ctx.textAlign = 'center';
+    ctx.fillText(fitText(ctx, d.equippedTitle, W - PAD * 2), nameCx, headerH - 14);
+    ctx.textAlign = 'left';
+  }
 
   y = headerH;
   separator(y);
@@ -256,12 +266,11 @@ async function renderProfileImage(d) {
 
   const leftW = ax - PAD - 16; // text column width (clears the avatar)
 
-  // Believer level + rank title (+ equipped title if any).
+  // Believer level + rank title (the equipped title now has its own centered line under the name).
   ctx.font = F(16, true);
   ctx.fillStyle = ACCENT;
-  const titleSuffix = d.equippedTitle ? ` · 🎖️ ${d.equippedTitle}` : '';
   ctx.fillText(
-    fitText(ctx, `Believer Level ${d.believerLevel} · ${d.believerTitle}${titleSuffix}`, leftW),
+    fitText(ctx, `Believer Level ${d.believerLevel} · ${d.believerTitle}`, leftW),
     PAD, by
   );
   by += 26;

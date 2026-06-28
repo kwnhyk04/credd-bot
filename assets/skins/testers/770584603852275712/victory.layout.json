@@ -15,7 +15,7 @@
   "rewards": {
     "orientation": "horizontal",
     "center_x": 887,
-    "value_color": "#f5c27a",
-    "label_color": "#D7DBE2"
+    "value_color": "#B27D7D",
+    "label_color": "#B27D7D"
   }
 }

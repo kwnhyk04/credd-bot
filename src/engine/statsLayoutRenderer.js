@@ -289,6 +289,7 @@ function buildView(d) {
   return {
     top_label: d.topLabel?.hasTopLabel ? d.topLabel.word : null,
     name: d.displayName,
+    title: d.equippedTitle || '',
     class: `${d.className}  |  Combat Lv ${fmt(d.combatLevel)}`,
     combat_exp: `Combat EXP  ${fmt(d.combatExp)} / ${combatMax}`,
     weapon_label: 'EQUIPMENTS',
@@ -385,26 +386,43 @@ function relabelRankCols(record) {
  * Positions derive from each skin's own avatar/name/canvas anchors so every skin auto-fits; the
  * existing fit-to-width shrink keeps long names/values inside the border. Stats + record stay put.
  */
-function repositionStats(layout) {
+function repositionStats(layout, skinPath) {
   const av = layout.avatar;
   const leftCx = av.x + av.size / 2;
   const leftTop = av.y + av.size + 30;
-  const colMax = Math.min(av.size + 140, layout.canvas.w - av.x - 20);
+  const colMax = Math.min(av.size + 170, layout.canvas.w - av.x - 20);
   const rx = layout.name.x;
   const ry = layout.name.y;
   const rcw = Math.max(160, layout.canvas.w - rx - 48);
-  const R = (style, y) => ({ ...style, x: rx, y, anchor: 'left', max_width: rcw, align_to: undefined });
+  // Right-column field with an optional font-size bump (more spare space on stats → larger text).
+  const R = (style, y, dSize = 0) => ({
+    ...style, x: rx, y, anchor: 'left', max_width: rcw, align_to: undefined,
+    size: ((style && style.size) || 16) + dSize,
+  });
+  // p1 (Divine Radiance) & p3 (Aurora Constellation) skins have a themed top space — keep the
+  // supporter tier word at the art's original top position instead of moving it under the avatar.
+  const keepTopTop = /_p(1|3)\b/i.test(String(skinPath || ''));
+  const nameY = leftTop + (keepTopTop ? 4 : 34);
+  const titleColor = (layout.tier_line && layout.tier_line.color) || '#67E7FF';
   return {
     ...layout,
-    top_label: { ...layout.top_label, x: leftCx, y: leftTop, anchor: 'center', align_to: undefined, max_width: colMax },
-    name: { ...layout.name, x: leftCx, y: leftTop + 36, anchor: 'center', max_width: colMax },
-    class: R(layout.class, ry),
-    combat_exp: R(layout.combat_exp, ry + 32),
-    weapon_label: R(layout.weapon_label, ry + 70),
-    weapon_value: R(layout.weapon_value, ry + 96),
-    deity_label: R(layout.deity_label, ry + 134),
-    deity_value: { ...layout.deity_value, x: rx, y: ry + 162, anchor: 'left', max_width: rcw },
-    blessing: R(layout.blessing, ry + 192),
+    top_label: keepTopTop
+      ? layout.top_label
+      : { ...layout.top_label, x: leftCx, y: leftTop, anchor: 'center', align_to: undefined, max_width: colMax },
+    name: { ...layout.name, x: leftCx, y: nameY, anchor: 'center', max_width: colMax },
+    // Equipped title, centered just below the name.
+    title: {
+      ...layout.name, x: leftCx, y: nameY + 30, anchor: 'center', max_width: colMax,
+      size: Math.max(13, Math.round(((layout.name && layout.name.size) || 40) * 0.42)),
+      weight: 'normal', color: titleColor, align_to: undefined,
+    },
+    class: R(layout.class, ry, 6),
+    combat_exp: R(layout.combat_exp, ry + 38, 2),
+    weapon_label: R(layout.weapon_label, ry + 80, 3),
+    weapon_value: R(layout.weapon_value, ry + 110, 5),
+    deity_label: R(layout.deity_label, ry + 156, 3),
+    deity_value: { ...layout.deity_value, x: rx, y: ry + 188, anchor: 'left', max_width: rcw, size: ((layout.deity_value && layout.deity_value.size) || 16) + 5 },
+    blessing: R(layout.blessing, ry + 222, 0),
   };
 }
 
@@ -412,7 +430,7 @@ async function renderStatsLayoutImage(d, options = {}) {
   const skinPath = options.skinPath || d.skinPath;
   const configPath = options.layoutPath || layoutPathFor(skinPath);
   const rawLayout = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  const layout = repositionStats(rawLayout);
+  const layout = repositionStats(rawLayout, skinPath);
   const images = await loadRenderImages(d, skinPath, options);
   const view = buildView(d);
 
@@ -424,7 +442,7 @@ async function renderStatsLayoutImage(d, options = {}) {
   // [Initial-release stats] Believer level/title/EXP + bar are NOT shown on crd stats
   // (those live on crd profile). Stats focuses on combat: gear, deities, stats, records.
   for (const key of [
-    'top_label', 'name', 'class', 'combat_exp',
+    'top_label', 'name', 'title', 'class', 'combat_exp',
     'weapon_label', 'weapon_value', 'deity_label', 'blessing',
     'stats_label', 'record_label', 'quote',
   ]) {
