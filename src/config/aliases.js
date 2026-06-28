@@ -20,6 +20,7 @@ module.exports = {
   p: 'profile',
   // Battle
   r: 'raid',
+  ar: 'auto raid',
   d: 'duel',
   // Gacha / Deities
   s: 'summon',

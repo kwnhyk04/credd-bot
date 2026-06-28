@@ -20,6 +20,7 @@ const sellCmd = require('../commands/rpg/sell');
 const weaponCmd = require('../commands/rpg/weapon');
 const equipmentCmd = require('../commands/rpg/equipment');
 const raidCmd = require('../commands/rpg/raid');
+const autoRaidCmd = require('../commands/rpg/autoRaid');
 const duelCmd = require('../commands/rpg/duel');
 const rankedCmd = require('../commands/rpg/ranked');
 const leaderboardCmd = require('../commands/rpg/leaderboard');
@@ -72,6 +73,7 @@ const IMPLEMENTED = {
   weapon:    { mw: 'full', run: weaponCmd.execute },
   equipment: { mw: 'full', run: equipmentCmd.execute },
   raid:     { mw: 'full', run: raidCmd.execute },
+  auto:     { mw: 'full', run: autoRaidCmd.execute },
   duel:     { mw: 'full', run: duelCmd.execute },
   ranked:   { mw: 'full', run: rankedCmd.execute },
   leaderboards: { mw: 'full', run: leaderboardCmd.execute },
@@ -114,6 +116,7 @@ const COMMAND_MAP = {
   profile:   { requiresCharacter: true },
   stats:     { requiresCharacter: true },
   raid:      { requiresCharacter: true },
+  auto:      { requiresCharacter: true },  // auto raid (needs combat level)
   duel:      { requiresCharacter: true },
   ranked:    { requiresCharacter: true },
   leaderboards: { requiresCharacter: false },

@@ -162,6 +162,32 @@ crd ranked · crd duel wager · crd leaderboard [cat] · crd title · crd dev re
 crd exchange essence (continuous enhance-style tier-up; Mythic/Legendary/Supreme dropdown header) ·
 crd pvp shop (`crd ps`) / crd pvp buy <id> [qty] (Valor sink) ·
 crd quest [daily|weekly] + Daily/Weekly dropdown header · crd quest claim (weekly grand: 1 Sacred Relic).
+crd auto raid (`crd ar`) — free idle/passive raid (see §V5-9).
 (crd equip / enhance / lock / sell extend to armor via id-type detection. No crd open ac — combined chest.)
+
+=======================================================================
+§V5-9. AUTO RAID  (idle/passive raid) [IMPLEMENTED]
+=======================================================================
+`crd auto raid` (`crd ar`) — FREE passive raid timer. Window = combat_level × 30 min (L1 = 30 min …
+L50 = 25 hr; cap implicit from max combat level 50). Never loses; runs ALONGSIDE manual `crd raid`
+(independent of active_battles), so it is a pure bonus faucet.
+State (auto_raids table, one row/player, DELETED on claim → instantly re-startable):
+  no row → Start card (Start button) · row & NOW()<ends_at → Progress card (no button) ·
+  row & NOW()≥ends_at → Claim card (Claim button). Buttons owner-checked (araid:start|claim:<uid>).
+Reward = DETERMINISTIC expected value (no RNG), computed at claim from the combat level SNAPSHOTTED at
+Start. Cadence = 1 virtual raid / 60 s of window. Per virtual raid uses the AVERAGE of each crd raid
+loot range, all wins, 80% regular / 20% elite — all magnitudes DERIVED at runtime from
+src/config/raidLoot.js (RAID_LOOT + ELITE_SPAWN_CHANCE), no duplicated constants:
+  eliteRaids = round(raids×0.20); regRaids = raids − eliteRaids;
+  Per-type idle-drop scales (tunable; manual crd raid stays the fuller path):
+  EXP = (regRaids×avg(reg.exp) + eliteRaids×avg(elite.exp)) × EXP_SCALE 0.50            (L50 ≈ 150k)
+  Credux = (regRaids×avg(reg.credux) + eliteRaids×avg(elite.credux)) × CREDUX_SCALE 0.50 (L50 ≈ 300k)
+  Belief Shards THROTTLED harder: (…shards…) × SHARD_SCALE 0.20  (L50 ≈ 1500).
+  NO chests (silver/gold) — auto raid grants currency/EXP only.
+Rewards: Combat EXP (via awardCombatExp; cap-50 accumulates within level) + Credux + Belief Shards
+ONLY (no chests). Does NOT touch raid_logs / raids_won / streaks / quests (no stat pollution).
+Claim txn (src/commands/rpg/autoRaid.js): lock users_bag → bag UPDATE → awardCombatExp (bag→character
+lock order) → game_logs rows (action 'AutoRaid', one per credux/shards) → DELETE auto_raids.
+Schema: credd_schema_v7_auto_raid.sql.
 
 *End of Master Export v5 overlay. v4.2 remains the authoritative base for all unlisted systems.*

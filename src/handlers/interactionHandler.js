@@ -17,6 +17,7 @@ const leaderboardCmd = require('../commands/rpg/leaderboard');
 const titleCmd = require('../commands/rpg/title');
 const exchangeEssenceCmd = require('../commands/rpg/exchangeEssence');
 const questsCmd = require('../commands/economy/quests');
+const autoRaidCmd = require('../commands/rpg/autoRaid');
 
 /**
  * Routes button interactions by customId.
@@ -56,6 +57,10 @@ async function handleInteraction(interaction) {
     if (namespace === 'essx' && action === 'tier') { await exchangeEssenceCmd.handleSelect(interaction); return; }
     if (namespace === 'quest' && action === 'scope') { await questsCmd.handleScopeSelect(interaction); return; }
     if (!isButton) return; // everything below this point is button-only
+    if (namespace === 'araid') {
+      if (action === 'start') { await autoRaidCmd.handleStart(interaction, parts[2]); return; }
+      if (action === 'claim') { await autoRaidCmd.handleClaim(interaction, parts[2]); return; }
+    }
     if (namespace === 'essx' && action === 'convert') {
       await exchangeEssenceCmd.handleConvert(interaction, parts[2], parts[3]);
       return;
