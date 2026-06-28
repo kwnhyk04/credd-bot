@@ -322,10 +322,15 @@ async function drawCenteredTitle(ctx, layout, view, images) {
   const w = ctx.measureText(nameText).width;
   const nameStart = ns.anchor === 'center' ? ns.x - w / 2 : (ns.anchor === 'right' ? ns.x - w : ns.x);
   const centerX = nameStart + w / 2;
+  // Position the title LOWER — below the believer EXP bar (in the now-empty profile body),
+  // centered on the name. Falls back to a fixed offset under the name if there's no exp bar.
+  const titleY = (layout.exp_bar && Number.isFinite(layout.exp_bar.y))
+    ? layout.exp_bar.y + (ns.title_dy || 48)
+    : ns.y + (ns.title_dy || 120);
   const style = {
     font: ns.font, weight: 'normal', size: Math.max(13, Math.round((ns.size || 40) * 0.40)),
     color: (layout.tier_line && layout.tier_line.color) || '#67E7FF',
-    x: centerX, y: ns.y + (ns.title_dy || 30), anchor: 'center', max_width: ns.max_width || 600,
+    x: centerX, y: titleY, anchor: 'center', max_width: ns.max_width || 600,
   };
   await drawText(ctx, '__title', title, { __title: style, name: layout.name }, view, images);
 }

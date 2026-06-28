@@ -232,20 +232,18 @@ async function renderStatsImage(d) {
 
   // [Initial-release stats] Believer level/title + believer-EXP bar are NOT shown on crd stats
   // (those live on crd profile). The header carries only the display name + class/level.
-  ctx.textAlign = 'left';
+  // Name + equipped title CENTERED in the header (clear of the right-side avatar).
+  const centerMaxW = Math.max(140, 2 * (ax - W / 2 - 12));
+  ctx.textAlign = 'center';
   ctx.font = F(26, true);
   ctx.fillStyle = NAME_COLOR;
-  const nameText = fitText(ctx, d.displayName, leftW);
-  ctx.fillText(nameText, PAD, y + 34);
-  // Equipped title centered just below the name.
+  ctx.fillText(fitText(ctx, d.displayName, centerMaxW), W / 2, y + 34);
   if (d.equippedTitle) {
-    const nameCx = PAD + ctx.measureText(nameText).width / 2;
     ctx.font = F(14, true);
     ctx.fillStyle = ACCENT;
-    ctx.textAlign = 'center';
-    ctx.fillText(fitText(ctx, d.equippedTitle, leftW * 1.6), nameCx, y + 58);
-    ctx.textAlign = 'left';
+    ctx.fillText(fitText(ctx, d.equippedTitle, centerMaxW), W / 2, y + 58);
   }
+  ctx.textAlign = 'left';
 
   y = headerH;
 

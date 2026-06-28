@@ -410,9 +410,9 @@ function repositionStats(layout, skinPath) {
       ? layout.top_label
       : { ...layout.top_label, x: leftCx, y: leftTop, anchor: 'center', align_to: undefined, max_width: colMax },
     name: { ...layout.name, x: leftCx, y: nameY, anchor: 'center', max_width: colMax },
-    // Equipped title, centered just below the name.
+    // Equipped title, centered LOWER in the left panel (clear gap below the name).
     title: {
-      ...layout.name, x: leftCx, y: nameY + 30, anchor: 'center', max_width: colMax,
+      ...layout.name, x: leftCx, y: nameY + 64, anchor: 'center', max_width: colMax,
       size: Math.max(13, Math.round(((layout.name && layout.name.size) || 40) * 0.42)),
       weight: 'normal', color: titleColor, align_to: undefined,
     },

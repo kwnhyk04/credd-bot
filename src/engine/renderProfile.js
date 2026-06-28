@@ -221,20 +221,17 @@ async function renderProfileImage(d) {
 
   /* ── HEADER (before sep1): display name pushed DOWN toward the separator. The supporter
    *    title ("Founder NNN") is the raw top-band label already drawn above the scaled layout. ── */
-  ctx.textAlign = 'left';
+  // Name + equipped title CENTERED in the header (below the supporter-tier band).
+  ctx.textAlign = 'center';
   ctx.font = F(28, true);
   ctx.fillStyle = NAME_COLOR;
-  const nameText = fitText(ctx, d.displayName, W - PAD * 2);
-  ctx.fillText(nameText, PAD, headerH - 40);
-  // Equipped title centered just below the name.
+  ctx.fillText(fitText(ctx, d.displayName, W - PAD * 2), W / 2, headerH - 40);
   if (d.equippedTitle) {
-    const nameCx = PAD + ctx.measureText(nameText).width / 2;
     ctx.font = F(15, true);
     ctx.fillStyle = ACCENT;
-    ctx.textAlign = 'center';
-    ctx.fillText(fitText(ctx, d.equippedTitle, W - PAD * 2), nameCx, headerH - 14);
-    ctx.textAlign = 'left';
+    ctx.fillText(fitText(ctx, d.equippedTitle, W - PAD * 2), W / 2, headerH - 14);
   }
+  ctx.textAlign = 'left';
 
   y = headerH;
   separator(y);
