@@ -69,11 +69,11 @@ def('equip', 'equip',
     .addStringOption((o) => o.setName('weapon_id').setDescription('Weapon ID').setRequired(true)),
   (i) => ({ args: [i.options.getString('weapon_id')], mentions: [] }));
 
-def('weapon', 'weapon',
-  new SlashCommandBuilder().setDescription('Weapon tools')
-    .addSubcommand((s) => s.setName('info').setDescription('View a weapon info card')
-      .addStringOption((o) => o.setName('weapon_id').setDescription('Weapon ID').setRequired(true))),
-  (i) => ({ args: ['info', i.options.getString('weapon_id')], mentions: [] }));
+def('equipment', 'equipment',
+  new SlashCommandBuilder().setDescription('Equipment tools (weapons & armor)')
+    .addSubcommand((s) => s.setName('info').setDescription('View an equipment info card')
+      .addStringOption((o) => o.setName('equipment_id').setDescription('Weapon or armor ID').setRequired(true))),
+  (i) => ({ args: ['info', i.options.getString('equipment_id')], mentions: [] }));
 
 def('enhance', 'enhance',
   new SlashCommandBuilder().setDescription('Enhance a weapon')

@@ -17,7 +17,6 @@ const deityCmd = require('../commands/rpg/deity');
 const enhanceCmd = require('../commands/rpg/enhance');
 const lockCmd = require('../commands/rpg/lock');
 const sellCmd = require('../commands/rpg/sell');
-const weaponCmd = require('../commands/rpg/weapon');
 const equipmentCmd = require('../commands/rpg/equipment');
 const raidCmd = require('../commands/rpg/raid');
 const autoRaidCmd = require('../commands/rpg/autoRaid');
@@ -70,7 +69,6 @@ const IMPLEMENTED = {
   lock:     { mw: 'full', run: lockCmd.lock },
   unlock:   { mw: 'full', run: lockCmd.unlock },
   sell:     { mw: 'full', run: sellCmd.execute },
-  weapon:    { mw: 'full', run: weaponCmd.execute },
   equipment: { mw: 'full', run: equipmentCmd.execute },
   raid:     { mw: 'full', run: raidCmd.execute },
   auto:     { mw: 'full', run: autoRaidCmd.execute },
@@ -132,7 +130,6 @@ const COMMAND_MAP = {
   sell:      { requiresCharacter: true },
   deity:     { requiresCharacter: true },
   deities:   { requiresCharacter: true },
-  weapon:    { requiresCharacter: true },
   equipment: { requiresCharacter: true },
   cred:      { requiresCharacter: false },
   bestow:    { requiresCharacter: false },

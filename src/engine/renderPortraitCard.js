@@ -219,17 +219,14 @@ async function renderPortraitCard(d) {
     ctx.font = F(15, true);
     ctx.fillStyle = TITLE_COLOR;
     ctx.textAlign = 'left';
-    ctx.fillText('Sockets', RX, y + 4);
+    ctx.fillText('Runes', RX, y + 4);
     y += SOCK_HEAD;
 
     const box = panel.box;
     for (let i = 0; i < sockets.length; i++) {
       const rowIdx = Math.floor(i / panel.perRow);
       const colIdx = i % panel.perRow;
-      const inThisRow = Math.min(panel.perRow, sockets.length - rowIdx * panel.perRow);
-      const rowW = inThisRow * box + (inThisRow - 1) * SOCK_GAP;
-      const startX = RX + (RW - rowW) / 2;                 // centered in the right column
-      const bx = startX + colIdx * (box + SOCK_GAP);
+      const bx = RX + colIdx * (box + SOCK_GAP);           // left-aligned under the "Runes" heading
       const by = y + rowIdx * (box + SOCK_VALUE_H + SOCK_ROW_GAP);
 
       const slot = sockets[i];

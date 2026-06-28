@@ -274,13 +274,14 @@ function buildView(d) {
   // ("(Medium)") is no longer shown.
   const weaponTxt = d.weaponName ? `${d.weaponName}${weaponEnh}` : 'None';
   const armorTxt = d.armorName ? `${d.armorName}${armorEnh}` : 'None';
-  // [Phase 6 stats] Weapon and armor are now SEPARATE lines (armor shown for all skins),
-  // and the deity value carries all 3 slots, auto-centered horizontally at draw time.
+  // [Initial-release stats] Weapon and armor are SEPARATE lines (armor on all skins), and the
+  // deity row shows ALL THREE slots, auto-centered. Empty slots render as a blank dash so the
+  // 1/2/3 layout is always visible ("Deity slot 2 and 3 blank if no deities equipped").
   const deities = [
-    d.deityName ? `${d.deityName}${deityEnh}` : null,
-    d.deity2Name || null,
-    d.deity3Name || null,
-  ].filter(Boolean);
+    d.deityName ? `${d.deityName}${deityEnh}` : '—',
+    d.deity2Name || '—',
+    d.deity3Name || '—',
+  ];
   return {
     top_label: d.topLabel?.hasTopLabel ? d.topLabel.word : null,
     name: d.displayName,
@@ -368,10 +369,11 @@ async function renderStatsLayoutImage(d, options = {}) {
   const ctx = canvas.getContext('2d');
   ctx.drawImage(images.skin, 0, 0, layout.canvas.w, layout.canvas.h);
   drawAvatar(ctx, images.avatar, layout.avatar);
-  drawProgress(ctx, layout.exp_bar, view.exp_ratio);
 
+  // [Initial-release stats] Believer level/title/EXP + bar are NOT shown on crd stats
+  // (those live on crd profile). Stats focuses on combat: gear, deities, stats, records.
   for (const key of [
-    'top_label', 'name', 'tier_line', 'exp_text', 'class', 'combat_exp',
+    'top_label', 'name', 'class', 'combat_exp',
     'weapon_label', 'weapon_value', 'deity_label', 'blessing',
     'stats_label', 'record_label', 'quote',
   ]) {
@@ -379,7 +381,7 @@ async function renderStatsLayoutImage(d, options = {}) {
     await drawText(ctx, key, view[key], layout, view, images);
   }
   await drawArmorLine(ctx, layout, view, images);   // armor on every skin
-  drawDeitiesRow(ctx, layout, view.deities);        // slots 1/2/3 auto-centered
+  drawDeitiesRow(ctx, layout, view.deities);        // slots 1/2/3 auto-centered (blanks for empty)
   drawStats(ctx, layout.stats, view.stats);
   drawRecord(ctx, layout.record, view.record);
   return canvas.toBuffer('image/png');

@@ -140,15 +140,19 @@ function buildStartPayload(ownerId, character) {
 }
 
 /** Progress card — run active, not yet complete. */
-function buildProgressPayload(ownerId, endsEpoch) {
+function buildProgressPayload(ownerId, endsEpoch, level) {
+  const rw = computeRewards(level);
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
     .addTextDisplayComponents((td) => td.setContent('## ⚔️ Auto Raid — In Progress'))
     .addTextDisplayComponents((td) => td.setContent(`-# User: <@${ownerId}>`))
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(
-      `Your party is raiding… Return <t:${endsEpoch}:R> (<t:${endsEpoch}:f>) and run \`crd auto raid\` to claim your rewards.`,
+      `Your character is raiding… Return <t:${endsEpoch}:R> (<t:${endsEpoch}:f>) and run \`crd auto raid\` to claim your rewards.`,
     ))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent('-# Expected rewards on completion:'))
+    .addTextDisplayComponents((td) => td.setContent(rewardLines(rw)))
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent('-# 💡 You can still `crd raid` manually while this runs.'));
   return { components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: NO_PING };
@@ -211,7 +215,7 @@ async function execute(message) {
   if (!run) {
     payload = buildStartPayload(discordId, character);
   } else if (!run.done) {
-    payload = buildProgressPayload(discordId, Number(run.ends_epoch));
+    payload = buildProgressPayload(discordId, Number(run.ends_epoch), run.combat_level);
   } else {
     payload = buildClaimPayload(discordId, run.combat_level);
   }
@@ -252,7 +256,7 @@ async function handleStart(interaction, ownerId) {
     await interaction.reply({ content: '⚔️ You already have an auto raid running.', flags: MessageFlags.Ephemeral });
     return;
   }
-  await interaction.update(buildProgressPayload(ownerId, Number(ins.rows[0].ends_epoch)));
+  await interaction.update(buildProgressPayload(ownerId, Number(ins.rows[0].ends_epoch), level));
 }
 
 /** Claim button — verify completion, grant rewards atomically, delete the run. */

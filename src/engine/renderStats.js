@@ -228,28 +228,16 @@ async function renderStatsImage(d) {
 
   const leftW = ax - PAD - 16; // text column width (clears the avatar)
 
-  // Line 1: display name.
+  // [Initial-release stats] Believer level/title + believer-EXP bar are NOT shown on crd stats
+  // (those live on crd profile). The header carries only the display name + class/level.
   ctx.textAlign = 'left';
   ctx.font = F(26, true);
   ctx.fillStyle = NAME_COLOR;
-  ctx.fillText(fitText(ctx, d.displayName, leftW), PAD, y + 26);
+  ctx.fillText(fitText(ctx, d.displayName, leftW), PAD, y + 30);
 
-  // Line 2: Believer level + rank title (+ equipped title if any).
-  ctx.font = F(15, true);
-  ctx.fillStyle = ACCENT;
-  const titleSuffix = d.equippedTitle ? ` · 🎖️ ${d.equippedTitle}` : '';
-  ctx.fillText(
-    fitText(ctx, `Believer Level ${d.believerLevel} · ${d.believerTitle}${titleSuffix}`, leftW),
-    PAD,
-    y + 50
-  );
-
-  // Line 3: Believer EXP number + bar.
-  ctx.font = F(12);
+  ctx.font = F(13);
   ctx.fillStyle = SUB_COLOR;
-  const bExp = `${Number(d.believerExp).toLocaleString()} / ${Number(d.believerExpMax).toLocaleString()} EXP`;
-  ctx.fillText(bExp, PAD, y + 70);
-  drawProgress(ctx, PAD, y + 78, leftW, 10, d.believerExp / d.believerExpMax, EXP_FILL);
+  ctx.fillText(fitText(ctx, `${d.className} · Combat Lv ${d.combatLevel}`, leftW), PAD, y + 56);
 
   y = headerH;
 

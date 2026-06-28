@@ -38,7 +38,6 @@ module.exports = {
   ba: 'bag armors',
   o: 'open',
   eq: 'equip',
-  wi: 'weapon info',
   ei: 'equipment info',
   enh: 'enhance',
   lk: 'lock',

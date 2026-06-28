@@ -309,15 +309,15 @@ async function renderProfileLayoutImage(d, options = {}) {
   drawAvatar(ctx, images.avatar, layout.avatar);
   drawProgress(ctx, layout.exp_bar, view.exp_ratio);
 
+  // [Initial-release profile] Equipments, deities, and character stats are NOT shown on
+  // crd profile (moved to crd stats). Profile keeps identity + believer progression + records.
   for (const key of [
     'top_label', 'name', 'tier_line', 'exp_text', 'class', 'combat_exp',
-    'weapon_label', 'weapon_value', 'deity_label', 'deity_value', 'blessing',
-    'stats_label', 'record_label', 'quote',
+    'record_label', 'quote',
   ]) {
     if (key === 'top_label' && !layout.top_label.enabled) continue;
     await drawText(ctx, key, view[key], layout, view, images);
   }
-  drawStats(ctx, layout.stats, view.stats);
   drawRecord(ctx, layout.record, view.record);
   return canvas.toBuffer('image/png');
 }

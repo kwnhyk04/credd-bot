@@ -168,7 +168,7 @@ async function renderProfileImage(d) {
 
   // ── Measure the layout (600-wide design space) ──
   const headerH = PAD + AVATAR + 14;
-  const bodyH = 264;            // class, combat-exp, weapon, armor, deity hdr+val+blessing, stats [v5 +armor]
+  const bodyH = 72;             // [initial-release] profile body = class + combat-exp only (gear/deity/stats moved to crd stats)
   const recordsH = 110;         // "Combat Record" heading + boxed cells
   const footerH = 30;
   const layoutH = headerH + 12 + bodyH + 12 + recordsH + 12 + footerH;
@@ -282,81 +282,9 @@ async function renderProfileImage(d) {
   ctx.fillStyle = SUB_COLOR;
   const needed = d.combatExpMax == null ? 'MAX' : Number(d.combatExpMax).toLocaleString();
   ctx.fillText(`Combat EXP: ${Number(d.combatExp).toLocaleString()} / ${needed}`, cex, by);
-  by += LH + 8;
 
-  // Weapon.
-  ctx.font = F(13, true);
-  ctx.fillStyle = DIM_COLOR;
-  ctx.fillText('Weapon:', PAD, by);
-  by += LH;
-  ctx.font = F(15, true);
-  ctx.fillStyle = NAME_COLOR;
-  if (d.weaponName) {
-    let wx = PAD;
-    if (weaponIcon) { ctx.drawImage(weaponIcon, wx, by - 15, 18, 18); wx += 24; }
-    const enh = d.weaponEnh > 0 ? ` +${d.weaponEnh}` : '';
-    ctx.fillText(fitText(ctx, `${d.weaponName}${enh}`, W - PAD - wx), wx, by);
-  } else {
-    ctx.fillStyle = SUB_COLOR;
-    ctx.fillText('None', PAD, by);
-  }
-  by += LH + 8;
-
-  // Armor ([v5]) — mirrors the weapon block: emoji + name +enh (type).
-  ctx.font = F(13, true);
-  ctx.fillStyle = DIM_COLOR;
-  ctx.fillText('Armor:', PAD, by);
-  by += LH;
-  ctx.font = F(15, true);
-  if (d.armorName) {
-    let ax = PAD;
-    if (armorIcon) { ctx.drawImage(armorIcon, ax, by - 15, 18, 18); ax += 24; }
-    ctx.fillStyle = NAME_COLOR;
-    const enh = d.armorEnh > 0 ? ` +${d.armorEnh}` : '';
-    // [v5 tweak] Armor type ("(Medium)") no longer shown.
-    ctx.fillText(fitText(ctx, `${d.armorName}${enh}`, W - PAD - ax), ax, by);
-  } else {
-    ctx.fillStyle = SUB_COLOR;
-    ctx.fillText('None', PAD, by);
-  }
-  by += LH + 8;
-
-  // Active deity — mirrors the weapon block: emoji + name +enh, then a Blessing: line.
-  ctx.font = F(13, true);
-  ctx.fillStyle = DIM_COLOR;
-  ctx.fillText('Deity:', PAD, by);
-  by += LH;
-  if (d.deityName) {
-    let dx = PAD;
-    if (deityIcon) { ctx.drawImage(deityIcon, dx, by - 15, 18, 18); dx += 24; }
-    ctx.font = F(15, true);
-    ctx.fillStyle = NAME_COLOR;
-    const enh = d.deityEnh > 0 ? ` +${d.deityEnh}` : '';
-    ctx.fillText(fitText(ctx, `${d.deityName}${enh}`, W - PAD - dx), dx, by);
-    by += LH - 2;
-    ctx.font = F(12);
-    ctx.fillStyle = SUB_COLOR;
-    ctx.fillText(fitText(ctx, `Blessing: ${d.blessingName || '—'}`, W - PAD * 2), PAD, by);
-    by += LH - 2;
-    if (d.deity2Name || d.deity3Name) {
-      ctx.font = F(12);
-      ctx.fillStyle = SUB_COLOR;
-      const slotNames = [d.deity2Name ? `S2: ${d.deity2Name}` : null, d.deity3Name ? `S3: ${d.deity3Name}` : null].filter(Boolean).join(' · ');
-      ctx.fillText(fitText(ctx, slotNames, W - PAD * 2), PAD, by);
-    }
-  } else {
-    ctx.font = F(15, true);
-    ctx.fillStyle = SUB_COLOR;
-    ctx.fillText('None', PAD, by);
-  }
-  by += LH + 8;
-
-  // Character stats.
-  ctx.font = F(13, true);
-  ctx.fillStyle = DIM_COLOR;
-  ctx.fillText('Character Stats:', PAD, by);
-  by += LH;
-  drawStatLine(ctx, PAD, by, d);
+  // [Initial-release] Equipments, deities, and character stats are NOT shown on crd profile
+  // (they moved to crd stats). Profile keeps identity + believer progression + combat records.
 
   y = headerH + 12 + bodyH;
 
