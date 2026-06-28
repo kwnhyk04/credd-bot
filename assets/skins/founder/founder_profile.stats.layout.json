@@ -129,7 +129,7 @@
   "deity_value": {
     "x": 365,
     "y": 780,
-    "stats_y": 562,
+    "stats_y": 571,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "bold",
@@ -143,7 +143,7 @@
   "blessing": {
     "x": 365,
     "y": 790,
-    "stats_y": 584,
+    "stats_y": 594,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "normal",
