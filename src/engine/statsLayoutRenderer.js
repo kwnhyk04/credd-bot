@@ -479,7 +479,14 @@ function repositionStats(layout, skinPath) {
     weapon_label: R(layout.weapon_label, ry + 80, 3),
     weapon_value: R(layout.weapon_value, ry + 110, 5),
     deity_label: R(layout.deity_label, ry + 156, 3),
-    deity_value: { ...layout.deity_value, x: rx, y: ry + 188, anchor: 'left', max_width: rcw, size: ((layout.deity_value && layout.deity_value.size) || 16) + 5 },
+    deity_value: {
+      ...layout.deity_value,
+      x: rx,
+      y: layout.deity_value?.stats_y ?? ry + 188,
+      anchor: 'left',
+      max_width: rcw,
+      size: ((layout.deity_value && layout.deity_value.size) || 16) + 5,
+    },
     blessing: R(layout.blessing, layout.blessing?.stats_y ?? ry + 222, 0),
   };
 }
