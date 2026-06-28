@@ -282,26 +282,26 @@ function buildView(d) {
     d.deity2Name || '—',
     d.deity3Name || '—',
   ];
+  // [Initial-release stats] Equipments are ONE horizontal line (weapon, armor); deities are a
+  // 3-slot auto-centered row; blessings show Divine (slot 1) + Echo (slots 2/3).
   return {
     top_label: d.topLabel?.hasTopLabel ? d.topLabel.word : null,
     name: d.displayName,
-    tier_line: `Believer Level ${fmt(d.believerLevel)}  |  ${profileTitle(d)}`,
-    exp_text: `${fmt(d.believerExp)} / ${fmt(d.believerExpMax)} Believer EXP`,
-    exp_ratio: Number(d.believerExp) / Math.max(1, Number(d.believerExpMax)),
     class: `${d.className}  |  Combat Lv ${fmt(d.combatLevel)}`,
     combat_exp: `Combat EXP  ${fmt(d.combatExp)} / ${combatMax}`,
     weapon_label: 'EQUIPMENTS',
-    weapon_value: weaponTxt,
-    armor_value: armorTxt,
+    weapon_value: `${weaponTxt}, ${armorTxt}`,
     deity_label: 'DEITIES',
     deities,
-    deity_value: deities.length ? deities.join('  ·  ') : 'None',
-    blessing: d.deityName ? `Blessing: ${d.blessingName || '-'}` : '',
+    deity_value: deities.join('  ·  '),
+    blessing: d.deityName
+      ? `Divine: ${d.blessingName || '—'}   ·   Echo: ${d.echoBlessing || '—'}`
+      : '',
     stats_label: 'CHARACTER STATS',
     stats: {
       atk: fmt(d.atk), hp: fmt(d.hp), def: fmt(d.def), crit: `${Number(d.crit || 0).toFixed(1)}%`,
     },
-    record_label: 'COMBAT RECORD',
+    record_label: 'COMBAT STATS',
     record: d.records || {},
     quote: d.quote || '',
   };
@@ -358,6 +358,17 @@ function drawDeitiesRow(ctx, layout, deities) {
   ctx.restore();
 }
 
+// Relabel the record columns so the (formerly duel) PvP cells read as RANK. Keys are unchanged
+// so values still resolve; only the displayed labels are swapped. Works for any skin's layout.
+const RANK_LABELS = { duels: 'RANK DUELS', duelWins: 'RANK WINS', duelStreak: 'RANK STREAK' };
+function relabelRankCols(record) {
+  if (!record || !Array.isArray(record.cols)) return record;
+  return {
+    ...record,
+    cols: record.cols.map((c) => (RANK_LABELS[c.key] ? { ...c, label: RANK_LABELS[c.key] } : c)),
+  };
+}
+
 async function renderStatsLayoutImage(d, options = {}) {
   const skinPath = options.skinPath || d.skinPath;
   const configPath = options.layoutPath || layoutPathFor(skinPath);
@@ -380,10 +391,12 @@ async function renderStatsLayoutImage(d, options = {}) {
     if (key === 'top_label' && !layout.top_label.enabled) continue;
     await drawText(ctx, key, view[key], layout, view, images);
   }
-  await drawArmorLine(ctx, layout, view, images);   // armor on every skin
+  // Equipments are now one combined weapon+armor line (no separate armor row).
   drawDeitiesRow(ctx, layout, view.deities);        // slots 1/2/3 auto-centered (blanks for empty)
   drawStats(ctx, layout.stats, view.stats);
-  drawRecord(ctx, layout.record, view.record);
+  // Relabel the duel record columns to RANK (PvP duels became ranked) without editing every
+  // per-skin stats.layout.json: re-map the labels by column key at draw time.
+  drawRecord(ctx, relabelRankCols(layout.record), view.record);
   return canvas.toBuffer('image/png');
 }
 

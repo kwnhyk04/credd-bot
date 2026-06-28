@@ -34,7 +34,7 @@ async function execute(message) {
   const targetMember = message.guild?.members?.cache?.get(targetUser.id) || null;
   const isOther = targetUser.id !== message.author.id;
   const discordId = targetUser.id;
-  const [characterResult, raidStreakResult, duelStreakResult] = await Promise.all([
+  const [characterResult, raidStreakResult, rankedResult] = await Promise.all([
     pool.query(
       `SELECT uc.class, uc.combat_level, uc.combat_exp,
             uc.believer_level, uc.believer_exp,
@@ -51,6 +51,7 @@ async function execute(message) {
             d2r.mythology AS d2_myth,
             d3r.name AS deity3_name, ud3.curr_atk AS d3_atk, ud3.curr_hp AS d3_hp, ud3.curr_def AS d3_def,
             d3r.mythology AS d3_myth,
+            d2r.blessing_name AS deity2_blessing, d3r.blessing_name AS deity3_blessing,
             tcq.display AS equipped_title
        FROM user_character uc
        LEFT JOIN user_weapons  uw ON uc.equipped_weapon_id = uw.weapon_id
@@ -67,38 +68,34 @@ async function execute(message) {
        WHERE uc.discord_id = $1`,
       [discordId]
     ),
+    // Raid streak = CURRENT win streak: count leading wins from the most recent raid backwards
+    // (stops at the first non-win), per "Raid Streak (current winstreak)".
     pool.query(
       `WITH ordered AS (
-         SELECT result,
-                ROW_NUMBER() OVER (ORDER BY timestamp, id)
-                - ROW_NUMBER() OVER (PARTITION BY result ORDER BY timestamp, id) AS run_id
+         SELECT result, ROW_NUMBER() OVER (ORDER BY timestamp DESC, id DESC) AS rn
            FROM raid_logs
           WHERE discord_id = $1 AND battle_type = 'raid'
-       ), win_runs AS (
-         SELECT COUNT(*)::int AS streak
-           FROM ordered
-          WHERE result = 'win'
-          GROUP BY run_id
        )
-       SELECT COALESCE(MAX(streak), 0)::int AS highest FROM win_runs`,
+       SELECT COUNT(*)::int AS current
+         FROM ordered
+        WHERE result = 'win'
+          AND rn < COALESCE((SELECT MIN(rn) FROM ordered WHERE result <> 'win'), 2147483647)`,
       [discordId]
     ),
+    // Ranked record ("rank duels / rank wins / rank streak") from ranked_logs (challenger-only
+    // rows; result is win|loss). rank streak = CURRENT ranked win streak.
     pool.query(
       `WITH ordered AS (
-         SELECT winner_id = $1 AS won,
-                ROW_NUMBER() OVER (ORDER BY timestamp, id)
-                - ROW_NUMBER() OVER (
-                    PARTITION BY (winner_id = $1) ORDER BY timestamp, id
-                  ) AS run_id
-           FROM pvp_logs
-          WHERE challenger_id = $1 OR opponent_id = $1
-       ), win_runs AS (
-         SELECT COUNT(*)::int AS streak
-           FROM ordered
-          WHERE won
-          GROUP BY run_id
+         SELECT result, ROW_NUMBER() OVER (ORDER BY timestamp DESC, id DESC) AS rn
+           FROM ranked_logs
+          WHERE player_id = $1
        )
-       SELECT COALESCE(MAX(streak), 0)::int AS highest FROM win_runs`,
+       SELECT
+         (SELECT COUNT(*)::int FROM ordered)                          AS total,
+         (SELECT COUNT(*)::int FROM ordered WHERE result = 'win')     AS wins,
+         (SELECT COUNT(*)::int FROM ordered
+            WHERE result = 'win'
+              AND rn < COALESCE((SELECT MIN(rn) FROM ordered WHERE result <> 'win'), 2147483647)) AS streak`,
       [discordId]
     ),
   ]);
@@ -180,20 +177,26 @@ async function execute(message) {
     deity2Name: r.deity2_name || null,
     deity3Name: r.deity3_name || null,
     deityEnh,
+    // Divine Blessing = slot-1 deity's blessing. Echo Blessing = the blessings carried by the
+    // slot-2/slot-3 (echo) deities, joined; null when no echo deities are equipped.
     blessingName: r.deity_name ? (r.blessing_name || null) : null,
+    echoBlessing: [r.deity2_blessing, r.deity3_blessing].filter(Boolean).join(' · ') || null,
 
     atk: stats.atk,
     hp: stats.hp,
     def: stats.def,
     crit: stats.crit,
 
+    // "Combat Stats" record row. raidStreak = CURRENT win streak. The duels/duelWins/duelStreak
+    // keys now carry RANKED data ("rank duels / rank wins / rank streak"); the renderers relabel
+    // them to RANK. (Keys kept so per-skin stats.layout.json record cols still resolve by key.)
     records: {
       raids: (r.raids_won || 0) + (r.raids_lost || 0),
       raidsWon: r.raids_won || 0,
-      raidStreak: raidStreakResult.rows[0]?.highest || 0,
-      duels: (r.pvp_wins || 0) + (r.pvp_losses || 0),
-      duelWins: r.pvp_wins || 0,
-      duelStreak: duelStreakResult.rows[0]?.highest || 0,
+      raidStreak: raidStreakResult.rows[0]?.current || 0,
+      duels: rankedResult.rows[0]?.total || 0,
+      duelWins: rankedResult.rows[0]?.wins || 0,
+      duelStreak: rankedResult.rows[0]?.streak || 0,
     },
   };
 

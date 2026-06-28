@@ -168,7 +168,10 @@ async function renderProfileImage(d) {
 
   // ── Measure the layout (600-wide design space) ──
   const headerH = PAD + AVATAR + 14;
-  const bodyH = 72;             // [initial-release] profile body = class + combat-exp only (gear/deity/stats moved to crd stats)
+  // [initial-release] Body shows class + combat-exp only (gear/deity/stats moved to crd stats),
+  // but layoutH is kept at the original height so the template scale/centering transform is
+  // unchanged — shrinking it inflated the scale and pushed the 600-wide layout off the canvas.
+  const bodyH = 264;
   const recordsH = 110;         // "Combat Record" heading + boxed cells
   const footerH = 30;
   const layoutH = headerH + 12 + bodyH + 12 + recordsH + 12 + footerH;

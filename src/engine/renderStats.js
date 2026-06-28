@@ -233,11 +233,7 @@ async function renderStatsImage(d) {
   ctx.textAlign = 'left';
   ctx.font = F(26, true);
   ctx.fillStyle = NAME_COLOR;
-  ctx.fillText(fitText(ctx, d.displayName, leftW), PAD, y + 30);
-
-  ctx.font = F(13);
-  ctx.fillStyle = SUB_COLOR;
-  ctx.fillText(fitText(ctx, `${d.className} · Combat Lv ${d.combatLevel}`, leftW), PAD, y + 56);
+  ctx.fillText(fitText(ctx, d.displayName, leftW), PAD, y + 44);
 
   y = headerH;
 
@@ -272,72 +268,43 @@ async function renderStatsImage(d) {
   ctx.fillText(`Combat EXP: ${Number(d.combatExp).toLocaleString()} / ${needed}`, cex, by);
   by += LH + 8;
 
-  // Weapon.
+  // Equipments — weapon + armor on ONE horizontal line ("Gungnir +5, Mail of Brokkr +10").
   ctx.font = F(13, true);
   ctx.fillStyle = DIM_COLOR;
-  ctx.fillText('Weapon:', PAD, by);
+  ctx.fillText('Equipments:', PAD, by);
   by += LH;
   ctx.font = F(15, true);
   ctx.fillStyle = NAME_COLOR;
-  if (d.weaponName) {
-    let wx = PAD;
-    if (weaponIcon) { ctx.drawImage(weaponIcon, wx, by - 15, 18, 18); wx += 24; }
-    const enh = d.weaponEnh > 0 ? ` +${d.weaponEnh}` : '';
-    ctx.fillText(fitText(ctx, `${d.weaponName}${enh}`, W - PAD - wx), wx, by);
-  } else {
-    ctx.fillStyle = SUB_COLOR;
-    ctx.fillText('None', PAD, by);
-  }
-  by += LH + 8;
+  const wTxt = d.weaponName ? `${d.weaponName}${d.weaponEnh > 0 ? ` +${d.weaponEnh}` : ''}` : 'None';
+  const aTxt = d.armorName ? `${d.armorName}${d.armorEnh > 0 ? ` +${d.armorEnh}` : ''}` : 'None';
+  ctx.fillText(fitText(ctx, `${wTxt}, ${aTxt}`, W - PAD * 2), PAD, by);
+  by += LH + 12;   // blank space
 
-  // Armor ([v5]) — mirrors the weapon block: emoji + name +enh (type).
+  // Deities — slots 1/2/3 on ONE horizontal line (slots 2/3 omitted when null).
   ctx.font = F(13, true);
   ctx.fillStyle = DIM_COLOR;
-  ctx.fillText('Armor:', PAD, by);
+  ctx.fillText('Deities:', PAD, by);
   by += LH;
   ctx.font = F(15, true);
-  if (d.armorName) {
-    let ax = PAD;
-    if (armorIcon) { ctx.drawImage(armorIcon, ax, by - 15, 18, 18); ax += 24; }
-    ctx.fillStyle = NAME_COLOR;
-    const enh = d.armorEnh > 0 ? ` +${d.armorEnh}` : '';
-    // [v5 tweak] Armor type ("(Medium)") no longer shown.
-    ctx.fillText(fitText(ctx, `${d.armorName}${enh}`, W - PAD - ax), ax, by);
-  } else {
-    ctx.fillStyle = SUB_COLOR;
-    ctx.fillText('None', PAD, by);
-  }
-  by += LH + 8;
-
-  // Active deity — mirrors the weapon block: emoji + name +enh, then a Blessing: line.
-  ctx.font = F(13, true);
-  ctx.fillStyle = DIM_COLOR;
-  ctx.fillText('Deity:', PAD, by);
-  by += LH;
   if (d.deityName) {
-    let dx = PAD;
-    if (deityIcon) { ctx.drawImage(deityIcon, dx, by - 15, 18, 18); dx += 24; }
-    ctx.font = F(15, true);
     ctx.fillStyle = NAME_COLOR;
-    const enh = d.deityEnh > 0 ? ` +${d.deityEnh}` : '';
-    ctx.fillText(fitText(ctx, `${d.deityName}${enh}`, W - PAD - dx), dx, by);
-    by += LH - 2;
+    const dTxt = [
+      `${d.deityName}${d.deityEnh > 0 ? ` +${d.deityEnh}` : ''}`,
+      d.deity2Name || null,
+      d.deity3Name || null,
+    ].filter(Boolean).join(', ');
+    ctx.fillText(fitText(ctx, dTxt, W - PAD * 2), PAD, by);
+    by += LH;
     ctx.font = F(12);
     ctx.fillStyle = SUB_COLOR;
-    ctx.fillText(fitText(ctx, `Blessing: ${d.blessingName || '—'}`, W - PAD * 2), PAD, by);
-    by += LH - 2;
-    if (d.deity2Name || d.deity3Name) {
-      ctx.font = F(12);
-      ctx.fillStyle = SUB_COLOR;
-      const slotNames = [d.deity2Name ? `S2: ${d.deity2Name}` : null, d.deity3Name ? `S3: ${d.deity3Name}` : null].filter(Boolean).join(' · ');
-      ctx.fillText(fitText(ctx, slotNames, W - PAD * 2), PAD, by);
-    }
+    ctx.fillText(fitText(ctx, `Divine Blessing: ${d.blessingName || '—'}`, W - PAD * 2), PAD, by);
+    by += LH - 4;
+    ctx.fillText(fitText(ctx, `Echo Blessing: ${d.echoBlessing || '—'}`, W - PAD * 2), PAD, by);
   } else {
-    ctx.font = F(15, true);
     ctx.fillStyle = SUB_COLOR;
     ctx.fillText('None', PAD, by);
   }
-  by += LH + 8;
+  by += LH + 10;   // blank space
 
   // Character stats.
   ctx.font = F(13, true);
@@ -356,16 +323,17 @@ async function renderStatsImage(d) {
   ctx.textAlign = 'left';
   ctx.font = F(12, true);
   ctx.fillStyle = DIM_COLOR;
-  ctx.fillText('Combat Record', PAD, y + 14);
+  ctx.fillText('Combat Stats', PAD, y + 14);
   y += 26;
 
+  // raidStreak = current raid win streak; the rank* cells are ranked PvP (current rank streak).
   const cells = [
     { label: 'Raids', value: d.records.raids },
     { label: 'Raids Won', value: d.records.raidsWon },
     { label: 'Raid Streak', value: d.records.raidStreak },
-    { label: 'Duels', value: d.records.duels },
-    { label: 'Duel Wins', value: d.records.duelWins },
-    { label: 'Duel Streak', value: d.records.duelStreak },
+    { label: 'Rank Duels', value: d.records.duels },
+    { label: 'Rank Wins', value: d.records.duelWins },
+    { label: 'Rank Streak', value: d.records.duelStreak },
   ];
   const gap = 6;
   const cellW = (W - PAD * 2 - gap * (cells.length - 1)) / cells.length;
