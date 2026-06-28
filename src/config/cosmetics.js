@@ -41,6 +41,22 @@ const TIER_RANK = { base: 0, believer: 1, chosen: 2, eternal: 3 };
 // ── Economy constants (all adjustable; §2/§3) ───────────────────────────────
 // Shop price by tier (token_cost). Base set is free.
 const TOKEN_COSTS = { believer: 2, chosen: 3, eternal: 4 };
+
+// Per-skin price overrides (cosmetic_key → token_cost). Applied AFTER the tier default in the
+// seeder, so these survive a reseed. Initial-release reprice: the premium myth + eternal store
+// skins cost 6; the budget "chosen" ones stay at their tier price (3). Keys mirror the catalog.
+const PRICE_OVERRIDES = {
+  // Profile (Divine Radiance / Laurel Runes Blue intentionally stay at 3)
+  greek_profile: 6, ph_profile: 6, norse_profile: 6,
+  e_aurora_constellation_p3: 6, e_eternal_flame_p4: 6,
+  // Battle (3 Chosen arena skins stay at 3)
+  greek_battle: 6, ph_battle: 6, norse_battle: 6,
+  e_astral_duel_b4: 6, e_celestial_clash_b5: 6, e_eternal_arena_b6: 6,
+  // Battle result (Laurel Crown stays at 3)
+  c_altar_light_r1: 6, e_aurora_sovereign_r3: 6, e_celestial_triump_r4: 6, e_eternal_flame_r5: 6,
+  // Summon (Rune Glow stays at 3)
+  e_aurora_ribbon_s2: 6, e_eternal_supernova_s3: 6, e_stardust_constellation_s4: 6,
+};
 // Monthly stipend by tier; eternal is a ONE-TIME grant at founder purchase (= 6 × the
 // 3-month window). Flag in the prompt: switch eternal to 6/month over 3 months if preferred.
 const MONTHLY_TOKENS = { believer: 1, chosen: 3 };
@@ -172,6 +188,7 @@ module.exports = {
   TIER_LETTER,
   TIER_RANK,
   TOKEN_COSTS,
+  PRICE_OVERRIDES,
   MONTHLY_TOKENS,
   ETERNAL_ONE_TIME_TOKENS,
   BETA_MODE,

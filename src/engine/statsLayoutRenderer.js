@@ -87,14 +87,16 @@ async function loadRenderImages(d, skinPath, options) {
   const deityPromise = localIcons.deity
     ? loadOptionalImage(localIcons.deity)
     : (d.deityName ? getEmojiIcon(resolveName(d.deityName) || '') : Promise.resolve(null));
+  const deity2Promise = d.deity2Name ? getEmojiIcon(resolveName(d.deity2Name) || '') : Promise.resolve(null);
+  const deity3Promise = d.deity3Name ? getEmojiIcon(resolveName(d.deity3Name) || '') : Promise.resolve(null);
   const combatExpPromise = localIcons.combatExp
     ? loadOptionalImage(localIcons.combatExp)
     : getEmojiIcon('combat_exp');
 
-  const [skin, avatar, weapon, deity, combatExp] = await Promise.all([
-    loadImage(skinPath), avatarPromise, weaponPromise, deityPromise, combatExpPromise,
+  const [skin, avatar, weapon, deity, deity2, deity3, combatExp] = await Promise.all([
+    loadImage(skinPath), avatarPromise, weaponPromise, deityPromise, deity2Promise, deity3Promise, combatExpPromise,
   ]);
-  return { skin, avatar, weapon, deity, combatExp };
+  return { skin, avatar, weapon, deity, deity2, deity3, combatExp };
 }
 
 function iconFor(style, layout, images) {
@@ -329,22 +331,26 @@ async function drawArmorLine(ctx, layout, view, images) {
  * the deity_value anchor x. Font shrinks to fit deity_value.max_width. Names only (no
  * per-slot icon) so all three fit. Overridable spacing via deity_value.deity_gap.
  */
-function drawDeitiesRow(ctx, layout, deities) {
+function drawDeitiesRow(ctx, layout, deities, icons = []) {
   const style = layout.deity_value;
   if (!style) return;
   const list = (deities && deities.length) ? deities : ['None'];
   const gap = style.deity_gap ?? 18;
   const maxW = style.max_width || 322;
-  let size = style.size;
-  const totalAt = (s) => {
+  const iconGap = 5;
+  // Per-slot icon (skipped for blank '—' slots). Sized to the chosen font.
+  const iconW = (s) => Math.round(s * 0.95);
+  const segWidths = (s) => {
     ctx.font = fontOf({ ...style, size: s });
-    return list.reduce((sum, t) => sum + ctx.measureText(t).width, 0) + gap * (list.length - 1);
+    return list.map((t, i) => (icons[i] ? iconW(s) + iconGap : 0) + ctx.measureText(t).width);
   };
+  let size = style.size;
+  const totalAt = (s) => segWidths(s).reduce((a, b) => a + b, 0) + gap * (list.length - 1);
   while (size > 9 && totalAt(size) > maxW) size -= 1;
   ctx.font = fontOf({ ...style, size });
-  const widths = list.map((t) => ctx.measureText(t).width);
-  const total = widths.reduce((a, b) => a + b, 0) + gap * (list.length - 1);
-  let cx = style.x - total / 2; // auto-center on the deity anchor x
+  const widths = segWidths(size);
+  const isz = iconW(size);
+  let cx = style.x; // LEFT-aligned at the anchor x (was auto-centered)
   ctx.save();
   ctx.fillStyle = style.color;
   ctx.textBaseline = 'middle';
@@ -352,7 +358,9 @@ function drawDeitiesRow(ctx, layout, deities) {
   ctx.shadowColor = style.shadow_color || 'rgba(0,0,0,0.88)';
   ctx.shadowBlur = style.shadow_blur ?? 7;
   for (let i = 0; i < list.length; i++) {
-    ctx.fillText(list[i], cx, style.y);
+    let x = cx;
+    if (icons[i]) { ctx.drawImage(icons[i], x, style.y - isz / 2, isz, isz); x += isz + iconGap; }
+    ctx.fillText(list[i], x, style.y);
     cx += widths[i] + gap;
   }
   ctx.restore();
@@ -395,7 +403,7 @@ function repositionStats(layout) {
     weapon_label: R(layout.weapon_label, ry + 70),
     weapon_value: R(layout.weapon_value, ry + 96),
     deity_label: R(layout.deity_label, ry + 134),
-    deity_value: { ...layout.deity_value, x: rx + rcw / 2, y: ry + 162, anchor: 'center', max_width: rcw },
+    deity_value: { ...layout.deity_value, x: rx, y: ry + 162, anchor: 'left', max_width: rcw },
     blessing: R(layout.blessing, ry + 192),
   };
 }
@@ -424,7 +432,10 @@ async function renderStatsLayoutImage(d, options = {}) {
     await drawText(ctx, key, view[key], layout, view, images);
   }
   // Equipments are now one combined weapon+armor line (no separate armor row).
-  drawDeitiesRow(ctx, layout, view.deities);        // slots 1/2/3 auto-centered (blanks for empty)
+  // Deity slots 1/2/3 left-aligned, each with its emoji icon (blank '—' slots get no icon).
+  const deityIcons = [images.deity, images.deity2, images.deity3]
+    .map((ic, i) => (view.deities[i] && view.deities[i] !== '—' ? ic : null));
+  drawDeitiesRow(ctx, layout, view.deities, deityIcons);
   drawStats(ctx, layout.stats, view.stats);
   // Relabel the duel record columns to RANK (PvP duels became ranked) without editing every
   // per-skin stats.layout.json: re-map the labels by column key at draw time.

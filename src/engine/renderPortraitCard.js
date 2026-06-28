@@ -256,14 +256,8 @@ async function renderPortraitCard(d) {
         ctx.textBaseline = 'alphabetic';
       }
 
-      // Caption under the box: the rune NAME (auto-resized), or "Empty".
-      if (filled && slot.label) {
-        const vt = String(slot.label);
-        ctx.fillStyle = border;
-        ctx.font = F(fitFont(ctx, vt, 13, box, true), true);
-        ctx.textAlign = 'center';
-        ctx.fillText(vt, bx + box / 2, by + box + 13);
-      } else if (!filled) {
+      // Caption under the box: filled runes show NO name (per request); empty slots read "Empty".
+      if (!filled) {
         ctx.fillStyle = DIM_COLOR;
         ctx.font = F(11);
         ctx.textAlign = 'center';

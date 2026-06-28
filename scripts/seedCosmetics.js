@@ -17,7 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const pool = require('../src/db/pool');
 const {
-  SKINS_DIR, DIRS, BASE_ROWS, TOKEN_COSTS, SET_FILES,
+  SKINS_DIR, DIRS, BASE_ROWS, TOKEN_COSTS, PRICE_OVERRIDES, SET_FILES,
   parseStoreBasename, displayNameFromTokens, skinCode,
 } = require('../src/config/cosmetics');
 
@@ -231,6 +231,11 @@ async function main() {
   if (entries.length === 0) {
     console.error('[seedCosmetics] No skin files found under', SKINS_DIR);
     process.exit(1);
+  }
+
+  // Apply per-skin price overrides (initial-release reprice) so reseeds keep the new prices.
+  for (const e of entries) {
+    if (PRICE_OVERRIDES[e.cosmetic_key] != null) e.token_cost = PRICE_OVERRIDES[e.cosmetic_key];
   }
 
   if (process.argv.includes('--dry')) {
