@@ -228,12 +228,12 @@ async function applySubscribe(userId, tier, opts = {}) {
       const existing = await client.query('SELECT founder_number FROM supporters WHERE discord_id = $1', [userId]);
       founderNumber = existing.rows[0]?.founder_number ?? null;
       if (founderNumber == null) {
-        const next = await client.query('SELECT COALESCE(MAX(founder_number),0)+1 AS n FROM supporters');
-        founderNumber = next.rows[0].n;
+        const next = await client.query("SELECT nextval('supporter_founder_number_seq') AS n");
+        founderNumber = Number(next.rows[0].n);
       }
     }
 
-    await client.query(
+    const supporter = await client.query(
       `INSERT INTO supporters
          (discord_id, tier, status, stripe_customer_id, stripe_subscription_id,
           current_period_end, chosen_expires_at, founder_number, founder_purchased_at, updated_at)
@@ -246,10 +246,12 @@ async function applySubscribe(userId, tier, opts = {}) {
          chosen_expires_at = COALESCE(EXCLUDED.chosen_expires_at, supporters.chosen_expires_at),
          founder_number = COALESCE(supporters.founder_number, EXCLUDED.founder_number),
          founder_purchased_at = COALESCE(supporters.founder_purchased_at, ${isFounder ? 'NOW()' : 'NULL'}),
-         updated_at = NOW()`,
+         updated_at = NOW()
+       RETURNING founder_number`,
       [userId, tier, opts.stripeCustomerId ?? null, opts.stripeSubscriptionId ?? null,
        opts.currentPeriodEnd ?? null, opts.chosenExpiresAt ?? null, founderNumber]
     );
+    founderNumber = supporter.rows[0]?.founder_number ?? null;
 
     await grantBaseSetTx(client, userId);
 
