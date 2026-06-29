@@ -135,6 +135,35 @@ new and defensive:
 - `dionysus_drunken_haze` — Drunken Haze: 30% chance each turn to make the enemy attack itself for 30% of its own ATK.
 - `nike_wings_of_victory` — Wings of Victory: ATK +25% for the whole battle.
 
+## ECHO blessings (active_echo_deity_id via ECHO_BLESSING_KEY_MAP)
+
+- `echo_nike` — Echo · Nike: ATK +12% for the whole battle.
+- `echo_persephone` — Echo · Persephone: Regenerates 3% max HP every 3 turns.
+- `echo_hades` — Echo · Hades: While the enemy's HP is below 30%, ATK +15%.
+- `echo_hera` — Echo · Hera: When hit by a critical, gains DEF +15% for 2 turns.
+- `echo_ares` — Echo · Ares: ATK +4% every 2 turns, stacking up to 16%.
+- `echo_hephaestus` — Echo · Hephaestus: DEF +15% for the whole battle.
+- `echo_apollo` — Echo · Apollo: ATK +10% for the whole battle.
+- `echo_bragi` — Echo · Bragi: Every 4 turns, ATK +10% for that turn.
+- `echo_idunn` — Echo · Idunn: Regenerates 2% max HP every 2 turns.
+- `echo_freyr` — Echo · Freyr: Regenerates 3% max HP every 3 turns.
+- `echo_vidar` — Echo · Vidar: When hit by a critical, the next attack gains +30% ATK.
+- `echo_magni` — Echo · Magni: ATK +3% for every 10% of HP lost, up to 15%.
+- `echo_njord` — Echo · Njord: 10% chance each turn to reduce incoming damage by 20%.
+- `echo_freya` — Echo · Freya: While HP is below 40%, DEF +20%.
+- `echo_tyr` — Echo · Tyr: DEF +10% for the whole battle.
+- `echo_surt` — Echo · Surt: Every 3 turns, applies flat Burn (10% ATK per turn for 2 turns).
+- `echo_hel` — Echo · Hel: While HP is below 50%, ATK +8% and DEF +8%.
+- `echo_mimir` — Echo · Mimir: Every 5 turns, gains +30% ATK for that turn.
+- `echo_idiyanale` — Echo · Idiyanale: Every 6 turns, the next attack deals double damage.
+- `echo_lakapati` — Echo · Lakapati: Regenerates 2% max HP every turn.
+- `echo_habagat` — Echo · Habagat: 15% chance to deal +30% bonus ATK.
+- `echo_mandarangan` — Echo · Mandarangan: ATK +5% per turn, stacking up to 15%.
+- `echo_magwayen` — Echo · Magwayen: Each attack steals 5% of the damage dealt as HP.
+- `echo_dian_masalanta` — Echo · Dian Masalanta: While HP is below 30%, ATK +12%.
+- `echo_mayari` — Echo · Mayari: While HP is below 50%, DEF +15%.
+- `echo_apolaki` — Echo · Apolaki: Every 4 turns, applies flat Burn (8% ATK per turn for 2 turns).
+
 ## MOB / BOSS skills (mob_roster.skill_key)
 
 - `dwende_black_hex` — Hex: 25% chance to reduce the player's ATK by 15% for 1 turn.

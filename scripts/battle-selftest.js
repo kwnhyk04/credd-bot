@@ -85,11 +85,10 @@ section('1. Coverage — registry ⇄ passive_registry_keys.md');
   const extra = [...regKeys].filter((k) => !mdKeys.has(k));
   check('every md key implemented', missing.length === 0, `missing: ${missing.join(', ')}`);
   check('no unlisted registry keys', extra.length === 0, `extra: ${extra.join(', ')}`);
-  // 145 unique keys total — 144 effect keys + the shared `none` no-op. [v5] +8 new
-  // armor passives (kalasag, salakot_ward, wolfskin_cloak, hoplite_panoply,
-  // anting_anting_sash, valkyrie_mantle, mail_of_brokkr, mantle_of_bathala); aegis &
-  // helm_of_darkness were already counted (migrated from shields).
-  check('expected key count (145 incl. none)', regKeys.size === 145, `got ${regKeys.size}`);
+  // 171 unique keys total — 170 effect keys + the shared `none` no-op. [v5] added
+  // 8 armor passives and 26 echo blessing keys; aegis & helm_of_darkness were
+  // already counted (migrated from shields).
+  check('expected key count (171 incl. none)', regKeys.size === 171, `got ${regKeys.size}`);
   for (const k of regKeys) {
     if (typeof PASSIVE_REGISTRY[k] !== 'function') check(`key ${k} is a function`, false);
   }
