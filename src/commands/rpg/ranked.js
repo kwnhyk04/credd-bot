@@ -99,7 +99,7 @@ async function fight(message) {
   if (!opp) {
     return reply(message, '⚔️ No eligible opponent in your bracket range right now — try again later.');
   }
-  const oppRating = opp.pvp_rating;
+  const oppRating = Number(opp.pvp_rating);
 
   // Ranked fights at TRUE levels/stats/equipment — no normalization (build + level both matter).
   const [p1, p2] = await Promise.all([
@@ -110,24 +110,57 @@ async function fight(message) {
 
   const sim = resolveBattle(p1, p2, { mode: 'duel', seed: Date.now() >>> 0 });
   const won = sim.winner === 'a';
-  const delta = eloDelta(rating, oppRating, won);          // dynamic — scales with rank gap
-  const medals = valorForResult(rating, oppRating, won);   // Valor for win AND loss
-  const { rating: newRating, shield } = applyRating(rating, self.pvp_demotion_shield, delta);
-  const newPeak = Math.max(self.pvp_peak, newRating);
+  let ratingBefore;
+  let delta;
+  let medals;
+  let newRating;
 
-  await pool.query(
-    `UPDATE user_character SET pvp_rating = $2, pvp_demotion_shield = $3, pvp_peak = $4 WHERE discord_id = $1`,
-    [me, newRating, shield, newPeak]
-  );
-  await pool.query(
-    'UPDATE users_bag SET valor_medals = valor_medals + $2 WHERE discord_id = $1',
-    [me, medals]
-  );
-  await pool.query(
-    `INSERT INTO ranked_logs (player_id, opponent_id, result, rating_before, rating_after)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [me, opp.discord_id, won ? 'win' : 'loss', rating, newRating]
-  );
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const bagRes = await client.query('SELECT 1 FROM users_bag WHERE discord_id = $1 FOR UPDATE', [me]);
+    if (bagRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return reply(message, 'Ranked cancelled — your bag could not be found.');
+    }
+    const lockedRes = await client.query(
+      'SELECT pvp_rating, pvp_demotion_shield, pvp_peak FROM user_character WHERE discord_id = $1 FOR UPDATE',
+      [me]
+    );
+    if (lockedRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return reply(message, 'Ranked cancelled — your character could not be found.');
+    }
+
+    const locked = lockedRes.rows[0];
+    ratingBefore = Number(locked.pvp_rating);
+    delta = eloDelta(ratingBefore, oppRating, won);          // dynamic — scales with rank gap
+    medals = valorForResult(ratingBefore, oppRating, won);   // Valor for win AND loss
+    const { rating: nextRating, shield } = applyRating(ratingBefore, locked.pvp_demotion_shield, delta);
+    newRating = nextRating;
+    const newPeak = Math.max(Number(locked.pvp_peak || 0), newRating);
+
+    await client.query(
+      `UPDATE user_character SET pvp_rating = $2, pvp_demotion_shield = $3, pvp_peak = $4 WHERE discord_id = $1`,
+      [me, newRating, shield, newPeak]
+    );
+    await client.query(
+      'UPDATE users_bag SET valor_medals = valor_medals + $2 WHERE discord_id = $1',
+      [me, medals]
+    );
+    await client.query(
+      `INSERT INTO ranked_logs (player_id, opponent_id, result, rating_before, rating_after)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [me, opp.discord_id, won ? 'win' : 'loss', ratingBefore, newRating]
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[ranked fight]', err);
+    return reply(message, 'Ranked result failed — no rating or rewards were changed.');
+  } finally {
+    client.release();
+  }
 
   // Result rendered INSIDE the embed (Phase 6): the tier matchup sits in the HEADER
   // (embed author, top), the outcome + rating move + Valor in the footer (bottom).
@@ -158,37 +191,51 @@ async function claim(message) {
   const me = message.author.id;
   const week = phtWeek();
 
-  const charRes = await pool.query(
-    'SELECT pvp_rating, last_weekly_claim_week FROM user_character WHERE discord_id = $1', [me]
-  );
-  if (charRes.rows.length === 0) return reply(message, 'No character found.');
-  const { pvp_rating, last_weekly_claim_week } = charRes.rows[0];
-
-  if (last_weekly_claim_week === week) {
-    return reply(message, '✅ You already claimed this week\'s ranked reward. Come back next week.');
-  }
-
-  const gamesRes = await pool.query(
-    `SELECT count(*)::int AS n FROM ranked_logs
-      WHERE player_id = $1 AND timestamp >= (NOW() AT TIME ZONE 'Asia/Manila')::date - INTERVAL '7 days'`,
-    [me]
-  );
-  const games = gamesRes.rows[0].n;
-  if (games < WEEKLY_MIN_GAMES) {
-    return reply(message, `⚔️ You need **${WEEKLY_MIN_GAMES}** ranked games this week to claim (you have **${games}**).`);
-  }
-
-  const bracket = bracketOf(pvp_rating).name;
-  const rewardRes = await pool.query(
-    'SELECT weekly_credux, weekly_valor, weekly_payload FROM ranked_reward WHERE bracket = $1', [bracket]
-  );
-  if (rewardRes.rows.length === 0) return reply(message, 'No reward configured for your bracket.');
-  const { weekly_credux, weekly_valor, weekly_payload } = rewardRes.rows[0];
-
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('SELECT 1 FROM users_bag WHERE discord_id = $1 FOR UPDATE', [me]);
+    const bagRes = await client.query('SELECT 1 FROM users_bag WHERE discord_id = $1 FOR UPDATE', [me]);
+    if (bagRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return reply(message, 'No bag found.');
+    }
+    const charRes = await client.query(
+      'SELECT pvp_rating, last_weekly_claim_week FROM user_character WHERE discord_id = $1 FOR UPDATE',
+      [me]
+    );
+    if (charRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return reply(message, 'No character found.');
+    }
+    const { pvp_rating, last_weekly_claim_week } = charRes.rows[0];
+
+    if (last_weekly_claim_week === week) {
+      await client.query('ROLLBACK');
+      return reply(message, '✅ You already claimed this week\'s ranked reward. Come back next week.');
+    }
+
+    const gamesRes = await client.query(
+      `SELECT count(*)::int AS n FROM ranked_logs
+        WHERE player_id = $1 AND timestamp >= (NOW() AT TIME ZONE 'Asia/Manila')::date - INTERVAL '7 days'`,
+      [me]
+    );
+    const games = gamesRes.rows[0].n;
+    if (games < WEEKLY_MIN_GAMES) {
+      await client.query('ROLLBACK');
+      return reply(message, `⚔️ You need **${WEEKLY_MIN_GAMES}** ranked games this week to claim (you have **${games}**).`);
+    }
+
+    const bracket = bracketOf(pvp_rating).name;
+    const rewardRes = await client.query(
+      'SELECT weekly_credux, weekly_valor, weekly_payload FROM ranked_reward WHERE bracket = $1',
+      [bracket]
+    );
+    if (rewardRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return reply(message, 'No reward configured for your bracket.');
+    }
+    const { weekly_credux, weekly_valor, weekly_payload } = rewardRes.rows[0];
+
     const grants = [];
     if (Number(weekly_credux) > 0) {
       await client.query('UPDATE users_bag SET credux = credux + $2 WHERE discord_id = $1', [me, weekly_credux]);

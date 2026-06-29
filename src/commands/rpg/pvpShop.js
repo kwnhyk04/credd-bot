@@ -135,15 +135,29 @@ async function buy(message, args) {
       return reply(message, `Not enough Valor for ${qty}× — need ${cost.toLocaleString()}, have ${valor.toLocaleString()}. You can afford **${afford}**.`);
     }
 
+    const purchaseRes = await client.query(
+      `INSERT INTO pvp_shop_purchases (discord_id, season_id, item_key, qty)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (discord_id, season_id, item_key) DO UPDATE
+       SET qty = pvp_shop_purchases.qty + EXCLUDED.qty
+       WHERE pvp_shop_purchases.qty + EXCLUDED.qty <= $5
+       RETURNING qty`,
+      [discordId, season.season_id, item.key, qty, item.cap]
+    );
+    if (purchaseRes.rows.length === 0) {
+      const latestRes = await client.query(
+        'SELECT qty FROM pvp_shop_purchases WHERE discord_id = $1 AND season_id = $2 AND item_key = $3',
+        [discordId, season.season_id, item.key]
+      );
+      const current = Number(latestRes.rows[0]?.qty || bought);
+      await client.query('ROLLBACK');
+      const left = Math.max(0, item.cap - current);
+      return reply(message, `🚫 Season cap for **${item.name}** is ${item.cap} — you've bought ${current}, can buy **${left}** more this season.`);
+    }
+
     await client.query(
       `UPDATE users_bag SET valor_medals = valor_medals - $2, ${item.column} = ${item.column} + $3 WHERE discord_id = $1`,
       [discordId, cost, qty]
-    );
-    await client.query(
-      `INSERT INTO pvp_shop_purchases (discord_id, season_id, item_key, qty)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (discord_id, season_id, item_key) DO UPDATE SET qty = pvp_shop_purchases.qty + $4`,
-      [discordId, season.season_id, item.key, qty]
     );
     await client.query('COMMIT');
 
