@@ -10,6 +10,7 @@
  * rating only). Demotion shield holds a player at the bracket floor for one loss.
  */
 
+const { randomUUID } = require('crypto');
 const { ContainerBuilder, SeparatorSpacingSize, MessageFlags } = require('discord.js');
 const pool = require('../../db/pool');
 const { resolveBattle } = require('../../engine/battleEngine');
@@ -22,10 +23,34 @@ const {
 } = require('../../config/ranked');
 
 const GOLD = 0xf0b232;
+const RANKED_FIGHT_LOCK_MINUTES = 10;
 const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 function reply(message, content) {
   return message.reply({ content, allowedMentions: { repliedUser: false } });
+}
+
+async function acquireRankedFightLock(discordId) {
+  const token = randomUUID();
+  const res = await pool.query(
+    `INSERT INTO active_ranked_fights (discord_id, lock_token, started_at, expires_at)
+     VALUES ($1, $2, NOW(), NOW() + ($3::int * INTERVAL '1 minute'))
+     ON CONFLICT (discord_id) DO UPDATE
+        SET lock_token = EXCLUDED.lock_token,
+            started_at = EXCLUDED.started_at,
+            expires_at = EXCLUDED.expires_at
+      WHERE active_ranked_fights.expires_at <= NOW()
+     RETURNING lock_token`,
+    [discordId, token, RANKED_FIGHT_LOCK_MINUTES]
+  );
+  return res.rows.length > 0 ? token : null;
+}
+
+async function releaseRankedFightLock(discordId, token) {
+  await pool.query(
+    'DELETE FROM active_ranked_fights WHERE discord_id = $1 AND lock_token = $2',
+    [discordId, token]
+  );
 }
 
 // item key (ranked_reward payload) → users_bag column
@@ -59,6 +84,12 @@ function applyRating(ratingBefore, shieldBefore, delta) {
 // ── crd ranked — find a match and fight ────────────────────────────────────
 async function fight(message) {
   const me = message.author.id;
+  const lockToken = await acquireRankedFightLock(me);
+  if (!lockToken) {
+    return reply(message, '⚔️ You already have a ranked fight in progress — wait for it to finish.');
+  }
+
+  try {
   const selfRes = await pool.query(
     'SELECT pvp_rating, pvp_demotion_shield, pvp_peak FROM user_character WHERE discord_id = $1',
     [me]
@@ -184,6 +215,11 @@ async function fight(message) {
   await runBattle(message.channel, {
     mode: 'duel', sim, header, footer, battleSkinPath, resultSkinPath,
   });
+  } finally {
+    await releaseRankedFightLock(me, lockToken).catch((err) => {
+      console.error('[ranked fight lock release]', err.message);
+    });
+  }
 }
 
 // ── crd ranked claim — weekly bracket reward ───────────────────────────────
