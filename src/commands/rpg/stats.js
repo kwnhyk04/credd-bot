@@ -2,7 +2,7 @@
 
 const { AttachmentBuilder } = require('discord.js');
 const pool = require('../../db/pool');
-const { assemblePlayerStats } = require('../../engine/statAssembly');
+const { assemblePlayerStats, accumulateRuneStats } = require('../../engine/statAssembly');
 const { computeResonanceMods } = require('../../config/blessings');
 const { EXP_REQUIRED, MAX_COMBAT_LEVEL } = require('../../config/combatExp');
 const { renderStatsImage } = require('../../engine/renderStats');
@@ -41,9 +41,10 @@ async function execute(message) {
             uc.raids_won, uc.raids_lost, uc.pvp_wins, uc.pvp_losses,
             wr.name  AS weapon_name,
             uw.enhancement AS weapon_enh,
-            uw.curr_atk AS w_atk, uw.crit AS w_crit,
+            uw.curr_atk AS w_atk, uw.crit AS w_crit, uw.native_sockets AS w_native,
             ar.name  AS armor_name, ar.type AS armor_type,
             ua.enhancement AS armor_enh, ua.curr_hp AS a_hp, ua.curr_def AS a_def,
+            ua.native_sockets AS a_native,
             dr.name  AS deity_name, dr.blessing_name, ud.enhancement AS deity_enh,
             ud.curr_atk AS d_atk, ud.curr_hp AS d_hp, ud.curr_def AS d_def,
             dr.mythology AS d1_myth,
@@ -137,7 +138,8 @@ async function execute(message) {
   const resonance = computeResonanceMods(deityInfos);
   const pantheonMods = (slot2 || slot3 || resonance.atkPct || resonance.hpPct || resonance.defPct || resonance.critPts)
     ? { slot2, slot3, resonance } : null;
-  const stats = assemblePlayerStats(r.class, r.combat_level, weapon, armor, deity, null, pantheonMods);
+  const { mods: runeMods } = await accumulateRuneStats(pool, r);
+  const stats = assemblePlayerStats(r.class, r.combat_level, weapon, armor, deity, runeMods, pantheonMods);
 
   // enhancement column: 1 = +0; display level is enhancement − 1.
   const weaponEnh = r.weapon_name ? Math.max(0, (r.weapon_enh || 1) - 1) : 0;

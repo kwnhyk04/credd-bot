@@ -36,7 +36,7 @@ function existsAbs(p) {
 /** First existing file (absolute) among `candidates` basenames inside a skins-relative folder. */
 function firstExistingInFolder(relFolder, candidates) {
   for (const name of candidates) {
-    const abs = path.join(SKINS_DIR, ...relFolder.split('/'), name);
+    const abs = skinFilePath(`${relFolder}/${name}`);
     if (existsAbs(abs)) return abs;
   }
   return null;

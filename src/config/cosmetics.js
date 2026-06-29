@@ -22,7 +22,7 @@ const path = require('path');
 const { DEV_IDS } = require('./config');
 
 // assets/skins/ — anchored to project root (this file is src/config/).
-const SKINS_DIR = path.join(__dirname, '..', '..', 'assets', 'skins');
+const SKINS_DIR = path.resolve(__dirname, '..', '..', 'assets', 'skins');
 
 // The four cosmetic categories (also the equipped_skins.category / catalog.category values).
 const CATEGORIES = ['profile', 'battle', 'battle_result', 'summon'];
@@ -173,12 +173,24 @@ function skinCode(cosmeticKey) {
 /** Absolute on-disk path for a catalog *_filename (relative to assets/skins/). */
 function skinFilePath(relPath) {
   if (!relPath) return null;
-  return path.join(SKINS_DIR, ...String(relPath).split('/'));
+  const raw = String(relPath).trim();
+  if (!raw || path.isAbsolute(raw) || /^[a-zA-Z]:[\\/]/.test(raw)) return null;
+
+  const parts = raw.replace(/\\/g, '/').split('/').filter(Boolean);
+  if (parts.some((part) => part === '.' || part === '..')) return null;
+
+  const abs = path.resolve(SKINS_DIR, ...parts);
+  const rel = path.relative(SKINS_DIR, abs);
+  if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) return abs;
+  return null;
 }
 
 /** Relative (forward-slash) skins path from an absolute/native path under SKINS_DIR. */
 function toRelSkinPath(absPath) {
-  return path.relative(SKINS_DIR, absPath).split(path.sep).join('/');
+  const abs = path.resolve(absPath);
+  const rel = path.relative(SKINS_DIR, abs);
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  return rel.split(path.sep).join('/');
 }
 
 module.exports = {

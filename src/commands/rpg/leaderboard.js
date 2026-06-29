@@ -34,9 +34,10 @@ const CATEGORIES = {
 };
 const CAT_KEYS = Object.keys(CATEGORIES);
 
-/** Run the ranked query for a category + scope. memberIds=null → global. */
+/** Run the ranked query for a category + scope. memberIds=null -> global. */
 async function queryBoard(catKey, memberIds) {
   const cat = CATEGORIES[catKey];
+  if (Array.isArray(memberIds) && memberIds.length === 0) return [];
   const params = [];
   let where = '';
   if (memberIds) { params.push(memberIds); where = 'WHERE uc.discord_id = ANY($1)'; }
@@ -56,11 +57,11 @@ async function queryBoard(catKey, memberIds) {
   return rows;
 }
 
-/** Resolve guild member ids for server scope (cache-first — avoids a slow API fetch). */
+/** Resolve guild member ids for server scope (cache-first; empty means unavailable, not global). */
 function serverMemberIds(guild) {
-  if (!guild) return null;
+  if (!guild) return [];
   const ids = [...guild.members.cache.keys()];
-  return ids.length ? ids : null;
+  return ids.length ? ids : [];
 }
 
 function buildSelects(catKey, scope, ownerId) {
@@ -83,7 +84,8 @@ function buildSelects(catKey, scope, ownerId) {
 async function buildPayload(catKey, scope, guild, ownerId) {
   const cat = CATEGORIES[catKey];
   const memberIds = scope === 'server' ? serverMemberIds(guild) : null;
-  const rows = await queryBoard(catKey, memberIds);
+  const serverScopeUnavailable = scope === 'server' && memberIds.length === 0;
+  const rows = serverScopeUnavailable ? [] : await queryBoard(catKey, memberIds);
 
   const [catRow, scopeRow] = buildSelects(catKey, scope, ownerId);
   const container = new ContainerBuilder()
@@ -97,7 +99,11 @@ async function buildPayload(catKey, scope, guild, ownerId) {
     `-# ${cat.label} · ${scope === 'global' ? '🌐 Global' : '🏠 Server'}`
   ));
 
-  if (rows.length === 0) {
+  if (serverScopeUnavailable) {
+    container.addTextDisplayComponents((td) => td.setContent(
+      '*Server leaderboard is unavailable because the member cache is empty. Choose Global to browse all ranked players.*'
+    ));
+  } else if (rows.length === 0) {
     container.addTextDisplayComponents((td) => td.setContent('*No ranked players yet.*'));
   } else {
     const lines = rows.map((r, i) => {

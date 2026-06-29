@@ -378,6 +378,7 @@ module.exports = {
   assemblePlayerStats,
   computeMobStats,
   computeBossStats,
+  accumulateRuneStats,
   rollMobLevel,
   buildPlayerFighter,
   buildMobFighter,
