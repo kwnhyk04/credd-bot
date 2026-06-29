@@ -34,6 +34,7 @@ const { DIRS, SKINS_DIR } = require('../../config/cosmetics');
 
 const INT_MAX = 2147483647; // INTEGER column ceiling (shards/chests/relics)
 const MENTION_RE = /^<@!?\d+>$/;
+const RESET_ALL_CONFIRM = 'confirm:RESET_ALL_GEAR';
 
 // type alias → users_bag column (accepts open-cmd aliases too).
 const CHEST_COLUMNS = {
@@ -70,6 +71,31 @@ function reply(message, content) {
 
 function nonMentionArgs(args) {
   return args.slice(1).filter(a => !MENTION_RE.test(a));
+}
+
+function destructiveCommandsAllowed() {
+  return process.env.ALLOW_DESTRUCTIVE_DEV_COMMANDS === 'true';
+}
+
+function destructiveProductionDenied() {
+  return process.env.NODE_ENV === 'production' && !destructiveCommandsAllowed();
+}
+
+function hasExactToken(args, token) {
+  return args.includes(token);
+}
+
+function destructiveGuardMessage(args, token, usage, { requireAllow = false } = {}) {
+  if (destructiveProductionDenied()) {
+    return 'Destructive dev commands are disabled in production. Set `ALLOW_DESTRUCTIVE_DEV_COMMANDS=true` and rerun with the exact confirmation token.';
+  }
+  if (requireAllow && !destructiveCommandsAllowed()) {
+    return 'This all-user wipe requires `ALLOW_DESTRUCTIVE_DEV_COMMANDS=true` and the exact confirmation token.';
+  }
+  if (!hasExactToken(args, token)) {
+    return `Confirmation required. Use: \`${usage}\``;
+  }
+  return null;
 }
 
 function parseAmount(raw) {
@@ -312,10 +338,13 @@ async function setBan(message, devId, banned) {
   }
 }
 
-// ── crd dev resetplayer @user ──────────────────────────────────────────────
-async function resetPlayer(message, devId) {
+// ── crd dev resetplayer @user confirm:<discord_id> ─────────────────────────
+async function resetPlayer(message, args, devId) {
   const target = message.mentions.users.first();
-  if (!target) return reply(message, 'Usage: `crd dev resetplayer @user`');
+  if (!target) return reply(message, 'Usage: `crd dev resetplayer @user confirm:<target_discord_id>`');
+  const usage = `crd dev resetplayer @user confirm:${target.id}`;
+  const guard = destructiveGuardMessage(args, `confirm:${target.id}`, usage);
+  if (guard) return reply(message, guard);
 
   const client = await pool.connect();
   try {
@@ -351,16 +380,19 @@ async function resetPlayer(message, devId) {
   }
 }
 
-// ── crd dev resetweapons [@user] ───────────────────────────────────────────
-// [v5] Zero the target's GEAR ONLY: null both equip slots, then DELETE all
-// user_weapons AND user_armors rows. Leaves deities, essence, currency, chests,
-// level, quests, runes UNTOUCHED. Defaults to self. Bare zero — NO starter
-// re-grant (post-Phase-1 cleanup of pre-v5 / shield / test gear). Logged with a
-// pre-wipe count snapshot.
+// ── crd dev resetweapons [@user] confirm:<discord_id> ──────────────────────
+// [v5] Zero the target's gear/loadout: null gear equip slots and secondary/echo
+// deity loadout slots, then DELETE all user_weapons AND user_armors rows. Leaves
+// deity ownership, essence, currency, chests, level, quests, runes UNTOUCHED.
+// Defaults to self. Bare zero — NO starter re-grant (post-Phase-1 cleanup of
+// pre-v5 / shield / test gear). Logged with a pre-wipe count snapshot.
 async function resetWeapons(message, args, devId) {
   // `crd dev resetweapons all` — wipe EVERY registered user's weapons + armors.
-  if ((args[1] || '').toLowerCase() === 'all') return resetAllWeapons(message, devId);
+  if ((args[1] || '').toLowerCase() === 'all') return resetAllWeapons(message, args, devId);
   const target = message.mentions.users.first() || { id: devId };
+  const usage = `crd dev resetweapons ${target.id === devId ? '' : '@user '}confirm:${target.id}`.replace('  ', ' ');
+  const guard = destructiveGuardMessage(args, `confirm:${target.id}`, usage);
+  if (guard) return reply(message, guard);
 
   const client = await pool.connect();
   try {
@@ -386,7 +418,8 @@ async function resetWeapons(message, args, devId) {
     await client.query('COMMIT');
     return reply(message,
       `✅ Reset gear for <@${target.id}> — removed **${weapons}** weapons + **${armors}** armors. ` +
-      'Deities, currency, chests, level, quests untouched. No starter re-granted.');
+      'Socketed runes returned to bags; gear and secondary/echo deity loadout slots cleared. ' +
+      'Deity ownership, currency, chests, level, quests untouched. No starter re-granted.');
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[dev resetweapons]', err.message);
@@ -396,8 +429,12 @@ async function resetWeapons(message, args, devId) {
   }
 }
 
-// ── crd dev resetweapons all — server-wide gear wipe ───────────────────────
-async function resetAllWeapons(message, devId) {
+// ── crd dev resetweapons all confirm:RESET_ALL_GEAR — server-wide gear wipe ─
+async function resetAllWeapons(message, args, devId) {
+  const usage = `crd dev resetweapons all ${RESET_ALL_CONFIRM}`;
+  const guard = destructiveGuardMessage(args, RESET_ALL_CONFIRM, usage, { requireAllow: true });
+  if (guard) return reply(message, guard);
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -414,7 +451,8 @@ async function resetAllWeapons(message, devId) {
     await client.query('COMMIT');
     return reply(message,
       `✅ Reset gear for **ALL** registered users — removed **${weapons}** weapons + **${armors}** armors. ` +
-      'Socketed runes returned to bags. Deities, currency, chests, runes untouched.');
+      'Socketed runes returned to bags; gear and secondary/echo deity loadout slots cleared. ' +
+      'Deity ownership, currency, chests, runes untouched.');
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[dev resetweapons all]', err.message);
@@ -968,7 +1006,8 @@ const USAGE = [
   '`givecredux @user <amount>` · `givebeliefshards @user <amount>`',
   '`givechest @user <type> <amount>` · `giverelic @user <sacred|supreme> <amount>`',
   '`giveessence @user <epic|mythic|legendary|supreme> <count>` · `givebag @user <lesser|greater|divine> <count>`',
-  '`ban @user` · `unban @user` · `resetplayer @user` · `resetweapons [@user|all]` (gear-only wipe)',
+  '`ban @user` · `unban @user`',
+  '`resetplayer @user confirm:<id>` · `resetweapons [@user] confirm:<id>` · `resetweapons all confirm:RESET_ALL_GEAR`',
   '`enhanceequipment <equipment_id> <+level>` · `enhancedeity @user <deity name> <+level>`',
   '`battle [mob name] [seed <n>]` — engine smoke test (no rewards)',
   '`setbosshp <boss name> <hp>` · `spawnboss [boss name]` — boss smoke-test enablers',
@@ -993,7 +1032,7 @@ async function execute(message, { args }) {
     case 'givebag':          return giveBag(message, args, devId);
     case 'ban':              return setBan(message, devId, true);
     case 'unban':            return setBan(message, devId, false);
-    case 'resetplayer':      return resetPlayer(message, devId);
+    case 'resetplayer':      return resetPlayer(message, args, devId);
     case 'resetweapons':     return resetWeapons(message, args, devId);
     case 'believerlevel':    return setBelieverLevel(message, args, devId);
     case 'setrating':        return setRating(message, args, devId);
