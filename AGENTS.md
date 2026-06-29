@@ -21,6 +21,7 @@ container: header ("## Title" + "-#" subtext)
 ```
 
 Conventions:
+
 - Pagination state lives **in the button customId** (`weapons:<prev|next>:<ownerId>:<page>`, 0-based)
   and every button handler **owner-checks** (`interaction.user.id !== ownerId` → ephemeral reject).
 - Item icons come from custom emojis via `src/utils/emojis.js`, which parses the registry
@@ -30,3 +31,12 @@ Conventions:
   `src/engine/bagViews.js` (overview + boxed chest rows with button accessories),
   `src/engine/renderSummon.js` (canvas grid + two-phase reveal).
 - New list/inventory commands should follow this pattern.
+
+Permanent Rules:
+
+- preserve game behavior
+- do not change balance values
+- audit before editing
+- work in small phases
+- update file references when moving files
+- run checks after each phase
