@@ -87,7 +87,7 @@ function isDevAccount(userId) {
  *   - explicit user_cosmetics rows (store buys, base grants)
  *   - `tester_default_*`   → everyone, while the bot is in open beta
  *   - `tester_<userId>_*`  → the specific tester that folder belongs to
- *   - `founder_*`          → dev accounts only (limited; reserved for the first 50 founders)
+ *   - `founder_*`          → active founders 1..50, plus dev accounts
  *   - is_base rows         → any active supporter (base set comes with a subscription)
  *   - dev accounts         → ALL active catalog skins
  */
@@ -96,9 +96,12 @@ async function ownedIdsResolved(db, userId) {
   const dev = isDevAccount(uid);
   const owned = dev ? new Set() : await userOwnedIds(db, userId);
   let active = false;
+  let activeFounder = false;
   if (!dev) {
     const sup = await getSupporter(db, userId);
     active = isActiveSupporter(sup);
+    const founderNumber = Number(sup?.founder_number);
+    activeFounder = active && sup?.founder_number != null && Number.isFinite(founderNumber) && founderNumber <= 50;
   }
   const { rows } = await db.query(
     'SELECT cosmetic_id, cosmetic_key, is_base FROM cosmetic_catalog WHERE is_active = true'
@@ -108,8 +111,8 @@ async function ownedIdsResolved(db, userId) {
     const k = r.cosmetic_key;
     if (k.startsWith('tester_default_')) owned.add(r.cosmetic_id);
     else if (k.startsWith(`tester_${uid}_`)) owned.add(r.cosmetic_id);
+    else if (k.startsWith('founder_') && activeFounder) owned.add(r.cosmetic_id);
     else if (r.is_base && active) owned.add(r.cosmetic_id);
-    // founder_* stays dev-only (handled by the `dev` branch above).
   }
   return owned;
 }
