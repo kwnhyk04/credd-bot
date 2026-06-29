@@ -19,6 +19,11 @@ const TYPE_EMOJI = { Sword: '⚔️', Staff: '🪄', Gloves: '🥊', Shield: '�
 // [v5] armor types
 const ARMOR_TYPE_EMOJI = { Heavy: '🛡️', Medium: '🥋', Light: '🧥' };
 
+function clampPageForTotal(page, total) {
+  const totalPages = Math.max(1, Math.ceil(total / WEAPONS_PER_PAGE));
+  return Math.min(Math.max(0, page | 0), totalPages - 1);
+}
+
 // Tier ordering for the weapons list (Supreme → Common).
 const TIER_ORDER_SQL = `CASE wr.tier
   WHEN 'Supreme' THEN 5 WHEN 'Legendary' THEN 4 WHEN 'Mythic' THEN 3
@@ -80,7 +85,13 @@ async function chests(message) {
 // ── crd bag weapons (paginated, Components V2) ──────────────────────────
 // page is 0-based (matches the weapons:<action>:<owner>:<page> customId state).
 async function fetchWeapons(discordId, page) {
-  const offset = page * WEAPONS_PER_PAGE;
+  const countRes = await pool.query(
+    'SELECT count(*)::int AS total FROM user_weapons WHERE discord_id = $1',
+    [discordId]
+  );
+  const total = countRes.rows[0].total;
+  const clampedPage = clampPageForTotal(page, total);
+  const offset = clampedPage * WEAPONS_PER_PAGE;
 
   const { rows: weapons } = await pool.query(
     `SELECT uw.weapon_id, wr.name, wr.tier, wr.type, uw.enhancement, uw.is_locked,
@@ -96,12 +107,7 @@ async function fetchWeapons(discordId, page) {
     [discordId, WEAPONS_PER_PAGE, offset]
   );
 
-  const countRes = await pool.query(
-    'SELECT count(*)::int AS total FROM user_weapons WHERE discord_id = $1',
-    [discordId]
-  );
-
-  return { weapons, total: countRes.rows[0].total };
+  return { weapons, total, page: clampedPage };
 }
 
 // Design standard (see CLAUDE.md): header → separator → body → separator →
@@ -187,8 +193,8 @@ function buildWeaponsPage({ user, weapons, total, page }) {
 
 async function weapons(message) {
   const page = 0;
-  const { weapons: rows, total } = await fetchWeapons(message.author.id, page);
-  await reply(message, buildWeaponsPage({ user: message.author, weapons: rows, total, page }));
+  const { weapons: rows, total, page: actualPage } = await fetchWeapons(message.author.id, page);
+  await reply(message, buildWeaponsPage({ user: message.author, weapons: rows, total, page: actualPage }));
 }
 
 // Button: weapons:<prev|next>:<ownerId>:<page>
@@ -205,13 +211,19 @@ async function handleWeaponsButton(interaction) {
   const currentPage = parseInt(pageStr, 10) || 0;
   const page = action === 'next' ? currentPage + 1 : Math.max(0, currentPage - 1);
 
-  const { weapons: rows, total } = await fetchWeapons(ownerId, page);
-  await interaction.update(buildWeaponsPage({ user: interaction.user, weapons: rows, total, page }));
+  const { weapons: rows, total, page: actualPage } = await fetchWeapons(ownerId, page);
+  await interaction.update(buildWeaponsPage({ user: interaction.user, weapons: rows, total, page: actualPage }));
 }
 
 // ── crd bag armors (paginated, Components V2 — mirrors bag weapons) ──────
 async function fetchArmors(discordId, page) {
-  const offset = page * WEAPONS_PER_PAGE;
+  const countRes = await pool.query(
+    'SELECT count(*)::int AS total FROM user_armors WHERE discord_id = $1',
+    [discordId]
+  );
+  const total = countRes.rows[0].total;
+  const clampedPage = clampPageForTotal(page, total);
+  const offset = clampedPage * WEAPONS_PER_PAGE;
 
   const { rows: armors } = await pool.query(
     `SELECT ua.armor_id, ar.name, ar.tier, ar.type, ua.enhancement, ua.is_locked,
@@ -227,12 +239,7 @@ async function fetchArmors(discordId, page) {
     [discordId, WEAPONS_PER_PAGE, offset]
   );
 
-  const countRes = await pool.query(
-    'SELECT count(*)::int AS total FROM user_armors WHERE discord_id = $1',
-    [discordId]
-  );
-
-  return { armors, total: countRes.rows[0].total };
+  return { armors, total, page: clampedPage };
 }
 
 function buildArmorsPage({ user, armors, total, page }) {
@@ -285,8 +292,8 @@ function buildArmorsPage({ user, armors, total, page }) {
 
 async function armors(message) {
   const page = 0;
-  const { armors: rows, total } = await fetchArmors(message.author.id, page);
-  await reply(message, buildArmorsPage({ user: message.author, armors: rows, total, page }));
+  const { armors: rows, total, page: actualPage } = await fetchArmors(message.author.id, page);
+  await reply(message, buildArmorsPage({ user: message.author, armors: rows, total, page: actualPage }));
 }
 
 // Button: armors:<prev|next>:<ownerId>:<page>
@@ -300,8 +307,8 @@ async function handleArmorsButton(interaction) {
   }
   const currentPage = parseInt(pageStr, 10) || 0;
   const page = action === 'next' ? currentPage + 1 : Math.max(0, currentPage - 1);
-  const { armors: rows, total } = await fetchArmors(ownerId, page);
-  await interaction.update(buildArmorsPage({ user: interaction.user, armors: rows, total, page }));
+  const { armors: rows, total, page: actualPage } = await fetchArmors(ownerId, page);
+  await interaction.update(buildArmorsPage({ user: interaction.user, armors: rows, total, page: actualPage }));
 }
 
 // ── dispatcher: crd bag [chests|weapons|armors] ─────────────────────────
