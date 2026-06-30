@@ -41,7 +41,25 @@ const TIER_ESSENCE_LABEL = [
 const MYTHOLOGY_LABEL = { PH: 'Philippine Mythology', Norse: 'Norse Mythology', Greek: 'Greek Mythology' };
 const MYTHOLOGY_DIR = { PH: 'philippine', Norse: 'norse', Greek: 'greek' };
 
-const DEITIES_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'deities');
+const DEITIES_DIR = path.resolve(__dirname, '..', '..', '..', 'assets', 'deities');
+
+function safeDeityImagePath(...parts) {
+  const cleanParts = [];
+  for (const part of parts) {
+    if (part == null) continue;
+    const raw = String(part).trim();
+    if (!raw || path.isAbsolute(raw) || /^[a-zA-Z]:/.test(raw)) return null;
+    const split = raw.replace(/\\/g, '/').split('/').filter(Boolean);
+    if (split.some((segment) => segment === '.' || segment === '..')) return null;
+    cleanParts.push(...split);
+  }
+  if (cleanParts.length === 0) return null;
+
+  const abs = path.resolve(DEITIES_DIR, ...cleanParts);
+  const rel = path.relative(DEITIES_DIR, abs);
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  return abs;
+}
 
 const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
@@ -208,11 +226,11 @@ async function info(message, name) {
 
   // Portrait: assets/deities/<mythology dir>/<name_lowercase_underscored>.(png|jpg)
   const slug = d.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-  const dir = MYTHOLOGY_DIR[d.mythology] ?? d.mythology.toLowerCase();
+  const dir = MYTHOLOGY_DIR[d.mythology] ?? d.mythology?.toLowerCase();
   let portraitPath = null;
   for (const ext of ['png', 'jpg']) {
-    const p = path.join(DEITIES_DIR, dir, `${slug}.${ext}`);
-    if (fs.existsSync(p)) { portraitPath = p; break; }
+    const p = safeDeityImagePath(dir, `${slug}.${ext}`);
+    if (p && fs.existsSync(p)) { portraitPath = p; break; }
   }
 
   await reply(message, await buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, username: message.author.username }));
@@ -807,9 +825,9 @@ async function deities(message) {
       // Portrait fills box
       const mythDir = MYTHOLOGY_DIR[s.mythology] || s.mythology?.toLowerCase();
       const imgName = s.img || `${s.name.toLowerCase().replace(/\s+/g, '_')}.png`;
-      const imgPath = path.join(DEITIES_DIR, mythDir || '', imgName);
+      const imgPath = safeDeityImagePath(mythDir || '', imgName);
       try {
-        if (fs.existsSync(imgPath)) {
+        if (imgPath && fs.existsSync(imgPath)) {
           const portrait = await loadImage(imgPath);
           ctx.save();
           ctx.beginPath();
