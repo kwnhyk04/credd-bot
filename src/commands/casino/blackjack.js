@@ -10,12 +10,14 @@
 
 const { MessageFlags } = require('discord.js');
 const betGuard = require('../../casino/betGuard');
+const sessionStore = require('../../casino/sessionStore');
 const engine = require('../../casino/blackjack');
 const { blackjackValue } = require('../../casino/cardDeck');
 const render = require('../../casino/casinoRender');
 const flow = require('./flow');
 
 const TIMEOUT_MS = 60_000;
+const STALE_SESSION_MS = TIMEOUT_MS * 2;
 const sessions = new Map();
 
 function clearTimer(wrap) { if (wrap.timer) { clearTimeout(wrap.timer); wrap.timer = null; } }
@@ -26,18 +28,49 @@ function armTimer(wrap) {
 
 async function execute(message, { args }) {
   const uid = message.author.id;
-  if (sessions.has(uid)) return flow.reply(message, 'Finish your current blackjack game first.');
+  const local = sessions.get(uid);
+  if (local) {
+    const playable = await sessionStore.ensurePlayableSession({
+      sessionId: local.sessionId,
+      discordId: uid,
+      game: 'blackjack',
+    });
+    if (playable.ok) return flow.reply(message, 'Finish your current blackjack game first.');
+    clearTimer(local);
+    sessions.delete(uid);
+    if (playable.status === 'expired') {
+      await sessionStore.recoverExpiredSession(local.sessionId, 'start_found_expired_blackjack').catch(() => {});
+    }
+  }
 
   const balance = await betGuard.getBalance(uid);
   if (balance == null) return flow.reply(message, 'You need to `crd register` before visiting the casino.');
   const v = betGuard.validateBet('blackjack', args[0], balance);
   if (!v.ok) return flow.reply(message, v.error);
 
-  const debit = await betGuard.debitBet({ discordId: uid, bet: v.amount });
+  const debit = await sessionStore.beginStatefulSession({
+    discordId: uid,
+    game: 'blackjack',
+    bet: v.amount,
+    channelId: message.channel.id,
+    staleMs: STALE_SESSION_MS,
+  });
+  if (debit.status === 'active') return flow.reply(message, 'Finish your current blackjack game first.');
   if (debit.status !== 'ok') return flow.reply(message, flow.settleErrorText(debit));
 
   const session = engine.create(v.amount);
-  const wrap = { uid, bet: v.amount, session, balanceBefore: debit.before, held: debit.after, message: null, timer: null, resolving: false, settled: false };
+  const wrap = {
+    uid,
+    sessionId: debit.sessionId,
+    bet: v.amount,
+    session,
+    balanceBefore: debit.before,
+    held: debit.after,
+    message: null,
+    timer: null,
+    resolving: false,
+    settled: false,
+  };
   sessions.set(uid, wrap);
 
   if (session.state === 'done') {
@@ -45,10 +78,12 @@ async function execute(message, { args }) {
     const after = await settleMoney(wrap);
     const fin = await render.buildBlackjack({ mode: 'final', uid, bet: v.amount, session, balance: after });
     wrap.message = await message.reply({ ...fin, allowedMentions: { repliedUser: false } });
+    await sessionStore.attachMessage(debit.sessionId, { channelId: message.channel.id, messageId: wrap.message.id }).catch(() => {});
     sessions.delete(uid);
   } else {
     const active = await render.buildBlackjack({ mode: 'active', uid, bet: v.amount, session, balance: debit.after });
     wrap.message = await message.reply({ ...active, allowedMentions: { repliedUser: false } });
+    await sessionStore.attachMessage(debit.sessionId, { channelId: message.channel.id, messageId: wrap.message.id }).catch(() => {});
     armTimer(wrap);
   }
 }
@@ -62,6 +97,21 @@ async function handleButton(interaction, action, ownerId) {
     return interaction.reply({ content: 'This game has already ended.', flags: MessageFlags.Ephemeral }).catch(() => {});
   }
   if (wrap.resolving) return interaction.deferUpdate().catch(() => {});
+
+  const playable = await sessionStore.ensurePlayableSession({
+    sessionId: wrap.sessionId,
+    discordId: ownerId,
+    game: 'blackjack',
+  });
+  if (!playable.ok) {
+    clearTimer(wrap);
+    sessions.delete(ownerId);
+    if (playable.status === 'expired') {
+      await sessionStore.recoverExpiredSession(wrap.sessionId, 'button_expired_blackjack').catch(() => {});
+      return interaction.reply({ content: 'This blackjack session expired and the bet was refunded. Start a new game.', flags: MessageFlags.Ephemeral }).catch(() => {});
+    }
+    return interaction.reply({ content: 'This blackjack session has already ended.', flags: MessageFlags.Ephemeral }).catch(() => {});
+  }
 
   if (action === 'hit') engine.hit(wrap.session);
   else if (action === 'stand') engine.stand(wrap.session);
@@ -94,14 +144,17 @@ async function settleMoney(wrap) {
     dealer: s.dealer.map((c) => c.rank),
   };
   let after = wrap.balanceBefore - wrap.bet + s.payout;
-  try {
-    const r = await betGuard.resolveStateful({
-      discordId: wrap.uid, game: 'blackjack', bet: wrap.bet, payout: s.payout,
-      balanceBefore: wrap.balanceBefore, metadata: meta,
-    });
-    after = r.after;
-  } catch (err) { console.error('[blackjack] settle', err); }
+  const r = await sessionStore.settleStatefulSession({
+    sessionId: wrap.sessionId,
+    discordId: wrap.uid,
+    game: 'blackjack',
+    payout: s.payout,
+    metadata: meta,
+  });
+  if (r.status !== 'settled') throw new Error(`blackjack session ${wrap.sessionId} is ${r.status}`);
+  after = r.after;
   wrap.after = after;
+  wrap.settled = true;
   return after;
 }
 
@@ -109,7 +162,14 @@ async function finalize(wrap, applyEdit) {
   if (wrap.resolving) return;
   wrap.resolving = true;
   clearTimer(wrap);
-  const after = await settleMoney(wrap);
+  let after;
+  try {
+    after = await settleMoney(wrap);
+  } catch (err) {
+    wrap.resolving = false;
+    armTimer(wrap);
+    throw err;
+  }
   const payload = await render.buildBlackjack({ mode: 'final', uid: wrap.uid, bet: wrap.bet, session: wrap.session, balance: after });
   await applyEdit({ components: payload.components, files: payload.files, flags: payload.flags }).catch(() => {});
   sessions.delete(wrap.uid);

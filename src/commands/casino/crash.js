@@ -11,11 +11,13 @@
 
 const { MessageFlags } = require('discord.js');
 const betGuard = require('../../casino/betGuard');
+const sessionStore = require('../../casino/sessionStore');
 const engine = require('../../casino/crash');
 const render = require('../../casino/casinoRender');
 const flow = require('./flow');
 
 const TIMEOUT_MS = 60_000;
+const STALE_SESSION_MS = TIMEOUT_MS * 2;
 const sessions = new Map(); // discord_id → wrap
 
 function clearTimer(wrap) { if (wrap.timer) { clearTimeout(wrap.timer); wrap.timer = null; } }
@@ -26,22 +28,53 @@ function armTimer(wrap) {
 
 async function execute(message, { args }) {
   const uid = message.author.id;
-  if (sessions.has(uid)) return flow.reply(message, 'Finish your current crash game first.');
+  const local = sessions.get(uid);
+  if (local) {
+    const playable = await sessionStore.ensurePlayableSession({
+      sessionId: local.sessionId,
+      discordId: uid,
+      game: 'crash',
+    });
+    if (playable.ok) return flow.reply(message, 'Finish your current crash game first.');
+    clearTimer(local);
+    sessions.delete(uid);
+    if (playable.status === 'expired') {
+      await sessionStore.recoverExpiredSession(local.sessionId, 'start_found_expired_crash').catch(() => {});
+    }
+  }
 
   const balance = await betGuard.getBalance(uid);
   if (balance == null) return flow.reply(message, 'You need to `crd register` before visiting the casino.');
   const v = betGuard.validateBet('crash', args[0], balance);
   if (!v.ok) return flow.reply(message, v.error);
 
-  const debit = await betGuard.debitBet({ discordId: uid, bet: v.amount });
+  const debit = await sessionStore.beginStatefulSession({
+    discordId: uid,
+    game: 'crash',
+    bet: v.amount,
+    channelId: message.channel.id,
+    staleMs: STALE_SESSION_MS,
+  });
+  if (debit.status === 'active') return flow.reply(message, 'Finish your current crash game first.');
   if (debit.status !== 'ok') return flow.reply(message, flow.settleErrorText(debit));
 
   const session = engine.create(v.amount);
-  const wrap = { uid, bet: v.amount, session, balanceBefore: debit.before, held: debit.after, message: null, timer: null, resolving: false };
+  const wrap = {
+    uid,
+    sessionId: debit.sessionId,
+    bet: v.amount,
+    session,
+    balanceBefore: debit.before,
+    held: debit.after,
+    message: null,
+    timer: null,
+    resolving: false,
+  };
   sessions.set(uid, wrap);
 
   const payload = await render.buildCrash({ uid, bet: v.amount, session, balance: debit.after });
   wrap.message = await message.reply({ ...payload, allowedMentions: { repliedUser: false } });
+  await sessionStore.attachMessage(debit.sessionId, { channelId: message.channel.id, messageId: wrap.message.id }).catch(() => {});
   armTimer(wrap);
 }
 
@@ -54,6 +87,21 @@ async function handleButton(interaction, action, ownerId) {
     return interaction.reply({ content: 'This game has already ended.', flags: MessageFlags.Ephemeral }).catch(() => {});
   }
   if (wrap.resolving) return interaction.deferUpdate().catch(() => {});
+
+  const playable = await sessionStore.ensurePlayableSession({
+    sessionId: wrap.sessionId,
+    discordId: ownerId,
+    game: 'crash',
+  });
+  if (!playable.ok) {
+    clearTimer(wrap);
+    sessions.delete(ownerId);
+    if (playable.status === 'expired') {
+      await sessionStore.recoverExpiredSession(wrap.sessionId, 'button_expired_crash').catch(() => {});
+      return interaction.reply({ content: 'This crash session expired and the bet was refunded. Start a new game.', flags: MessageFlags.Ephemeral }).catch(() => {});
+    }
+    return interaction.reply({ content: 'This crash session has already ended.', flags: MessageFlags.Ephemeral }).catch(() => {});
+  }
 
   if (action === 'push') {
     const ev = engine.pushNext(wrap.session);
@@ -90,13 +138,20 @@ async function resolve(wrap, applyEdit) {
   };
   let after = wrap.balanceBefore - wrap.bet + s.payout;
   try {
-    const r = await betGuard.resolveStateful({
-      discordId: wrap.uid, game: 'crash', bet: wrap.bet, payout: s.payout,
-      balanceBefore: wrap.balanceBefore, metadata: meta,
+    const r = await sessionStore.settleStatefulSession({
+      sessionId: wrap.sessionId,
+      discordId: wrap.uid,
+      game: 'crash',
+      payout: s.payout,
+      metadata: meta,
     });
+    if (r.status !== 'settled') throw new Error(`crash session ${wrap.sessionId} is ${r.status}`);
     after = r.after;
   } catch (err) {
     console.error('[crash] resolve', err);
+    wrap.resolving = false;
+    armTimer(wrap);
+    throw err;
   }
   sessions.delete(wrap.uid);
   const payload = await render.buildCrash({ uid: wrap.uid, bet: wrap.bet, session: s, balance: after });
