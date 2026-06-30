@@ -34,34 +34,28 @@ const CATEGORIES = {
 };
 const CAT_KEYS = Object.keys(CATEGORIES);
 
-/** Run the ranked query for a category + scope. memberIds=null -> global. */
-async function queryBoard(catKey, memberIds) {
+/** Run the ranked query for a category + scope. guildId=null -> global. */
+async function queryBoard(catKey, guildId) {
   const cat = CATEGORIES[catKey];
-  if (Array.isArray(memberIds) && memberIds.length === 0) return [];
   const params = [];
   let where = '';
-  if (memberIds) { params.push(memberIds); where = 'WHERE uc.discord_id = ANY($1)'; }
+  if (guildId) { params.push(guildId); where = 'WHERE uga.guild_id = $1'; }
   // credux is the only metric on users_bag — only JOIN it when needed (keeps the
   // common user_character-only boards index-friendly).
   const needsBag = cat.col.startsWith('ub.');
+  const needsServerScope = Boolean(guildId);
   const { rows } = await pool.query(
     `SELECT u.username, ${cat.col} AS value
        FROM user_character uc
        JOIN users u ON u.discord_id = uc.discord_id
        ${needsBag ? 'JOIN users_bag ub ON ub.discord_id = uc.discord_id' : ''}
+       ${needsServerScope ? 'JOIN user_guild_activity uga ON uga.discord_id = uc.discord_id' : ''}
        ${where}
       ORDER BY value DESC NULLS LAST
       LIMIT ${LIMIT}`,
     params
   );
   return rows;
-}
-
-/** Resolve guild member ids for server scope (cache-first; empty means unavailable, not global). */
-function serverMemberIds(guild) {
-  if (!guild) return [];
-  const ids = [...guild.members.cache.keys()];
-  return ids.length ? ids : [];
 }
 
 function buildSelects(catKey, scope, ownerId) {
@@ -83,9 +77,8 @@ function buildSelects(catKey, scope, ownerId) {
 
 async function buildPayload(catKey, scope, guild, ownerId) {
   const cat = CATEGORIES[catKey];
-  const memberIds = scope === 'server' ? serverMemberIds(guild) : null;
-  const serverScopeUnavailable = scope === 'server' && memberIds.length === 0;
-  const rows = serverScopeUnavailable ? [] : await queryBoard(catKey, memberIds);
+  const guildId = scope === 'server' ? guild?.id : null;
+  const rows = scope === 'server' && !guildId ? [] : await queryBoard(catKey, guildId);
 
   const [catRow, scopeRow] = buildSelects(catKey, scope, ownerId);
   const container = new ContainerBuilder()
@@ -99,11 +92,7 @@ async function buildPayload(catKey, scope, guild, ownerId) {
     `-# ${cat.label} · ${scope === 'global' ? '🌐 Global' : '🏠 Server'}`
   ));
 
-  if (serverScopeUnavailable) {
-    container.addTextDisplayComponents((td) => td.setContent(
-      '*Server leaderboard is unavailable because the member cache is empty. Choose Global to browse all ranked players.*'
-    ));
-  } else if (rows.length === 0) {
+  if (rows.length === 0) {
     container.addTextDisplayComponents((td) => td.setContent('*No ranked players yet.*'));
   } else {
     const lines = rows.map((r, i) => {

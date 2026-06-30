@@ -252,8 +252,12 @@ async function claim(message) {
 
     const gamesRes = await client.query(
       `SELECT count(*)::int AS n FROM ranked_logs
-        WHERE player_id = $1 AND timestamp >= (NOW() AT TIME ZONE 'Asia/Manila')::date - INTERVAL '7 days'`,
-      [me]
+        WHERE player_id = $1
+          AND (
+            EXTRACT(ISOYEAR FROM (timestamp AT TIME ZONE 'Asia/Manila'))::int * 100
+            + EXTRACT(WEEK FROM (timestamp AT TIME ZONE 'Asia/Manila'))::int
+          ) = $2`,
+      [me, week]
     );
     const games = gamesRes.rows[0].n;
     if (games < WEEKLY_MIN_GAMES) {
