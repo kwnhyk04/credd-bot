@@ -51,19 +51,21 @@ async function socketSlots(g) {
   const opposite = [];
   if (native.length === 0 && opposite.length === 0) return [];
   const lanes = SOCKET_LANES[g.kind];
+  const ownerId = g.discord_id;
 
   const uids = [...native, ...opposite]
     .map((s) => s && s.rune_uid)
     .filter(Boolean);
   const runeBy = new Map();
-  if (uids.length) {
+  if (uids.length && ownerId) {
     const { rows } = await pool.query(
       `SELECT ur.rune_uid, rn.name, rn.tier,
               COALESCE(ur.rolled_value, rn.value) AS value,
               rn.effect_key
          FROM user_runes ur JOIN rune_roster rn ON ur.rune_id = rn.rune_id
-        WHERE ur.rune_uid = ANY($1::varchar[])`,
-      [uids],
+        WHERE ur.rune_uid = ANY($1::varchar[])
+          AND ur.discord_id = $2`,
+      [uids, ownerId],
     );
     for (const r of rows) runeBy.set(r.rune_uid, r);
   }
@@ -217,7 +219,7 @@ async function buildInfoPayload(g, gearId, username) {
 /** Fetch a gear row by id (weapon first, then armor), normalized for the card. */
 async function fetchGear(discordId, gearId) {
   const w = await pool.query(
-    `SELECT uw.curr_atk, uw.crit, uw.enhancement, uw.bonus_dmg_pct,
+    `SELECT uw.discord_id, uw.curr_atk, uw.crit, uw.enhancement, uw.bonus_dmg_pct,
             uw.native_sockets, uw.opposite_sockets,
             wr.name, wr.type, wr.tier, wr.passive_name, wr.passive_description, wr.lore
        FROM user_weapons uw
@@ -228,7 +230,7 @@ async function fetchGear(discordId, gearId) {
   if (w.rows.length > 0) return { kind: 'weapon', ...w.rows[0] };
 
   const a = await pool.query(
-    `SELECT ua.curr_hp, ua.curr_def, ua.enhancement,
+    `SELECT ua.discord_id, ua.curr_hp, ua.curr_def, ua.enhancement,
             ua.native_sockets, ua.opposite_sockets,
             ar.name, ar.type, ar.tier, ar.passive_name, ar.passive_description, ar.lore
        FROM user_armors ua

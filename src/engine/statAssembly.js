@@ -107,18 +107,22 @@ function uidsFrom(arr) {
  * combat-effect list. One query for all socketed uids. Returns
  * { mods:{atkPct,hpPct,defPct,critPts}, effects:[{effect_key,value}] }.
  */
-async function accumulateRuneStats(db, r) {
+async function accumulateRuneStats(db, r, ownerId = r?.discord_id) {
   const uids = [
     ...uidsFrom(r.w_native),
     ...uidsFrom(r.a_native),
   ];
   const mods = { atkPct: 0, hpPct: 0, defPct: 0, critPts: 0 };
   const effects = [];
-  if (uids.length === 0) return { mods, effects };
+  if (uids.length === 0 || !ownerId) return { mods, effects };
 
   const { rows } = await db.query(
-    'SELECT effect_key, COALESCE(ur.rolled_value, rn.value) AS value FROM rune_roster rn JOIN user_runes ur ON ur.rune_id = rn.rune_id WHERE ur.rune_uid = ANY($1::varchar[])',
-    [uids]
+    `SELECT effect_key, COALESCE(ur.rolled_value, rn.value) AS value
+       FROM rune_roster rn
+       JOIN user_runes ur ON ur.rune_id = rn.rune_id
+      WHERE ur.rune_uid = ANY($1::varchar[])
+        AND ur.discord_id = $2`,
+    [uids, ownerId]
   );
   for (const row of rows) {
     const val = Number(row.value) || 0;
@@ -236,7 +240,7 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
   const effLevel = levelOverride != null
     ? Math.max(MOB_LEVEL_MIN, Math.min(50, Math.floor(levelOverride)))
     : r.combat_level;
-  const { mods: runeMods, effects: effectRunes } = await accumulateRuneStats(db, r);
+  const { mods: runeMods, effects: effectRunes } = await accumulateRuneStats(db, r, discordId);
   const stats = assemblePlayerStats(r.class, effLevel, weapon, armor, deity, runeMods, pantheonMods);
 
   return {

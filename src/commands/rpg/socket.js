@@ -143,7 +143,10 @@ async function socket(message, { args }) {
 
     arr[loc.index].rune_uid = runeUid;
     await writeSockets(client, gear, 'native', arr);
-    await client.query('UPDATE user_runes SET socketed_into = $2 WHERE rune_uid = $1', [runeUid, gear.id]);
+    await client.query(
+      'UPDATE user_runes SET socketed_into = $2 WHERE rune_uid = $1 AND discord_id = $3',
+      [runeUid, gear.id, discordId]
+    );
     await client.query('COMMIT');
     return reply(message, `Socketed **${rune.name}** (${rune.tier}, ${runeDescription(rune.effect_key, rune.value, rune.description)}) into **${gear.name}** slot ${slotNum}.`);
   } catch (err) {
@@ -167,6 +170,12 @@ async function unsocket(message, { args }) {
 
   try {
     await client.query('BEGIN');
+    const bag = await client.query('SELECT credux FROM users_bag WHERE discord_id = $1 FOR UPDATE', [discordId]);
+    if (bag.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return reply(message, 'You need a bag before unsocketing runes.');
+    }
+
     const gear = await loadGear(client, discordId, gearId);
     if (!gear) {
       await client.query('ROLLBACK');
@@ -192,21 +201,27 @@ async function unsocket(message, { args }) {
       `SELECT rn.name, rn.tier
          FROM user_runes ur
          JOIN rune_roster rn ON ur.rune_id = rn.rune_id
-        WHERE ur.rune_uid = $1`,
-      [runeUid]
+        WHERE ur.rune_uid = $1
+          AND ur.discord_id = $2
+        FOR UPDATE OF ur`,
+      [runeUid, discordId]
     );
-    const rune = rr.rows[0] || { name: 'rune', tier: 'Rare' };
+    if (rr.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return reply(message, 'This socket references a rune you do not own. Nothing changed.');
+    }
+
+    const rune = rr.rows[0];
     const cost = UNSOCKET_COST[rune.tier] ?? 5000;
 
-    const bag = await client.query('SELECT credux FROM users_bag WHERE discord_id = $1 FOR UPDATE', [discordId]);
-    if (bag.rows.length === 0 || Number(bag.rows[0].credux) < cost) {
+    if (Number(bag.rows[0].credux) < cost) {
       await client.query('ROLLBACK');
       return reply(message, `Unsocketing a ${rune.tier} rune costs ${cost.toLocaleString()} Credux; you do not have enough.`);
     }
 
     arr[loc.index].rune_uid = null;
     await writeSockets(client, gear, loc.array, arr);
-    await client.query('UPDATE user_runes SET socketed_into = NULL WHERE rune_uid = $1', [runeUid]);
+    await client.query('UPDATE user_runes SET socketed_into = NULL WHERE rune_uid = $1 AND discord_id = $2', [runeUid, discordId]);
     await client.query('UPDATE users_bag SET credux = credux - $2 WHERE discord_id = $1', [discordId, cost]);
     await client.query('COMMIT');
     return reply(message, `Removed **${rune.name}** from slot ${slotNum} (-${cost.toLocaleString()} Credux). Rune returned to your bag.`);
