@@ -289,11 +289,18 @@ async function fetchBossView(guildId) {
   const stateRes = await pool.query('SELECT * FROM boss_state WHERE guild_id = $1', [guildId]);
   if (stateRes.rows.length === 0) return null;
   const state = stateRes.rows[0];
-  const [mobRes, atkRes] = await Promise.all([
+  const [mobRes, atkRes, countRes] = await Promise.all([
     pool.query('SELECT * FROM mob_roster WHERE mob_id = $1', [state.mob_id]),
     pool.query(
       `SELECT discord_id, total_damage FROM boss_attack_log
-        WHERE boss_spawn_id = $1 ORDER BY total_damage DESC, attacked_at ASC`,
+        WHERE boss_spawn_id = $1
+        ORDER BY total_damage DESC, attacked_at ASC
+        LIMIT $2`,
+      [state.spawn_id, TOP_N]
+    ),
+    pool.query(
+      `SELECT count(*)::int AS attacker_count FROM boss_attack_log
+        WHERE boss_spawn_id = $1`,
       [state.spawn_id]
     ),
   ]);
@@ -302,7 +309,7 @@ async function fetchBossView(guildId) {
     state,
     mobRow: mobRes.rows[0],
     attackers: atkRes.rows,
-    attackerCount: atkRes.rows.length,
+    attackerCount: Number(countRes.rows[0]?.attacker_count || 0),
     isDev: devSpawns.has(state.spawn_id),
   };
 }
