@@ -8,6 +8,8 @@
  * are fully isolated ledgers.
  *
  *   grantTokens(userId, amount, reason, ref)  — atomic ledger insert + balance bump
+ *   grantTokensOnce(userId, amount, reason, ref)
+ *                                             — same, but idempotent by (user, reason, ref)
  *   spendTokens(userId, amount, reason, ref)  — SELECT FOR UPDATE, reject if short,
  *                                               negative ledger delta + decrement
  *   markStripeEventOnce(eventId, type)        — idempotency guard for webhook replays
@@ -31,6 +33,40 @@ async function grantTokensTx(client, userId, amount, reason, ref = null) {
   );
   if (upd.rows.length === 0) throw new Error('grantTokens: no supporter row for ' + userId);
   return upd.rows[0].token_balance;
+}
+
+/**
+ * Insert a positive grant once per (discord_id, reason, ref). Returns
+ * { applied, balance }; duplicate refs leave token_balance unchanged.
+ */
+async function grantTokensOnceTx(client, userId, amount, reason, ref) {
+  if (!Number.isInteger(amount) || amount <= 0) throw new Error('grantTokensOnce: amount must be a positive integer');
+  if (String(ref || '').trim() === '') throw new Error('grantTokensOnce: ref is required');
+  const ins = await client.query(
+    `INSERT INTO supporter_token_ledger (discord_id, delta, reason, ref)
+     VALUES ($1,$2,$3,$4)
+     ON CONFLICT (discord_id, reason, ref)
+       WHERE delta > 0
+         AND ref IS NOT NULL
+         AND reason IN ('subscribe_grant', 'founder_grant', 'monthly_grant')
+     DO NOTHING
+     RETURNING 1`,
+    [userId, amount, reason, ref]
+  );
+  if (ins.rowCount === 0) {
+    const cur = await client.query(
+      'SELECT token_balance FROM supporters WHERE discord_id = $1',
+      [userId]
+    );
+    if (cur.rows.length === 0) throw new Error('grantTokensOnce: no supporter row for ' + userId);
+    return { applied: false, balance: cur.rows[0].token_balance };
+  }
+  const upd = await client.query(
+    'UPDATE supporters SET token_balance = token_balance + $2, updated_at = NOW() WHERE discord_id = $1 RETURNING token_balance',
+    [userId, amount]
+  );
+  if (upd.rows.length === 0) throw new Error('grantTokensOnce: no supporter row for ' + userId);
+  return { applied: true, balance: upd.rows[0].token_balance };
 }
 
 /**
@@ -73,6 +109,21 @@ async function grantTokens(userId, amount, reason, ref = null) {
   }
 }
 
+async function grantTokensOnce(userId, amount, reason, ref) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const res = await grantTokensOnceTx(client, userId, amount, reason, ref);
+    await client.query('COMMIT');
+    return res;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 async function spendTokens(userId, amount, reason, ref = null) {
   const client = await pool.connect();
   try {
@@ -101,5 +152,6 @@ async function markStripeEventOnce(client, eventId, type) {
 }
 
 module.exports = {
-  grantTokens, spendTokens, grantTokensTx, spendTokensTx, markStripeEventOnce,
+  grantTokens, grantTokensOnce, spendTokens,
+  grantTokensTx, grantTokensOnceTx, spendTokensTx, markStripeEventOnce,
 };

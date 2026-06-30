@@ -21,7 +21,7 @@ const pool = require('../db/pool');
 const {
   CATEGORIES, MONTHLY_TOKENS, ETERNAL_ONE_TIME_TOKENS, TIER_RANK, DEV_ACCOUNT_IDS,
 } = require('../config/cosmetics');
-const { grantTokensTx } = require('./supporterTokens');
+const { grantTokensTx, grantTokensOnceTx } = require('./supporterTokens');
 
 // ── Supporter row ───────────────────────────────────────────────────────────
 async function getSupporter(db, userId) {
@@ -213,9 +213,9 @@ async function grantBaseSetTx(client, userId) {
 /**
  * §4/§3 — apply a subscribe or founder grant. Upserts the supporters row, assigns a founder
  * number for eternal, auto-grants+equips the base set, and pays the initial stipend
- * (believer/chosen: monthly amount; eternal: one-time 18). Idempotency for Stripe replays is
- * the caller's job (markStripeEventOnce); this re-pays the stipend if re-run, so gate it on
- * the event id upstream.
+ * (believer/chosen: monthly amount; eternal: one-time 18). When a stable Stripe/subscription
+ * ref is present, the token grant is idempotent at the ledger layer; dev/manual calls with no
+ * ref keep the original repeatable behavior.
  *
  * opts: { founder, stripeCustomerId, stripeSubscriptionId, currentPeriodEnd, chosenExpiresAt, grantStipend=true }
  */
@@ -259,10 +259,19 @@ async function applySubscribe(userId, tier, opts = {}) {
     await grantBaseSetTx(client, userId);
 
     if (opts.grantStipend !== false) {
+      const stipendRef = opts.stripeSubscriptionId ?? null;
       if (tier === 'eternal') {
-        await grantTokensTx(client, userId, ETERNAL_ONE_TIME_TOKENS, 'founder_grant', opts.stripeSubscriptionId ?? 'founder');
+        if (stipendRef) {
+          await grantTokensOnceTx(client, userId, ETERNAL_ONE_TIME_TOKENS, 'founder_grant', stipendRef);
+        } else {
+          await grantTokensTx(client, userId, ETERNAL_ONE_TIME_TOKENS, 'founder_grant', null);
+        }
       } else {
-        await grantTokensTx(client, userId, MONTHLY_TOKENS[tier], 'subscribe_grant', opts.stripeSubscriptionId ?? null);
+        if (stipendRef) {
+          await grantTokensOnceTx(client, userId, MONTHLY_TOKENS[tier], 'subscribe_grant', stipendRef);
+        } else {
+          await grantTokensTx(client, userId, MONTHLY_TOKENS[tier], 'subscribe_grant', null);
+        }
       }
     }
 
@@ -281,8 +290,9 @@ async function applyMonthlyTokens(userId, tier, ref = null) {
   if (tier === 'eternal') return null; // eternal is one-time at purchase, no monthly drip
   const amount = MONTHLY_TOKENS[tier];
   if (!amount) throw new Error('applyMonthlyTokens: bad tier ' + tier);
-  const { grantTokens } = require('./supporterTokens');
-  return grantTokens(userId, amount, 'monthly_grant', ref);
+  const { grantTokens, grantTokensOnce } = require('./supporterTokens');
+  if (ref) return grantTokensOnce(userId, amount, 'monthly_grant', ref);
+  return grantTokens(userId, amount, 'monthly_grant', null);
 }
 
 module.exports = {
