@@ -24,6 +24,13 @@ const { resolveBattle } = require('../../engine/battleEngine');
 const { buildPlayerFighter } = require('../../engine/statAssembly');
 const { runBattle } = require('../../engine/battleRender');
 const { resolveSkin } = require('../../engine/skinResolver');
+const {
+  acquireDuelLock,
+  attachDuelMessage,
+  markDuelRunning,
+  markDuelSettling,
+  releaseDuelLock,
+} = require('../../engine/duelLocks');
 const { isBanned } = require('../../handlers/middleware');
 const { progressQuests } = require('../../utils/questProgress');
 
@@ -34,6 +41,19 @@ const BESTOW_DAILY_CAP = 1_000_000; // [v5 §4.1] wager winnings share the besto
 
 function reply(message, content) {
   return message.reply({ content, allowedMentions: { repliedUser: false } });
+}
+
+function lockFailureMessage(reason, targetId) {
+  if (reason === 'missing_table') {
+    return 'Duel locking is not ready yet. Please apply the active_duels migration and try again.';
+  }
+  return targetId
+    ? `Either you or <@${targetId}> already has an active duel challenge. Finish it or wait for it to expire.`
+    : 'A duelist already has an active duel challenge. Finish it or wait for it to expire.';
+}
+
+async function safeReleaseDuelLock(lock) {
+  await releaseDuelLock(lock).catch((err) => console.error('[duel lock release]', err.message));
 }
 
 /**
@@ -197,6 +217,16 @@ async function runWager(message, challenger, target, stake) {
   if ((bal[challenger.id] || 0) < stake) return reply(message, `You don't have **${stake.toLocaleString()}** Credux to wager.`);
   if ((bal[target.id] || 0) < stake) return reply(message, `<@${target.id}> doesn't have **${stake.toLocaleString()}** Credux to wager.`);
 
+  const duelLock = await acquireDuelLock({
+    challengerId: challenger.id,
+    opponentId: target.id,
+    duelType: 'wager',
+    stake,
+    guildId: message.guild?.id ?? null,
+    channelId: message.channel?.id ?? null,
+  });
+  if (!duelLock.ok) return reply(message, lockFailureMessage(duelLock.reason, target.id));
+
   const embed = new EmbedBuilder()
     .setColor(0xf0b232)
     .setTitle('💰 Wager Duel')
@@ -208,9 +238,18 @@ async function runWager(message, challenger, target, stake) {
     new ButtonBuilder().setCustomId('duel_accept').setLabel('Accept').setEmoji('💰').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId('duel_decline').setLabel('Decline').setEmoji('🏃').setStyle(ButtonStyle.Danger),
   );
-  const challengeMsg = await message.reply({
-    content: `<@${target.id}>`, embeds: [embed], components: [row],
-    allowedMentions: { users: [target.id], repliedUser: false },
+  let challengeMsg;
+  try {
+    challengeMsg = await message.reply({
+      content: `<@${target.id}>`, embeds: [embed], components: [row],
+      allowedMentions: { users: [target.id], repliedUser: false },
+    });
+  } catch (err) {
+    await safeReleaseDuelLock(duelLock);
+    throw err;
+  }
+  await attachDuelMessage(duelLock, challengeMsg.id).catch((err) => {
+    console.warn('[wager lock] message attach:', err.message);
   });
 
   const collector = challengeMsg.createMessageComponentCollector({ time: CHALLENGE_WINDOW_MS });
@@ -230,6 +269,7 @@ async function runWager(message, challenger, target, stake) {
           embeds: [EmbedBuilder.from(embed).setColor(0xf23f43).setDescription(`🏃 **${target.username}** declined the wager.`)],
           components: [],
         });
+        await safeReleaseDuelLock(duelLock);
         return;
       }
       const [cBusy, tBusy] = await Promise.all([inLiveBattle(challenger.id), inLiveBattle(target.id)]);
@@ -238,12 +278,23 @@ async function runWager(message, challenger, target, stake) {
           embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6).setDescription('💰 Wager cancelled — a duelist is mid-battle.')],
           components: [],
         });
+        await safeReleaseDuelLock(duelLock);
         return;
       }
-      await i.update({
+      const running = await markDuelRunning(duelLock);
+      if (!running.ok) {
+        await i.update({
+          embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6).setDescription('Wager cancelled - the duel challenge expired.')],
+          components: [],
+        });
+        await safeReleaseDuelLock(duelLock);
+        return;
+      }
+      try {
+        await i.update({
         embeds: [EmbedBuilder.from(embed).setColor(0x43d675).setDescription(`💰 **${target.username}** accepts! The duel begins...`)],
         components: [],
-      });
+        });
 
       const [p1, p2] = await Promise.all([
         buildPlayerFighter(pool, challenger.id),
@@ -253,6 +304,7 @@ async function runWager(message, challenger, target, stake) {
 
       const sim = resolveBattle(p1, p2, { mode: 'duel', seed: Date.now() >>> 0 });
       const winnerId = sim.winner === 'a' ? challenger.id : target.id;
+      await markDuelSettling(duelLock).catch((err) => console.warn('[wager lock] settling:', err.message));
       const { moved } = await commitWagerResult(challenger.id, target.id, winnerId, stake);
       const winnerName = winnerId === challenger.id ? challenger.username : target.username;
       const stakeLine = moved > 0
@@ -269,6 +321,9 @@ async function runWager(message, challenger, target, stake) {
         console.warn('[wager] skin resolution:', err.message);
       }
       await runBattle(challengeMsg.channel, { mode: 'duel', sim, notices: [stakeLine], battleSkinPath, resultSkinPath });
+      } finally {
+        await safeReleaseDuelLock(duelLock);
+      }
     } catch (err) {
       console.error('[wager]', err);
       await challengeMsg.channel.send('Something went wrong running the wager.').catch(() => {});
@@ -276,6 +331,7 @@ async function runWager(message, challenger, target, stake) {
   });
   collector.on('end', (_c, reason) => {
     if (reason === 'settled') return;
+    safeReleaseDuelLock(duelLock);
     challengeMsg.edit({
       embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6).setDescription(`⌛ The wager to **${target.username}** expired.`)],
       components: [],
@@ -333,6 +389,15 @@ async function execute(message) {
       return reply(message, `<@${target.id}> is in a battle — try again when it's over.`);
     }
 
+    const duelLock = await acquireDuelLock({
+      challengerId: challenger.id,
+      opponentId: target.id,
+      duelType: 'casual',
+      guildId: message.guild?.id ?? null,
+      channelId: message.channel?.id ?? null,
+    });
+    if (!duelLock.ok) return reply(message, lockFailureMessage(duelLock.reason, target.id));
+
     const embed = new EmbedBuilder()
       .setColor(0xf0b232)
       .setTitle('⚔️ Duel Challenge')
@@ -345,11 +410,20 @@ async function execute(message) {
       new ButtonBuilder().setCustomId('duel_accept').setLabel('Accept').setEmoji('⚔️').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId('duel_decline').setLabel('Decline').setEmoji('🏃').setStyle(ButtonStyle.Danger),
     );
-    const challengeMsg = await message.reply({
-      content: `<@${target.id}>`,
-      embeds: [embed],
-      components: [row],
-      allowedMentions: { users: [target.id], repliedUser: false },
+    let challengeMsg;
+    try {
+      challengeMsg = await message.reply({
+        content: `<@${target.id}>`,
+        embeds: [embed],
+        components: [row],
+        allowedMentions: { users: [target.id], repliedUser: false },
+      });
+    } catch (err) {
+      await safeReleaseDuelLock(duelLock);
+      throw err;
+    }
+    await attachDuelMessage(duelLock, challengeMsg.id).catch((err) => {
+      console.warn('[duel lock] message attach:', err.message);
     });
 
     const collector = challengeMsg.createMessageComponentCollector({ time: CHALLENGE_WINDOW_MS });
@@ -371,6 +445,7 @@ async function execute(message) {
               .setDescription(`🏃 **${target.username}** declined the duel.`)],
             components: [],
           });
+          await safeReleaseDuelLock(duelLock);
           return;
         }
 
@@ -386,11 +461,23 @@ async function execute(message) {
               .setDescription(`⚔️ Duel cancelled — **${busyName}** is mid-battle.`)],
             components: [],
           });
+          await safeReleaseDuelLock(duelLock);
           return;
         }
         // accept → battle starts immediately (no pre-battle overview, §14). The
+        const running = await markDuelRunning(duelLock);
+        if (!running.ok) {
+          await i.update({
+            embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6)
+              .setDescription('Duel cancelled - the challenge expired.')],
+            components: [],
+          });
+          await safeReleaseDuelLock(duelLock);
+          return;
+        }
         // duel_challenges / duel_wins quest progress is committed in commitDuelResult.
-        await i.update({
+        try {
+          await i.update({
           embeds: [EmbedBuilder.from(embed).setColor(0x43d675)
             .setDescription(`⚔️ **${target.username}** accepts! The duel begins...`)],
           components: [],
@@ -408,6 +495,7 @@ async function execute(message) {
         }
 
         const sim = resolveBattle(p1, p2, { mode: 'duel', seed: Date.now() >>> 0 });
+        await markDuelSettling(duelLock).catch((err) => console.warn('[duel lock] settling:', err.message));
         const notices = await commitDuelResult(challenger.id, target.id, sim);
         // A duel has one shared message, so its visual theme belongs to the
         // challenger who opened it; both combatants still render in that skin's slots.
@@ -425,6 +513,9 @@ async function execute(message) {
         await runBattle(challengeMsg.channel, {
           mode: 'duel', sim, notices, battleSkinPath, resultSkinPath,
         });
+        } finally {
+          await safeReleaseDuelLock(duelLock);
+        }
       } catch (err) {
         console.error('[duel]', err);
         // commit precedes render: a failure before COMMIT changed nothing; a
@@ -437,6 +528,7 @@ async function execute(message) {
 
     collector.on('end', (_collected, reason) => {
       if (reason === 'settled') return;
+      safeReleaseDuelLock(duelLock);
       challengeMsg.edit({
         embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6)
           .setDescription(`⌛ The challenge to **${target.username}** expired.`)],
