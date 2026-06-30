@@ -73,6 +73,10 @@ function nonMentionArgs(args) {
   return args.slice(1).filter(a => !MENTION_RE.test(a));
 }
 
+function argsWithoutConfirm(args) {
+  return args.filter(a => !String(a).startsWith('confirm:'));
+}
+
 function destructiveCommandsAllowed() {
   return process.env.ALLOW_DESTRUCTIVE_DEV_COMMANDS === 'true';
 }
@@ -119,6 +123,18 @@ function highValueGuardMessage(args, token, usage) {
 
 function supporterDevGuardMessage(args, token, usage) {
   return productionGuardMessage(args, 'ALLOW_SUPPORTER_DEV_COMMANDS', token, usage, 'Supporter/payment-adjacent');
+}
+
+function liveEventGuardMessage(args, token, usage) {
+  return productionGuardMessage(args, 'ALLOW_LIVE_EVENT_DEV_COMMANDS', token, usage, 'Live-event');
+}
+
+function authAccessGuardMessage(args, token, usage) {
+  if (process.env.NODE_ENV !== 'production') return null;
+  if (!hasExactToken(args, token)) {
+    return `Production confirmation required. Use: \`${usage}\``;
+  }
+  return null;
 }
 
 function parseAmount(raw) {
@@ -359,9 +375,12 @@ async function giveBag(message, args, devId) {
 }
 
 // ── crd dev ban|unban @user ────────────────────────────────────────────────
-async function setBan(message, devId, banned) {
+async function setBan(message, args, devId, banned) {
   const target = message.mentions.users.first();
   if (!target) return reply(message, `Usage: \`crd dev ${banned ? 'ban' : 'unban'} @user\``);
+  const token = `confirm:${target.id}`;
+  const guard = authAccessGuardMessage(args, token, `crd dev ${banned ? 'ban' : 'unban'} @user ${token}`);
+  if (guard) return reply(message, guard);
 
   const client = await pool.connect();
   try {
@@ -510,32 +529,62 @@ async function resetAllWeapons(message, args, devId) {
 // ── crd dev believerlevel @user <level> ───────────────────────────────────
 async function setBelieverLevel(message, args, devId) {
   const target = message.mentions.users.first() || { id: devId };
-  const level = parseInt(args[args.length - 1], 10);
+  const cleanArgs = argsWithoutConfirm(args);
+  const level = parseInt(cleanArgs[cleanArgs.length - 1], 10);
   if (isNaN(level) || level < 0) {
     return reply(message, 'Usage: `crd dev believerlevel [@user] <level>`');
   }
-  await pool.query(
-    'UPDATE user_character SET believer_level = $1 WHERE discord_id = $2',
-    [level, target.id]
-  );
-  return reply(message, `✅ Set <@${target.id}>'s Believer Level to **${level}**.`);
+  const token = `confirm:${target.id}:${level}`;
+  const guard = highValueGuardMessage(args, token, `crd dev believerlevel ${target.id === devId ? '' : '@user '}${level} ${token}`.replace('  ', ' '));
+  if (guard) return reply(message, guard);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      'UPDATE user_character SET believer_level = $1 WHERE discord_id = $2',
+      [level, target.id]
+    );
+    await logDev(client, devId, 'believer_level', target.id, `believer_level → ${level}`);
+    await client.query('COMMIT');
+    return reply(message, `✅ Set <@${target.id}>'s Believer Level to **${level}**.`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev believerlevel]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  } finally {
+    client.release();
+  }
 }
 
 // ── crd dev season <start|end|rollover|info> ──────────────────────────────
 async function devSeason(message, args, devId) {
   const sub = (args[1] || 'info').toLowerCase();
+  const cleanArgs = argsWithoutConfirm(args);
   try {
     if (sub === 'start') {
-      const name = args.slice(2).join(' ').trim() || null;
+      const guard = liveEventGuardMessage(args, 'confirm:SEASON_START', 'crd dev season start confirm:SEASON_START');
+      if (guard) return reply(message, guard);
+      const name = cleanArgs.slice(2).join(' ').trim() || null;
       const s = await seasonEngine.startSeason(pool, name);
+      await logDev(pool, devId, 'season_start', devId, `season_id=${s.season_id} name=${s.name}`).catch(() => {});
       return reply(message, `✅ Started **${s.name}** (id ${s.season_id}), ends ${new Date(s.ends_at).toISOString().slice(0, 10)}.`);
     }
     if (sub === 'end') {
+      const guard = liveEventGuardMessage(args, 'confirm:SEASON_END', 'crd dev season end confirm:SEASON_END');
+      if (guard) return reply(message, guard);
       const s = await seasonEngine.endSeasonNow(pool);
+      if (s) await logDev(pool, devId, 'season_end', devId, `season_id=${s.season_id} ends_at=NOW()`).catch(() => {});
       return reply(message, s ? `✅ Season ${s.season_id} set to end now. Run \`crd dev season rollover\`.` : 'No active season.');
     }
     if (sub === 'rollover') {
+      const guard = liveEventGuardMessage(args, 'confirm:SEASON_ROLLOVER', 'crd dev season rollover confirm:SEASON_ROLLOVER');
+      if (guard) return reply(message, guard);
       const r = await seasonEngine.rolloverIfDue(pool, { force: true });
+      if (r.rolled) {
+        await logDev(pool, devId, 'season_rollover', devId,
+          `ended=${r.endedSeason} next=${r.nextSeason} paid=${r.paid}`).catch(() => {});
+      }
       return reply(message, r.rolled
         ? `✅ Rolled season ${r.endedSeason} → ${r.nextSeason}. Paid **${r.paid}** players, ratings soft-reset.`
         : 'No active season to roll.');
@@ -553,32 +602,70 @@ async function devSeason(message, args, devId) {
 // ── crd dev granttitle <code> [@user] ─────────────────────────────────────
 async function devGrantTitle(message, args, devId) {
   const target = message.mentions.users.first() || { id: devId };
-  const code = (args[1] || '').trim();
+  const cleanArgs = argsWithoutConfirm(args);
+  const code = (cleanArgs[1] || '').trim();
   if (!code) return reply(message, 'Usage: `crd dev granttitle <code> [@user]`');
-  const ok = await grantTitle(pool, target.id, code);
-  return reply(message, ok ? `✅ Granted title \`${code}\` to <@${target.id}>.` : `<@${target.id}> already has \`${code}\` (or code unknown).`);
+  const token = `confirm:${target.id}:${code}`;
+  const guard = highValueGuardMessage(args, token, `crd dev granttitle ${code} ${target.id === devId ? '' : '@user '}${token}`.replace('  ', ' '));
+  if (guard) return reply(message, guard);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const ok = await grantTitle(client, target.id, code);
+    await logDev(client, devId, 'grant_title', target.id, `${code} (${ok ? 'granted' : 'no-op'})`);
+    await client.query('COMMIT');
+    return reply(message, ok ? `✅ Granted title \`${code}\` to <@${target.id}>.` : `<@${target.id}> already has \`${code}\` (or code unknown).`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev granttitle]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  } finally {
+    client.release();
+  }
 }
 
 // ── crd dev setrating @user <rating> ──────────────────────────────────────
 async function setRating(message, args, devId) {
   const target = message.mentions.users.first() || { id: devId };
-  const rating = parseInt(args[args.length - 1], 10);
+  const cleanArgs = argsWithoutConfirm(args);
+  const rating = parseInt(cleanArgs[cleanArgs.length - 1], 10);
   if (isNaN(rating) || rating < 0) {
     return reply(message, 'Usage: `crd dev setrating [@user] <rating>`');
   }
-  await pool.query(
-    'UPDATE user_character SET pvp_rating = $1, pvp_peak = GREATEST(pvp_peak, $1) WHERE discord_id = $2',
-    [rating, target.id]
-  );
-  return reply(message, `✅ Set <@${target.id}>'s PvP Rating to **${rating}**.`);
+  const token = `confirm:${target.id}:${rating}`;
+  const guard = highValueGuardMessage(args, token, `crd dev setrating ${target.id === devId ? '' : '@user '}${rating} ${token}`.replace('  ', ' '));
+  if (guard) return reply(message, guard);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      'UPDATE user_character SET pvp_rating = $1, pvp_peak = GREATEST(pvp_peak, $1) WHERE discord_id = $2',
+      [rating, target.id]
+    );
+    await logDev(client, devId, 'set_rating', target.id, `pvp_rating → ${rating}`);
+    await client.query('COMMIT');
+    return reply(message, `✅ Set <@${target.id}>'s PvP Rating to **${rating}**.`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev setrating]', err.message);
+    return reply(message, 'Failed — nothing changed.');
+  } finally {
+    client.release();
+  }
 }
 
 // ── crd dev enhanceequipment <equipment_id> <+level> ───────────────────────
 // [v5] id-detect weapon vs armor: weapon scales ATK, armor scales HP/DEF.
 async function enhanceEquipment(message, args, devId) {
-  const gearId = (args[1] || '').trim().toLowerCase();
-  const level = parseLevel(args[2]);
+  const cleanArgs = argsWithoutConfirm(args);
+  const gearId = (cleanArgs[1] || '').trim().toLowerCase();
+  const level = parseLevel(cleanArgs[2]);
   if (!gearId || level == null) return reply(message, 'Usage: `crd dev enhanceequipment <equipment_id> <+0..+10>`');
+  const token = `confirm:${gearId}:${level}`;
+  const guard = highValueGuardMessage(args, token, `crd dev enhanceequipment ${gearId} +${level} ${token}`);
+  if (guard) return reply(message, guard);
 
   const stored = level + 1;
   const client = await pool.connect();
@@ -630,12 +717,15 @@ async function enhanceEquipment(message, args, devId) {
 // ── crd dev enhancedeity @user <deity name> <+level> ───────────────────────
 async function enhanceDeity(message, args, devId) {
   const target = message.mentions.users.first();
-  const rest = nonMentionArgs(args);
+  const rest = nonMentionArgs(argsWithoutConfirm(args));
   const level = parseLevel(rest[rest.length - 1]);
   const name = rest.slice(0, -1).join(' ').trim();
   if (!target || !name || level == null) {
     return reply(message, 'Usage: `crd dev enhancedeity @user <deity name> <+0..+10>`');
   }
+  const token = `confirm:${target.id}:${level}`;
+  const guard = highValueGuardMessage(args, token, `crd dev enhancedeity @user ${name} +${level} ${token}`);
+  if (guard) return reply(message, guard);
 
   const stored = level + 1;
   const client = await pool.connect();
@@ -737,13 +827,17 @@ async function devBattle(message, args, devId) {
 // reward distribution can be smoke-tested with a handful of users). Clamped
 // to [1, max_hp]; the boss name must match the live boss (sanity guard).
 async function setBossHp(message, args, devId) {
-  const rest = args.slice(1);
+  const cleanArgs = argsWithoutConfirm(args);
+  const rest = cleanArgs.slice(1);
   const hp = parseAmount(rest[rest.length - 1]);
   const name = rest.slice(0, -1).join(' ').trim();
   if (!name || hp == null) {
     return reply(message, 'Usage: `crd dev setbosshp <boss name> <hp>` — hp ≥ 1 (kill it with an attack).');
   }
   const guildId = message.guild.id;
+  const token = `confirm:BOSS_HP:${guildId}:${hp}`;
+  const guard = liveEventGuardMessage(args, token, `crd dev setbosshp ${name} ${hp} ${token}`);
+  if (guard) return reply(message, guard);
 
   const client = await pool.connect();
   try {
@@ -789,8 +883,13 @@ async function setBossHp(message, args, devId) {
 // test). NEVER replaces a live boss — kill it (setbosshp + attack) first. An
 // expired-but-unflipped boss is settled to 'escaped' before the spawn attempt.
 // An optional boss name forces that specific boss (e.g. test a Greater boss).
-async function devSpawnBoss(message, devId, bossName = null) {
+async function devSpawnBoss(message, args, devId, bossNameArgStart = 1) {
   const guildId = message.guild.id;
+  const bossName = argsWithoutConfirm(args).slice(bossNameArgStart).join(' ').trim() || null;
+  const token = `confirm:SPAWN_BOSS:${guildId}`;
+  const guard = liveEventGuardMessage(args, token, `crd dev spawnboss${bossName ? ` ${bossName}` : ''} ${token}`);
+  if (guard) return reply(message, guard);
+
   try {
     // Validate the requested boss name up front for a clear error + valid list.
     let canonicalName = null;
@@ -1084,8 +1183,8 @@ async function execute(message, { args }) {
     case 'giverelic':        return giveRelic(message, args, devId);
     case 'giveessence':      return giveEssence(message, args, devId);
     case 'givebag':          return giveBag(message, args, devId);
-    case 'ban':              return setBan(message, devId, true);
-    case 'unban':            return setBan(message, devId, false);
+    case 'ban':              return setBan(message, args, devId, true);
+    case 'unban':            return setBan(message, args, devId, false);
     case 'resetplayer':      return resetPlayer(message, args, devId);
     case 'resetweapons':     return resetWeapons(message, args, devId);
     case 'believerlevel':    return setBelieverLevel(message, args, devId);
@@ -1097,10 +1196,10 @@ async function execute(message, { args }) {
     case 'enhancedeity':     return enhanceDeity(message, args, devId);
     case 'battle':           return devBattle(message, args, devId);
     case 'setbosshp':        return setBossHp(message, args, devId);
-    case 'spawnboss':        return devSpawnBoss(message, devId, args.slice(1).join(' ').trim() || null);
+    case 'spawnboss':        return devSpawnBoss(message, args, devId, 1);
     case 'spawn':
       if ((args[1] || '').toLowerCase() === 'boss') {
-        return devSpawnBoss(message, devId, args.slice(2).join(' ').trim() || null);
+        return devSpawnBoss(message, args, devId, 2);
       }
       return reply(message, USAGE);
     case 'quest':            return devQuest(message, args, devId);
