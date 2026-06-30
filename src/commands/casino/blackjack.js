@@ -134,7 +134,6 @@ async function autoStand(wrap) {
 /** Credit the payout once (idempotent) and write the bracketing log row. */
 async function settleMoney(wrap) {
   if (wrap.settled) return wrap.after;
-  wrap.settled = true;
   const s = wrap.session;
   const meta = {
     outcome: s.outcome,
