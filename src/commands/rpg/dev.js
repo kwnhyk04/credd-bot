@@ -77,6 +77,10 @@ function destructiveCommandsAllowed() {
   return process.env.ALLOW_DESTRUCTIVE_DEV_COMMANDS === 'true';
 }
 
+function envFlagEnabled(name) {
+  return process.env[name] === 'true';
+}
+
 function destructiveProductionDenied() {
   return process.env.NODE_ENV === 'production' && !destructiveCommandsAllowed();
 }
@@ -96,6 +100,25 @@ function destructiveGuardMessage(args, token, usage, { requireAllow = false } = 
     return `Confirmation required. Use: \`${usage}\``;
   }
   return null;
+}
+
+function productionGuardMessage(args, flagName, token, usage, label) {
+  if (process.env.NODE_ENV !== 'production') return null;
+  if (!envFlagEnabled(flagName)) {
+    return `${label} dev commands are disabled in production. Set \`${flagName}=true\` and rerun with the exact confirmation token. Use: \`${usage}\``;
+  }
+  if (!hasExactToken(args, token)) {
+    return `Production confirmation required. Use: \`${usage}\``;
+  }
+  return null;
+}
+
+function highValueGuardMessage(args, token, usage) {
+  return productionGuardMessage(args, 'ALLOW_HIGH_VALUE_DEV_COMMANDS', token, usage, 'High-value economy/reward');
+}
+
+function supporterDevGuardMessage(args, token, usage) {
+  return productionGuardMessage(args, 'ALLOW_SUPPORTER_DEV_COMMANDS', token, usage, 'Supporter/payment-adjacent');
 }
 
 function parseAmount(raw) {
@@ -128,6 +151,9 @@ async function giveCredux(message, args, devId) {
   if (!target) return reply(message, 'Usage: `crd dev givecredux @user <amount>`');
   const amount = parseAmount(nonMentionArgs(args)[0]);
   if (amount == null) return reply(message, 'Amount must be a positive whole number.');
+  const token = `confirm:${target.id}:${amount}`;
+  const guard = highValueGuardMessage(args, token, `crd dev givecredux @user ${amount} ${token}`);
+  if (guard) return reply(message, guard);
 
   const client = await pool.connect();
   try {
@@ -158,6 +184,9 @@ async function giveBeliefShards(message, args, devId) {
   const amount = parseAmount(nonMentionArgs(args)[0]);
   if (amount == null) return reply(message, 'Amount must be a positive whole number.');
   if (amount > INT_MAX) return reply(message, 'Amount is too large.');
+  const token = `confirm:${target.id}:${amount}`;
+  const guard = highValueGuardMessage(args, token, `crd dev givebeliefshards @user ${amount} ${token}`);
+  if (guard) return reply(message, guard);
 
   const client = await pool.connect();
   try {
@@ -186,11 +215,15 @@ async function giveChest(message, args, devId) {
   const target = message.mentions.users.first();
   if (!target) return reply(message, 'Usage: `crd dev givechest @user <silver|gold|boss_treasure|boss_golden|supreme> <amount>`');
   const rest = nonMentionArgs(args);
-  const col = CHEST_COLUMNS[(rest[0] || '').toLowerCase()];
+  const type = (rest[0] || '').toLowerCase();
+  const col = CHEST_COLUMNS[type];
   if (!col) return reply(message, 'Type must be one of: silver, gold, boss_treasure, boss_golden, supreme (or sc/gc/btc/bgtc/supc).');
   const amount = parseAmount(rest[1]);
   if (amount == null) return reply(message, 'Amount must be a positive whole number.');
   if (amount > INT_MAX) return reply(message, 'Amount is too large.');
+  const token = `confirm:${target.id}:${type}:${amount}`;
+  const guard = highValueGuardMessage(args, token, `crd dev givechest @user ${type} ${amount} ${token}`);
+  if (guard) return reply(message, guard);
 
   const client = await pool.connect();
   try {
@@ -219,11 +252,15 @@ async function giveRelic(message, args, devId) {
   const target = message.mentions.users.first();
   if (!target) return reply(message, 'Usage: `crd dev giverelic @user <sacred|supreme> <amount>`');
   const rest = nonMentionArgs(args);
-  const col = RELIC_COLUMNS[(rest[0] || '').toLowerCase()];
+  const type = (rest[0] || '').toLowerCase();
+  const col = RELIC_COLUMNS[type];
   if (!col) return reply(message, 'Type must be: sacred or supreme.');
   const amount = parseAmount(rest[1]);
   if (amount == null) return reply(message, 'Amount must be a positive whole number.');
   if (amount > INT_MAX) return reply(message, 'Amount is too large.');
+  const token = `confirm:${target.id}:${type}:${amount}`;
+  const guard = highValueGuardMessage(args, token, `crd dev giverelic @user ${type} ${amount} ${token}`);
+  if (guard) return reply(message, guard);
 
   const client = await pool.connect();
   try {
@@ -252,11 +289,15 @@ async function giveEssence(message, args, devId) {
   const target = message.mentions.users.first();
   if (!target) return reply(message, 'Usage: `crd dev giveessence @user <epic|mythic|legendary|supreme> <count>`');
   const rest = nonMentionArgs(args);
-  const col = ESSENCE_COLUMNS[(rest[0] || '').toLowerCase()];
+  const type = (rest[0] || '').toLowerCase();
+  const col = ESSENCE_COLUMNS[type];
   if (!col) return reply(message, 'Tier must be: epic, mythic, legendary, or supreme.');
   const amount = parseAmount(rest[1]);
   if (amount == null) return reply(message, 'Count must be a positive whole number.');
   if (amount > INT_MAX) return reply(message, 'Count is too large.');
+  const token = `confirm:${target.id}:${type}:${amount}`;
+  const guard = highValueGuardMessage(args, token, `crd dev giveessence @user ${type} ${amount} ${token}`);
+  if (guard) return reply(message, guard);
 
   const client = await pool.connect();
   try {
@@ -285,11 +326,15 @@ async function giveBag(message, args, devId) {
   const target = message.mentions.users.first();
   if (!target) return reply(message, 'Usage: `crd dev givebag @user <lesser|greater|divine> <count>`');
   const rest = nonMentionArgs(args);
-  const col = RUNE_BAG_COLUMNS[(rest[0] || '').toLowerCase()];
+  const type = (rest[0] || '').toLowerCase();
+  const col = RUNE_BAG_COLUMNS[type];
   if (!col) return reply(message, 'Type must be: lesser, greater, or divine (or lb/gb/db).');
   const amount = parseAmount(rest[1]);
   if (amount == null) return reply(message, 'Count must be a positive whole number.');
   if (amount > INT_MAX) return reply(message, 'Count is too large.');
+  const token = `confirm:${target.id}:${type}:${amount}`;
+  const guard = highValueGuardMessage(args, token, `crd dev givebag @user ${type} ${amount} ${token}`);
+  if (guard) return reply(message, guard);
 
   const client = await pool.connect();
   try {
@@ -802,9 +847,12 @@ async function devQuest(message, args, devId) {
 
 // ── crd dev daily @user ────────────────────────────────────────────────────
 // Grants a daily attendance claim to @user, bypassing the once-per-day lock.
-async function devDaily(message, devId) {
+async function devDaily(message, args, devId) {
   const target = message.mentions.users.first();
   if (!target) return reply(message, 'Usage: `crd dev daily @user`');
+  const token = `confirm:${target.id}`;
+  const guard = highValueGuardMessage(args, token, `crd dev daily @user ${token}`);
+  if (guard) return reply(message, guard);
 
   const client = await pool.connect();
   let result;
@@ -932,6 +980,9 @@ async function giveToken(message, args, devId) {
   const amount = parseAmount(nonMentionArgs(args)[0]);
   if (amount == null) return reply(message, 'Amount must be a positive whole number.');
   if (amount > INT_MAX) return reply(message, 'Amount is too large.');
+  const token = `confirm:${target.id}:${amount}`;
+  const guard = supporterDevGuardMessage(args, token, `crd dev givetoken @user ${amount} ${token}`);
+  if (guard) return reply(message, guard);
 
   const sup = await ent.getSupporter(pool, target.id);
   if (!sup) return reply(message, 'That user has no supporter row — run `crd dev sub @user <tier>` first.');
@@ -985,6 +1036,9 @@ async function devSub(message, args, devId) {
   if (!['believer', 'chosen', 'eternal'].includes(tier)) {
     return reply(message, 'Usage: `crd dev sub [@user] <believer|chosen|eternal>`');
   }
+  const token = `confirm:${target.id}:${tier}`;
+  const guard = supporterDevGuardMessage(args, token, `crd dev sub ${target.id === devId ? '' : '@user '}${tier} ${token}`.replace('  ', ' '));
+  if (guard) return reply(message, guard);
   const exists = await pool.query('SELECT 1 FROM users WHERE discord_id = $1', [target.id]);
   if (exists.rows.length === 0) return reply(message, 'That user is not registered.');
   try {
@@ -1050,7 +1104,7 @@ async function execute(message, { args }) {
       }
       return reply(message, USAGE);
     case 'quest':            return devQuest(message, args, devId);
-    case 'daily':            return devDaily(message, devId);
+    case 'daily':            return devDaily(message, args, devId);
     case 'use':              return devUse(message, args, devId);
     case 'sub':              return devSub(message, args, devId);
     case 'givetoken':        return giveToken(message, args, devId);
