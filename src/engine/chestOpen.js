@@ -23,6 +23,7 @@ const fs = require('fs');
 const { renderWeaponResults, TIERS } = require('./weaponResultRenderer');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji } = require('../utils/emojis');
+const { capitalizeLower } = require('../utils/textFormat');
 
 const ANIM_DIR = path.join(__dirname, '..', '..', 'assets', 'animations', 'chests');
 const ANIMATION_MS = 3000; // matches the ~2.5s GIFs + buffer
@@ -59,7 +60,6 @@ const CHEST_FLAVOR = {
 const TIER_ORDER = ['supreme', 'legendary', 'mythic', 'rare', 'common'];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const cap = (s = '') => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 
 /** e.g. `★ **Legendary** ×1 ・ ❖ **Mythic** ×4` (rarest first). */
 function tierSummary(items) {
@@ -70,7 +70,7 @@ function tierSummary(items) {
   }
   return TIER_ORDER
     .filter((t) => counts[t])
-    .map((t) => `${TIERS[t]?.icon || '•'} **${cap(t)}** ×${counts[t]}`)
+    .map((t) => `${TIERS[t]?.icon || '•'} **${capitalizeLower(t)}** ×${counts[t]}`)
     .join(' ・ ');
 }
 

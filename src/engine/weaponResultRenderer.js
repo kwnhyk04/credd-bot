@@ -22,6 +22,7 @@ const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const path = require('path');
 const fs = require('fs');
 const { resolveName } = require('../utils/emojis');
+const { capitalizeLower } = require('../utils/textFormat');
 
 const ROOT = path.join(__dirname, '..', '..');
 const WEAPONS_DIR = path.join(ROOT, 'assets', 'weapons');
@@ -177,7 +178,7 @@ async function drawCard(ctx, item, x, y) {
   // tier
   ctx.font = `bold 11px "${FONT_FAMILY}"`;
   ctx.fillStyle = t.color;
-  ctx.fillText(`${t.icon} ${capitalize(item.tier)}`, cx, cy);
+  ctx.fillText(`${t.icon} ${capitalizeLower(item.tier)}`, cx, cy);
   cy += 18;
 
   // stats — small but readable, wraps to 2 lines if needed
@@ -205,10 +206,6 @@ async function drawCard(ctx, item, x, y) {
     ctx.textAlign = 'center';
     ctx.fillText(`◇ ${item.sockets} Rune slot${item.sockets === 1 ? '' : 's'}`, cx, cy);
   }
-}
-
-function capitalize(s = '') {
-  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
 /**
