@@ -12,6 +12,7 @@ const path = require('path');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const { getEmojiIcon } = require('./renderBagItems');
 const { resolveName } = require('../utils/emojis');
+const { formatIntegerEnUS: fmt } = require('../utils/textFormat');
 
 const ROOT = path.join(__dirname, '..', '..');
 
@@ -257,10 +258,6 @@ function drawRecord(ctx, style, values) {
     ctx.fillText(String(values[col.key] ?? 0), col.x, style.y + 40);
     ctx.restore();
   }
-}
-
-function fmt(value) {
-  return Number(value || 0).toLocaleString('en-US');
 }
 
 function profileTitle(d) {
