@@ -780,6 +780,25 @@ const SLOT_LAYOUT = [
   { slot: 1, x: 220, label: 'Slot 1' },
   { slot: 3, x: 415, label: 'Slot 3' },
 ];
+const SLOT_UNLOCK_TEXT = {
+  2: 'Unlocks at Believer Lvl 10',
+  3: 'Unlock at Believer Lvl 25',
+};
+
+function slotUnlocked(slot, believerLevel) {
+  const required = SLOT_UNLOCK_GATES[slot];
+  return required == null || believerLevel >= required;
+}
+
+function drawCenteredFitText(ctx, text, x, y, maxWidth, size, weight = 'bold') {
+  let fontSize = size;
+  do {
+    ctx.font = `${weight} ${fontSize}px sans-serif`;
+    if (ctx.measureText(text).width <= maxWidth || fontSize <= 9) break;
+    fontSize -= 1;
+  } while (fontSize > 9);
+  ctx.fillText(text, x, y);
+}
 
 async function deities(message) {
   const discordId = message.author.id;
@@ -805,6 +824,7 @@ async function deities(message) {
   );
   if (res.rows.length === 0) { await reply(message, { content: 'No character found.' }); return; }
   const r = res.rows[0];
+  const believerLevel = Number(r.believer_level) || 0;
 
   const slots = [
     { name: r.n1, tier: r.t1, mythology: r.m1, img: r.img1 },
@@ -823,6 +843,7 @@ async function deities(message) {
     const idx = layout.slot - 1;
     const s = slots[idx];
     const x = layout.x;
+    const unlocked = slotUnlocked(layout.slot, believerLevel);
 
     // Slot label on top
     ctx.fillStyle = '#9CA3AF';
@@ -836,7 +857,7 @@ async function deities(message) {
     ctx.roundRect(x, BOX_Y, BOX_W, BOX_H, RAD);
     ctx.fill();
 
-    if (s.name) {
+    if (unlocked && s.name) {
       // Portrait fills box
       const mythDir = MYTHOLOGY_DIR[s.mythology] || s.mythology?.toLowerCase();
       const imgName = s.img || `${s.name.toLowerCase().replace(/\s+/g, '_')}.png`;
@@ -870,23 +891,32 @@ async function deities(message) {
       ctx.textAlign = 'center';
       ctx.fillText(s.name, x + BOX_W / 2, BOX_Y + BOX_H + 20);
     } else {
-      // Empty slot outline + dash
+      // Empty or locked slot outline + marker
       ctx.strokeStyle = '#4B5563';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.roundRect(x, BOX_Y, BOX_W, BOX_H, RAD);
       ctx.stroke();
       ctx.fillStyle = '#6B7280';
-      ctx.font = '36px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('—', x + BOX_W / 2, BOX_Y + BOX_H / 2 + 12);
+      if (unlocked) {
+        ctx.font = '36px sans-serif';
+        ctx.fillText('—', x + BOX_W / 2, BOX_Y + BOX_H / 2 + 12);
+      } else {
+        ctx.font = 'bold 18px sans-serif';
+        ctx.fillText('LOCKED', x + BOX_W / 2, BOX_Y + BOX_H / 2 + 6);
+        ctx.fillStyle = '#FBBF24';
+        drawCenteredFitText(ctx, SLOT_UNLOCK_TEXT[layout.slot], x + BOX_W / 2, BOX_Y + BOX_H + 20, BOX_W, 12);
+      }
     }
   }
 
   const attachment = new AttachmentBuilder(canvas.toBuffer('image/png'), { name: 'deities.png' });
 
   // Build resonance info
-  const deityInfos = slots.map(s => s.name ? { name: s.name, mythology: s.mythology } : null);
+  const deityInfos = slots.map((s, idx) =>
+    slotUnlocked(idx + 1, believerLevel) && s.name ? { name: s.name, mythology: s.mythology } : null
+  );
   const resMods = computeResonanceMods(deityInfos);
   const resLines = [];
   if (resMods.atkPct) resLines.push(`ATK +${resMods.atkPct}%`);
@@ -903,7 +933,11 @@ async function deities(message) {
   } else {
     blessingText += '**Divine Blessing:** None';
   }
-  if (r.echo_name) {
+  const echoSlot =
+    r.active_echo_deity_id && r.active_echo_deity_id === r.active_deity_id_2 ? 2 :
+    r.active_echo_deity_id && r.active_echo_deity_id === r.active_deity_id_3 ? 3 :
+    null;
+  if (r.echo_name && echoSlot != null && slotUnlocked(echoSlot, believerLevel)) {
     blessingText += `\n**Echo Blessing:** ${r.echo_bn || r.echo_name}`;
     if (r.echo_bd) blessingText += `\n-# ${r.echo_bd}`;
   } else {

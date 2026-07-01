@@ -28,12 +28,12 @@ const ALLOWED_SUMMON_COUNTS = [1, 5, 10];
 const MAX_PULLS = 10;
 
 // ── Duplicate → tier essence (Blueprint line 266; Master §35.0 line 1957) ──
-// Epic/Mythic duplicates grant +1 essence; rarer Legendary/Supreme duplicates grant +5.
+// Epic duplicates grant +1 essence; Mythic +2; Legendary +5; Supreme +10.
 const ESSENCE_PER_DUPLICATE = Object.freeze({
   Epic: 1,
-  Mythic: 1,
+  Mythic: 2,
   Legendary: 5,
-  Supreme: 5,
+  Supreme: 10,
 });
 const TIER_ESSENCE_COLUMN = {
   Epic: 'epic_essence',

@@ -12,7 +12,7 @@
  *
  * Atomicity guarantees (all within the caller's txn):
  *   - new deity      → INSERT user_deities (enh 1, curr = base)
- *   - duplicate      → tier-based essence in users_bag (+1 Epic/Mythic, +5 Legendary/Supreme)
+ *   - duplicate      → tier-based essence in users_bag (+1 Epic, +2 Mythic, +5 Legendary, +10 Supreme)
  *   - pity           → advanced/reset per roll; relic-forced tiers leave it as-is
  *   - active_deity   → auto-set to the FIRST new deity if the player had none
  *   - reputation     → +10/pull (5,000/day PHT cap), believer level roll-up

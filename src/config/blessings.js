@@ -47,7 +47,7 @@ const ECHO_BLESSING_KEY_MAP = {
 };
 
 // Believer level required to unlock each slot
-const SLOT_UNLOCK_GATES = { 2: 25, 3: 10 };
+const SLOT_UNLOCK_GATES = { 2: 10, 3: 25 };
 
 // Mythology resonance: equip 3 deities from the same mythology
 const MYTHOLOGY_RESONANCES = [
