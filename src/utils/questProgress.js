@@ -34,6 +34,7 @@ const TODAY_PHT = `(NOW() AT TIME ZONE 'Asia/Manila')::date`;
 const REFRESH_ALLOWANCE = 2;
 
 const randInt = (rng, min, max) => min + Math.floor(rng() * (max - min + 1));
+const creduxSpentEnhancementLabel = (n) => `Spend ${(n * 1000).toLocaleString()} Credux on enhancement`;
 
 // Each def: target range (rolled units), reward(rolledUnits) → [credux, shards],
 // label(rolledUnits) → string, progressUnit (display multiplier; 1000 for credux_spent).
@@ -54,7 +55,7 @@ const QUEST_DEFS = {
     progressUnit: 1000, // stored in thousands; actual target = n × 1,000
     roll: (rng) => randInt(rng, 5, 50), // 5,000 .. 50,000 (multiples of 1,000)
     reward: (n) => (n <= 20 ? [4000, 5] : [9000, 12]),
-    label: (n) => `Spend ${(n * 1000).toLocaleString()} Credux on enhancement`,
+    label: creduxSpentEnhancementLabel,
   },
   weapon_enhancements: {
     progressUnit: 1,
@@ -292,7 +293,7 @@ const { phtWeek } = require('../config/ranked');
 const WEEKLY_QUEST_DEFS = {
   raid_wins:           { progressUnit: 1,    roll: (rng) => randInt(rng, 20, 40), reward: () => [20000, 40], label: (n) => `Win ${n} raids this week` },
   elite_defeats:       { progressUnit: 1,    roll: (rng) => randInt(rng, 15, 30), reward: () => [20000, 40], label: (n) => `Defeat ${n} elite mobs this week` },
-  credux_spent:        { progressUnit: 1000, roll: (rng) => randInt(rng, 100, 300), reward: () => [25000, 50], label: (n) => `Spend ${(n * 1000).toLocaleString()} Credux on enhancement` },
+  credux_spent:        { progressUnit: 1000, roll: (rng) => randInt(rng, 100, 300), reward: () => [25000, 50], label: creduxSpentEnhancementLabel },
   weapon_enhancements: { progressUnit: 1,    roll: (rng) => randInt(rng, 10, 20), reward: () => [20000, 40], label: (n) => `Enhance gear ${n} times this week` },
   duel_wins:           { progressUnit: 1,    roll: (rng) => randInt(rng, 5, 12),  reward: () => [25000, 50], label: (n) => `Win ${n} duels this week` },
 };
