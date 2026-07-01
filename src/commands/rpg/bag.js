@@ -19,6 +19,8 @@ const TYPE_EMOJI = { Sword: '⚔️', Staff: '🪄', Gloves: '🥊', Shield: '�
 // [v5] armor types
 const ARMOR_TYPE_EMOJI = { Heavy: '🛡️', Medium: '🥋', Light: '🧥' };
 
+const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
+
 function clampPageForTotal(page, total) {
   const totalPages = Math.max(1, Math.ceil(total / WEAPONS_PER_PAGE));
   return Math.min(Math.max(0, page | 0), totalPages - 1);
@@ -125,9 +127,7 @@ function buildWeaponsPage({ user, weapons, total, page }) {
     )
   );
 
-  container.addSeparatorComponents((sep) =>
-    sep.setSpacing(SeparatorSpacingSize.Small).setDivider(true)
-  );
+  container.addSeparatorComponents(sep);
 
   // ── Body: weapon rows ──
   if (weapons.length === 0) {
@@ -151,9 +151,7 @@ function buildWeaponsPage({ user, weapons, total, page }) {
     container.addTextDisplayComponents((td) => td.setContent(rows.join('\n\n')));
   }
 
-  container.addSeparatorComponents((sep) =>
-    sep.setSpacing(SeparatorSpacingSize.Small).setDivider(true)
-  );
+  container.addSeparatorComponents(sep);
 
   // ── Help section ──
   container.addTextDisplayComponents((td) =>
@@ -162,9 +160,7 @@ function buildWeaponsPage({ user, weapons, total, page }) {
     )
   );
 
-  container.addSeparatorComponents((sep) =>
-    sep.setSpacing(SeparatorSpacingSize.Small).setDivider(true)
-  );
+  container.addSeparatorComponents(sep);
 
   // ── Pagination buttons (state lives in the customId) ──
   container.addActionRowComponents((row) =>
@@ -254,7 +250,7 @@ function buildArmorsPage({ user, armors, total, page }) {
       `-# Showing **${armors.length}** of **${total}** pieces • Page **${page + 1}/${totalPages}**`
     )
   );
-  container.addSeparatorComponents((s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true));
+  container.addSeparatorComponents(sep);
 
   if (armors.length === 0) {
     container.addTextDisplayComponents((td) => td.setContent('*No armor found. Open some chests!*'));
@@ -271,11 +267,11 @@ function buildArmorsPage({ user, armors, total, page }) {
     container.addTextDisplayComponents((td) => td.setContent(rows.join('\n\n')));
   }
 
-  container.addSeparatorComponents((s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true));
+  container.addSeparatorComponents(sep);
   container.addTextDisplayComponents((td) =>
     td.setContent('-# 💡 `crd equip <id>` to equip • `crd enhance <id>` to forge • `crd sell <id>` to sell')
   );
-  container.addSeparatorComponents((s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true));
+  container.addSeparatorComponents(sep);
 
   container.addActionRowComponents((row) =>
     row.setComponents(
