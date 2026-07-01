@@ -83,6 +83,7 @@ const LAYOUTS = {
 const GAP = 14;
 const PAD = 22;
 const BG = '#0E0F13';
+const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 // Text placement: upper-middle, reduced sizes
 const TEXT_Y = 0.30;        // fraction of card height for the name line
@@ -226,7 +227,7 @@ function buildFlipMessage(flipPath = null) {
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
     .addTextDisplayComponents((td) => td.setContent('## ✨ Invocation in progress...'))
-    .addSeparatorComponents((sep) => sep.setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+    .addSeparatorComponents(sep)
     .addMediaGalleryComponents((g) =>
       g.addItems((item) => item.setURL(`attachment://${name}`))
     );
@@ -269,15 +270,15 @@ async function buildResultMessage(results, balances) {
         `## ✨ Invocation Complete\n*${FLAVOR[results.length] ?? FLAVOR[10]}*`
       )
     )
-    .addSeparatorComponents((sep) => sep.setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+    .addSeparatorComponents(sep)
     // ── Body: the rendered card grid ──
     .addMediaGalleryComponents((g) =>
       g.addItems((item) => item.setURL('attachment://summon_result.png'))
     )
-    .addSeparatorComponents((sep) => sep.setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+    .addSeparatorComponents(sep)
     // ── Summary ──
     .addTextDisplayComponents((td) => td.setContent(summary))
-    .addSeparatorComponents((sep) => sep.setSpacing(SeparatorSpacingSize.Small).setDivider(true))
+    .addSeparatorComponents(sep)
     // ── Footer (same icons as the bag overview — shared via utils/emojis) ──
     .addTextDisplayComponents((td) =>
       td.setContent(
