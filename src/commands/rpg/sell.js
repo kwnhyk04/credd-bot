@@ -301,7 +301,8 @@ async function handleCancel(interaction, ownerId) {
     await interaction.reply({ content: 'This confirmation isn\'t yours.', flags: MessageFlags.Ephemeral });
     return;
   }
-  await interaction.update({ content: 'Cancelled — nothing was sold.', components: [] });
+  await interaction.deferUpdate();
+  await interaction.editReply({ content: 'Cancelled — nothing was sold.', components: [] });
 }
 
 module.exports = { execute, handleConfirm, handleCancel };

@@ -598,11 +598,12 @@ async function handleEnhanceCancel(interaction, userDeityId, ownerId) {
     await interaction.reply({ content: 'This forge isn\'t yours.', flags: MessageFlags.Ephemeral });
     return;
   }
+  await interaction.deferUpdate();
   // Strip action rows from the CURRENT message so the last verdict stays visible.
   const keep = interaction.message.components
     .filter((c) => c.type !== ComponentType.ActionRow)
     .map((c) => c.toJSON());
-  await interaction.update({ components: keep, flags: MessageFlags.IsComponentsV2 });
+  await interaction.editReply({ components: keep, flags: MessageFlags.IsComponentsV2 });
 }
 
 // ── crd deity equip <name> [slot] ─────────────────────────────────────────
