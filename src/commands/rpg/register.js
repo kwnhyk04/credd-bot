@@ -1,14 +1,13 @@
 'use strict';
 
 const {
-  ContainerBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags,
+  ContainerBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
 const { isBanned } = require('../../handlers/middleware');
+const { smallDivider: sep } = require('../../utils/componentsV2');
 
 const BRAND = 0x9b59b6;
-
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 const LORE =
   '*Welcome to Credd, the home of many adventures. One of them is waiting for you.*\n\n' +

@@ -1,13 +1,14 @@
 'use strict';
 
 const {
-  ContainerBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  ContainerBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
   AttachmentBuilder, MessageFlags,
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const pool = require('../../db/pool');
 const { isBanned } = require('../../handlers/middleware');
+const { smallDivider: sep } = require('../../utils/componentsV2');
 const { CLASSES, CLASS_NAMES } = require('../../config/classes');
 const {
   STARTER_WEAPON_NAME, STARTER_WEAPON, STARTER_ARMOR_NAME, STARTER_ARMOR,
@@ -17,8 +18,6 @@ const { generateUniqueGearId } = require('../../utils/weaponId');
 const { renderPortraitCard } = require('../../engine/renderPortraitCard');
 
 const BRAND = 0x9b59b6;
-
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 // Class art (Roster Conventions Part 4): assets/classes/{class_lowercase}.png
 // — swordsman/fighter/mage/knight/archer.
