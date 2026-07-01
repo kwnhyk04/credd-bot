@@ -17,18 +17,18 @@
  */
 
 const {
-  ContainerBuilder, SeparatorSpacingSize, MediaGalleryBuilder, AttachmentBuilder,
+  ContainerBuilder, MediaGalleryBuilder, AttachmentBuilder,
   MessageFlags,
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const pool = require('../../db/pool');
+const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay } = require('../../utils/emojis');
 
 const TODAY = `(NOW() AT TIME ZONE 'Asia/Manila')::date`;
 const ACCENT = 0xf0b232;
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 const BANNER_PATH = path.join(__dirname, '..', '..', '..', 'assets', 'quest icons', 'attendance.png');
 // [v4.8] The raw attendance icon rendered at full media-gallery width (oversized). Composite it

@@ -18,11 +18,12 @@
  */
 
 const {
-  ContainerBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  ContainerBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
   MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
 const { isBanned } = require('../../handlers/middleware');
+const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emoji } = require('../../utils/emojis');
 
 // TODO Phase-rep: grant +50 reputation to the sender on a successful bestow (§18) —
@@ -40,8 +41,6 @@ const RMT_WARNING =
   '⚠️ **Bestowing Credux in exchange for real money, gift cards, or anything of ' +
   'real-world value is strictly prohibited.** Real-money trading (RMT) in any form ' +
   'will result in a permanent ban for all accounts involved.';
-
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 function reply(message, content) {
   return message.reply({ content, allowedMentions: { repliedUser: false } });

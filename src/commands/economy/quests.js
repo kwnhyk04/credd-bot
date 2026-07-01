@@ -11,7 +11,7 @@
  */
 
 const {
-  ContainerBuilder, SeparatorSpacingSize, ActionRowBuilder, StringSelectMenuBuilder,
+  ContainerBuilder, ActionRowBuilder, StringSelectMenuBuilder,
   ButtonBuilder, ButtonStyle, AttachmentBuilder, MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
@@ -20,11 +20,11 @@ const {
   hoursUntilMidnightPHT, REFRESH_ALLOWANCE,
   rollWeeklyIfMissing, describeWeekly, claimWeeklyGrand,
 } = require('../../utils/questProgress');
+const { smallDivider: sep } = require('../../utils/componentsV2');
 const { phtWeek } = require('../../config/ranked');
 const { renderQuestRowsImage } = require('../../engine/renderQuestRows');
 
 const ACCENT = 0xf0b232;
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 function reply(message, payload) {
   return message.reply({ ...payload, allowedMentions: { repliedUser: false } });

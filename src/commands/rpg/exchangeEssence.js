@@ -13,10 +13,11 @@
  */
 
 const {
-  ContainerBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  ContainerBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
   StringSelectMenuBuilder, MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
+const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emoji } = require('../../utils/emojis');
 const { ESSENCE_COLUMN, ESSENCE_CONVERT } = require('../../config/runes');
 
@@ -24,7 +25,6 @@ const BRAND = 0x9b59b6;
 const GREEN = 0x2ecc71;
 const RED = 0xe74c3c;
 const TIERS = Object.keys(ESSENCE_CONVERT); // ['mythic','legendary','supreme']
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 /** Read all essence balances + credux for one player. */
 async function fetchBalances(discordId) {
