@@ -12,13 +12,13 @@
 
 const {
   ContainerBuilder,
-  SeparatorSpacingSize,
   AttachmentBuilder,
   MessageFlags,
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const pool = require('../../db/pool');
+const { smallDivider: sep } = require('../../utils/componentsV2');
 const { resolveName } = require('../../utils/emojis');
 const { renderPortraitCard } = require('../../engine/renderPortraitCard');
 const { runeEmojiName } = require('../../config/runes');
@@ -114,8 +114,6 @@ const TIER_HEX = {
 };
 
 const WEAPONS_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'weapons');
-
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 function reply(message, payload) {
   return message.reply({ ...payload, allowedMentions: { repliedUser: false, parse: [] } });

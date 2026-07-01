@@ -9,7 +9,6 @@
 const path = require('path');
 const {
   ContainerBuilder,
-  SeparatorSpacingSize,
   AttachmentBuilder,
   MessageFlags,
   ButtonBuilder,
@@ -17,6 +16,7 @@ const {
   StringSelectMenuBuilder,
 } = require('discord.js');
 const pool = require('../../db/pool');
+const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emoji } = require('../../utils/emojis');
 const { renderBagItemsImage } = require('../../engine/renderBagItems');
 const { BAGS, runeEmoji, runeDescription } = require('../../config/runes');
@@ -35,7 +35,6 @@ const TIER_RANK_SQL = `CASE rn.tier
   WHEN 'Common' THEN 0
   ELSE -1
 END`;
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 function reply(message, payload) {
   return message.reply({
