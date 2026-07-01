@@ -25,12 +25,13 @@
  */
 
 const {
-  ContainerBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder,
+  ContainerBuilder, ActionRowBuilder, ButtonBuilder,
   ButtonStyle, MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
 const { RAID_LOOT, ELITE_SPAWN_CHANCE } = require('../../config/raidLoot');
 const { awardCombatExp } = require('../../utils/awardCombatExp');
+const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay } = require('../../utils/emojis');
 
 const ACCENT = 0x57c0ff;
@@ -46,7 +47,6 @@ const SHARD_SCALE = 0.2;      // Belief Shards: 20% of expected raid yield
 // Render mentions without pinging.
 const NO_PING = { parse: [], repliedUser: false };
 
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 const avg = ([a, b]) => (a + b) / 2;
 
 /** Window length in seconds for a given combat level (snapshot at Start). */

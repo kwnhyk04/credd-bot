@@ -11,7 +11,7 @@
  */
 
 const { randomUUID } = require('crypto');
-const { ContainerBuilder, SeparatorSpacingSize, MessageFlags } = require('discord.js');
+const { ContainerBuilder, MessageFlags } = require('discord.js');
 const pool = require('../../db/pool');
 const { resolveBattle } = require('../../engine/battleEngine');
 const { buildPlayerFighter } = require('../../engine/statAssembly');
@@ -21,10 +21,10 @@ const {
   bracketOf, bracketFloor, bracketIndex, matchRange, matchRangeWide,
   eloDelta, valorForResult, phtWeek, WEEKLY_MIN_GAMES,
 } = require('../../config/ranked');
+const { smallDivider: sep } = require('../../utils/componentsV2');
 
 const GOLD = 0xf0b232;
 const RANKED_FIGHT_LOCK_MINUTES = 10;
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 function reply(message, content) {
   return message.reply({ content, allowedMentions: { repliedUser: false } });

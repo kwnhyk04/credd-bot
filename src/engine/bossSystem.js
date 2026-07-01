@@ -36,7 +36,7 @@ const fs = require('fs');
 const path = require('path');
 const {
   ContainerBuilder, ButtonBuilder, ButtonStyle,
-  AttachmentBuilder, MessageFlags, SeparatorSpacingSize,
+  AttachmentBuilder, MessageFlags,
 } = require('discord.js');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const pool = require('../db/pool');
@@ -47,6 +47,7 @@ const {
 const { logEmbeds } = require('./battleRender');
 const { awardCombatExpMany } = require('../utils/awardCombatExp');
 const { isBanned } = require('../handlers/middleware');
+const { smallDivider: sep } = require('../utils/componentsV2');
 const { emojiForDisplay } = require('../utils/emojis');
 const { grantTitles } = require('../utils/titleGrant');
 const { bossFeatTitlesFor } = require('../config/titles');
@@ -69,8 +70,6 @@ const BOSS_FLAVOR = {
 // [v4.4] Greater Boss spawn header — distinct apex framing above the boss name.
 const GREATER_FLAVOR = '☠️ **GREATER BOSS** — *A world-ender awakes…*';
 const BOSS_ASSET_DIR = path.join(__dirname, '..', '..', 'assets', 'monsters', 'boss');
-
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 /* ── in-memory state ────────────────────────────────────────────────────── */
 const liveMessages = new Map();  // guildId → { channelId, messageId }
