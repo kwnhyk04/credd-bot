@@ -5,21 +5,9 @@ const pool = require('../../db/pool');
 const { assemblePlayerStats, accumulateRuneStats } = require('../../engine/statAssembly');
 const { computeResonanceMods } = require('../../config/blessings');
 const { EXP_REQUIRED, MAX_COMBAT_LEVEL } = require('../../config/combatExp');
+const { BELIEVER_EXP_PER_LEVEL, believerTitle } = require('../../config/believerProgression');
 const { renderStatsImage } = require('../../engine/renderStats');
 const { resolveSkin, resolveProfileLabel } = require('../../engine/skinResolver');
-
-const BELIEVER_EXP_PER_LEVEL = 3000; // §18 (3,000 flat per level)
-
-// §18 Believer Level Titles (Master §18 table).
-function believerTitle(level) {
-  if (level >= 500) return 'Last Believer';
-  if (level >= 200) return 'Chosen One';
-  if (level >= 100) return 'Champion of Faith';
-  if (level >= 50)  return 'Zealot';
-  if (level >= 25)  return 'Disciple';
-  if (level >= 10)  return 'Devotee';
-  return 'Wanderer';
-}
 
 /**
  * `crd profile [@user]` / `crd stats [@user]` — full Canvas profile card.
