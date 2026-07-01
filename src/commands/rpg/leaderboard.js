@@ -132,8 +132,9 @@ async function handleSelect(interaction) {
   }
   if (!CATEGORIES[catKey]) catKey = 'rating';
   if (scope !== 'global' && scope !== 'server') scope = 'server';
+  await interaction.deferUpdate();
   const payload = await buildPayload(catKey, scope, interaction.guild, ownerId);
-  await interaction.update(payload);
+  await interaction.editReply(payload);
 }
 
 module.exports = { execute, handleSelect };

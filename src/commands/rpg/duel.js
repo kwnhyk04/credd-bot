@@ -261,11 +261,12 @@ async function runWager(message, challenger, target, stake) {
         return;
       }
       if (settled) { await i.deferUpdate().catch(() => {}); return; }
+      await i.deferUpdate();
       settled = true;
       collector.stop('settled');
 
       if (i.customId === 'duel_decline') {
-        await i.update({
+        await i.editReply({
           embeds: [EmbedBuilder.from(embed).setColor(0xf23f43).setDescription(`🏃 **${target.username}** declined the wager.`)],
           components: [],
         });
@@ -274,7 +275,7 @@ async function runWager(message, challenger, target, stake) {
       }
       const [cBusy, tBusy] = await Promise.all([inLiveBattle(challenger.id), inLiveBattle(target.id)]);
       if (cBusy || tBusy) {
-        await i.update({
+        await i.editReply({
           embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6).setDescription('💰 Wager cancelled — a duelist is mid-battle.')],
           components: [],
         });
@@ -283,7 +284,7 @@ async function runWager(message, challenger, target, stake) {
       }
       const running = await markDuelRunning(duelLock);
       if (!running.ok) {
-        await i.update({
+        await i.editReply({
           embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6).setDescription('Wager cancelled - the duel challenge expired.')],
           components: [],
         });
@@ -291,7 +292,7 @@ async function runWager(message, challenger, target, stake) {
         return;
       }
       try {
-        await i.update({
+        await i.editReply({
         embeds: [EmbedBuilder.from(embed).setColor(0x43d675).setDescription(`💰 **${target.username}** accepts! The duel begins...`)],
         components: [],
         });
@@ -436,11 +437,12 @@ async function execute(message) {
           return;
         }
         if (settled) { await i.deferUpdate().catch(() => {}); return; }
+        await i.deferUpdate();
         settled = true;
         collector.stop('settled');
 
         if (i.customId === 'duel_decline') {
-          await i.update({
+          await i.editReply({
             embeds: [EmbedBuilder.from(embed).setColor(0xf23f43)
               .setDescription(`🏃 **${target.username}** declined the duel.`)],
             components: [],
@@ -456,7 +458,7 @@ async function execute(message) {
         ]);
         if (cBusy || tBusy) {
           const busyName = cBusy ? challenger.username : target.username;
-          await i.update({
+          await i.editReply({
             embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6)
               .setDescription(`⚔️ Duel cancelled — **${busyName}** is mid-battle.`)],
             components: [],
@@ -467,7 +469,7 @@ async function execute(message) {
         // accept → battle starts immediately (no pre-battle overview, §14). The
         const running = await markDuelRunning(duelLock);
         if (!running.ok) {
-          await i.update({
+          await i.editReply({
             embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6)
               .setDescription('Duel cancelled - the challenge expired.')],
             components: [],
@@ -477,7 +479,7 @@ async function execute(message) {
         }
         // duel_challenges / duel_wins quest progress is committed in commitDuelResult.
         try {
-          await i.update({
+          await i.editReply({
           embeds: [EmbedBuilder.from(embed).setColor(0x43d675)
             .setDescription(`⚔️ **${target.username}** accepts! The duel begins...`)],
           components: [],

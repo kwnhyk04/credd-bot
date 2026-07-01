@@ -216,9 +216,11 @@ async function handleConfirm(interaction, mode, arg, ownerId) {
     return;
   }
 
-  const client = await pool.connect();
+  await interaction.deferUpdate();
+  let client;
   let outcome;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
 
     // Lock order: users_bag → user_weapons (standardized across enhance/sell).
@@ -257,30 +259,40 @@ async function handleConfirm(interaction, mode, arg, ownerId) {
       }
     }
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('[sell] confirm failed:', err.message);
     outcome = { status: 'error' };
   } finally {
-    client.release();
+    if (client) client.release();
   }
 
+  try {
   if (outcome.status === 'done') {
     const noun = outcome.count === 1 ? 'item' : 'items';
-    await interaction.update({
+    await interaction.editReply({
       content: `✅ Sold **${outcome.count}** ${noun} for **${outcome.total.toLocaleString()} Credux**.`,
       components: [],
     });
     return;
   }
   if (outcome.status === 'empty') {
-    await interaction.update({ content: 'Nothing to sell — your bag changed since the prompt.', components: [] });
+    await interaction.editReply({ content: 'Nothing to sell — your bag changed since the prompt.', components: [] });
     return;
   }
   if (outcome.status === 'nobag') {
-    await interaction.update({ content: 'You don\'t have a bag.', components: [] });
+    await interaction.editReply({ content: 'You don\'t have a bag.', components: [] });
     return;
   }
-  await interaction.update({ content: 'Something went wrong. No weapons were sold.', components: [] }).catch(() => {});
+  await interaction.editReply({ content: 'Something went wrong. No weapons were sold.', components: [] });
+  } catch (err) {
+    console.error('[sell] confirm refresh failed:', err.message);
+    await interaction.followUp({
+      content: outcome.status === 'done'
+        ? 'Sale completed, but the confirmation message could not refresh.'
+        : 'Sale confirmation failed to refresh. Check your bag before trying again.',
+      flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
+  }
 }
 
 /** Button: sell:cancel:<uid> */

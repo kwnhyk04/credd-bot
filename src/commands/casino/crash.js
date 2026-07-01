@@ -88,33 +88,62 @@ async function handleButton(interaction, action, ownerId) {
   }
   if (wrap.resolving) return interaction.deferUpdate().catch(() => {});
 
-  const playable = await sessionStore.ensurePlayableSession({
-    sessionId: wrap.sessionId,
-    discordId: ownerId,
-    game: 'crash',
-  });
-  if (!playable.ok) {
-    clearTimer(wrap);
-    sessions.delete(ownerId);
-    if (playable.status === 'expired') {
-      await sessionStore.recoverExpiredSession(wrap.sessionId, 'button_expired_crash').catch(() => {});
-      return interaction.reply({ content: 'This crash session expired and the bet was refunded. Start a new game.', flags: MessageFlags.Ephemeral }).catch(() => {});
+  await interaction.deferUpdate();
+  try {
+    const playable = await sessionStore.ensurePlayableSession({
+      sessionId: wrap.sessionId,
+      discordId: ownerId,
+      game: 'crash',
+    });
+    if (!playable.ok) {
+      clearTimer(wrap);
+      sessions.delete(ownerId);
+      if (playable.status === 'expired') {
+        await sessionStore.recoverExpiredSession(wrap.sessionId, 'button_expired_crash').catch(() => {});
+        return interaction.followUp({ content: 'This crash session expired and the bet was refunded. Start a new game.', flags: MessageFlags.Ephemeral }).catch(() => {});
+      }
+      return interaction.followUp({ content: 'This crash session has already ended.', flags: MessageFlags.Ephemeral }).catch(() => {});
     }
-    return interaction.reply({ content: 'This crash session has already ended.', flags: MessageFlags.Ephemeral }).catch(() => {});
-  }
 
-  if (action === 'push') {
-    const ev = engine.pushNext(wrap.session);
-    if (ev.crashed) {
-      await resolve(wrap, (p) => interaction.update(p));
-      return;
+    if (action === 'push') {
+      const ev = engine.pushNext(wrap.session);
+      if (ev.crashed) {
+        await resolve(wrap, async (p) => {
+          try {
+            await interaction.editReply(p);
+          } catch (err) {
+            console.error('[crash] final refresh failed:', err);
+            await interaction.followUp({
+              content: 'Crash settled, but the game message could not refresh. Check your balance before starting another game.',
+              flags: MessageFlags.Ephemeral,
+            }).catch(() => {});
+          }
+        });
+        return;
+      }
+      armTimer(wrap);
+      const payload = await render.buildCrash({ uid: ownerId, bet: wrap.bet, session: wrap.session, balance: wrap.held });
+      await interaction.editReply({ components: payload.components, files: payload.files, flags: payload.flags }).catch(async (err) => {
+        console.error('[crash] active refresh failed:', err);
+        await interaction.followUp({ content: 'Crash action was processed, but the view failed to refresh. Avoid clicking again until you start a new game or the message updates.', flags: MessageFlags.Ephemeral }).catch(() => {});
+      });
+    } else if (action === 'cashout') {
+      engine.cashOut(wrap.session);
+      await resolve(wrap, async (p) => {
+        try {
+          await interaction.editReply(p);
+        } catch (err) {
+          console.error('[crash] cashout refresh failed:', err);
+          await interaction.followUp({
+            content: 'Crash cashout settled, but the game message could not refresh. Check your balance before starting another game.',
+            flags: MessageFlags.Ephemeral,
+          }).catch(() => {});
+        }
+      });
     }
-    armTimer(wrap);
-    const payload = await render.buildCrash({ uid: ownerId, bet: wrap.bet, session: wrap.session, balance: wrap.held });
-    await interaction.update({ components: payload.components, files: payload.files, flags: payload.flags }).catch(() => {});
-  } else if (action === 'cashout') {
-    engine.cashOut(wrap.session);
-    await resolve(wrap, (p) => interaction.update(p));
+  } catch (err) {
+    console.error('[crash] button failed:', err);
+    await interaction.followUp({ content: 'Crash action could not finish cleanly. Check the game message or your balance before clicking again.', flags: MessageFlags.Ephemeral }).catch(() => {});
   }
 }
 

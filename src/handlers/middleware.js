@@ -28,6 +28,12 @@ async function isBanned(discordId) {
 function mwError(ctx, text) {
   return ctx.reply({ content: text, ephemeral: ctx.isSlash }).catch(() => {});
 }
+function blockedSlash(ctx) {
+  if (!ctx.isSlash) return Promise.resolve();
+  const interaction = ctx.interaction;
+  if (interaction?.replied || interaction?.deferred) return Promise.resolve();
+  return mwError(ctx, 'You cannot use this bot.');
+}
 
 /**
  * Middleware pipeline — runs before every RPG/economy/casino/admin command, on BOTH the prefix
@@ -44,7 +50,10 @@ async function runMiddleware(ctx, { requiresCharacter = false, commandKey = '' }
   // ── 1. Ban check ─────────────────────────────────────────────────────────
   try {
     const { rows } = await pool.query('SELECT is_banned FROM users WHERE discord_id = $1', [discordId]);
-    if (rows[0]?.is_banned) return false; // silent fail for banned users
+    if (rows[0]?.is_banned) {
+      await blockedSlash(ctx);
+      return false;
+    }
   } catch (err) {
     console.error('[middleware] ban check error:', err.message);
     await mwError(ctx, 'An internal error occurred. Please try again.');

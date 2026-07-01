@@ -221,8 +221,12 @@ async function execute(message) {
       const introText = mobRow.mob_type === 'elite'
         ? `⚠️ You ventured too deep — **${mobRow.name}** emerges from the shadows...`
         : `You ran into the territory of **${mobRow.name}**...`;
-      await message.channel.send({ content: introText, allowedMentions: { parse: [] } })
-        .catch(() => {});
+      if (message.isSlash) {
+        await message.reply({ content: introText, allowedMentions: { parse: [] } });
+      } else {
+        await message.channel.send({ content: introText, allowedMentions: { parse: [] } })
+          .catch(() => {});
+      }
 
       // the summary object renders as battleRender's rewards strip
       const rewards = await commitRewards(discordId, sim, mobRow, rng);

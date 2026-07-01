@@ -217,6 +217,7 @@ async function execute(message, { args }) {
     let settled = false;
 
     collector.on('collect', async (i) => {
+      let transferred = false;
       try {
         if (i.user.id !== sender.id) {
           await i.reply({ content: 'Only the sender can confirm this bestow.', flags: MessageFlags.Ephemeral });
@@ -225,16 +226,18 @@ async function execute(message, { args }) {
         if (settled) { await i.deferUpdate().catch(() => {}); return; }
         settled = true;
         collector.stop('settled');
+        await i.deferUpdate();
 
         if (i.customId === 'bestow_cancel') {
-          await i.update(buildResultPayload('✖️ Bestow cancelled. Nothing was transferred.', null, GREY));
+          await i.editReply(buildResultPayload('✖️ Bestow cancelled. Nothing was transferred.', null, GREY));
           return;
         }
 
         const result = await performBestow(sender.id, receiver.id, amount);
         if (result.status === 'ok') {
+          transferred = true;
           const sealedUnix = Math.floor(Date.now() / 1000);
-          await i.update(buildResultPayload(
+          await i.editReply(buildResultPayload(
             `## ⚜️ Bestow`,
             bestowLine(sender.username, receiver.username, amount, sealedUnix),
             GREEN,
@@ -249,10 +252,19 @@ async function execute(message, { args }) {
             : result.status === 'receiver_banned'
               ? `<@${receiver.id}> can no longer receive Credux.`
               : 'Bestow failed — a participant is no longer available.';
-        await i.update(buildResultPayload(`⚠️ ${msg}`, null, RED));
+        await i.editReply(buildResultPayload(`⚠️ ${msg}`, null, RED));
       } catch (err) {
         console.error('[bestow]', err);
-        await card.channel.send('Something went wrong — no Credux was transferred.').catch(() => {});
+        const message = transferred
+          ? 'Bestow completed, but the confirmation message could not refresh.'
+          : 'Something went wrong — no Credux was transferred.';
+        await i.editReply(buildResultPayload(`⚠️ ${message}`, null, RED)).catch(() => {});
+        await i.followUp({
+          content: transferred
+            ? 'Bestow completed, but the confirmation message could not refresh.'
+            : 'Bestow failed — nothing was changed.',
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => {});
       }
     });
 

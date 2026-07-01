@@ -119,8 +119,9 @@ async function handleSelect(interaction) {
     return interaction.reply({ content: 'Run `crd title` yourself to browse.', flags: MessageFlags.Ephemeral });
   }
   const catKey = interaction.values[0];
+  await interaction.deferUpdate();
   const payload = await buildPayload(ownerId, interaction.user.username, catKey, 0);
-  return interaction.update(payload);
+  return interaction.editReply(payload);
 }
 
 // Button: title:<prev|next>:<owner>:<catKey>:<page>
@@ -132,8 +133,9 @@ async function handleButton(interaction) {
   }
   const cur = parseInt(pageStr, 10) || 0;
   const page = action === 'next' ? cur + 1 : Math.max(0, cur - 1);
+  await interaction.deferUpdate();
   const payload = await buildPayload(ownerId, interaction.user.username, catKey, page);
-  return interaction.update(payload);
+  return interaction.editReply(payload);
 }
 
 module.exports = { execute, handleSelect, handleButton };

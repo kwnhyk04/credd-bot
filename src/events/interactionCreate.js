@@ -15,6 +15,12 @@ const { IMPLEMENTED, COMMAND_MAP } = require('../handlers/commandHandler');
 const { runMiddleware, isBanned } = require('../handlers/middleware');
 const { InteractionContext } = require('../utils/commandContext');
 
+async function replyBlockedSlash(ctx) {
+  const interaction = ctx.interaction;
+  if (interaction.replied || interaction.deferred) return;
+  await ctx.reply({ content: 'You cannot use this bot.', ephemeral: true }).catch(() => {});
+}
+
 async function handleSlash(interaction) {
   if (!interaction.isChatInputCommand()) return;
   const entry = byName.get(interaction.commandName);
@@ -27,7 +33,10 @@ async function handleSlash(interaction) {
 
   try {
     if (impl.mw === 'ban') {
-      if (await isBanned(ctx.userId)) return; // silent, like the prefix path
+      if (await isBanned(ctx.userId)) {
+        await replyBlockedSlash(ctx);
+        return;
+      }
     } else {
       const requiresCharacter = COMMAND_MAP[entry.canonical]?.requiresCharacter ?? false;
       const allowed = await runMiddleware(ctx, { requiresCharacter, commandKey: entry.canonical });

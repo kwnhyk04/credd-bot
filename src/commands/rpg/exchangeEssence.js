@@ -114,9 +114,15 @@ async function handleSelect(interaction) {
   }
   let tier = interaction.values[0];
   if (!TIERS.includes(tier)) tier = 'mythic';
-  const bag = await fetchBalances(ownerId);
-  if (!bag) return interaction.reply({ content: 'No bag found.', flags: MessageFlags.Ephemeral });
-  return interaction.update(buildPayload(bag, tier, ownerId));
+  await interaction.deferUpdate();
+  try {
+    const bag = await fetchBalances(ownerId);
+    if (!bag) return interaction.followUp({ content: 'No bag found.', flags: MessageFlags.Ephemeral });
+    return interaction.editReply(buildPayload(bag, tier, ownerId));
+  } catch (err) {
+    console.error('[exchangeEssence] tier select failed:', err.message);
+    return interaction.followUp({ content: 'Essence exchange view failed to refresh.', flags: MessageFlags.Ephemeral }).catch(() => {});
+  }
 }
 
 /** One atomic conversion. Deducts 10 lower-tier essence + Credux, grants 1 of the target. */
@@ -157,32 +163,44 @@ async function handleConvert(interaction, ownerId, tier) {
   if (!TIERS.includes(tier)) tier = 'mythic';
   const def = ESSENCE_CONVERT[tier];
 
-  const client = await pool.connect();
+  await interaction.deferUpdate();
+  let client;
   let result;
   try {
+    client = await pool.connect();
     result = await convertOnce(client, ownerId, tier);
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('[exchangeEssence] convert failed:', err.message);
-    return interaction.reply({ content: 'Conversion failed — nothing was spent.', flags: MessageFlags.Ephemeral }).catch(() => {});
+    return interaction.followUp({ content: 'Conversion failed — nothing was spent.', flags: MessageFlags.Ephemeral }).catch(() => {});
   } finally {
-    client.release();
+    if (client) client.release();
   }
 
-  const bag = await fetchBalances(ownerId);
-  if (!bag || result.status === 'notfound') {
-    return interaction.update(buildPayload(bag || {}, tier, ownerId, { resultLine: '❌ No bag found.', color: RED }));
-  }
-  if (result.status === 'insufficient') {
-    return interaction.update(buildPayload(bag, tier, ownerId, {
-      resultLine: `❌ Not enough materials — need ${def.amount} ${def.from} essence + ${def.credux.toLocaleString()} Credux.`,
-      color: RED,
+  try {
+    const bag = await fetchBalances(ownerId);
+    if (!bag || result.status === 'notfound') {
+      return interaction.editReply(buildPayload(bag || {}, tier, ownerId, { resultLine: '❌ No bag found.', color: RED }));
+    }
+    if (result.status === 'insufficient') {
+      return interaction.editReply(buildPayload(bag, tier, ownerId, {
+        resultLine: `❌ Not enough materials — need ${def.amount} ${def.from} essence + ${def.credux.toLocaleString()} Credux.`,
+        color: RED,
+      }));
+    }
+    return interaction.editReply(buildPayload(bag, tier, ownerId, {
+      resultLine: `✅ Crafted **1× ${def.targetName}** ${emoji(def.target)}`,
+      color: GREEN,
     }));
+  } catch (err) {
+    console.error('[exchangeEssence] convert refresh failed:', err.message);
+    return interaction.followUp({
+      content: result.status === 'done'
+        ? 'Conversion completed, but the exchange view could not refresh. Run `crd exchange essence` to reload balances.'
+        : 'Exchange view failed to refresh. Run `crd exchange essence` to reload balances.',
+      flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
   }
-  return interaction.update(buildPayload(bag, tier, ownerId, {
-    resultLine: `✅ Crafted **1× ${def.targetName}** ${emoji(def.target)}`,
-    color: GREEN,
-  }));
 }
 
 module.exports = { execute, handleSelect, handleConvert, buildPayload };

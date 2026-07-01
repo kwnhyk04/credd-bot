@@ -344,45 +344,59 @@ async function handleAttempt(interaction, gearId, ownerId) {
     return;
   }
 
-  const client = await pool.connect();
+  await interaction.deferUpdate();
+  let client;
   let result;
   try {
+    client = await pool.connect();
     result = await attemptEnhance(client, ownerId, gearId);
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('[enhance] attempt failed:', err.message);
-    await interaction.reply({ content: 'Something went wrong. No Credux was spent.', flags: MessageFlags.Ephemeral }).catch(() => {});
+    await interaction.followUp({ content: 'Something went wrong. No Credux was spent.', flags: MessageFlags.Ephemeral }).catch(() => {});
     return;
   } finally {
-    client.release();
+    if (client) client.release();
   }
 
+  try {
   if (result.status === 'notfound') {
-    await interaction.update(notePayload('This equipment is no longer in your bag.'));
+    await interaction.editReply(notePayload('This equipment is no longer in your bag.'));
     return;
   }
   if (result.status === 'not_enhanceable') {
-    await interaction.reply({ content: `${result.tier} gear cannot be enhanced.`, flags: MessageFlags.Ephemeral });
+    await interaction.followUp({ content: `${result.tier} gear cannot be enhanced.`, flags: MessageFlags.Ephemeral }).catch(() => {});
     return;
   }
 
   const g = await fetchForgeData(ownerId, gearId);
   if (!g) {
-    await interaction.update(notePayload('This equipment is no longer in your bag.'));
+    await interaction.editReply(notePayload('This equipment is no longer in your bag.'));
     return;
   }
 
   if (result.status === 'insufficient') {
     const resultLine = `❌ Not enough Credux — need **${result.cost.toLocaleString()}**, you have **${result.credux.toLocaleString()}**.`;
-    await interaction.update(buildForgePayload(g, gearId, ownerId, { resultLine, color: RED }));
+    await interaction.editReply(buildForgePayload(g, gearId, ownerId, { resultLine, color: RED }));
     return;
   }
   if (result.status === 'maxed') {
-    await interaction.update(buildForgePayload(g, gearId, ownerId, { resultLine: 'This equipment is already maxed (+10).' }));
+    await interaction.editReply(buildForgePayload(g, gearId, ownerId, { resultLine: 'This equipment is already maxed (+10).' }));
     return;
   }
 
-  await interaction.update(buildResolvedPayload(g, gearId, ownerId, result));
+  await interaction.editReply(buildResolvedPayload(g, gearId, ownerId, result));
+  } catch (err) {
+    console.error('[enhance] result refresh failed:', err.message);
+    const note = result.status === 'done'
+      ? 'Enhancement result was processed, but the forge view could not refresh. Run `crd enhance <id>` again to continue.'
+      : 'Forge view could not refresh. Run `crd enhance <id>` again to reload it.';
+    await interaction.editReply(notePayload(note)).catch(() => {});
+    await interaction.followUp({
+      content: 'Forge view refresh failed. Run `crd enhance <id>` again before making another attempt.',
+      flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
+  }
 }
 
 /** Button: enhance:cancel:<gearId>:<uid> — drop the buttons, keep the last view as-is. */

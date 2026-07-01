@@ -98,30 +98,49 @@ async function handleButton(interaction, action, ownerId) {
   }
   if (wrap.resolving) return interaction.deferUpdate().catch(() => {});
 
-  const playable = await sessionStore.ensurePlayableSession({
-    sessionId: wrap.sessionId,
-    discordId: ownerId,
-    game: 'blackjack',
-  });
-  if (!playable.ok) {
-    clearTimer(wrap);
-    sessions.delete(ownerId);
-    if (playable.status === 'expired') {
-      await sessionStore.recoverExpiredSession(wrap.sessionId, 'button_expired_blackjack').catch(() => {});
-      return interaction.reply({ content: 'This blackjack session expired and the bet was refunded. Start a new game.', flags: MessageFlags.Ephemeral }).catch(() => {});
+  await interaction.deferUpdate();
+  try {
+    const playable = await sessionStore.ensurePlayableSession({
+      sessionId: wrap.sessionId,
+      discordId: ownerId,
+      game: 'blackjack',
+    });
+    if (!playable.ok) {
+      clearTimer(wrap);
+      sessions.delete(ownerId);
+      if (playable.status === 'expired') {
+        await sessionStore.recoverExpiredSession(wrap.sessionId, 'button_expired_blackjack').catch(() => {});
+        return interaction.followUp({ content: 'This blackjack session expired and the bet was refunded. Start a new game.', flags: MessageFlags.Ephemeral }).catch(() => {});
+      }
+      return interaction.followUp({ content: 'This blackjack session has already ended.', flags: MessageFlags.Ephemeral }).catch(() => {});
     }
-    return interaction.reply({ content: 'This blackjack session has already ended.', flags: MessageFlags.Ephemeral }).catch(() => {});
-  }
 
-  if (action === 'hit') engine.hit(wrap.session);
-  else if (action === 'stand') engine.stand(wrap.session);
+    if (action === 'hit') engine.hit(wrap.session);
+    else if (action === 'stand') engine.stand(wrap.session);
 
-  if (wrap.session.state === 'done') {
-    await finalize(wrap, (p) => interaction.update(p));
-  } else {
-    armTimer(wrap);
-    const payload = await render.buildBlackjack({ mode: 'active', uid: ownerId, bet: wrap.bet, session: wrap.session, balance: wrap.held });
-    await interaction.update({ components: payload.components, files: payload.files, flags: payload.flags }).catch(() => {});
+    if (wrap.session.state === 'done') {
+      await finalize(wrap, async (p) => {
+        try {
+          await interaction.editReply(p);
+        } catch (err) {
+          console.error('[blackjack] final refresh failed:', err);
+          await interaction.followUp({
+            content: 'Blackjack settled, but the game message could not refresh. Check your balance before starting another game.',
+            flags: MessageFlags.Ephemeral,
+          }).catch(() => {});
+        }
+      });
+    } else {
+      armTimer(wrap);
+      const payload = await render.buildBlackjack({ mode: 'active', uid: ownerId, bet: wrap.bet, session: wrap.session, balance: wrap.held });
+      await interaction.editReply({ components: payload.components, files: payload.files, flags: payload.flags }).catch(async (err) => {
+        console.error('[blackjack] active refresh failed:', err);
+        await interaction.followUp({ content: 'Blackjack action was processed, but the view failed to refresh. Avoid clicking again until you start a new game or the message updates.', flags: MessageFlags.Ephemeral }).catch(() => {});
+      });
+    }
+  } catch (err) {
+    console.error('[blackjack] button failed:', err);
+    await interaction.followUp({ content: 'Blackjack action could not finish cleanly. Check the game message or your balance before clicking again.', flags: MessageFlags.Ephemeral }).catch(() => {});
   }
 }
 

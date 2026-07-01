@@ -235,36 +235,52 @@ async function rejectIfNotOwner(interaction, ownerId) {
 async function handleStart(interaction, ownerId) {
   if (await rejectIfNotOwner(interaction, ownerId)) return;
 
-  const charRes = await pool.query(
-    'SELECT combat_level FROM user_character WHERE discord_id = $1', [ownerId],
-  );
-  if (charRes.rows.length === 0) {
-    await interaction.reply({ content: 'You have no character.', flags: MessageFlags.Ephemeral });
-    return;
-  }
-  const level = charRes.rows[0].combat_level;
-  const windowSec = windowSecondsFor(level);
+  await interaction.deferUpdate();
+  let started = false;
+  try {
+    const charRes = await pool.query(
+      'SELECT combat_level FROM user_character WHERE discord_id = $1', [ownerId],
+    );
+    if (charRes.rows.length === 0) {
+      await interaction.followUp({ content: 'You have no character.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const level = charRes.rows[0].combat_level;
+    const windowSec = windowSecondsFor(level);
 
-  const ins = await pool.query(
-    `INSERT INTO auto_raids (discord_id, ends_at, combat_level)
-     VALUES ($1, NOW() + ($2 || ' seconds')::interval, $3)
-     ON CONFLICT (discord_id) DO NOTHING
-     RETURNING EXTRACT(EPOCH FROM ends_at)::bigint AS ends_epoch`,
-    [ownerId, String(windowSec), level],
-  );
-  if (ins.rows.length === 0) {
-    await interaction.reply({ content: '⚔️ You already have an auto raid running.', flags: MessageFlags.Ephemeral });
-    return;
+    const ins = await pool.query(
+      `INSERT INTO auto_raids (discord_id, ends_at, combat_level)
+       VALUES ($1, NOW() + ($2 || ' seconds')::interval, $3)
+       ON CONFLICT (discord_id) DO NOTHING
+       RETURNING EXTRACT(EPOCH FROM ends_at)::bigint AS ends_epoch`,
+      [ownerId, String(windowSec), level],
+    );
+    if (ins.rows.length === 0) {
+      await interaction.followUp({ content: '⚔️ You already have an auto raid running.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    started = true;
+    await interaction.editReply(buildProgressPayload(ownerId, Number(ins.rows[0].ends_epoch), level));
+  } catch (err) {
+    console.error('[autoRaid] start failed:', err);
+    await interaction.followUp({
+      content: started
+        ? 'Auto raid started, but the message could not refresh. Run `crd auto raid` to check progress.'
+        : 'Auto raid start failed. Try again.',
+      flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
   }
-  await interaction.update(buildProgressPayload(ownerId, Number(ins.rows[0].ends_epoch), level));
 }
 
 /** Claim button — verify completion, grant rewards atomically, delete the run. */
 async function handleClaim(interaction, ownerId) {
   if (await rejectIfNotOwner(interaction, ownerId)) return;
 
-  const client = await pool.connect();
+  await interaction.deferUpdate();
+  let client;
+  let committed = false;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
     const rowRes = await client.query(
       `SELECT combat_level, (ends_at <= NOW()) AS done,
@@ -274,13 +290,13 @@ async function handleClaim(interaction, ownerId) {
     );
     if (rowRes.rows.length === 0) {
       await client.query('ROLLBACK');
-      await interaction.reply({ content: 'No auto raid to claim. Run `crd auto raid` to start one.', flags: MessageFlags.Ephemeral });
+      await interaction.followUp({ content: 'No auto raid to claim. Run `crd auto raid` to start one.', flags: MessageFlags.Ephemeral });
       return;
     }
     const row = rowRes.rows[0];
     if (!row.done) {
       await client.query('ROLLBACK');
-      await interaction.reply({
+      await interaction.followUp({
         content: `⏳ Not finished yet — claimable <t:${Number(row.ends_epoch)}:R>.`,
         flags: MessageFlags.Ephemeral,
       });
@@ -296,7 +312,7 @@ async function handleClaim(interaction, ownerId) {
     );
     if (bagRes.rows.length === 0) {
       await client.query('ROLLBACK');
-      await interaction.reply({ content: 'Your bag is missing — contact an admin.', flags: MessageFlags.Ephemeral });
+      await interaction.followUp({ content: 'Your bag is missing — contact an admin.', flags: MessageFlags.Ephemeral });
       return;
     }
     const before = bagRes.rows[0];
@@ -331,16 +347,20 @@ async function handleClaim(interaction, ownerId) {
 
     await client.query('DELETE FROM auto_raids WHERE discord_id = $1', [ownerId]);
     await client.query('COMMIT');
+    committed = true;
 
-    await interaction.update(buildClaimedPayload(ownerId, rw, lvl));
+    await interaction.editReply(buildClaimedPayload(ownerId, rw, lvl));
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('[autoRaid] claim failed:', err);
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply({ content: 'Claim failed — nothing was granted. Try again.', flags: MessageFlags.Ephemeral }).catch(() => {});
-    }
+    await interaction.followUp({
+      content: committed
+        ? 'Auto raid rewards were claimed, but the message could not refresh. Run `crd auto raid` to check current status.'
+        : 'Claim failed — nothing was granted. Try again.',
+      flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
   } finally {
-    client.release();
+    if (client) client.release();
   }
 }
 

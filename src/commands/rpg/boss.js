@@ -37,6 +37,9 @@ async function execute(message) {
     if (state.status === 'active' && new Date(state.expires_at).getTime() > now) {
       const sent = await message.channel.send(await buildBossMessage(view));
       repointLiveMessage(message.guild.id, sent);
+      if (message.isSlash) {
+        await reply(message, 'Boss status posted in this channel.');
+      }
       return;
     }
 

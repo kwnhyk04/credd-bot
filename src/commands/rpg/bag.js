@@ -208,11 +208,12 @@ async function handleWeaponsButton(interaction) {
     });
   }
 
+  await interaction.deferUpdate();
   const currentPage = parseInt(pageStr, 10) || 0;
   const page = action === 'next' ? currentPage + 1 : Math.max(0, currentPage - 1);
 
   const { weapons: rows, total, page: actualPage } = await fetchWeapons(ownerId, page);
-  await interaction.update(buildWeaponsPage({ user: interaction.user, weapons: rows, total, page: actualPage }));
+  await interaction.editReply(buildWeaponsPage({ user: interaction.user, weapons: rows, total, page: actualPage }));
 }
 
 // ── crd bag armors (paginated, Components V2 — mirrors bag weapons) ──────
@@ -305,10 +306,11 @@ async function handleArmorsButton(interaction) {
       flags: MessageFlags.Ephemeral,
     });
   }
+  await interaction.deferUpdate();
   const currentPage = parseInt(pageStr, 10) || 0;
   const page = action === 'next' ? currentPage + 1 : Math.max(0, currentPage - 1);
   const { armors: rows, total, page: actualPage } = await fetchArmors(ownerId, page);
-  await interaction.update(buildArmorsPage({ user: interaction.user, armors: rows, total, page: actualPage }));
+  await interaction.editReply(buildArmorsPage({ user: interaction.user, armors: rows, total, page: actualPage }));
 }
 
 // ── dispatcher: crd bag [chests|weapons|armors] ─────────────────────────

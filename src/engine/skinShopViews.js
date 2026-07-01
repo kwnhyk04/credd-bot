@@ -222,31 +222,33 @@ function ownerGate(interaction, ownerId) {
 async function handleShopButton(interaction) {
   const [, action, owner, pageStr, ctx] = interaction.customId.split(':');
   if (!ownerGate(interaction, owner)) return;
+  await interaction.deferUpdate();
   const page = clampPage(parseInt(pageStr, 10) || 0);
   if (action === 'preview') {
-    await interaction.update(await buildPreview(pool, owner, { page, idx: 0, ctx }));
+    await interaction.editReply(await buildPreview(pool, owner, { page, idx: 0, ctx }));
     return;
   }
   const next = action === 'next' ? page + 1 : page - 1;
-  await interaction.update(await buildShopPage(pool, owner, { page: next, ctx }));
+  await interaction.editReply(await buildShopPage(pool, owner, { page: next, ctx }));
 }
 
 // sprev:<prev|next|back|toggle>:<owner>:<page>:<idx>:<ctx>:<var>
 async function handlePreviewButton(interaction) {
   const [, action, owner, pageStr, idxStr, ctx, variant] = interaction.customId.split(':');
   if (!ownerGate(interaction, owner)) return;
+  await interaction.deferUpdate();
   const page = clampPage(parseInt(pageStr, 10) || 0);
   const idx = parseInt(idxStr, 10) || 0;
   if (action === 'back') {
-    await interaction.update(await buildShopPage(pool, owner, { page, ctx }));
+    await interaction.editReply(await buildShopPage(pool, owner, { page, ctx }));
     return;
   }
   if (action === 'toggle') {
-    await interaction.update(await buildPreview(pool, owner, { page, idx, ctx, variant }));
+    await interaction.editReply(await buildPreview(pool, owner, { page, idx, ctx, variant }));
     return;
   }
   const nextIdx = action === 'next' ? idx + 1 : idx - 1;
-  await interaction.update(await buildPreview(pool, owner, { page, idx: nextIdx, ctx, variant: 'x' }));
+  await interaction.editReply(await buildPreview(pool, owner, { page, idx: nextIdx, ctx, variant: 'x' }));
 }
 
 module.exports = { buildShopPage, buildPreview, handleShopButton, handlePreviewButton, PAGES };

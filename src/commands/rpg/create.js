@@ -141,7 +141,13 @@ async function handleClassSelect(interaction, className, ownerId) {
     await interaction.reply({ content: 'Unknown class.', flags: MessageFlags.Ephemeral });
     return;
   }
-  await interaction.update(await classPreviewPayload(className, ownerId));
+  await interaction.deferUpdate();
+  try {
+    await interaction.editReply(await classPreviewPayload(className, ownerId));
+  } catch (err) {
+    console.error('[create] class preview failed:', err.message);
+    await interaction.followUp({ content: 'Class preview failed. Try selecting the class again.', flags: MessageFlags.Ephemeral }).catch(() => {});
+  }
 }
 
 // Button: create:back:<userId>
@@ -151,7 +157,8 @@ async function handleBack(interaction, ownerId) {
     return;
   }
   // attachments: [] clears the class image carried by the preview screen.
-  await interaction.update({ ...classSelectPayload(ownerId), attachments: [] });
+  await interaction.deferUpdate();
+  await interaction.editReply({ ...classSelectPayload(ownerId), attachments: [] });
 }
 
 // Button: create:confirm:<Class>:<userId>
@@ -164,21 +171,32 @@ async function handleConfirm(interaction, className, ownerId) {
     await interaction.reply({ content: 'Unknown class.', flags: MessageFlags.Ephemeral });
     return;
   }
-  if (await isBanned(interaction.user.id)) {
-    await interaction.reply({ content: 'You are unable to use this bot.', flags: MessageFlags.Ephemeral });
+  await interaction.deferUpdate();
+  let banned;
+  try {
+    banned = await isBanned(interaction.user.id);
+  } catch (err) {
+    console.error('[create] ban check failed:', err.message);
+    await interaction.followUp({ content: 'Character creation is temporarily unavailable. Please try again later.', flags: MessageFlags.Ephemeral }).catch(() => {});
+    return;
+  }
+  if (banned) {
+    await interaction.followUp({ content: 'You are unable to use this bot.', flags: MessageFlags.Ephemeral });
     return;
   }
 
   const discordId = interaction.user.id;
-  const client = await pool.connect();
+  let client;
+  let donePayload = null;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
 
     // Must be registered.
     const reg = await client.query('SELECT 1 FROM users WHERE discord_id = $1', [discordId]);
     if (reg.rows.length === 0) {
       await client.query('ROLLBACK');
-      await interaction.update(errPayload('You are not registered. Use `crd register` first.'));
+      await interaction.editReply(errPayload('You are not registered. Use `crd register` first.'));
       return;
     }
 
@@ -186,7 +204,7 @@ async function handleConfirm(interaction, className, ownerId) {
     const existing = await client.query('SELECT 1 FROM user_character WHERE discord_id = $1', [discordId]);
     if (existing.rows.length > 0) {
       await client.query('ROLLBACK');
-      await interaction.update(errPayload('You already have a character. Use `crd profile` to view it.'));
+      await interaction.editReply(errPayload('You already have a character. Use `crd profile` to view it.'));
       return;
     }
 
@@ -195,7 +213,7 @@ async function handleConfirm(interaction, className, ownerId) {
     if (roster.rows.length === 0) {
       await client.query('ROLLBACK');
       console.error(`[create] starter weapon "${STARTER_WEAPON_NAME}" not found in weapon_roster`);
-      await interaction.update(errPayload('Character creation is temporarily unavailable. Please try again later.'));
+      await interaction.editReply(errPayload('Character creation is temporarily unavailable. Please try again later.'));
       return;
     }
     const weaponRosterId = roster.rows[0].weapon_roster_id;
@@ -204,7 +222,7 @@ async function handleConfirm(interaction, className, ownerId) {
     if (armorRoster.rows.length === 0) {
       await client.query('ROLLBACK');
       console.error(`[create] starter armor "${STARTER_ARMOR_NAME}" not found in armor_roster`);
-      await interaction.update(errPayload('Character creation is temporarily unavailable. Please try again later.'));
+      await interaction.editReply(errPayload('Character creation is temporarily unavailable. Please try again later.'));
       return;
     }
     const armorRosterId = armorRoster.rows[0].armor_roster_id;
@@ -254,13 +272,26 @@ async function handleConfirm(interaction, className, ownerId) {
       )
       .addSeparatorComponents(sep)
       .addTextDisplayComponents((td) => td.setContent('-# Use `crd profile` to view your character.'));
-    await interaction.update({ components: [done], flags: MessageFlags.IsComponentsV2, attachments: [] });
+    donePayload = { components: [done], flags: MessageFlags.IsComponentsV2, attachments: [] };
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('[create] transaction failed:', err.message);
-    await interaction.update(errPayload('Something went wrong creating your character. Please try `crd create character` again.')).catch(() => {});
+    await interaction.editReply(errPayload('Something went wrong creating your character. Please try `crd create character` again.')).catch(() => {});
+    return;
   } finally {
-    client.release();
+    if (client) client.release();
+  }
+
+  if (donePayload) {
+    try {
+      await interaction.editReply(donePayload);
+    } catch (err) {
+      console.error('[create] completion refresh failed:', err.message);
+      await interaction.followUp({
+        content: 'Character was created, but the confirmation view could not refresh. Run `crd profile` to verify it.',
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => {});
+    }
   }
 }
 

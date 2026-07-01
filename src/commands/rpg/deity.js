@@ -185,12 +185,13 @@ async function handleListButton(interaction) {
     return;
   }
 
+  await interaction.deferUpdate();
   const currentPage = parseInt(pageStr, 10) || 0;
   const page = action === 'next' ? currentPage + 1 : Math.max(0, currentPage - 1);
 
   // fetchDeities clamps the page to the mythology count server-side.
   const fetched = await fetchDeities(ownerId, page);
-  await interaction.update(await buildListPage({ user: interaction.user, ...fetched }));
+  await interaction.editReply(await buildListPage({ user: interaction.user, ...fetched }));
 }
 
 // ── crd deity info <name> ─────────────────────────────────────────────────
@@ -539,42 +540,56 @@ async function handleEnhanceAttempt(interaction, userDeityId, ownerId) {
     return;
   }
 
-  const client = await pool.connect();
+  await interaction.deferUpdate();
+  let client;
   let result;
   try {
+    client = await pool.connect();
     result = await attemptDeityEnhance(client, ownerId, userDeityId);
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('[deity enhance] attempt failed:', err.message);
-    await interaction.reply({ content: 'Something went wrong. No Essence was spent.', flags: MessageFlags.Ephemeral }).catch(() => {});
+    await interaction.followUp({ content: 'Something went wrong. No Essence was spent.', flags: MessageFlags.Ephemeral }).catch(() => {});
     return;
   } finally {
-    client.release();
+    if (client) client.release();
   }
 
+  try {
   if (result.status === 'notfound') {
-    await interaction.update(notePayload('This deity is no longer in your collection.'));
+    await interaction.editReply(notePayload('This deity is no longer in your collection.'));
     return;
   }
 
   const d = await fetchDeityForgeData(ownerId, userDeityId);
   if (!d) {
-    await interaction.update(notePayload('This deity is no longer in your collection.'));
+    await interaction.editReply(notePayload('This deity is no longer in your collection.'));
     return;
   }
 
   if (result.status === 'insufficient') {
     const resultLine = `❌ Not enough ${result.tier} Essence — need **${result.cost}**, you have **${result.essence}**.`;
-    await interaction.update(buildDeityForgePayload(d, ownerId, { resultLine, color: RED }));
+    await interaction.editReply(buildDeityForgePayload(d, ownerId, { resultLine, color: RED }));
     return;
   }
   if (result.status === 'maxed') {
-    await interaction.update(buildDeityForgePayload(d, ownerId, { resultLine: 'This deity is already maxed (+10).' }));
+    await interaction.editReply(buildDeityForgePayload(d, ownerId, { resultLine: 'This deity is already maxed (+10).' }));
     return;
   }
 
   // status === 'done' → verdict + next-step preview, buttons stay live (chaining).
-  await interaction.update(buildDeityResolvedPayload(d, ownerId, result));
+  await interaction.editReply(buildDeityResolvedPayload(d, ownerId, result));
+  } catch (err) {
+    console.error('[deity enhance] result refresh failed:', err.message);
+    const note = result.status === 'done'
+      ? 'Deity enhancement result was processed, but the forge view could not refresh. Run `crd deity enhance <name>` again to continue.'
+      : 'Deity forge view could not refresh. Run `crd deity enhance <name>` again to reload it.';
+    await interaction.editReply(notePayload(note)).catch(() => {});
+    await interaction.followUp({
+      content: 'Deity forge view refresh failed. Run `crd deity enhance <name>` again before making another attempt.',
+      flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
+  }
 }
 
 /** Button: denhance:cancel:<userDeityId>:<uid> — drop the buttons, keep the last view as-is. */

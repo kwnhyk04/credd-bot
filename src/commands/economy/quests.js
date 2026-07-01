@@ -228,10 +228,19 @@ async function handleScopeSelect(interaction) {
     return interaction.reply({ content: 'Run `crd quest` yourself.', flags: MessageFlags.Ephemeral });
   }
   const scope = interaction.values[0] === 'weekly' ? 'weekly' : 'daily';
-  const payload = scope === 'weekly'
-    ? await weeklyPayload(ownerId, null)
-    : await dailyPayload(ownerId, null);
-  return interaction.update(payload);
+  await interaction.deferUpdate();
+  try {
+    const payload = scope === 'weekly'
+      ? await weeklyPayload(ownerId, null)
+      : await dailyPayload(ownerId, null);
+    return interaction.editReply(payload);
+  } catch (err) {
+    console.error('[quests] scope component failed:', err.message);
+    return interaction.followUp({
+      content: 'Could not refresh your quest board. Try `crd quest` again.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
 }
 
 /** Button: quest:claim:<owner> — claim the weekly grand reward, then refresh the board. */
@@ -240,9 +249,18 @@ async function handleClaimButton(interaction) {
   if (interaction.user.id !== ownerId) {
     return interaction.reply({ content: 'Run `crd quest` yourself.', flags: MessageFlags.Ephemeral });
   }
+  await interaction.deferUpdate();
   const msg = await runGrandClaim(ownerId);
-  const payload = await weeklyPayload(ownerId, msg);
-  return interaction.update(payload);
+  try {
+    const payload = await weeklyPayload(ownerId, msg);
+    return interaction.editReply(payload);
+  } catch (err) {
+    console.error('[quests] claim component refresh failed:', err.message);
+    return interaction.followUp({
+      content: `${msg}\nQuest board refresh failed. Run \`crd quest weekly\` to reload it.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
 }
 
 module.exports = { execute, showQuests, handleRefresh, handleScopeSelect, handleClaimButton };

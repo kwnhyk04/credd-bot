@@ -95,13 +95,15 @@ async function handleConfirm(interaction, ownerId) {
     await interaction.reply({ content: 'These buttons aren\'t for you.', flags: MessageFlags.Ephemeral });
     return;
   }
-  if (await isBanned(interaction.user.id)) {
-    await interaction.reply({ content: 'You are unable to use this bot.', flags: MessageFlags.Ephemeral });
-    return;
-  }
-
-  const client = await pool.connect();
+  await interaction.deferUpdate();
+  let client;
   try {
+    if (await isBanned(interaction.user.id)) {
+      await interaction.followUp({ content: 'You are unable to use this bot.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    client = await pool.connect();
     await client.query('BEGIN');
 
     const ins = await client.query(
@@ -110,7 +112,7 @@ async function handleConfirm(interaction, ownerId) {
     );
     if (ins.rowCount === 0) {
       await client.query('ROLLBACK');
-      await interaction.update({
+      await interaction.editReply({
         components: [noteContainer('Already Registered', 'You are already registered. Use `crd create character` to begin.')],
         flags: MessageFlags.IsComponentsV2,
       });
@@ -123,21 +125,29 @@ async function handleConfirm(interaction, ownerId) {
 
     await client.query('COMMIT');
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('[register] transaction failed:', err.message);
-    await interaction.update({
+    await interaction.editReply({
       components: [noteContainer('Registration Failed', 'Something went wrong. Please try `crd register` again.', 0xe74c3c)],
       flags: MessageFlags.IsComponentsV2,
     }).catch(() => {});
     return;
   } finally {
-    client.release();
+    if (client) client.release();
   }
 
-  await interaction.update({
-    components: [noteContainer('Welcome, Believer', 'You are now registered.\n\nNext, create your warrior with `crd create character`.')],
-    flags: MessageFlags.IsComponentsV2,
-  });
+  try {
+    await interaction.editReply({
+      components: [noteContainer('Welcome, Believer', 'You are now registered.\n\nNext, create your warrior with `crd create character`.')],
+      flags: MessageFlags.IsComponentsV2,
+    });
+  } catch (err) {
+    console.error('[register] completion refresh failed:', err.message);
+    await interaction.followUp({
+      content: 'Registration completed, but the welcome message could not refresh. Run `crd create character` to continue.',
+      flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
+  }
 }
 
 module.exports = { execute, handleConfirm };

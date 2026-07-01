@@ -214,6 +214,7 @@ async function handleRunesInteraction(interaction) {
     });
   }
 
+  await interaction.deferUpdate();
   const currentPage = parseInt(pageStr, 10) || 0;
   const lane = action === 'filter'
     ? normalizeLane(interaction.values?.[0])
@@ -225,7 +226,7 @@ async function handleRunesInteraction(interaction) {
       : 0;
 
   const data = await fetchRunes(ownerId, requestedPage, lane);
-  return interaction.update(buildRunesPage({ user: interaction.user, ...data }));
+  return interaction.editReply(buildRunesPage({ user: interaction.user, ...data }));
 }
 
 // crd rune bag -> runeBag. (bare `crd rune` shows usage.)
