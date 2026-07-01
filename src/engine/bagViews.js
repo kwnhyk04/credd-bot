@@ -18,7 +18,6 @@
 
 const {
   ContainerBuilder,
-  SeparatorSpacingSize,
   AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
@@ -26,6 +25,7 @@ const {
   MessageFlags,
 } = require('discord.js');
 const pool = require('../db/pool');
+const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji } = require('../utils/emojis');
 const { renderBagItemsImage } = require('./renderBagItems');
 const { CHESTS: CHEST_DROPS } = require('../config/dropRates');
@@ -58,8 +58,6 @@ const RELICS = [
   { name: 'Sacred Relic',  emojiName: 'sacred_relic',  countKey: 'sacred',  openCmd: 'crd open sr' },
   { name: 'Supreme Relic', emojiName: 'supreme_relic', countKey: 'supreme', openCmd: 'crd open supr' },
 ];
-
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 function buildDropRatesButton(ownerId) {
   return new ButtonBuilder()
