@@ -8,15 +8,15 @@
  */
 
 const {
-  ContainerBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  ContainerBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
   StringSelectMenuBuilder, MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
 const { TITLE_CATEGORIES } = require('../../config/titles');
+const { smallDivider: sep } = require('../../utils/componentsV2');
 
 const BRAND = 0x9b59b6;
 const PAGE = 10;
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 function reply(message, content) {
   return message.reply({ content, allowedMentions: { repliedUser: false } });

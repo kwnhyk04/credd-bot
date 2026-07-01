@@ -7,15 +7,15 @@
  */
 
 const {
-  ContainerBuilder, SeparatorSpacingSize, ActionRowBuilder, StringSelectMenuBuilder,
+  ContainerBuilder, ActionRowBuilder, StringSelectMenuBuilder,
   MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
 const { bracketOf } = require('../../config/ranked');
+const { smallDivider: sep } = require('../../utils/componentsV2');
 
 const BRAND = 0xf0b232;
 const LIMIT = 15;
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 const MEDALS = ['🥇', '🥈', '🥉'];
 const LB_QUOTE = '-# *"The gods remember only those whose names are carved at the summit."*';
 
