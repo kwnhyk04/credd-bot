@@ -178,7 +178,12 @@ async function handleInteraction(interaction) {
         return;
       }
     }
-    // Unknown customId: ignore silently.
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply({
+        content: 'This control is no longer active. Please run the command again.',
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => {});
+    }
   } catch (err) {
     console.error('[interactionHandler] error:', err);
     if (!interaction.replied && !interaction.deferred) {
