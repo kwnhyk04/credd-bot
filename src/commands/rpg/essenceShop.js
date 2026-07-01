@@ -13,16 +13,16 @@
 
 const path = require('path');
 const {
-  ContainerBuilder, SeparatorSpacingSize, AttachmentBuilder, MessageFlags,
+  ContainerBuilder, AttachmentBuilder, MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
+const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emoji } = require('../../utils/emojis');
 const { renderBagItemsImage } = require('../../engine/renderBagItems');
 const { ESSENCE_SHOP } = require('../../config/runes');
 
 const BRAND = 0x9b59b6;
 const BAG_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'items', 'rune bag');
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 function essenceLabel(tier) {
   return tier.charAt(0).toUpperCase() + tier.slice(1) + ' Essence';

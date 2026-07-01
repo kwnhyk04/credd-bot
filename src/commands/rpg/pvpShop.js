@@ -13,15 +13,15 @@
  */
 
 const {
-  ContainerBuilder, SeparatorSpacingSize, AttachmentBuilder, MessageFlags,
+  ContainerBuilder, AttachmentBuilder, MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
+const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emoji } = require('../../utils/emojis');
 const { renderBagItemsImage } = require('../../engine/renderBagItems');
 const { activeSeason } = require('../../engine/seasonEngine');
 
 const BRAND = 0xf0b232;
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 const SHOP_QUOTE = '-# *"Valor is the only coin the war-gods honor."*';
 
 // id → catalog entry. column = users_bag grant column; cap = max per pvp season.
