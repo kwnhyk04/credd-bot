@@ -913,25 +913,28 @@ async function handleAttack(interaction) {
 /* ── 📋 Log button ──────────────────────────────────────────────────────── */
 async function handleLog(interaction) {
   try {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const st = await pool.query(
       'SELECT spawn_id FROM boss_state WHERE guild_id = $1', [interaction.guildId]
     );
     const spawnId = st.rows[0]?.spawn_id;
     const sim = spawnId ? logCache.get(`${spawnId}:${interaction.user.id}`) : null;
     if (!sim) {
-      await interaction.reply({
+      await interaction.editReply({
         content: "You haven't attacked this boss yet.",
-        flags: MessageFlags.Ephemeral,
       });
       return;
     }
     const pages = logEmbeds(sim);
-    await interaction.reply({ embeds: pages.slice(0, 10), flags: MessageFlags.Ephemeral });
+    await interaction.editReply({ embeds: pages.slice(0, 10) });
     for (let p = 10; p < pages.length; p += 10) {
       await interaction.followUp({ embeds: pages.slice(p, p + 10), flags: MessageFlags.Ephemeral });
     }
   } catch (err) {
     console.error('[boss] log error:', err);
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply({ content: 'Could not load the boss log right now.' }).catch(() => {});
+    }
   }
 }
 

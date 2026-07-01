@@ -579,14 +579,18 @@ async function runBattle(channel, {
   collector.on('collect', async (i) => {
     try {
       if (i.customId === 'battle_log') {
+        await i.deferReply({ flags: MessageFlags.Ephemeral });
         const pages = logEmbeds(sim);
-        await i.reply({ embeds: pages.slice(0, 10), flags: MessageFlags.Ephemeral });
+        await i.editReply({ embeds: pages.slice(0, 10) });
         for (let p = 10; p < pages.length; p += 10) {
           await i.followUp({ embeds: pages.slice(p, p + 10), flags: MessageFlags.Ephemeral });
         }
       }
     } catch (err) {
       console.error('[battleRender] button error:', err.message);
+      if (i.customId === 'battle_log' && (i.deferred || i.replied)) {
+        await i.editReply({ content: 'Could not load the battle log right now.' }).catch(() => {});
+      }
     }
   });
   collector.on('end', () => msg.edit({ components: [] }).catch(() => {}));
