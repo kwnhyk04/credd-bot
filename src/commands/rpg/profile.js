@@ -8,6 +8,7 @@ const { EXP_REQUIRED, MAX_COMBAT_LEVEL } = require('../../config/combatExp');
 const { BELIEVER_EXP_PER_LEVEL, believerTitle } = require('../../config/believerProgression');
 const { renderProfileImage } = require('../../engine/renderProfile');
 const { resolveSkin, resolveProfileLabel } = require('../../engine/skinResolver');
+const { resolveProfileTarget } = require('../../utils/profileTarget');
 
 /**
  * `crd profile [@user]` / `crd stats [@user]` — full Canvas profile card.
@@ -18,10 +19,13 @@ const { resolveSkin, resolveProfileLabel } = require('../../engine/skinResolver'
 async function execute(message) {
   // Target: a mentioned/option user, else the author. Member gives the server nickname.
   // [v4.9] ctx.getMention works on both the prefix (@mention) and slash (user option) paths.
-  const targetUser = message.getMention(0) || message.author;
-  const targetMember = message.guild?.members?.cache?.get(targetUser.id) || null;
-  const isOther = targetUser.id !== message.author.id;
-  const discordId = targetUser.id;
+  const {
+    isOther,
+    discordId,
+    displayName,
+    avatarUrl,
+    fallbackAvatarUrl,
+  } = resolveProfileTarget(message);
   const [characterResult, raidStreakResult, rankedResult] = await Promise.all([
     pool.query(
       `SELECT uc.class, uc.combat_level, uc.combat_exp,
@@ -90,10 +94,9 @@ async function execute(message) {
   if (rows.length === 0) {
     // For self this is unreachable (middleware requiresCharacter); for a mentioned
     // user it's a real "they have no character" case.
-    const name = targetMember?.displayName || targetUser.globalName || targetUser.username;
     await message.reply({
       content: isOther
-        ? `**${name}** doesn't have a character yet.`
+        ? `**${displayName}** doesn't have a character yet.`
         : 'You don\'t have a character yet. Use `crd create character` to get started.',
       allowedMentions: { parse: [] },
     });
@@ -133,16 +136,11 @@ async function execute(message) {
 
   const combatAtCap = r.combat_level >= MAX_COMBAT_LEVEL;
 
-  // Display name + avatar from the TARGET's member/user, NOT the DB.
-  const displayName = targetMember?.displayName
-    || targetUser.globalName
-    || targetUser.username;
-
   const data = {
     displayName,
     discordId,
-    avatarUrl: targetUser.displayAvatarURL({ extension: 'png', size: 512 }),
-    fallbackAvatarUrl: targetUser.defaultAvatarURL,
+    avatarUrl,
+    fallbackAvatarUrl,
 
     believerLevel: r.believer_level,
     believerTitle: believerTitle(r.believer_level),
