@@ -260,12 +260,6 @@ function drawRecord(ctx, style, values) {
   }
 }
 
-function profileTitle(d) {
-  if (d.profileTitle) return d.profileTitle;
-  if (/^Founder\b/i.test(d.topLabel?.word || '')) return 'Eternal Founder';
-  return d.believerTitle;
-}
-
 function buildView(d) {
   const combatMax = d.combatExpMax == null ? 'MAX' : fmt(d.combatExpMax);
   const weaponEnh = d.weaponEnh > 0 ? ` +${d.weaponEnh}` : '';
