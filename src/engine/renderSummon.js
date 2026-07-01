@@ -19,12 +19,12 @@
 const {
   ContainerBuilder,
   AttachmentBuilder,
-  SeparatorSpacingSize,
   MessageFlags,
 } = require('discord.js');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const fs = require('fs');
 const path = require('path');
+const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji } = require('../utils/emojis');
 const { getEmojiIcon } = require('./renderBagItems');
 const { TIER_ALIAS, TIER_ESSENCE_COLUMN } = require('../config/gachaRates');
@@ -83,8 +83,6 @@ const LAYOUTS = {
 const GAP = 14;
 const PAD = 22;
 const BG = '#0E0F13';
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
-
 // Text placement: upper-middle, reduced sizes
 const TEXT_Y = 0.30;        // fraction of card height for the name line
 const NAME_FONT_SCALE = 0.085;

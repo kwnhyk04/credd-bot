@@ -2,13 +2,13 @@
 
 const {
   ContainerBuilder,
-  SeparatorSpacingSize,
   ButtonBuilder,
   ButtonStyle,
   MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
 const { buildBagOverview, buildChestsView, getChestCounts } = require('../../engine/bagViews');
+const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay, emoji } = require('../../utils/emojis');
 
 // Rune-slot indicator for inventory rows (custom emoji, 💠 fallback).
@@ -18,8 +18,6 @@ const WEAPONS_PER_PAGE = 10;
 const TYPE_EMOJI = { Sword: '⚔️', Staff: '🪄', Gloves: '🥊', Shield: '🛡️', Bow: '🏹' };
 // [v5] armor types
 const ARMOR_TYPE_EMOJI = { Heavy: '🛡️', Medium: '🥋', Light: '🧥' };
-
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 function clampPageForTotal(page, total) {
   const totalPages = Math.max(1, Math.ceil(total / WEAPONS_PER_PAGE));
