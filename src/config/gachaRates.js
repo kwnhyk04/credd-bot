@@ -1,5 +1,7 @@
 'use strict';
 
+const { BELIEVER_EXP_PER_LEVEL } = require('./believerProgression');
+
 /**
  * Deity gacha constants (Master §4 / §9 / §35.6). Hardcoded game-balance
  * values — no schema/seed. Authoritative source: Master §4 "Deity Drop Rates
@@ -60,7 +62,6 @@ const TIER_RANK = { Epic: 0, Mythic: 1, Legendary: 2, Supreme: 3 };
 // ── Reputation (Master §18, lines 1069–1082) ───────────────────────────────
 const REPUTATION_PER_PULL = 10;    // crd summon, per pull
 const REP_DAILY_CAP = 5000;        // reputation EXP per day (PHT)
-const BELIEVER_EXP_PER_LEVEL = 3000; // flat, no scaling
 
 /**
  * Resolve one natural roll against the player's running pity counter.
