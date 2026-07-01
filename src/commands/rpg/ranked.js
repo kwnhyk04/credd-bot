@@ -114,7 +114,7 @@ async function fight(message) {
     let extra = '';
     if (excludeLast && lastOpp) { params.push(lastOpp); extra = `AND uc.discord_id <> $${params.length}`; }
     const res = await pool.query(
-      `SELECT uc.discord_id, u.username, uc.pvp_rating
+      `SELECT uc.discord_id, uc.pvp_rating
          FROM user_character uc JOIN users u ON u.discord_id = uc.discord_id
         WHERE uc.pvp_rating BETWEEN $1 AND $2 AND uc.discord_id <> $3 ${extra}
         ORDER BY random() LIMIT 1`,
@@ -200,8 +200,9 @@ async function fight(message) {
   const oppBracket = bracketOf(oppRating);
   const myTier = bracketIndex(myBracket.name) + 1;
   const oppTier = bracketIndex(oppBracket.name) + 1;
-  const header = `You: Tier ${myTier} ${myBracket.name}   ·   ${opp.username}: Tier ${oppTier} ${oppBracket.name}`;
-  const footer = `${won ? '🏆 Victory' : '💀 Defeat'} vs ${opp.username}  ·  Rating ${sign}${delta} → ${newRating} (${myBracket.name})  ·  +${medals} Valor`;
+  const opponentMention = `<@${opp.discord_id}>`;
+  const header = `You: Tier ${myTier} ${myBracket.name}   ·   ${opponentMention}: Tier ${oppTier} ${oppBracket.name}`;
+  const footer = `${won ? '🏆 Victory' : '💀 Defeat'} vs ${opponentMention}  ·  Rating ${sign}${delta} → ${newRating} (${myBracket.name})  ·  +${medals} Valor`;
 
   let battleSkinPath = null;
   let resultSkinPath = null;

@@ -234,7 +234,7 @@ async function info(message, name) {
     if (p && fs.existsSync(p)) { portraitPath = p; break; }
   }
 
-  await reply(message, await buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, username: message.author.username }));
+  await reply(message, await buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, ownerId: message.author.id }));
 }
 
 const AI_DISCLAIMER = '-# Images are AI-generated interpretations and may not be accurate; used for in-game illustration only.';
@@ -243,7 +243,7 @@ const AI_DISCLAIMER = '-# Images are AI-generated interpretations and may not be
  * Deity-info payload: portrait card (art LEFT, name/mythology/blessing/stats RIGHT)
  * then lore + AI disclaimer + enhance hint as text. Mirrors the weapon-info card.
  */
-async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, username }) {
+async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, ownerId }) {
   const accentHex = `#${(TIER_COLOR[d.tier] ?? BRAND).toString(16).padStart(6, '0')}`;
   const btype = DIVINE_BLESSING_DEITIES.has(d.name) ? 'Divine' : 'Echo';
   const sections = [
@@ -267,7 +267,7 @@ async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, u
 
   const hasLore = typeof d.lore === 'string' && d.lore.trim().length > 0;
   const loreBlock = hasLore ? `*${d.lore.trim()}*` : '-# No lore recorded yet.';
-  const headerName = username ? `${username}'s` : '';
+  const headerName = ownerId ? `<@${ownerId}>'s` : '';
 
   const container = new ContainerBuilder().setAccentColor(TIER_COLOR[d.tier] ?? BRAND);
   container.addTextDisplayComponents((td) => td.setContent(`## ${headerName} ${d.name}`));
@@ -946,7 +946,7 @@ async function deities(message) {
   }
 
   const container = new ContainerBuilder();
-  container.addTextDisplayComponents(td => td.setContent(`## ${message.author.username}'s Equipped Deities`));
+  container.addTextDisplayComponents(td => td.setContent(`## <@${message.author.id}>'s Equipped Deities`));
   container.addSeparatorComponents(sep);
   container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL('attachment://deities.png')));
   container.addSeparatorComponents(sep);

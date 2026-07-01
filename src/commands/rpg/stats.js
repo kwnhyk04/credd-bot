@@ -99,7 +99,7 @@ async function execute(message) {
     // user it's a real "they have no character" case.
     await message.reply({
       content: isOther
-        ? `**${displayName}** doesn't have a character yet.`
+        ? `<@${discordId}> doesn't have a character yet.`
         : 'You don\'t have a character yet. Use `crd create character` to get started.',
       allowedMentions: { parse: [] },
     });

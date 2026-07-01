@@ -118,7 +118,7 @@ const WEAPONS_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'weapons');
 const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 function reply(message, payload) {
-  return message.reply({ ...payload, allowedMentions: { repliedUser: false } });
+  return message.reply({ ...payload, allowedMentions: { repliedUser: false, parse: [] } });
 }
 
 /**
@@ -142,7 +142,7 @@ function artworkPath(baseDir, name) {
 }
 
 /** Build the unified info payload from a normalized gear row (kind = weapon|armor). */
-async function buildInfoPayload(g, gearId, username) {
+async function buildInfoPayload(g, gearId, ownerId) {
   const hasPassive = g.passive_name && g.passive_name.toLowerCase() !== 'none';
 
   const statLines =
@@ -178,7 +178,7 @@ async function buildInfoPayload(g, gearId, username) {
   });
   const file = new AttachmentBuilder(buffer, { name: 'equipment_card.png' });
 
-  const headerName = username ? `${username}'s` : '';
+  const headerName = ownerId ? `<@${ownerId}>'s` : '';
   const sellValue = SELL_PRICES[g.tier] || 0;
   const sellDisplay = sellValue.toLocaleString();
 
@@ -257,7 +257,7 @@ async function info(message, rawId) {
     return;
   }
 
-  await reply(message, await buildInfoPayload(g, gearId, message.author.username));
+  await reply(message, await buildInfoPayload(g, gearId, message.author.id));
 }
 
 // ── dispatcher: crd equipment info <id> ─────────────────────────────────────

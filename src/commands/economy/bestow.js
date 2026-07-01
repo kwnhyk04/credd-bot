@@ -48,19 +48,19 @@ function reply(message, content) {
 }
 
 /** The myth-flavored bestow line with the amount + an exact Discord timestamp. */
-function bestowLine(senderName, receiverName, amount, unixSeconds) {
+function bestowLine(senderMention, receiverMention, amount, unixSeconds) {
   // [v4.8] credux icon before the amount (icon-before-amount convention).
-  return `✨ By the will of the gods, **${senderName}** bestows ` +
-    `${emoji('credux_coin')} **${amount.toLocaleString()} Credux** upon **${receiverName}**. Sealed <t:${unixSeconds}:F>.`;
+  return `✨ By the will of the gods, ${senderMention} bestows ` +
+    `${emoji('credux_coin')} **${amount.toLocaleString()} Credux** upon ${receiverMention}. Sealed <t:${unixSeconds}:F>.`;
 }
 
 /** Confirm card (CV2): header → sep → myth line → sep → RMT warning (+ buttons). */
-function buildConfirmPayload(senderName, receiverName, amount, unixSeconds) {
+function buildConfirmPayload(senderMention, receiverMention, amount, unixSeconds) {
   const container = new ContainerBuilder()
     .setAccentColor(GOLD)
     .addTextDisplayComponents((td) => td.setContent(`## ⚜️ Bestow`))
     .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) => td.setContent(bestowLine(senderName, receiverName, amount, unixSeconds)))
+    .addTextDisplayComponents((td) => td.setContent(bestowLine(senderMention, receiverMention, amount, unixSeconds)))
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(RMT_WARNING));
 
@@ -209,8 +209,8 @@ async function execute(message, { args }) {
     // confirm card — sender-only, 60s
     const offerUnix = Math.floor(Date.now() / 1000);
     const card = await message.reply({
-      ...buildConfirmPayload(sender.username, receiver.username, amount, offerUnix),
-      allowedMentions: { repliedUser: false },
+      ...buildConfirmPayload(`<@${sender.id}>`, `<@${receiver.id}>`, amount, offerUnix),
+      allowedMentions: { repliedUser: false, parse: [] },
     });
 
     const collector = card.createMessageComponentCollector({ time: CONFIRM_WINDOW_MS });
@@ -239,7 +239,7 @@ async function execute(message, { args }) {
           const sealedUnix = Math.floor(Date.now() / 1000);
           await i.editReply(buildResultPayload(
             `## ⚜️ Bestow`,
-            bestowLine(sender.username, receiver.username, amount, sealedUnix),
+            bestowLine(`<@${sender.id}>`, `<@${receiver.id}>`, amount, sealedUnix),
             GREEN,
           ));
           return;

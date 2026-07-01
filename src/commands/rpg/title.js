@@ -41,7 +41,7 @@ async function fetchTitles(discordId, cat) {
   return { rows, equippedId: eq.rows[0]?.equipped_title_id ?? null };
 }
 
-async function buildPayload(discordId, username, catKey, page) {
+async function buildPayload(discordId, catKey, page) {
   const cat = catByKey(catKey);
   const { rows, equippedId } = await fetchTitles(discordId, cat);
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE));
@@ -55,7 +55,7 @@ async function buildPayload(discordId, username, catKey, page) {
 
   const container = new ContainerBuilder()
     .setAccentColor(BRAND)
-    .addTextDisplayComponents((td) => td.setContent(`## 🎖️ ${username}'s Titles`));
+    .addTextDisplayComponents((td) => td.setContent(`## 🎖️ <@${discordId}>'s Titles`));
   container.addActionRowComponents(() => new ActionRowBuilder().addComponents(catMenu));
   container.addSeparatorComponents(sep);
 
@@ -107,7 +107,7 @@ async function execute(message, { args }) {
   const sub = (args[0] || '').toLowerCase();
   if (sub === 'equip') return equip(message, args.slice(1).join(' ').trim());
   if (sub === 'unequip') return unequip(message);
-  const payload = await buildPayload(message.author.id, message.author.username, TITLE_CATEGORIES[0].key, 0);
+  const payload = await buildPayload(message.author.id, TITLE_CATEGORIES[0].key, 0);
   return message.reply({ ...payload });
 }
 
@@ -120,7 +120,7 @@ async function handleSelect(interaction) {
   }
   const catKey = interaction.values[0];
   await interaction.deferUpdate();
-  const payload = await buildPayload(ownerId, interaction.user.username, catKey, 0);
+  const payload = await buildPayload(ownerId, catKey, 0);
   return interaction.editReply(payload);
 }
 
@@ -134,7 +134,7 @@ async function handleButton(interaction) {
   const cur = parseInt(pageStr, 10) || 0;
   const page = action === 'next' ? cur + 1 : Math.max(0, cur - 1);
   await interaction.deferUpdate();
-  const payload = await buildPayload(ownerId, interaction.user.username, catKey, page);
+  const payload = await buildPayload(ownerId, catKey, page);
   return interaction.editReply(payload);
 }
 

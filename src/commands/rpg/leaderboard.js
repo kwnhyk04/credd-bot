@@ -45,7 +45,7 @@ async function queryBoard(catKey, guildId) {
   const needsBag = cat.col.startsWith('ub.');
   const needsServerScope = Boolean(guildId);
   const { rows } = await pool.query(
-    `SELECT u.username, ${cat.col} AS value
+    `SELECT u.discord_id, ${cat.col} AS value
        FROM user_character uc
        JOIN users u ON u.discord_id = uc.discord_id
        ${needsBag ? 'JOIN users_bag ub ON ub.discord_id = uc.discord_id' : ''}
@@ -97,7 +97,7 @@ async function buildPayload(catKey, scope, guild, ownerId) {
   } else {
     const lines = rows.map((r, i) => {
       const rank = i < 3 ? MEDALS[i] : `**${i + 1}.**`;
-      return `${rank} ${r.username} — ${cat.fmt(r.value)}`;
+      return `${rank} <@${r.discord_id}> — ${cat.fmt(r.value)}`;
     });
     container.addTextDisplayComponents((td) => td.setContent(lines.join('\n')));
   }

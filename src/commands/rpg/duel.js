@@ -52,6 +52,11 @@ function lockFailureMessage(reason, targetId) {
     : 'A duelist already has an active duel challenge. Finish it or wait for it to expire.';
 }
 
+function mention(userOrId) {
+  const id = typeof userOrId === 'string' ? userOrId : userOrId.id;
+  return `<@${id}>`;
+}
+
 async function safeReleaseDuelLock(lock) {
   await releaseDuelLock(lock).catch((err) => console.error('[duel lock release]', err.message));
 }
@@ -231,7 +236,7 @@ async function runWager(message, challenger, target, stake) {
     .setColor(0xf0b232)
     .setTitle('💰 Wager Duel')
     .setDescription(
-      `**${challenger.username}** stakes **${stake.toLocaleString()} Credux** against <@${target.id}>!\n` +
+      `${mention(challenger)} stakes **${stake.toLocaleString()} Credux** against ${mention(target)}!\n` +
       '-# Winner takes the stake (shares the 1M/day cap). No rating. 60s to respond.'
     );
   const row = new ActionRowBuilder().addComponents(
@@ -267,7 +272,7 @@ async function runWager(message, challenger, target, stake) {
 
       if (i.customId === 'duel_decline') {
         await i.editReply({
-          embeds: [EmbedBuilder.from(embed).setColor(0xf23f43).setDescription(`🏃 **${target.username}** declined the wager.`)],
+          embeds: [EmbedBuilder.from(embed).setColor(0xf23f43).setDescription(`🏃 ${mention(target)} declined the wager.`)],
           components: [],
         });
         await safeReleaseDuelLock(duelLock);
@@ -293,7 +298,7 @@ async function runWager(message, challenger, target, stake) {
       }
       try {
         await i.editReply({
-        embeds: [EmbedBuilder.from(embed).setColor(0x43d675).setDescription(`💰 **${target.username}** accepts! The duel begins...`)],
+        embeds: [EmbedBuilder.from(embed).setColor(0x43d675).setDescription(`💰 ${mention(target)} accepts! The duel begins...`)],
         components: [],
         });
 
@@ -307,10 +312,10 @@ async function runWager(message, challenger, target, stake) {
       const winnerId = sim.winner === 'a' ? challenger.id : target.id;
       await markDuelSettling(duelLock).catch((err) => console.warn('[wager lock] settling:', err.message));
       const { moved } = await commitWagerResult(challenger.id, target.id, winnerId, stake);
-      const winnerName = winnerId === challenger.id ? challenger.username : target.username;
+      const winnerMention = mention(winnerId);
       const stakeLine = moved > 0
-        ? `💰 **${winnerName}** wins **${moved.toLocaleString()} Credux**!`
-        : `💰 **${winnerName}** wins — but the daily cap left no Credux to transfer.`;
+        ? `💰 ${winnerMention} wins **${moved.toLocaleString()} Credux**!`
+        : `💰 ${winnerMention} wins — but the daily cap left no Credux to transfer.`;
 
       let battleSkinPath = null;
       let resultSkinPath = null;
@@ -334,7 +339,7 @@ async function runWager(message, challenger, target, stake) {
     if (reason === 'settled') return;
     safeReleaseDuelLock(duelLock);
     challengeMsg.edit({
-      embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6).setDescription(`⌛ The wager to **${target.username}** expired.`)],
+      embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6).setDescription(`⌛ The wager to ${mention(target)} expired.`)],
       components: [],
     }).catch(() => {});
   });
@@ -403,7 +408,7 @@ async function execute(message) {
       .setColor(0xf0b232)
       .setTitle('⚔️ Duel Challenge')
       .setDescription(
-        `**${challenger.username}** challenges <@${target.id}> to a duel!\n` +
+        `${mention(challenger)} challenges ${mention(target)} to a duel!\n` +
         (duelLevel != null ? `-# ⚖️ Both fight at **Level ${duelLevel}** (gear unchanged).\n` : '') +
         '-# Auto-battle — no rewards. 60s to respond.'
       );
@@ -444,7 +449,7 @@ async function execute(message) {
         if (i.customId === 'duel_decline') {
           await i.editReply({
             embeds: [EmbedBuilder.from(embed).setColor(0xf23f43)
-              .setDescription(`🏃 **${target.username}** declined the duel.`)],
+              .setDescription(`🏃 ${mention(target)} declined the duel.`)],
             components: [],
           });
           await safeReleaseDuelLock(duelLock);
@@ -457,10 +462,10 @@ async function execute(message) {
           inLiveBattle(challenger.id), inLiveBattle(target.id),
         ]);
         if (cBusy || tBusy) {
-          const busyName = cBusy ? challenger.username : target.username;
+          const busyMention = mention(cBusy ? challenger : target);
           await i.editReply({
             embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6)
-              .setDescription(`⚔️ Duel cancelled — **${busyName}** is mid-battle.`)],
+              .setDescription(`⚔️ Duel cancelled — ${busyMention} is mid-battle.`)],
             components: [],
           });
           await safeReleaseDuelLock(duelLock);
@@ -481,7 +486,7 @@ async function execute(message) {
         try {
           await i.editReply({
           embeds: [EmbedBuilder.from(embed).setColor(0x43d675)
-            .setDescription(`⚔️ **${target.username}** accepts! The duel begins...`)],
+            .setDescription(`⚔️ ${mention(target)} accepts! The duel begins...`)],
           components: [],
         });
 
@@ -533,7 +538,7 @@ async function execute(message) {
       safeReleaseDuelLock(duelLock);
       challengeMsg.edit({
         embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6)
-          .setDescription(`⌛ The challenge to **${target.username}** expired.`)],
+          .setDescription(`⌛ The challenge to ${mention(target)} expired.`)],
         components: [],
       }).catch(() => {});
     });
