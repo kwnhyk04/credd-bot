@@ -2,7 +2,6 @@
 
 const {
   ContainerBuilder,
-  SeparatorSpacingSize,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
@@ -14,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const pool = require('../../db/pool');
 const { TIER_ALIAS, TIER_COLOR, TIER_ESSENCE_COLUMN } = require('../../config/gachaRates');
+const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay, emoji } = require('../../utils/emojis');
 const { RARITY_SYMBOLS } = require('../../engine/renderSummon');
 const { renderPortraitCard } = require('../../engine/renderPortraitCard');
@@ -60,8 +60,6 @@ function safeDeityImagePath(...parts) {
   if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
   return abs;
 }
-
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 function reply(message, payload) {
   return message.reply({

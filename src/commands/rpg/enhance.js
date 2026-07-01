@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  ContainerBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  ContainerBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
   MessageFlags, ComponentType,
 } = require('discord.js');
 const pool = require('../../db/pool');
@@ -11,6 +11,7 @@ const {
   computeArmorStats,
   nextAttempt,
 } = require('../../engine/enhancement');
+const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay, emoji } = require('../../utils/emojis');
 const { progressQuests } = require('../../utils/questProgress');
 
@@ -24,8 +25,6 @@ const TYPE_EMOJI = { Sword: '⚔️', Staff: '🪄', Gloves: '🥊', Bow: '🏹'
 const ARMOR_TYPE_EMOJI = { Heavy: '🛡️', Medium: '🥋', Light: '🧥' };
 const GREEN = 0x2ecc71;
 const RED = 0xe74c3c;
-
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 function reply(message, payload) {
   return message.reply({ ...payload, allowedMentions: { repliedUser: false } });
