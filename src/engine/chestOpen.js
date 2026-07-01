@@ -16,12 +16,12 @@
 const {
   ContainerBuilder,
   AttachmentBuilder,
-  SeparatorSpacingSize,
   MessageFlags,
 } = require('discord.js');
 const path = require('path');
 const fs = require('fs');
 const { renderWeaponResults, TIERS } = require('./weaponResultRenderer');
+const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji } = require('../utils/emojis');
 
 const ANIM_DIR = path.join(__dirname, '..', '..', 'assets', 'animations', 'chests');
@@ -59,7 +59,6 @@ const CHEST_FLAVOR = {
 const TIER_ORDER = ['supreme', 'legendary', 'mythic', 'rare', 'common'];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 const cap = (s = '') => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 
 /** e.g. `★ **Legendary** ×1 ・ ❖ **Mythic** ×4` (rarest first). */

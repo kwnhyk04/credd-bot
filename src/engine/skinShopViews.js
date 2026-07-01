@@ -19,7 +19,7 @@
  */
 
 const {
-  ContainerBuilder, SeparatorSpacingSize, ButtonBuilder, ButtonStyle,
+  ContainerBuilder, ButtonBuilder, ButtonStyle,
   AttachmentBuilder, MessageFlags,
 } = require('discord.js');
 const fs = require('fs');
@@ -27,12 +27,12 @@ const pool = require('../db/pool');
 const { skinFilePath } = require('../config/cosmetics');
 const ent = require('./supporterEntitlements');
 const { skinEmojiByCode, iconToken, iconShop, iconSkins } = require('./skinEmojis');
+const { smallDivider: sep } = require('../utils/componentsV2');
 const { HELP_ICON } = require('./bagViews');
 
 const BRAND = 0x9b59b6;
 const PAGES = ['profile', 'battle', 'battle_result', 'summon'];
 const CAT_LABEL = { profile: 'Profile', battle: 'Battle', battle_result: 'Battle Result', summon: 'Summon' };
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 
 function clampPage(p) { return Math.min(Math.max(0, p | 0), PAGES.length - 1); }
 
