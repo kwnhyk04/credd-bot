@@ -10,12 +10,13 @@
  */
 
 const {
-  ContainerBuilder, SeparatorSpacingSize, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  ContainerBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
   AttachmentBuilder, MessageFlags,
 } = require('discord.js');
 const path = require('path');
 const imagePad = require('./imagePad');
 const canvas = require('./casinoCanvas');
+const { smallDivider: sep } = require('../utils/componentsV2');
 const { COLORS } = canvas;
 const { SLOT_FACE_INDEX } = require('./payoutTables');
 const { BACK_FILE, blackjackValue } = require('./cardDeck');
@@ -30,7 +31,6 @@ const ACCENT = {
 // Padded-canvas sizes for the SPIN GIFs (smaller per feedback).
 const DIM = { coin: { W: 460, H: 132, contentH: 92 }, dice: { W: 200, H: 120, contentH: 84 } };
 
-const sep = (s) => s.setSpacing(SeparatorSpacingSize.Small).setDivider(true);
 const fmt = (n) => Number(n).toLocaleString();
 const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);
 
