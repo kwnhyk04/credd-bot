@@ -45,9 +45,8 @@ async function queryBoard(catKey, guildId) {
   const needsBag = cat.col.startsWith('ub.');
   const needsServerScope = Boolean(guildId);
   const { rows } = await pool.query(
-    `SELECT u.discord_id, ${cat.col} AS value
+    `SELECT uc.discord_id, ${cat.col} AS value
        FROM user_character uc
-       JOIN users u ON u.discord_id = uc.discord_id
        ${needsBag ? 'JOIN users_bag ub ON ub.discord_id = uc.discord_id' : ''}
        ${needsServerScope ? 'JOIN user_guild_activity uga ON uga.discord_id = uc.discord_id' : ''}
        ${where}
