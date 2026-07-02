@@ -16,7 +16,7 @@ const {
 } = require('discord.js');
 const pool = require('../../db/pool');
 const {
-  rollQuestsIfMissing, refreshQuestLine, getRefreshesUsed, describeQuest,
+  rollQuestsIfMissing, refreshQuestLine, describeQuest,
   hoursUntilMidnightPHT, REFRESH_ALLOWANCE,
   rollWeeklyIfMissing, describeWeekly, claimWeeklyGrand,
 } = require('../../utils/questProgress');
@@ -63,7 +63,16 @@ async function dailyPayload(ownerId, note) {
   }
 
   const { rows } = await pool.query(
-    `SELECT quest_type, target_count, current_count, reward_credux, reward_belief_shards, completed
+    `SELECT quest_type, target_count, current_count, reward_credux, reward_belief_shards, completed,
+            COALESCE((
+              SELECT CASE
+                       WHEN last_quest_refresh_date = (NOW() AT TIME ZONE 'Asia/Manila')::date
+                       THEN quest_refreshes_today
+                       ELSE 0
+                     END
+                FROM users
+               WHERE discord_id = $1
+            ), 0) AS refreshes_used
        FROM daily_quests
       WHERE discord_id = $1 AND quest_date = (NOW() AT TIME ZONE 'Asia/Manila')::date
       ORDER BY id`,
@@ -72,7 +81,7 @@ async function dailyPayload(ownerId, note) {
   const quests = rows.map(describeQuest);
   if (quests.length === 0) return { content: 'No quests are available right now — try again in a moment.' };
 
-  const refreshesUsed = await getRefreshesUsed(pool, ownerId);
+  const refreshesUsed = Number(rows[0]?.refreshes_used || 0);
   const refreshesLeft = Math.max(0, REFRESH_ALLOWANCE - refreshesUsed);
   const hours = hoursUntilMidnightPHT();
   const buffer = await renderQuestRowsImage(quests);
