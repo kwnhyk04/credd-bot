@@ -42,6 +42,7 @@ const MYTHOLOGY_LABEL = { PH: 'Philippine Mythology', Norse: 'Norse Mythology', 
 const MYTHOLOGY_DIR = { PH: 'philippine', Norse: 'norse', Greek: 'greek' };
 
 const DEITIES_DIR = path.resolve(__dirname, '..', '..', '..', 'assets', 'deities');
+let mythologyPageCache = null;
 
 function safeDeityImagePath(...parts) {
   const cleanParts = [];
@@ -68,19 +69,25 @@ function reply(message, payload) {
   });
 }
 
+async function mythologyPages() {
+  if (mythologyPageCache) return mythologyPageCache;
+  const mythRes = await pool.query(
+    'SELECT mythology FROM deity_roster GROUP BY mythology ORDER BY MIN(deity_id)'
+  );
+  mythologyPageCache = mythRes.rows.map((r) => r.mythology);
+  return mythologyPageCache;
+}
+
 // ── crd deity list (one page per mythology — roster order) ─────────────────
 // page is 0-based (matches the deities:<action>:<owner>:<page> customId state).
 async function fetchDeities(discordId, page) {
   // Stable page order: one page per mythology, in seed (roster) order.
-  const mythRes = await pool.query(
-    'SELECT mythology FROM deity_roster GROUP BY mythology ORDER BY MIN(deity_id)'
-  );
-  const mythologies = mythRes.rows.map((r) => r.mythology);
+  const mythologies = await mythologyPages();
   const totalPages = Math.max(1, mythologies.length);
   const p = Math.min(Math.max(0, page), totalPages - 1);
   const mythology = mythologies[p] ?? null;
 
-  const { rows: deities } = mythology == null ? { rows: [] } : await pool.query(
+  const deityQuery = mythology == null ? Promise.resolve({ rows: [] }) : pool.query(
     `SELECT dr.name, dr.tier, (ud.user_deity_id IS NOT NULL) AS owned
        FROM deity_roster dr
        LEFT JOIN user_deities ud
@@ -89,12 +96,17 @@ async function fetchDeities(discordId, page) {
       ORDER BY ${TIER_ORDER_SQL} DESC, dr.name ASC`,
     [discordId, mythology]
   );
-  return { deities, mythology, page: p, totalPages };
+  const essenceQuery = pool.query(
+    'SELECT epic_essence, mythic_essence, legendary_essence, supreme_essence FROM users_bag WHERE discord_id = $1',
+    [discordId]
+  );
+  const [{ rows: deities }, essenceRes] = await Promise.all([deityQuery, essenceQuery]);
+  return { deities, mythology, page: p, totalPages, essence: essenceRes.rows[0] || {} };
 }
 
 // Design standard (see CLAUDE.md): header → separator → body → separator →
 // footer (essence summary + help) → separator → buttons.
-async function buildListPage({ user, deities, mythology, page, totalPages }) {
+async function buildListPage({ user, deities, mythology, page, totalPages, essence }) {
   const container = new ContainerBuilder().setAccentColor(BRAND);
 
   const mythologyLabel = mythology == null
@@ -126,13 +138,8 @@ async function buildListPage({ user, deities, mythology, page, totalPages }) {
   container.addSeparatorComponents(sep);
 
   // Footer: essence balances (moved from the old page footer) above the help text.
-  const bagRes = await pool.query(
-    'SELECT epic_essence, mythic_essence, legendary_essence, supreme_essence FROM users_bag WHERE discord_id = $1',
-    [user.id]
-  );
-  const bag = bagRes.rows[0] || {};
   const essenceLine = TIER_ESSENCE_LABEL
-    .map(([tier, col]) => `${emoji(col)} ${TIER_ALIAS[tier]}: **${bag[col] ?? 0}**`)
+    .map(([tier, col]) => `${emoji(col)} ${TIER_ALIAS[tier]}: **${essence?.[col] ?? 0}**`)
     .join(' ・ ');
   container
     .addTextDisplayComponents((td) => td.setContent(`-# ${essenceLine}`))
