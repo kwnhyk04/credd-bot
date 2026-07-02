@@ -14,8 +14,12 @@ const { startBossScheduler } = require('./src/schedulers/bossScheduler');
 const { startSeasonScheduler } = require('./src/schedulers/seasonScheduler');
 const pool = require('./src/db/pool');
 const { auditWeaponEmojis, reconcileEmojiIds } = require('./src/utils/emojis');
+const { recoverExpiredSessions } = require('./src/casino/sessionStore');
 
 setupGlobalErrorHandlers();
+
+const CASINO_SWEEP_MS = 60_000;
+let casinoSweepInterval = null;
 
 const client = new Client({
   intents: [
@@ -43,6 +47,14 @@ client.once('ready', async () => {
   reconcileEmojiIds(client);
   // Pre-pad the fixed casino assets so the first spin isn't slow (background, non-blocking).
   require('./src/casino/casinoRender').prewarm();
+  // Casino recovery sweep: refund expired stateful sessions (blackjack/crash) whose players
+  // never came back — once at startup, then every 60s. A sweep failure must never crash the bot.
+  recoverExpiredSessions({ reason: 'startup_recovery' })
+    .catch((err) => console.error('[casinoSweep] startup sweep failed:', err.message));
+  casinoSweepInterval = setInterval(() => {
+    recoverExpiredSessions()
+      .catch((err) => console.error('[casinoSweep] sweep failed:', err.message));
+  }, CASINO_SWEEP_MS);
 });
 
 client.on('messageCreate', async (message) => {
@@ -70,5 +82,20 @@ client.on('interactionCreate', async (interaction) => {
     console.error('[interactionCreate] Unhandled error:', err);
   }
 });
+
+// Graceful shutdown: stop the sweep, close Discord, drain the pool, exit clean.
+// Postgres rolls back any transaction cut mid-flight, so money invariants hold.
+let shuttingDown = false;
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[credd] ${signal} received — shutting down.`);
+  if (casinoSweepInterval) clearInterval(casinoSweepInterval);
+  try { client.destroy(); } catch (err) { console.error('[credd] client.destroy failed:', err.message); }
+  try { await pool.end(); } catch (err) { console.error('[credd] pool.end failed:', err.message); }
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 client.login(BOT_TOKEN);

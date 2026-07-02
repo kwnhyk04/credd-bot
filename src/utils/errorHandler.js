@@ -18,6 +18,9 @@ async function replyError(message, text) {
 function setupGlobalErrorHandlers() {
   process.on('uncaughtException', (err) => {
     console.error('[uncaughtException]', err);
+    // A process that threw an unknown synchronous error can't be trusted with
+    // player balances — exit and let systemd (Restart=always) bring it back clean.
+    process.exit(1);
   });
 
   process.on('unhandledRejection', (reason) => {

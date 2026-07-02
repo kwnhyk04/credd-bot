@@ -47,47 +47,36 @@ async function runMiddleware(ctx, { requiresCharacter = false, commandKey = '' }
   const discordId = ctx.userId;
   const guildId = ctx.guildId;
 
-  // ── 1. Ban check ─────────────────────────────────────────────────────────
+  // ── 1–3. Ban / registration / character — ONE query (keeps the slash path
+  // inside Discord's 3s pre-defer ack window even when the DB is slow).
+  // Zero rows = not registered (an unregistered user can't be banned, so the
+  // original ban-first ordering is preserved by construction).
+  let gate;
   try {
-    const { rows } = await pool.query('SELECT is_banned FROM users WHERE discord_id = $1', [discordId]);
-    if (rows[0]?.is_banned) {
-      await blockedSlash(ctx);
-      return false;
-    }
+    const { rows } = await pool.query(
+      `SELECT u.is_banned, (uc.discord_id IS NOT NULL) AS has_character
+         FROM users u
+         LEFT JOIN user_character uc ON uc.discord_id = u.discord_id
+        WHERE u.discord_id = $1`,
+      [discordId]
+    );
+    gate = rows[0] || null;
   } catch (err) {
-    console.error('[middleware] ban check error:', err.message);
+    console.error('[middleware] gate check error:', err.message);
     await mwError(ctx, 'An internal error occurred. Please try again.');
     return false;
   }
-
-  // ── 2. Registration check ────────────────────────────────────────────────
-  let isRegistered = false;
-  try {
-    const { rows } = await pool.query('SELECT 1 FROM users WHERE discord_id = $1', [discordId]);
-    isRegistered = rows.length > 0;
-  } catch (err) {
-    console.error('[middleware] registration check error:', err.message);
-    await mwError(ctx, 'An internal error occurred. Please try again.');
+  if (gate?.is_banned) {
+    await blockedSlash(ctx);
     return false;
   }
-  if (!isRegistered) {
+  if (!gate) {
     await mwError(ctx, 'You are not registered. Use `crd register` to get started.');
     return false;
   }
-
-  // ── 3. Character check (RPG commands only) ───────────────────────────────
-  if (requiresCharacter) {
-    try {
-      const { rows } = await pool.query('SELECT 1 FROM user_character WHERE discord_id = $1', [discordId]);
-      if (rows.length === 0) {
-        await mwError(ctx, 'You don\'t have a character yet. Use `crd create character` to get started.');
-        return false;
-      }
-    } catch (err) {
-      console.error('[middleware] character check error:', err.message);
-      await mwError(ctx, 'An internal error occurred. Please try again.');
-      return false;
-    }
+  if (requiresCharacter && !gate.has_character) {
+    await mwError(ctx, 'You don\'t have a character yet. Use `crd create character` to get started.');
+    return false;
   }
 
   // ── 4. Bot-channel check (from cache; ephemeral rejection on slash) ───────
