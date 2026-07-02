@@ -55,6 +55,7 @@ const SPRITE = 88; // weapon sprite box
 // Full 5-column width — every render uses it so narrow results stay centered
 // in the Discord embed (≥ ~640px rule).
 const GRID_W = PAD * 2 + COLS_MAX * CARD_W + (COLS_MAX - 1) * GAP; // 940
+const spriteCache = new Map();
 
 function tierOf(item) {
   return TIERS[(item.tier || 'common').toLowerCase()] || TIERS.common;
@@ -105,6 +106,28 @@ function statsLine(item) {
     .join(' · ');
 }
 
+async function loadSprite(imgPath) {
+  let mtimeMs;
+  try {
+    mtimeMs = fs.statSync(imgPath).mtimeMs;
+  } catch {
+    return null;
+  }
+
+  const cached = spriteCache.get(imgPath);
+  if (cached && cached.mtimeMs === mtimeMs) return cached.image;
+
+  try {
+    const image = await loadImage(imgPath);
+    spriteCache.set(imgPath, { mtimeMs, image });
+    return image;
+  } catch (err) {
+    console.error(`[weaponResultRenderer] sprite load failed (${imgPath}):`, err.message);
+    spriteCache.set(imgPath, { mtimeMs, image: null });
+    return null;
+  }
+}
+
 async function drawCard(ctx, item, x, y) {
   const t = tierOf(item);
 
@@ -141,8 +164,8 @@ async function drawCard(ctx, item, x, y) {
   const imgPath = item.imagePath || weaponImagePath(item.name);
   let drawn = false;
   if (imgPath) {
-    try {
-      const img = await loadImage(imgPath);
+    const img = await loadSprite(imgPath);
+    if (img) {
       const scale = Math.min(SPRITE / img.width, SPRITE / img.height);
       const w = img.width * scale, h = img.height * scale;
       const dx = x + (CARD_W - w) / 2;
@@ -153,8 +176,6 @@ async function drawCard(ctx, item, x, y) {
       ctx.drawImage(img, dx, dy, w, h);
       ctx.restore();
       drawn = true;
-    } catch (err) {
-      console.error(`[weaponResultRenderer] sprite load failed (${imgPath}):`, err.message);
     }
   }
   if (!drawn) {
