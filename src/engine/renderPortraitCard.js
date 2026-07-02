@@ -10,6 +10,7 @@
  */
 
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+const fs = require('fs');
 const path = require('path');
 const { FONT_FAMILY } = require('./renderBagItems');
 
@@ -41,6 +42,8 @@ const SLOT_EMPTY_BORDER = '#3a3d46';
 const TIER_COLOR = {
   Common: '#95a5a6', Rare: '#3498db', Mythic: '#9b59b6', Legendary: '#fbbf24', Supreme: '#e74c3c',
 };
+
+const imageCache = new Map();
 
 /* ── Socket panel layout (rune slots in the right column) ─────────────────── */
 const SOCK_BOX = 72;        // target slot box edge
@@ -80,6 +83,27 @@ function roundRectPath(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, r);
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
+}
+
+async function loadLocalImage(filePath) {
+  let mtimeMs;
+  try {
+    mtimeMs = fs.statSync(filePath).mtimeMs;
+  } catch {
+    return null;
+  }
+
+  const cached = imageCache.get(filePath);
+  if (cached && cached.mtimeMs === mtimeMs) return cached.image;
+
+  try {
+    const image = await loadImage(filePath);
+    imageCache.set(filePath, { mtimeMs, image });
+    return image;
+  } catch {
+    imageCache.set(filePath, { mtimeMs, image: null });
+    return null;
+  }
 }
 
 /** Word-wrap (honoring explicit \n) to fit maxW at the current ctx.font. */
@@ -161,14 +185,14 @@ function drawPortrait(ctx, img, x, y, accent) {
 async function renderPortraitCard(d) {
   let img = null;
   if (d.imagePath) {
-    try { img = await loadImage(d.imagePath); } catch { img = null; }
+    img = await loadLocalImage(d.imagePath);
   }
   const accent = d.accent || '#9b59b6';
 
   // Preload socket rune images (filled slots only). [v5 Phase 2] rune slot panel.
   const sockets = Array.isArray(d.sockets) ? d.sockets : [];
   const sockImgs = await Promise.all(sockets.map((s) =>
-    s.imagePath ? loadImage(s.imagePath).catch(() => null) : Promise.resolve(null)));
+    s.imagePath ? loadLocalImage(s.imagePath) : Promise.resolve(null)));
   const panel = sockPanel(sockets.length);
 
   // Height: tallest of the portrait and the text block (+ socket panel), plus padding.
