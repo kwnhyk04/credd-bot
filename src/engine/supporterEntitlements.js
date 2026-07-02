@@ -23,6 +23,68 @@ const {
 } = require('../config/cosmetics');
 const { grantTokensTx, grantTokensOnceTx } = require('./supporterTokens');
 
+let supporterSchemaCache = null;
+
+const STORED_TIER_ALIASES = {
+  chosen_believer: 'chosen',
+  eternal_believer: 'eternal',
+};
+const STORAGE_TIER_CANDIDATES = {
+  believer: ['believer'],
+  chosen: ['chosen', 'chosen_believer'],
+  eternal: ['eternal', 'eternal_believer'],
+};
+
+function normalizeTier(tier) {
+  const raw = String(tier || '').trim().toLowerCase();
+  return STORED_TIER_ALIASES[raw] || raw;
+}
+
+async function getSupporterSchema(db) {
+  if (supporterSchemaCache) return supporterSchemaCache;
+  const columnsRes = await db.query(
+    `SELECT column_name
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'supporters'`
+  );
+  const constraintsRes = await db.query(
+    `SELECT pg_get_constraintdef(c.oid) AS definition
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+      WHERE n.nspname = 'public'
+        AND t.relname = 'supporters'
+        AND c.contype = 'c'`
+  );
+  const tierValues = new Set();
+  for (const row of constraintsRes.rows) {
+    const definition = String(row.definition || '');
+    if (!definition.includes('tier')) continue;
+    for (const match of definition.matchAll(/'([^']+)'/g)) {
+      tierValues.add(match[1]);
+    }
+  }
+  supporterSchemaCache = {
+    columns: new Set(columnsRes.rows.map((r) => r.column_name)),
+    tierValues,
+  };
+  return supporterSchemaCache;
+}
+
+function storageTierFor(appTier, tierValues) {
+  const normalized = normalizeTier(appTier);
+  if (!tierValues || tierValues.size === 0) return normalized;
+  const candidates = STORAGE_TIER_CANDIDATES[normalized] || [normalized];
+  for (const candidate of candidates) {
+    if (tierValues.has(candidate)) return candidate;
+  }
+  for (const value of tierValues) {
+    if (normalizeTier(value) === normalized) return value;
+  }
+  return normalized;
+}
+
 // ── Supporter row ───────────────────────────────────────────────────────────
 async function getSupporter(db, userId) {
   const { rows } = await db.query('SELECT * FROM supporters WHERE discord_id = $1', [userId]);
@@ -38,7 +100,7 @@ function isActiveSupporter(sup) {
 }
 
 function effectiveTier(sup) {
-  return isActiveSupporter(sup) ? sup.tier : null;
+  return isActiveSupporter(sup) ? normalizeTier(sup.tier) : null;
 }
 
 // ── Catalog ─────────────────────────────────────────────────────────────────
@@ -220,14 +282,17 @@ async function grantBaseSetTx(client, userId) {
  * opts: { founder, stripeCustomerId, stripeSubscriptionId, currentPeriodEnd, chosenExpiresAt, grantStipend=true }
  */
 async function applySubscribe(userId, tier, opts = {}) {
-  if (!TIER_RANK[tier]) throw new Error('applySubscribe: bad tier ' + tier);
-  const isFounder = !!opts.founder || tier === 'eternal';
+  const appTier = normalizeTier(tier);
+  if (!TIER_RANK[appTier]) throw new Error('applySubscribe: bad tier ' + tier);
+  const isFounder = !!opts.founder || appTier === 'eternal';
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const { columns, tierValues } = await getSupporterSchema(client);
+    const storedTier = storageTierFor(appTier, tierValues);
 
     let founderNumber = null;
-    if (isFounder) {
+    if (isFounder && columns.has('founder_number')) {
       const existing = await client.query('SELECT founder_number FROM supporters WHERE discord_id = $1', [userId]);
       founderNumber = existing.rows[0]?.founder_number ?? null;
       if (founderNumber == null) {
@@ -236,23 +301,44 @@ async function applySubscribe(userId, tier, opts = {}) {
       }
     }
 
+    const insertColumns = ['discord_id', 'tier', 'status'];
+    const values = [userId, storedTier];
+    const insertValues = ['$1', '$2', "'active'"];
+    const updateSets = ["tier = EXCLUDED.tier", "status = 'active'"];
+
+    function addOptionalColumn(column, value, updateSql = `${column} = COALESCE(EXCLUDED.${column}, supporters.${column})`) {
+      if (!columns.has(column)) return;
+      values.push(value ?? null);
+      insertColumns.push(column);
+      insertValues.push(`$${values.length}`);
+      updateSets.push(updateSql);
+    }
+
+    addOptionalColumn('stripe_customer_id', opts.stripeCustomerId);
+    addOptionalColumn('stripe_subscription_id', opts.stripeSubscriptionId);
+    addOptionalColumn('current_period_end', opts.currentPeriodEnd);
+    addOptionalColumn('chosen_expires_at', opts.chosenExpiresAt);
+    addOptionalColumn('founder_number', founderNumber, 'founder_number = COALESCE(supporters.founder_number, EXCLUDED.founder_number)');
+    if (columns.has('founder_purchased_at')) {
+      insertColumns.push('founder_purchased_at');
+      insertValues.push(isFounder ? 'NOW()' : 'NULL');
+      updateSets.push(`founder_purchased_at = COALESCE(supporters.founder_purchased_at, ${isFounder ? 'NOW()' : 'NULL'})`);
+    }
+    if (columns.has('updated_at')) {
+      insertColumns.push('updated_at');
+      insertValues.push('NOW()');
+      updateSets.push('updated_at = NOW()');
+    }
+
+    const returning = columns.has('founder_number') ? 'founder_number' : 'NULL::integer AS founder_number';
     const supporter = await client.query(
       `INSERT INTO supporters
-         (discord_id, tier, status, stripe_customer_id, stripe_subscription_id,
-          current_period_end, chosen_expires_at, founder_number, founder_purchased_at, updated_at)
-       VALUES ($1,$2,'active',$3,$4,$5,$6,$7,${isFounder ? 'NOW()' : 'NULL'},NOW())
+         (${insertColumns.join(', ')})
+       VALUES (${insertValues.join(', ')})
        ON CONFLICT (discord_id) DO UPDATE SET
-         tier = EXCLUDED.tier, status = 'active',
-         stripe_customer_id = COALESCE(EXCLUDED.stripe_customer_id, supporters.stripe_customer_id),
-         stripe_subscription_id = COALESCE(EXCLUDED.stripe_subscription_id, supporters.stripe_subscription_id),
-         current_period_end = COALESCE(EXCLUDED.current_period_end, supporters.current_period_end),
-         chosen_expires_at = COALESCE(EXCLUDED.chosen_expires_at, supporters.chosen_expires_at),
-         founder_number = COALESCE(supporters.founder_number, EXCLUDED.founder_number),
-         founder_purchased_at = COALESCE(supporters.founder_purchased_at, ${isFounder ? 'NOW()' : 'NULL'}),
-         updated_at = NOW()
-       RETURNING founder_number`,
-      [userId, tier, opts.stripeCustomerId ?? null, opts.stripeSubscriptionId ?? null,
-       opts.currentPeriodEnd ?? null, opts.chosenExpiresAt ?? null, founderNumber]
+         ${updateSets.join(', ')}
+       RETURNING ${returning}`,
+      values
     );
     founderNumber = supporter.rows[0]?.founder_number ?? null;
 
@@ -260,7 +346,7 @@ async function applySubscribe(userId, tier, opts = {}) {
 
     if (opts.grantStipend !== false) {
       const stipendRef = opts.stripeSubscriptionId ?? null;
-      if (tier === 'eternal') {
+      if (appTier === 'eternal') {
         if (stipendRef) {
           await grantTokensOnceTx(client, userId, ETERNAL_ONE_TIME_TOKENS, 'founder_grant', stipendRef);
         } else {
@@ -268,15 +354,15 @@ async function applySubscribe(userId, tier, opts = {}) {
         }
       } else {
         if (stipendRef) {
-          await grantTokensOnceTx(client, userId, MONTHLY_TOKENS[tier], 'subscribe_grant', stipendRef);
+          await grantTokensOnceTx(client, userId, MONTHLY_TOKENS[appTier], 'subscribe_grant', stipendRef);
         } else {
-          await grantTokensTx(client, userId, MONTHLY_TOKENS[tier], 'subscribe_grant', null);
+          await grantTokensTx(client, userId, MONTHLY_TOKENS[appTier], 'subscribe_grant', null);
         }
       }
     }
 
     await client.query('COMMIT');
-    return { founderNumber, tier };
+    return { founderNumber, tier: appTier };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     throw err;
@@ -287,8 +373,9 @@ async function applySubscribe(userId, tier, opts = {}) {
 
 /** §3 monthly stipend (believer/chosen) — call from the Stripe invoice.paid handler. */
 async function applyMonthlyTokens(userId, tier, ref = null) {
-  if (tier === 'eternal') return null; // eternal is one-time at purchase, no monthly drip
-  const amount = MONTHLY_TOKENS[tier];
+  const appTier = normalizeTier(tier);
+  if (appTier === 'eternal') return null; // eternal is one-time at purchase, no monthly drip
+  const amount = MONTHLY_TOKENS[appTier];
   if (!amount) throw new Error('applyMonthlyTokens: bad tier ' + tier);
   const { grantTokens, grantTokensOnce } = require('./supporterTokens');
   if (ref) return grantTokensOnce(userId, amount, 'monthly_grant', ref);

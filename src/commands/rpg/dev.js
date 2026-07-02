@@ -1190,6 +1190,7 @@ async function devSub(message, args, devId) {
     const chosenExpiresAt = tier === 'eternal' ? null : addManualSupporterMonths(existing, months);
     const res = await ent.applySubscribe(targetId, tier, {
       founder: tier === 'eternal',
+      currentPeriodEnd: chosenExpiresAt,
       chosenExpiresAt,
     });
     await logDev(pool, devId, 'sub_grant', targetId,
