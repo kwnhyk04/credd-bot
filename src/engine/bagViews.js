@@ -47,13 +47,6 @@ const CHESTS = [
   { code: 'supc', name: 'Supreme Chest',       emojiName: 'supreme_chest',       openCmd: 'crd open supc' },
 ];
 
-const ESSENCES = [
-  { name: 'Epic',      emojiName: 'epic_essence' },
-  { name: 'Mythic',    emojiName: 'mythic_essence' },
-  { name: 'Legendary', emojiName: 'legendary_essence' },
-  { name: 'Supreme',   emojiName: 'supreme_essence' },
-];
-
 const RELICS = [
   { name: 'Sacred Relic',  emojiName: 'sacred_relic',  countKey: 'sacred',  openCmd: 'crd open sr' },
   { name: 'Supreme Relic', emojiName: 'supreme_relic', countKey: 'supreme', openCmd: 'crd open supr' },
