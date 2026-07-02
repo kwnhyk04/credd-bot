@@ -57,8 +57,6 @@ const ACCENT = '#9b59b6';
 const NAME_COLOR = '#FFFFFF';
 const SUB_COLOR = '#B5B8BE';
 const DIM_COLOR = '#8E919A';
-const BAR_EMPTY = '#3A3C43';
-const EXP_FILL = '#9b59b6';
 
 // Stat cell accent colors.
 const STAT = {
@@ -104,20 +102,6 @@ function fitText(ctx, text, maxW) {
   let t = text;
   while (t.length > 1 && ctx.measureText(`${t}…`).width > maxW) t = t.slice(0, -1);
   return `${t}…`;
-}
-
-/** Horizontal progress bar (rounded track + fill). */
-function drawProgress(ctx, x, y, w, h, ratio, fill) {
-  const r = h / 2;
-  roundRectPath(ctx, x, y, w, h, r);
-  ctx.fillStyle = BAR_EMPTY;
-  ctx.fill();
-  const fw = Math.max(0, Math.min(1, ratio)) * w;
-  if (fw > 0) {
-    roundRectPath(ctx, x, y, Math.max(fw, h), h, r);
-    ctx.fillStyle = fill;
-    ctx.fill();
-  }
 }
 
 /** Avatar fetch with graceful fallback to the default Discord avatar. */
