@@ -24,6 +24,14 @@ assets/cache/
 # Generated skin-alignment artifacts (scripts/alignSkins.js, scripts/skinPreview.js)
 tmp/
 
+# Local documentation — not pushed
+docs/
+
+# SQL scratch/backup dumps — deployment schema (and v4 rules schema) stay tracked
+*.sql
+!scripts/production-consolidated-schema.sql
+!scripts/credd_schema_v4.sql
+
 # OS / editor
 .DS_Store
 Thumbs.db

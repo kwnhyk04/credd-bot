@@ -17,7 +17,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const md = fs.readFileSync(path.join(ROOT, 'passive_registry_keys.md'), 'utf8');
+const md = fs.readFileSync(path.join(ROOT, 'assets', 'data', 'passive_registry_keys.md'), 'utf8');
 
 // section header → { table, keyCol, descCol }
 const SECTIONS = [

@@ -76,7 +76,7 @@ function dmgOf(events, frag) {
 // ════════════════════════════════════════════════════════════════════════════
 section('1. Coverage — registry ⇄ passive_registry_keys.md');
 {
-  const md = fs.readFileSync(path.join(ROOT, 'passive_registry_keys.md'), 'utf8');
+  const md = fs.readFileSync(path.join(ROOT, 'assets', 'data', 'passive_registry_keys.md'), 'utf8');
   const mdKeys = new Set();
   for (const m of md.matchAll(/^- `([a-z0-9_]+)`/gm)) mdKeys.add(m[1]);
   const regKeys = new Set(Object.keys(PASSIVE_REGISTRY));
@@ -637,7 +637,7 @@ section('4. Targeted scenarios');
 // ════════════════════════════════════════════════════════════════════════════
 section('5. Fuzz — ~2,000 seeded battles, invariants');
 {
-  const md = fs.readFileSync(path.join(ROOT, 'passive_registry_keys.md'), 'utf8');
+  const md = fs.readFileSync(path.join(ROOT, 'assets', 'data', 'passive_registry_keys.md'), 'utf8');
   const grab = (header, stop) => {
     const seg = md.slice(md.indexOf(header), stop ? md.indexOf(stop) : undefined);
     return [...seg.matchAll(/^- `([a-z0-9_]+)`/gm)].map((m) => m[1]);

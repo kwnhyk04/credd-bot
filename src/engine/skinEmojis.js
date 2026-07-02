@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * skinEmojis.js — loads the skin → custom-emoji map from `skins.txt` at the repo root.
+ * skinEmojis.js — loads the skin → custom-emoji map from `skins.txt` in assets/data.
  * Format (pipe-delimited, one per line; a header line `name | 'emoji_name' | emoji_id` is skipped):
  *   Divine Radiance P1 | 'c_divine_radiance_p1' | 1517970020657922158
  *   Supporter Token    | 'supporter_token'      | 1518176293118541874
@@ -18,7 +18,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const FILE = path.join(__dirname, '..', '..', 'skins.txt');
+const FILE = path.join(__dirname, '..', '..', 'assets', 'data', 'skins.txt');
 // Fallback glyphs by catalog category (store skins carry real emoji; base/tester/founder don't).
 const FALLBACK_BY_CATEGORY = { profile: '🖼️', battle: '⚔️', battle_result: '🏆', summon: '✨' };
 const FALLBACK_BY_LETTER = { p: '🖼️', b: '⚔️', r: '🏆', s: '✨' };

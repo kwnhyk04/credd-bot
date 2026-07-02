@@ -168,8 +168,8 @@ const REQUIRED_INDEXES = [
 ];
 
 const REQUIRED_FILES = [
-  'game_items.txt',
-  'game_deities.txt',
+  path.join('assets', 'data', 'game_items.txt'),
+  path.join('assets', 'data', 'game_deities.txt'),
   path.join('assets', 'fonts', 'DejaVuSans.ttf'),
   path.join('assets', 'fonts', 'DejaVuSans-Bold.ttf'),
   path.join('assets', 'animations', 'gacha', 'card_back.png'),

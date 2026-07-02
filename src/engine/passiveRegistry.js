@@ -6,7 +6,7 @@
  * One flat object keyed by passive_key / blessing_key / skill_key. Every key in
  * passive_registry_keys.md has a function here (coverage is asserted both ways by
  * scripts/battle-selftest.js). Functions are pure state-mutation over a perspective
- * `bs` object conforming to ENGINE_HOOKS.md — they never deal damage, apply
+ * `bs` object conforming to docs/ENGINE_HOOKS.md — they never deal damage, apply
  * mitigation, end the battle, or touch the DB.
  *
  * RANDOMNESS: every probability check draws from bs.rng() (the engine-injected
@@ -22,7 +22,7 @@
  *   - Stacking buffs are per-turn; bonus/extra hits are riders (advance nothing)
  *   - bs.enemyImmune(tag) gates all enemy-targeted debuffs
  *
- * bs scratch fields (reset by the engine every round, per ENGINE_HOOKS §1):
+ * bs scratch fields (reset by the engine every round, per docs/ENGINE_HOOKS.md §1):
  *   damageBonusPct (proc-granted damage %, summed with the weapon's bonusDmgPct),
  *   bonusIncomingDmgMult (0 = normal, additive delta), playerAtkMult, playerDefMult,
  *   ignoreDefPct, nextAttackAutoCrit, nextAttackDouble, log.

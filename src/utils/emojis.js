@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * emojis.js — parses game_items.txt (project root) into a lookup so any item
+ * emojis.js — parses game_items.txt (assets/data) into a lookup so any item
  * icon can be used inline in text as <:name:id>.
  *
  * game_items.txt format (pipe-separated):
@@ -26,11 +26,11 @@
 const fs = require('fs');
 const path = require('path');
 
-// Registries live at the project root (this file is src/utils/).
+// Registries live in assets/data (this file is src/utils/).
 // Both files share the format and load into ONE lookup (items + deities).
 const REGISTRY_PATHS = [
-  path.join(__dirname, '..', '..', 'game_items.txt'),
-  path.join(__dirname, '..', '..', 'game_deities.txt'),
+  path.join(__dirname, '..', '..', 'assets', 'data', 'game_items.txt'),
+  path.join(__dirname, '..', '..', 'assets', 'data', 'game_deities.txt'),
 ];
 
 // Belief Shards lives in game_items.txt as `belief_shards`; keep this legacy

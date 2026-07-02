@@ -248,7 +248,7 @@ function resolveBattle(a, b, opts = {}) {
     specialFlags: f.specialFlags || {},
     isBoss: f.mobType === 'boss',
     debuffs: [],            // [{tag, turnsLeft, value}]
-    flags: {},              // durable bs.flags.* (ENGINE_HOOKS)
+    flags: {},              // durable bs.flags.* (docs/ENGINE_HOOKS.md)
     statusImmune: false,
     scratch: null,          // per-round (reset before passives)
     skipped: false,         // skip-CC'd this round
@@ -321,7 +321,7 @@ function resolveBattle(a, b, opts = {}) {
     return side.immunityTags.includes('all_debuffs') || side.immunityTags.includes(tag);
   };
 
-  // ── perspectives (the registry's bs view; ENGINE_HOOKS contract) ──────────
+  // ── perspectives (the registry's bs view; docs/ENGINE_HOOKS.md contract) ──
   const makePerspective = (self, opp) => ({
     rng,
     get currentTurn() { return shared.round; },
