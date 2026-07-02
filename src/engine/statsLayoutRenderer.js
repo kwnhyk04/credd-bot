@@ -28,6 +28,18 @@ function hasStatsLayout(skinPath) {
   return Boolean(skinPath && fs.existsSync(layoutPathFor(skinPath)));
 }
 
+const layoutCache = new Map(); // layout path -> { mtimeMs, layout }
+
+function loadLayout(configPath) {
+  const mtimeMs = fs.statSync(configPath).mtimeMs;
+  const cached = layoutCache.get(configPath);
+  if (cached && cached.mtimeMs === mtimeMs) return cached.layout;
+
+  const layout = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  layoutCache.set(configPath, { mtimeMs, layout });
+  return layout;
+}
+
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -485,7 +497,7 @@ function repositionStats(layout, skinPath) {
 async function renderStatsLayoutImage(d, options = {}) {
   const skinPath = options.skinPath || d.skinPath;
   const configPath = options.layoutPath || layoutPathFor(skinPath);
-  const rawLayout = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  const rawLayout = loadLayout(configPath);
   const layout = repositionStats(rawLayout, skinPath);
   const images = await loadRenderImages(d, skinPath, options);
   const view = buildView(d);
