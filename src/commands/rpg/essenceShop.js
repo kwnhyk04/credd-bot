@@ -24,10 +24,6 @@ const { ESSENCE_SHOP } = require('../../config/runes');
 const BRAND = 0x9b59b6;
 const BAG_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'items', 'rune bag');
 
-function essenceLabel(tier) {
-  return tier.charAt(0).toUpperCase() + tier.slice(1) + ' Essence';
-}
-
 async function buildEssenceShop(viewerId) {
   const { rows } = await pool.query(
     `SELECT credux, epic_essence, mythic_essence, legendary_essence, supreme_essence
