@@ -54,6 +54,7 @@ const CMD_FONT = `11px "${FONT_FAMILY}"`;
 
 // emojiName → loaded Image (successes only, so transient failures retry later)
 const iconCache = new Map();
+const localIconCache = new Map();
 
 // '<:silver_chest:1514006354027741184>' → '1514006354027741184'
 function emojiIdOf(name) {
@@ -101,6 +102,27 @@ async function getUnicodeIcon(hex) {
     return img;
   } catch (err) {
     console.error(`[renderBagItems] twemoji '${hex}' unavailable:`, err.message);
+    return null;
+  }
+}
+
+async function getLocalIcon(filePath) {
+  let mtimeMs;
+  try {
+    mtimeMs = fs.statSync(filePath).mtimeMs;
+  } catch {
+    return null;
+  }
+
+  const cached = localIconCache.get(filePath);
+  if (cached && cached.mtimeMs === mtimeMs) return cached.image;
+
+  try {
+    const image = await loadImage(filePath);
+    localIconCache.set(filePath, { mtimeMs, image });
+    return image;
+  } catch {
+    localIconCache.set(filePath, { mtimeMs, image: null });
     return null;
   }
 }
@@ -154,7 +176,7 @@ async function renderBagItemsImage(items) {
     // Icon: a local iconPath (assets/items/...) wins over the CDN emoji; a unicode
     // `glyph` (e.g. ⚔️ / 🛡️) is the last-resort fallback drawn as text.
     let icon = null;
-    if (item.iconPath) { try { icon = await loadImage(item.iconPath); } catch { icon = null; } }
+    if (item.iconPath) icon = await getLocalIcon(item.iconPath);
     if (!icon && item.emojiName) icon = await getEmojiIcon(item.emojiName);
     if (!icon && item.twemoji) icon = await getUnicodeIcon(item.twemoji);
     if (icon) {
@@ -197,7 +219,7 @@ async function renderBagItemsImage(items) {
           total += parts[parts.length - 1].w;
         } else {
           let im = null;
-          if (seg.iconPath) { try { im = await loadImage(seg.iconPath); } catch { im = null; } }
+          if (seg.iconPath) im = await getLocalIcon(seg.iconPath);
           if (!im && seg.emojiName) im = await getEmojiIcon(seg.emojiName);
           if (!im && seg.twemoji) im = await getUnicodeIcon(seg.twemoji);
           parts.push({ img: im, w: im ? SEG_ICON + 2 : 0 });
