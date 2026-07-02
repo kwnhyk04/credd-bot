@@ -110,7 +110,12 @@ async function weeklyPayload(ownerId, note) {
 
   const week = phtWeek();
   const { rows } = await pool.query(
-    `SELECT quest_type, target_count, current_count, reward_credux, reward_valor, completed
+    `SELECT quest_type, target_count, current_count, reward_credux, reward_valor, completed,
+            COALESCE((
+              SELECT claimed
+                FROM weekly_grand
+               WHERE discord_id = $1 AND quest_week = $2
+            ), false) AS grand_claimed
        FROM weekly_quests WHERE discord_id = $1 AND quest_week = $2 ORDER BY id`,
     [ownerId, week]
   );
@@ -119,11 +124,7 @@ async function weeklyPayload(ownerId, note) {
 
   const done = quests.filter((q) => q.completed).length;
   const allDone = done === quests.length;
-  const grandRes = await pool.query(
-    'SELECT claimed FROM weekly_grand WHERE discord_id = $1 AND quest_week = $2',
-    [ownerId, week]
-  );
-  const claimed = grandRes.rows[0]?.claimed === true;
+  const claimed = rows[0]?.grand_claimed === true;
 
   // Reuse the quest-row renderer; map Valor into the shard slot + swap the icon.
   const rowItems = quests.map((q) => ({ ...q, rewardShards: q.rewardValor }));
