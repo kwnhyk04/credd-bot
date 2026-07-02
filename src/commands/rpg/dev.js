@@ -34,7 +34,11 @@ const { DIRS, SKINS_DIR } = require('../../config/cosmetics');
 
 const INT_MAX = 2147483647; // INTEGER column ceiling (shards/chests/relics)
 const MENTION_RE = /^<@!?\d+>$/;
+const DISCORD_ID_RE = /^\d{5,20}$/;
 const RESET_ALL_CONFIRM = 'confirm:RESET_ALL_GEAR';
+const DESTRUCTIVE_PRODUCTION_MESSAGE = 'This destructive dev command is disabled in production.';
+const DESTRUCTIVE_SUBCOMMANDS = new Set(['resetplayer', 'resetweapons']);
+const SUPPORTER_MONTH_DAYS = 31;
 
 // type alias → users_bag column (accepts open-cmd aliases too).
 const CHEST_COLUMNS = {
@@ -81,12 +85,12 @@ function destructiveCommandsAllowed() {
   return process.env.ALLOW_DESTRUCTIVE_DEV_COMMANDS === 'true';
 }
 
-function envFlagEnabled(name) {
-  return process.env[name] === 'true';
+function isProduction() {
+  return process.env.NODE_ENV === 'production';
 }
 
 function destructiveProductionDenied() {
-  return process.env.NODE_ENV === 'production' && !destructiveCommandsAllowed();
+  return isProduction();
 }
 
 function hasExactToken(args, token) {
@@ -95,7 +99,7 @@ function hasExactToken(args, token) {
 
 function destructiveGuardMessage(args, token, usage, { requireAllow = false } = {}) {
   if (destructiveProductionDenied()) {
-    return 'Destructive dev commands are disabled in production. Set `ALLOW_DESTRUCTIVE_DEV_COMMANDS=true` and rerun with the exact confirmation token.';
+    return DESTRUCTIVE_PRODUCTION_MESSAGE;
   }
   if (requireAllow && !destructiveCommandsAllowed()) {
     return 'This all-user wipe requires `ALLOW_DESTRUCTIVE_DEV_COMMANDS=true` and the exact confirmation token.';
@@ -106,11 +110,8 @@ function destructiveGuardMessage(args, token, usage, { requireAllow = false } = 
   return null;
 }
 
-function productionGuardMessage(args, flagName, token, usage, label) {
-  if (process.env.NODE_ENV !== 'production') return null;
-  if (!envFlagEnabled(flagName)) {
-    return `${label} dev commands are disabled in production. Set \`${flagName}=true\` and rerun with the exact confirmation token. Use: \`${usage}\``;
-  }
+function productionConfirmationMessage(args, token, usage) {
+  if (!isProduction()) return null;
   if (!hasExactToken(args, token)) {
     return `Production confirmation required. Use: \`${usage}\``;
   }
@@ -118,19 +119,19 @@ function productionGuardMessage(args, flagName, token, usage, label) {
 }
 
 function highValueGuardMessage(args, token, usage) {
-  return productionGuardMessage(args, 'ALLOW_HIGH_VALUE_DEV_COMMANDS', token, usage, 'High-value economy/reward');
+  return productionConfirmationMessage(args, token, usage);
 }
 
 function supporterDevGuardMessage(args, token, usage) {
-  return productionGuardMessage(args, 'ALLOW_SUPPORTER_DEV_COMMANDS', token, usage, 'Supporter/payment-adjacent');
+  return productionConfirmationMessage(args, token, usage);
 }
 
 function liveEventGuardMessage(args, token, usage) {
-  return productionGuardMessage(args, 'ALLOW_LIVE_EVENT_DEV_COMMANDS', token, usage, 'Live-event');
+  return productionConfirmationMessage(args, token, usage);
 }
 
 function authAccessGuardMessage(args, token, usage) {
-  if (process.env.NODE_ENV !== 'production') return null;
+  if (!isProduction()) return null;
   if (!hasExactToken(args, token)) {
     return `Production confirmation required. Use: \`${usage}\``;
   }
@@ -142,6 +143,29 @@ function parseAmount(raw) {
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 1) return null;
   return n;
+}
+
+function parseDiscordId(raw) {
+  const s = String(raw || '').trim();
+  const mention = /^<@!?(\d+)>$/.exec(s);
+  const id = mention ? mention[1] : s;
+  return DISCORD_ID_RE.test(id) ? id : null;
+}
+
+function parseSupporterMonths(raw) {
+  if (raw == null || raw === '') return 1;
+  const months = parseAmount(raw);
+  if (months == null || months > 120) return null;
+  return months;
+}
+
+function addManualSupporterMonths(existing, months) {
+  const now = Date.now();
+  const candidates = [existing?.chosen_expires_at, existing?.current_period_end]
+    .map((value) => value ? new Date(value).getTime() : NaN)
+    .filter((time) => Number.isFinite(time) && time > now);
+  const base = Math.max(now, ...candidates);
+  return new Date(base + months * SUPPORTER_MONTH_DAYS * 24 * 60 * 60 * 1000);
 }
 
 // Accepts "+5" or "5"; valid display level 0..10.
@@ -1084,7 +1108,7 @@ async function giveToken(message, args, devId) {
   if (guard) return reply(message, guard);
 
   const sup = await ent.getSupporter(pool, target.id);
-  if (!sup) return reply(message, 'That user has no supporter row — run `crd dev sub @user <tier>` first.');
+  if (!sup) return reply(message, 'That user has no supporter row - run `crd dev sub <discord_id> <tier> [months]` first.');
   try {
     const bal = await grantTokens(target.id, amount, 'dev_grant', `dev:${devId}`);
     await logDev(pool, devId, 'give_token', target.id, `+${amount} tokens (→ ${bal})`).catch(() => {});
@@ -1126,27 +1150,55 @@ async function devBuySkin(message, args, devId) {
   }
 }
 
-// ── crd dev sub [@user] <believer|chosen|eternal> ──
+// ── crd dev sub [discord_id] <believer|chosen|eternal> [months] ──
 // [Supporter-stage §3/§4] Simulate a subscribe/founder entitlement (the Stripe webhook has no
 // host in this bot). Grants the base set + stipend; eternal also assigns a founder number.
+// Manual believer/chosen grants expire after N production months (31 days each).
 async function devSub(message, args, devId) {
-  const target = message.mentions.users.first() || { id: devId };
-  const tier = (nonMentionArgs(args)[0] || '').toLowerCase();
-  if (!['believer', 'chosen', 'eternal'].includes(tier)) {
-    return reply(message, 'Usage: `crd dev sub [@user] <believer|chosen|eternal>`');
+  const usage = 'crd dev sub [discord_id] <believer|chosen|eternal> [months]';
+  const cleanArgs = argsWithoutConfirm(args).slice(1);
+  let targetId = devId;
+  let tierIndex = 0;
+  const explicitTarget = parseDiscordId(cleanArgs[0]);
+  if (explicitTarget) {
+    targetId = explicitTarget;
+    tierIndex = 1;
   }
-  const token = `confirm:${target.id}:${tier}`;
-  const guard = supporterDevGuardMessage(args, token, `crd dev sub ${target.id === devId ? '' : '@user '}${tier} ${token}`.replace('  ', ' '));
+  const tier = (cleanArgs[tierIndex] || '').toLowerCase();
+  const monthsRaw = cleanArgs[tierIndex + 1];
+  const extra = cleanArgs.slice(tierIndex + 2);
+  if (!['believer', 'chosen', 'eternal'].includes(tier)) {
+    return reply(message, `Usage: \`${usage}\``);
+  }
+  if (extra.length > 0) return reply(message, `Usage: \`${usage}\``);
+  const months = tier === 'eternal' ? null : parseSupporterMonths(monthsRaw);
+  if (tier !== 'eternal' && months == null) {
+    return reply(message, 'Months must be a positive whole number from 1 to 120.');
+  }
+  if (tier === 'eternal' && monthsRaw != null) {
+    return reply(message, '`eternal` is permanent and does not accept a month count.');
+  }
+  const token = months ? `confirm:${targetId}:${tier}:${months}` : `confirm:${targetId}:${tier}`;
+  const targetPart = targetId === devId ? '' : `${targetId} `;
+  const monthPart = months ? ` ${months}` : '';
+  const guard = supporterDevGuardMessage(args, token, `crd dev sub ${targetPart}${tier}${monthPart} ${token}`.replace('  ', ' '));
   if (guard) return reply(message, guard);
-  const exists = await pool.query('SELECT 1 FROM users WHERE discord_id = $1', [target.id]);
+  const exists = await pool.query('SELECT 1 FROM users WHERE discord_id = $1', [targetId]);
   if (exists.rows.length === 0) return reply(message, 'That user is not registered.');
   try {
-    const res = await ent.applySubscribe(target.id, tier, { founder: tier === 'eternal' });
-    await logDev(pool, devId, 'sub_grant', target.id,
-      `tier=${tier}${res.founderNumber != null ? ` founder#${res.founderNumber}` : ''}`).catch(() => {});
+    const existing = tier === 'eternal' ? null : await ent.getSupporter(pool, targetId);
+    const chosenExpiresAt = tier === 'eternal' ? null : addManualSupporterMonths(existing, months);
+    const res = await ent.applySubscribe(targetId, tier, {
+      founder: tier === 'eternal',
+      chosenExpiresAt,
+    });
+    await logDev(pool, devId, 'sub_grant', targetId,
+      `tier=${tier}${months ? ` months=${months} expires=${chosenExpiresAt.toISOString()}` : ''}` +
+      `${res.founderNumber != null ? ` founder#${res.founderNumber}` : ''}`).catch(() => {});
     return reply(message,
-      `✅ <@${target.id}> is now **${tier}**` +
+      `✅ <@${targetId}> is now **${tier}**` +
       `${res.founderNumber != null ? ` (Founder ${String(res.founderNumber).padStart(3, '0')})` : ''}` +
+      `${chosenExpiresAt ? ` until **${chosenExpiresAt.toISOString().slice(0, 10)}** (${months} month${months === 1 ? '' : 's'} x ${SUPPORTER_MONTH_DAYS} days)` : ''}` +
       ' — base set granted + stipend paid.');
   } catch (err) {
     console.error('[dev sub]', err.message);
@@ -1166,7 +1218,7 @@ const USAGE = [
   '`setbosshp <boss name> <hp>` · `spawnboss [boss name]` — boss smoke-test enablers',
   '`quest` · `quest refresh <q1|q2|q3>` — view / refresh quests (cap bypassed)',
   '`daily @user` — grant a daily claim (attendance bypassed)',
-  '`sub [@user] <believer|chosen|eternal>` — simulate a supporter grant (base set + stipend)',
+  '`sub [discord_id] <believer|chosen|eternal> [months]` — manual supporter grant/extension (31 days/month)',
   '`givetoken @user <amount>` — grant supporter tokens for shop testing',
   '`supporter shop` — dev-bypass skin shop (all skins, gates off) · `buy <skin_code>` — free grant',
   '`use profile <p#>|bskin <b#>|bresultskin <r#>|summonskin <s#>` · `use founderskin` · `use skin <id>`',
@@ -1176,6 +1228,9 @@ const USAGE = [
 async function execute(message, { args }) {
   const sub = (args[0] || '').toLowerCase();
   const devId = message.author.id;
+  if (isProduction() && DESTRUCTIVE_SUBCOMMANDS.has(sub)) {
+    return reply(message, DESTRUCTIVE_PRODUCTION_MESSAGE);
+  }
   switch (sub) {
     case 'givecredux':       return giveCredux(message, args, devId);
     case 'givebeliefshards': return giveBeliefShards(message, args, devId);
