@@ -26,27 +26,36 @@ function catByKey(key) {
   return TITLE_CATEGORIES.find((c) => c.key === key) || TITLE_CATEGORIES[0];
 }
 
-/** Rows of one category for a user + the user's equipped title id. */
-async function fetchTitles(discordId, cat) {
+/** Visible rows of one category for a user + pagination metadata. */
+async function fetchTitles(discordId, cat, page) {
+  const countResult = await pool.query(
+    `SELECT COUNT(*)::int AS total
+       FROM title_catalog tc
+      WHERE tc.source = ANY($1)`,
+    [cat.sources]
+  );
+  const total = countResult.rows[0]?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE));
+  const p = Math.min(Math.max(0, page), totalPages - 1);
+  const offset = p * PAGE;
+
   const { rows } = await pool.query(
     `SELECT tc.title_id, tc.code, tc.display, tc.how_to,
             (ut.discord_id IS NOT NULL) AS owned
        FROM title_catalog tc
        LEFT JOIN user_titles ut ON ut.title_id = tc.title_id AND ut.discord_id = $1
       WHERE tc.source = ANY($2)
-      ORDER BY tc.title_id`,
-    [discordId, cat.sources]
+      ORDER BY tc.title_id
+      LIMIT $3 OFFSET $4`,
+    [discordId, cat.sources, PAGE, offset]
   );
   const eq = await pool.query('SELECT equipped_title_id FROM user_character WHERE discord_id = $1', [discordId]);
-  return { rows, equippedId: eq.rows[0]?.equipped_title_id ?? null };
+  return { rows, equippedId: eq.rows[0]?.equipped_title_id ?? null, page: p, totalPages };
 }
 
 async function buildPayload(discordId, catKey, page) {
   const cat = catByKey(catKey);
-  const { rows, equippedId } = await fetchTitles(discordId, cat);
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE));
-  const p = Math.min(Math.max(0, page), totalPages - 1);
-  const slice = rows.slice(p * PAGE, p * PAGE + PAGE);
+  const { rows: slice, equippedId, page: p, totalPages } = await fetchTitles(discordId, cat, page);
 
   const catMenu = new StringSelectMenuBuilder()
     .setCustomId(`title:cat:${discordId}:0`)
