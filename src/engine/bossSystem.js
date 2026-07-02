@@ -303,11 +303,22 @@ function renderBossStatusCard(state, mobRow) {
 
 /** Fetch everything the message needs in one place. Null when no boss_state row. */
 async function fetchBossView(guildId) {
-  const stateRes = await pool.query('SELECT * FROM boss_state WHERE guild_id = $1', [guildId]);
+  const stateRes = await pool.query(
+    `SELECT guild_id, spawn_id, mob_id, boss_level, max_hp, current_hp,
+            scaled_atk, scaled_def, expires_at, status
+       FROM boss_state
+      WHERE guild_id = $1`,
+    [guildId]
+  );
   if (stateRes.rows.length === 0) return null;
   const state = stateRes.rows[0];
   const [mobRes, atkRes, countRes] = await Promise.all([
-    pool.query('SELECT * FROM mob_roster WHERE mob_id = $1', [state.mob_id]),
+    pool.query(
+      `SELECT mob_id, name, mythology, base_crit, skill_name, skill_description
+         FROM mob_roster
+        WHERE mob_id = $1`,
+      [state.mob_id]
+    ),
     pool.query(
       `SELECT discord_id, total_damage FROM boss_attack_log
         WHERE boss_spawn_id = $1
