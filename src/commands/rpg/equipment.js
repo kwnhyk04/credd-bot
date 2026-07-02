@@ -216,27 +216,35 @@ async function buildInfoPayload(g, gearId, ownerId) {
 
 /** Fetch a gear row by id (weapon first, then armor), normalized for the card. */
 async function fetchGear(discordId, gearId) {
-  const w = await pool.query(
-    `SELECT uw.discord_id, uw.curr_atk, uw.crit, uw.enhancement, uw.bonus_dmg_pct,
-            uw.native_sockets, uw.opposite_sockets,
-            wr.name, wr.type, wr.tier, wr.passive_name, wr.passive_description, wr.lore
-       FROM user_weapons uw
-       JOIN weapon_roster wr ON uw.weapon_roster_id = wr.weapon_roster_id
-      WHERE uw.weapon_id = $1 AND uw.discord_id = $2`,
+  const { rows } = await pool.query(
+    `SELECT kind, discord_id, curr_atk, crit, enhancement, bonus_dmg_pct,
+            curr_hp, curr_def, native_sockets, opposite_sockets,
+            name, type, tier, passive_name, passive_description, lore
+       FROM (
+         SELECT 0 AS priority, 'weapon' AS kind,
+                uw.discord_id, uw.curr_atk, uw.crit, uw.enhancement, uw.bonus_dmg_pct,
+                NULL::integer AS curr_hp, NULL::integer AS curr_def,
+                uw.native_sockets, uw.opposite_sockets,
+                wr.name, wr.type, wr.tier, wr.passive_name, wr.passive_description, wr.lore
+           FROM user_weapons uw
+           JOIN weapon_roster wr ON uw.weapon_roster_id = wr.weapon_roster_id
+          WHERE uw.weapon_id = $1 AND uw.discord_id = $2
+         UNION ALL
+         SELECT 1 AS priority, 'armor' AS kind,
+                ua.discord_id, NULL::integer AS curr_atk, NULL::numeric AS crit,
+                ua.enhancement, NULL::numeric AS bonus_dmg_pct,
+                ua.curr_hp, ua.curr_def,
+                ua.native_sockets, ua.opposite_sockets,
+                ar.name, ar.type, ar.tier, ar.passive_name, ar.passive_description, ar.lore
+           FROM user_armors ua
+           JOIN armor_roster ar ON ua.armor_roster_id = ar.armor_roster_id
+          WHERE ua.armor_id = $1 AND ua.discord_id = $2
+       ) gear
+      ORDER BY priority
+      LIMIT 1`,
     [gearId, discordId],
   );
-  if (w.rows.length > 0) return { kind: 'weapon', ...w.rows[0] };
-
-  const a = await pool.query(
-    `SELECT ua.discord_id, ua.curr_hp, ua.curr_def, ua.enhancement,
-            ua.native_sockets, ua.opposite_sockets,
-            ar.name, ar.type, ar.tier, ar.passive_name, ar.passive_description, ar.lore
-       FROM user_armors ua
-       JOIN armor_roster ar ON ua.armor_roster_id = ar.armor_roster_id
-      WHERE ua.armor_id = $1 AND ua.discord_id = $2`,
-    [gearId, discordId],
-  );
-  if (a.rows.length > 0) return { kind: 'armor', ...a.rows[0] };
+  if (rows.length > 0) return rows[0];
 
   return null;
 }
