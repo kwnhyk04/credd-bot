@@ -46,7 +46,13 @@ async function overview(message) {
   const { rows } = await pool.query(
     `SELECT credux, belief_shards, sacred_relics, supreme_relics,
             silver_chest, gold_chest, boss_treasure_chest, boss_golden_chest, supreme_chest,
-            epic_essence, mythic_essence, legendary_essence, supreme_essence
+            epic_essence, mythic_essence, legendary_essence, supreme_essence,
+            lesser_rune_bag, greater_rune_bag, divine_rune_bag,
+            (SELECT count(*)::int FROM user_weapons WHERE discord_id = $1) AS weapons,
+            (SELECT count(*)::int FROM user_armors  WHERE discord_id = $1) AS armors,
+            (SELECT count(*)::int FROM user_runes   WHERE discord_id = $1) AS runes,
+            COALESCE(silver_chest+gold_chest+boss_treasure_chest+boss_golden_chest+supreme_chest,0) AS chests_total,
+            COALESCE(lesser_rune_bag+greater_rune_bag+divine_rune_bag,0) AS rune_bags_total
        FROM users_bag WHERE discord_id = $1`,
     [message.author.id]
   );
@@ -67,6 +73,16 @@ async function overview(message) {
       legendary: b.legendary_essence, supreme: b.supreme_essence,
     },
     relics: { sacred: b.sacred_relics, supreme: b.supreme_relics },
+    runeBags: {
+      lesser: b.lesser_rune_bag, greater: b.greater_rune_bag, divine: b.divine_rune_bag,
+    },
+    counts: {
+      weapons: b.weapons,
+      armors: b.armors,
+      runes: b.runes,
+      chests: b.chests_total,
+      runeBags: b.rune_bags_total,
+    },
   };
   await reply(message, await buildBagOverview(message.author, data));
 }

@@ -69,28 +69,18 @@ function buildDropRatesButton(ownerId) {
  *   chests:  { sc, gc, btc, bgtc, supc },
  *   essence: { epic, mythic, legendary, supreme },
  *   relics:  { sacred, supreme },
+ *   counts:  { weapons, armors, runes, chests, runeBags },
  * }
  * ══════════════════════════════════════════ */
 async function buildBagOverview(user, data) {
   // [v5 revamp] `crd bag` is a directory rendered in the SAME boxed-row canvas as
   // `crd bag chests`: header → Credux + Belief Shards → boxed category rows (no footer).
-  const { rows: [c] } = await pool.query(
-    `SELECT
-       (SELECT count(*) FROM user_weapons WHERE discord_id = $1) AS weapons,
-       (SELECT count(*) FROM user_armors  WHERE discord_id = $1) AS armors,
-       (SELECT count(*) FROM user_runes   WHERE discord_id = $1) AS runes,
-       (SELECT COALESCE(silver_chest+gold_chest+boss_treasure_chest+boss_golden_chest+supreme_chest,0)
-          FROM users_bag WHERE discord_id = $1) AS chests,
-       (SELECT COALESCE(lesser_rune_bag+greater_rune_bag+divine_rune_bag,0)
-          FROM users_bag WHERE discord_id = $1) AS rune_bags`,
-    [user.id]
-  );
-  const n = c || {};
+  const n = data.counts || {};
   const items = [
     { twemoji: '1f5e1', name: 'Weapons', cmd: 'crd bag weapons', count: Number(n.weapons || 0) }, // 🗡️ (header emoji)
     { twemoji: '1f6e1', name: 'Armors',  cmd: 'crd bag armors',  count: Number(n.armors || 0) },  // 🛡️
     { emojiName: 'general_chest',  name: 'Chests',   cmd: 'crd bag chests',  count: Number(n.chests || 0) },
-    { emojiName: 'bag',            name: 'Rune Bag', cmd: 'crd rune bag',    count: Number(n.rune_bags || 0) },
+    { emojiName: 'bag',            name: 'Rune Bag', cmd: 'crd rune bag',    count: Number(n.runeBags || 0) },
     { iconPath: require('path').join(__dirname, '..', '..', 'assets', 'items', 'runes', 'rune_icon.png'),
       emojiName: 'rune_icon', name: 'Runes', cmd: 'crd runes', count: Number(n.runes || 0) }, // [Phase 6] transparent local icon
   ];
