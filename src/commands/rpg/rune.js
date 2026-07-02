@@ -107,15 +107,6 @@ async function fetchRunes(discordId, requestedPage, rawLane = 'offense') {
   return { runes, total, page, totalPages, lane };
 }
 
-function runeRow(r) {
-  const lock = r.is_locked ? ' 🔒' : '';
-  const laneWord = LANE_WORD[r.lane] || r.lane;
-  const where = r.socketed_into ? `Socketed in \`${r.socketed_into}\`` : 'Unsocketed';
-  const desc = runeDescription(r.effect_key, r.value, r.description);
-  return `${runeEmoji(r.effect_key)} **${r.name}** ${r.tier} · ${laneWord} Rune${lock}\n`
-    + `-# \`${r.rune_uid}\` · ${r.description} · ${where}`;
-}
-
 function runeDisplayRow(r) {
   const lock = r.is_locked ? ' [locked]' : '';
   const laneWord = LANE_WORD[r.lane] || r.lane;
