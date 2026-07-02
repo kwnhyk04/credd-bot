@@ -37,17 +37,26 @@ function reply(message, content) {
 
 /** Valor balance + per-item purchased counts for the active season. */
 async function fetchState(discordId, seasonId) {
-  const balRes = await pool.query('SELECT valor_medals FROM users_bag WHERE discord_id = $1', [discordId]);
-  const valor = Number(balRes.rows[0]?.valor_medals || 0);
-  const purchased = {};
   if (seasonId != null) {
-    const pres = await pool.query(
-      'SELECT item_key, qty FROM pvp_shop_purchases WHERE discord_id = $1 AND season_id = $2',
+    const { rows } = await pool.query(
+      `SELECT ub.valor_medals, p.item_key, p.qty
+         FROM (SELECT $1::varchar AS discord_id) viewer
+         LEFT JOIN users_bag ub ON ub.discord_id = viewer.discord_id
+         LEFT JOIN pvp_shop_purchases p
+           ON p.discord_id = viewer.discord_id AND p.season_id = $2`,
       [discordId, seasonId]
     );
-    for (const r of pres.rows) purchased[r.item_key] = Number(r.qty);
+    const valor = Number(rows[0]?.valor_medals || 0);
+    const purchased = {};
+    for (const r of rows) {
+      if (r.item_key) purchased[r.item_key] = Number(r.qty);
+    }
+    return { valor, purchased };
   }
-  return { valor, purchased };
+
+  const balRes = await pool.query('SELECT valor_medals FROM users_bag WHERE discord_id = $1', [discordId]);
+  const valor = Number(balRes.rows[0]?.valor_medals || 0);
+  return { valor, purchased: {} };
 }
 
 async function buildShop(viewerId) {
