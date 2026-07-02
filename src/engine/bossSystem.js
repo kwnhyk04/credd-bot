@@ -117,18 +117,36 @@ function bossSlug(name) {
     .replace(/^_+|_+$/g, '');
 }
 
+let bossAssetLookup = { mtimeMs: null, files: [], resolved: new Map() };
+
+function bossAssetFiles() {
+  const mtimeMs = fs.statSync(BOSS_ASSET_DIR).mtimeMs;
+  if (bossAssetLookup.mtimeMs !== mtimeMs) {
+    bossAssetLookup = {
+      mtimeMs,
+      files: fs.readdirSync(BOSS_ASSET_DIR).filter((f) => f.toLowerCase().endsWith('.png')),
+      resolved: new Map(),
+    };
+  }
+  return bossAssetLookup;
+}
+
 /** Exact `<slug>.png`, else a prefix-wildcard scan of the directory; null = no art (gallery omitted). */
 function bossImagePath(name) {
   try {
     const slug = bossSlug(name);
-    const exact = path.join(BOSS_ASSET_DIR, `${slug}.png`);
-    if (fs.existsSync(exact)) return exact;
-    const files = fs.readdirSync(BOSS_ASSET_DIR).filter((f) => f.toLowerCase().endsWith('.png'));
-    const hit = files.find((f) => {
+    const lookup = bossAssetFiles();
+    if (lookup.resolved.has(slug)) return lookup.resolved.get(slug);
+
+    const exactName = `${slug}.png`;
+    const exactHit = lookup.files.includes(exactName) ? exactName : null;
+    const hit = exactHit || lookup.files.find((f) => {
       const base = f.slice(0, -4).toLowerCase();
       return base.startsWith(slug) || slug.startsWith(base);
     });
-    return hit ? path.join(BOSS_ASSET_DIR, hit) : null;
+    const resolved = hit ? path.join(BOSS_ASSET_DIR, hit) : null;
+    lookup.resolved.set(slug, resolved);
+    return resolved;
   } catch {
     return null;
   }
