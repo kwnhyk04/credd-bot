@@ -6,7 +6,10 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "selftest": "node scripts/battle-selftest.js"
+    "selftest": "node scripts/battle-selftest.js",
+    "selftest:full": "npm run selftest && node scripts/help-selftest.js && node scripts/casino-selftest.js",
+    "preflight": "node scripts/production-preflight.js",
+    "preflight:prod": "node scripts/production-preflight.js --prod"
   },
   "engines": {
     "node": ">=18.0.0"
