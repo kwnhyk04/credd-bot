@@ -89,12 +89,11 @@ async function overview(message) {
 
 // ── crd bag chests ──────────────────────────────────────────────────────
 async function chests(message) {
-  const exists = await pool.query('SELECT 1 FROM users_bag WHERE discord_id = $1', [message.author.id]);
-  if (exists.rows.length === 0) {
+  const counts = await getChestCounts(message.author.id);
+  if (!counts) {
     await reply(message, { content: 'You don\'t have a bag yet. Use `crd register` first.' });
     return;
   }
-  const counts = await getChestCounts(message.author.id);
   await reply(message, await buildChestsView(message.author, counts));
 }
 

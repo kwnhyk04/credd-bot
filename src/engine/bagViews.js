@@ -191,7 +191,7 @@ async function handleChestRatesButton(interaction) {
   }).catch(() => {});
 }
 
-/** Read chest + relic counts for the view (DB → { sc, gc, btc, bgtc, supc, sacred, supreme }). */
+/** Read chest + relic counts for the view (DB → { sc, gc, btc, bgtc, supc, sacred, supreme } | null). */
 async function getChestCounts(discordId) {
   const { rows } = await pool.query(
     `SELECT silver_chest, gold_chest, boss_treasure_chest, boss_golden_chest, supreme_chest,
@@ -199,7 +199,8 @@ async function getChestCounts(discordId) {
        FROM users_bag WHERE discord_id = $1`,
     [discordId]
   );
-  const b = rows[0] ?? {};
+  const b = rows[0];
+  if (!b) return null;
   return {
     sc: b.silver_chest ?? 0,
     gc: b.gold_chest ?? 0,
