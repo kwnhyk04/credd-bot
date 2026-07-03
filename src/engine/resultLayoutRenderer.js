@@ -33,7 +33,15 @@ for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
   }
 }
 
+function positiveIntEnv(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+const RESULT_BASE_CACHE_MAX_ENTRIES = positiveIntEnv('RESULT_BASE_CACHE_MAX_ENTRIES', 12);
 const skinCache = new Map(); // skin path -> { signature, promise }
+const resultBaseCache = new Map(); // skin path -> { signature, canvas, bytes, lastUsed }
+let resultBaseCacheBytes = 0;
 const warned = new Set();
 
 function warnOnce(key, message) {
@@ -59,6 +67,64 @@ function validateResultLayout(layout) {
     isRect(layout.panel));
 }
 
+function estimateCanvasBytes(canvas) {
+  return Math.max(1, (Number(canvas?.width) || 0) * (Number(canvas?.height) || 0) * 4);
+}
+
+function trimResultBaseCache() {
+  while (resultBaseCache.size > RESULT_BASE_CACHE_MAX_ENTRIES) {
+    const oldest = resultBaseCache.entries().next().value;
+    if (!oldest) break;
+    resultBaseCache.delete(oldest[0]);
+    resultBaseCacheBytes -= oldest[1].bytes;
+  }
+}
+
+function cacheResultBase(key, signature, canvas) {
+  const existing = resultBaseCache.get(key);
+  if (existing) {
+    resultBaseCache.delete(key);
+    resultBaseCacheBytes -= existing.bytes;
+  }
+  const entry = {
+    signature,
+    canvas,
+    bytes: estimateCanvasBytes(canvas),
+    lastUsed: Date.now(),
+  };
+  resultBaseCache.set(key, entry);
+  resultBaseCacheBytes += entry.bytes;
+  trimResultBaseCache();
+  return canvas;
+}
+
+function cachedResultBase(key, signature) {
+  const entry = resultBaseCache.get(key);
+  if (!entry) return null;
+  if (entry.signature !== signature) {
+    resultBaseCache.delete(key);
+    resultBaseCacheBytes -= entry.bytes;
+    return null;
+  }
+  entry.lastUsed = Date.now();
+  resultBaseCache.delete(key);
+  resultBaseCache.set(key, entry);
+  return entry.canvas;
+}
+
+function clearResultBaseCache() {
+  resultBaseCache.clear();
+  resultBaseCacheBytes = 0;
+}
+
+function getResultBaseCacheStats() {
+  return {
+    entries: resultBaseCache.size,
+    maxEntries: RESULT_BASE_CACHE_MAX_ENTRIES,
+    bytes: resultBaseCacheBytes,
+  };
+}
+
 /** Load and cache a result skin image together with its own colocated layout. */
 async function loadResultSkin(skinPath) {
   if (!skinPath) return null;
@@ -81,7 +147,7 @@ async function loadResultSkin(skinPath) {
       return null;
     }
     const image = await loadAssetImageSource(loadImage, skinPath);
-    return { image, layout, skinPath, configPath };
+    return { image, layout, skinPath, configPath, signature };
   })().catch((err) => {
     warnOnce(configPath, `[resultLayout] failed to load ${path.basename(skinPath)}: ${err.message}; using default rewards strip.`);
     return null;
@@ -126,6 +192,30 @@ function fillRoundRect(ctx, x, y, w, h, r) {
   ctx.fill();
 }
 
+function drawStaticResultBase(ctx, skin) {
+  const layout = skin.layout;
+  ctx.drawImage(skin.image, 0, 0, layout.canvas.w, layout.canvas.h);
+
+  // optional reward backing plate (helps legibility on busy art)
+  if (isRect(layout.plate)) {
+    ctx.fillStyle = layout.plate.fill || 'rgba(0,0,0,0.42)';
+    if (layout.plate.radius) fillRoundRect(ctx, layout.plate.x, layout.plate.y, layout.plate.w, layout.plate.h, layout.plate.radius);
+    else ctx.fillRect(layout.plate.x, layout.plate.y, layout.plate.w, layout.plate.h);
+  }
+}
+
+function resultBaseCanvas(skin) {
+  const layout = skin.layout;
+  const key = skin.skinPath || skin.configPath;
+  const signature = skin.signature || key;
+  const cached = key ? cachedResultBase(key, signature) : null;
+  if (cached) return cached;
+
+  const base = createCanvas(layout.canvas.w, layout.canvas.h);
+  drawStaticResultBase(base.getContext('2d'), skin);
+  return key ? cacheResultBase(key, signature, base) : base;
+}
+
 /**
  * Render the result canvas with rewards centered in the configured panel.
  * @param {object} sim      resolveBattle output (sim.winner / sim.b.name)
@@ -144,14 +234,7 @@ async function renderResultPanel(sim, rewards, skin, { loadIcon } = {}) {
 
   const canvas = createCanvas(layout.canvas.w, layout.canvas.h);
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(skin.image, 0, 0, layout.canvas.w, layout.canvas.h);
-
-  // optional reward backing plate (helps legibility on busy art)
-  if (isRect(layout.plate)) {
-    ctx.fillStyle = layout.plate.fill || 'rgba(0,0,0,0.42)';
-    if (layout.plate.radius) fillRoundRect(ctx, layout.plate.x, layout.plate.y, layout.plate.w, layout.plate.h, layout.plate.radius);
-    else ctx.fillRect(layout.plate.x, layout.plate.y, layout.plate.w, layout.plate.h);
-  }
+  ctx.drawImage(resultBaseCanvas(skin), 0, 0);
 
   // Draw ONLY the rewards — no VICTORY/DEFEATED word and no "<mob> defeated!"
   // line (the result art already carries those). The layout's
@@ -267,4 +350,6 @@ module.exports = {
   validateResultLayout,
   loadResultSkin,
   renderResultPanel,
+  clearResultBaseCache,
+  getResultBaseCacheStats,
 };
