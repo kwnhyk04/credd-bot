@@ -15,6 +15,7 @@ const { Pool } = require('pg');
 
 const ROOT = path.join(__dirname, '..');
 const isProdMode = process.argv.includes('--prod');
+const PROD_CA_PATH = path.join(ROOT, 'prod-ca-2021.crt');
 
 const REQUIRED_ENV = ['BOT_TOKEN', 'CLIENT_ID', 'DATABASE_URL', 'DEV_IDS'];
 const DANGEROUS_FLAGS = [
@@ -222,6 +223,19 @@ function hasEnv(name) {
   return String(process.env[name] || '').trim() !== '';
 }
 
+function connectionStringWithoutSslParams(raw) {
+  if (!raw) return raw;
+  try {
+    const url = new URL(raw);
+    for (const key of ['sslmode', 'sslcert', 'sslkey', 'sslrootcert']) {
+      url.searchParams.delete(key);
+    }
+    return url.toString();
+  } catch {
+    return raw;
+  }
+}
+
 function envTrue(name) {
   return String(process.env[name] || '').trim().toLowerCase() === 'true';
 }
@@ -283,21 +297,15 @@ async function checkDatabase() {
     return;
   }
 
-  // Mirror src/db/pool.js TLS config so the pg_stat_ssl probe below measures the
-  // same kind of connection the bot will open.
-  let ssl;
-  if (hasEnv('PGSSL_CA')) {
-    ssl = { rejectUnauthorized: true, ca: fs.readFileSync(process.env.PGSSL_CA).toString() };
-  } else if (process.env.PGSSL === 'require' || /[?&]sslmode=require/.test(process.env.DATABASE_URL)) {
-    ssl = { rejectUnauthorized: false };
-  }
-
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: connectionStringWithoutSslParams(process.env.DATABASE_URL),
     max: 1,
     connectionTimeoutMillis: 5000,
     idleTimeoutMillis: 1000,
-    ssl,
+    ssl: {
+      rejectUnauthorized: true,
+      ca: fs.readFileSync(PROD_CA_PATH).toString(),
+    },
   });
 
   try {
@@ -311,7 +319,7 @@ async function checkDatabase() {
     if (sslRows.length > 0 && sslRows[0].ssl === true) {
       pass('database connection uses TLS');
     } else {
-      warn('database connection is NOT using TLS (set PGSSL=require or PGSSL_CA, or add sslmode=require to DATABASE_URL)', true);
+      warn('database connection is NOT using TLS (check DATABASE_URL and prod-ca-2021.crt)', true);
     }
 
     const tableRows = await queryRows(
