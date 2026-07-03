@@ -15,6 +15,7 @@ const pool = require('../../db/pool');
 const { TIER_ALIAS, TIER_COLOR, TIER_ESSENCE_COLUMN } = require('../../config/gachaRates');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay, emoji } = require('../../utils/emojis');
+const { makeOptimizedAttachment } = require('../../utils/imageOutput');
 const { assetPath, isRemoteAssetsEnabled, loadAssetImage: loadAssetImageSource } = require('../../utils/assets');
 const { RARITY_SYMBOLS } = require('../../engine/renderSummon');
 const { renderPortraitCard } = require('../../engine/renderPortraitCard');
@@ -267,14 +268,13 @@ async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, o
 
   let file = null;
   try {
-    const buffer = await renderPortraitCard({
+    file = await makeOptimizedAttachment(await renderPortraitCard({
       imagePath: portraitPath,
       accent: accentHex,
       title: `${d.name} +${d.enhancement - 1}`,
       subtitle: `${mythologyLabel} · ${alias}`,
       sections,
-    });
-    file = new AttachmentBuilder(buffer, { name: 'deity_card.png' });
+    }), 'deity_card');
   } catch (err) {
     console.error('[deity] card render failed:', err.message);
   }
@@ -288,7 +288,7 @@ async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, o
   container.addSeparatorComponents(sep);
   if (file) {
     container
-      .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL('attachment://deity_card.png')))
+      .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(file.url)))
       .addSeparatorComponents(sep);
   } else {
     container
@@ -308,7 +308,7 @@ async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, o
 
   return {
     components: [container],
-    files: file ? [file] : [],
+    files: file ? [file.file] : [],
     flags: MessageFlags.IsComponentsV2,
   };
 }
@@ -926,7 +926,7 @@ async function deities(message) {
     }
   }
 
-  const attachment = new AttachmentBuilder(canvas.toBuffer('image/png'), { name: 'deities.png' });
+  const attachment = await makeOptimizedAttachment(canvas.toBuffer('image/png'), 'deities');
 
   // Build resonance info
   const deityInfos = slots.map((s, idx) =>
@@ -962,7 +962,7 @@ async function deities(message) {
   const container = new ContainerBuilder();
   container.addTextDisplayComponents(td => td.setContent(`## <@${message.author.id}>'s Equipped Deities`));
   container.addSeparatorComponents(sep);
-  container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL('attachment://deities.png')));
+  container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(attachment.url)));
   container.addSeparatorComponents(sep);
   container.addTextDisplayComponents(td => td.setContent(blessingText));
   container.addSeparatorComponents(sep);
@@ -978,7 +978,7 @@ async function deities(message) {
 
   await reply(message, {
     components: [container],
-    files: [attachment],
+    files: [attachment.file],
     flags: MessageFlags.IsComponentsV2,
   });
 }

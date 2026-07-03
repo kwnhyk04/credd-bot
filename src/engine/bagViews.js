@@ -18,7 +18,6 @@
 
 const {
   ContainerBuilder,
-  AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
@@ -28,6 +27,7 @@ const pool = require('../db/pool');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji } = require('../utils/emojis');
 const { assetPath } = require('../utils/assets');
+const { makeOptimizedAttachment } = require('../utils/imageOutput');
 const { renderBagItemsImage } = require('./renderBagItems');
 const { CHESTS: CHEST_DROPS } = require('../config/dropRates');
 
@@ -85,8 +85,7 @@ async function buildBagOverview(user, data) {
     { iconPath: assetPath('items/runes/rune_icon.png'),
       emojiName: 'rune_icon', name: 'Runes', cmd: 'crd runes', count: Number(n.runes || 0) }, // [Phase 6] transparent local icon
   ];
-  const buffer = await renderBagItemsImage(items);
-  const file = new AttachmentBuilder(buffer, { name: 'bag_overview.png' });
+  const image = await makeOptimizedAttachment(await renderBagItemsImage(items), 'bag_overview');
 
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
@@ -99,11 +98,11 @@ async function buildBagOverview(user, data) {
       )
     )
     .addSeparatorComponents(sep)
-    .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL('attachment://bag_overview.png')));
+    .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(image.url)));
 
   return {
     components: [container],
-    files: [file],
+    files: [image.file],
     flags: MessageFlags.IsComponentsV2,
     allowedMentions: { parse: [] },
   };
@@ -122,8 +121,7 @@ async function buildChestsView(user, counts) {
     ...CHESTS.map((c) => ({ emojiName: c.emojiName, name: c.name, count: counts[c.code] ?? 0, cmd: c.openCmd })),
     ...RELICS.map((r) => ({ emojiName: r.emojiName, name: r.name, count: counts[r.countKey] ?? 0, cmd: r.openCmd })),
   ];
-  const buffer = await renderBagItemsImage(items);
-  const file = new AttachmentBuilder(buffer, { name: 'bag_chests.png' });
+  const image = await makeOptimizedAttachment(await renderBagItemsImage(items), 'bag_chests');
 
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
@@ -134,7 +132,7 @@ async function buildChestsView(user, counts) {
     .addSeparatorComponents(sep)
     // ── Body: rendered boxed rows ──
     .addMediaGalleryComponents((g) =>
-      g.addItems((item) => item.setURL('attachment://bag_chests.png'))
+      g.addItems((item) => item.setURL(image.url))
     )
     .addSeparatorComponents(sep)
     // ── Footer ──
@@ -144,7 +142,7 @@ async function buildChestsView(user, counts) {
 
   return {
     components: [container],
-    files: [file],
+    files: [image.file],
     flags: MessageFlags.IsComponentsV2,
     allowedMentions: { parse: [] },
   };

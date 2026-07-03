@@ -12,7 +12,7 @@
 
 const {
   ContainerBuilder, ActionRowBuilder, StringSelectMenuBuilder,
-  ButtonBuilder, ButtonStyle, AttachmentBuilder, MessageFlags,
+  ButtonBuilder, ButtonStyle, MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
 const {
@@ -23,6 +23,7 @@ const {
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { phtWeek } = require('../../config/ranked');
 const { renderQuestRowsImage } = require('../../engine/renderQuestRows');
+const { makeOptimizedAttachment } = require('../../utils/imageOutput');
 
 const ACCENT = 0xf0b232;
 
@@ -84,8 +85,7 @@ async function dailyPayload(ownerId, note) {
   const refreshesUsed = Number(rows[0]?.refreshes_used || 0);
   const refreshesLeft = Math.max(0, REFRESH_ALLOWANCE - refreshesUsed);
   const hours = hoursUntilMidnightPHT();
-  const buffer = await renderQuestRowsImage(quests);
-  const file = new AttachmentBuilder(buffer, { name: 'quests.png' });
+  const image = await makeOptimizedAttachment(await renderQuestRowsImage(quests), 'quests');
 
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
@@ -96,11 +96,11 @@ async function dailyPayload(ownerId, note) {
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(
       `-# ⏳ Resets in ${hours} hour${hours === 1 ? '' : 's'} · 🔄 ${refreshesLeft}/${REFRESH_ALLOWANCE} refreshes left · \`crd quest refresh <Q1|Q2|Q3>\``))
-    .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL('attachment://quests.png')))
+    .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(image.url)))
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent('-# *"The gods reward those who prove their worth."*'));
 
-  return { components: [container], files: [file], flags: MessageFlags.IsComponentsV2 };
+  return { components: [container], files: [image.file], flags: MessageFlags.IsComponentsV2 };
 }
 
 // ── WEEKLY ─────────────────────────────────────────────────────────────────
@@ -137,8 +137,7 @@ async function weeklyPayload(ownerId, note) {
 
   // Reuse the quest-row renderer; map Valor into the shard slot + swap the icon.
   const rowItems = quests.map((q) => ({ ...q, rewardShards: q.rewardValor }));
-  const buffer = await renderQuestRowsImage(rowItems, { rewardIcon: 'valor_medal' });
-  const file = new AttachmentBuilder(buffer, { name: 'weekly.png' });
+  const image = await makeOptimizedAttachment(await renderQuestRowsImage(rowItems, { rewardIcon: 'valor_medal' }), 'weekly');
 
   const grandLine = claimed
     ? '-# 🏆 Grand reward claimed this week.'
@@ -154,7 +153,7 @@ async function weeklyPayload(ownerId, note) {
   container
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent('-# Resets weekly (Mon, PHT). Rewards in Credux + Valor Medals.'))
-    .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL('attachment://weekly.png')))
+    .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(image.url)))
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(grandLine));
 
@@ -164,7 +163,7 @@ async function weeklyPayload(ownerId, note) {
       new ButtonBuilder().setCustomId(`quest:claim:${ownerId}`).setLabel('🏆 Claim Grand Reward').setStyle(ButtonStyle.Success),
     ));
   }
-  return { components, files: [file], flags: MessageFlags.IsComponentsV2 };
+  return { components, files: [image.file], flags: MessageFlags.IsComponentsV2 };
 }
 
 async function showQuests(message, note = null, scope = 'daily') {

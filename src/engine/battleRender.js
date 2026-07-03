@@ -5,8 +5,8 @@
  *
  * Pure presentation: consumes a RESOLVED sim from battleEngine.resolveBattle —
  * the whole fight is decided before any message is sent. The embed starts at
- * full green HP and is EDITED with the engine's snapshot cadence (UPDATE_MS apart);
- * the final edit shows Victory/Defeat + a [Battle Log] button (ephemeral reply
+ * full green HP, waits out the resolved battle duration, then edits once to
+ * Victory/Defeat + a [Battle Log] button (ephemeral reply
  * with EVERY round's events, auto-paginated). The sim seed prints in the final
  * embed footer and the Battle Log header for reproduction (`crd dev battle seed <n>`).
  *
@@ -40,6 +40,7 @@ const {
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const path = require('path');
 const { emojiForDisplay } = require('../utils/emojis');
+const { optimizeOpaqueAttachment } = require('../utils/imageOutput');
 const { loadBattleSkin, renderBattleSkinPanel } = require('./battleLayoutRenderer');
 const { loadResultSkin, renderResultPanel } = require('./resultLayoutRenderer');
 
@@ -427,7 +428,7 @@ async function renderRewardsPanel(sim, r) {
 /* ----------------------------------------------------------------------- */
 /* EMBEDS + ANIMATION                                                       */
 /* ----------------------------------------------------------------------- */
-function battleEmbed(sim, snapIdx, { mode, includeImage = true }) {
+function battleEmbed(sim, snapIdx, { mode, includeImage = true, imageName = 'battle.png' }) {
   const s = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
   const over = snapIdx >= sim.snapshots.length - 1;
   const playerWon = sim.winner === 'a';
@@ -454,7 +455,7 @@ function battleEmbed(sim, snapIdx, { mode, includeImage = true }) {
     .setColor(color)
     .setTitle(title)
     .setDescription(`Turn ${s.round} ${over ? ' ‎ **\`Battle Over\`**' : ''}`);
-  if (includeImage) e.setImage('attachment://battle.png');
+  if (includeImage) e.setImage(`attachment://${imageName}`);
   if (over && line) e.addFields({ name: '​', value: line });
   // raid result + rewards live in a SECOND embed below this one (runBattle) —
   // fields/description here would render above the image
@@ -540,27 +541,32 @@ async function runBattle(channel, {
   }
   if (rewardsBuffer) {
     resultEmbed = new EmbedBuilder()
-      .setColor(sim.winner === 'a' ? 0x43d675 : 0xf23f43)
-      .setImage('attachment://rewards.png');
+      .setColor(sim.winner === 'a' ? 0x43d675 : 0xf23f43);
   }
 
   const noticeLine = notices.length ? notices.join('\n') : null;
 
-  const frame = (i) => {
+  const frame = async (i) => {
     const over = i >= sim.snapshots.length - 1;
-    const base = battleEmbed(sim, i, { mode, includeImage: true });
+    const battleImage = await optimizeOpaqueAttachment(
+      renderBattlePanel(sim, i, { mirror, icons, skin, mode }),
+      'battle',
+      { background: COLORS.bg }
+    );
+    const base = battleEmbed(sim, i, { mode, includeImage: true, imageName: battleImage.name });
     // Phase 6: ranked threads its result into the embed — the tier matchup in the
     // HEADER (author, top), the outcome + rating move + Valor in the FOOTER (bottom).
     if (over && header) base.setAuthor({ name: header });
     if (over && footer) base.setFooter({ text: footer });
     const showRewards = over && resultEmbed;
+    const rewardsImage = showRewards
+      ? await optimizeOpaqueAttachment(rewardsBuffer, 'rewards', { background: COLORS.bg })
+      : null;
+    if (rewardsImage) resultEmbed.setImage(`attachment://${rewardsImage.name}`);
     const files = [
-      new AttachmentBuilder(
-        renderBattlePanel(sim, i, { mirror, icons, skin, mode }),
-        { name: 'battle.png' }
-      ),
+      new AttachmentBuilder(battleImage.buffer, { name: battleImage.name }),
       ...(showRewards
-        ? [new AttachmentBuilder(rewardsBuffer, { name: 'rewards.png' })]
+        ? [new AttachmentBuilder(rewardsImage.buffer, { name: rewardsImage.name })]
         : []),
     ];
     return {
@@ -572,14 +578,14 @@ async function runBattle(channel, {
     };
   };
 
-  const msg = await channel.send({ ...frame(0), attachments: undefined });
+  const msg = await channel.send({ ...(await frame(0)), attachments: undefined });
   if (onMessage) {
     try { await onMessage(msg); } catch (err) { console.warn('[battleRender] onMessage:', err.message); }
   }
   const finalIndex = sim.snapshots.length - 1;
   if (finalIndex > 0) {
     await sleep(UPDATE_MS * finalIndex);
-    await msg.edit(frame(finalIndex));
+    await msg.edit(await frame(finalIndex));
   }
 
   const collector = msg.createMessageComponentCollector({ time: 300_000 });

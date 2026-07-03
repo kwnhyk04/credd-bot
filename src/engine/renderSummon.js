@@ -24,6 +24,7 @@ const {
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji } = require('../utils/emojis');
+const { makeOptimizedAttachment } = require('../utils/imageOutput');
 const {
   assetPath,
   assetExistsSync,
@@ -258,8 +259,7 @@ async function buildFlipMessage(flipPath = null) {
  *        supremeRelics is optional — only the relic-open paths show it.
  */
 async function buildResultMessage(results, balances) {
-  const buffer = await renderSummonGrid(results);
-  const grid = new AttachmentBuilder(buffer, { name: 'summon_result.png' });
+  const grid = await makeOptimizedAttachment(await renderSummonGrid(results), 'summon_result');
 
   // Rarity counts, ordered rarest-first
   const order = ['Primordial', 'Undying', 'Awakened', 'Remnant'];
@@ -281,7 +281,7 @@ async function buildResultMessage(results, balances) {
     .addSeparatorComponents(sep)
     // ── Body: the rendered card grid ──
     .addMediaGalleryComponents((g) =>
-      g.addItems((item) => item.setURL('attachment://summon_result.png'))
+      g.addItems((item) => item.setURL(grid.url))
     )
     .addSeparatorComponents(sep)
     // ── Summary ──
@@ -299,7 +299,7 @@ async function buildResultMessage(results, balances) {
 
   return {
     components: [container],
-    files: [grid],
+    files: [grid.file],
     flags: MessageFlags.IsComponentsV2,
   };
 }

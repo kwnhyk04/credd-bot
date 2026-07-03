@@ -21,6 +21,7 @@ const {
 const { renderWeaponResults, TIERS } = require('./weaponResultRenderer');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji } = require('../utils/emojis');
+const { makeOptimizedAttachment } = require('../utils/imageOutput');
 const { capitalizeLower } = require('../utils/textFormat');
 const {
   assetPath,
@@ -122,8 +123,7 @@ async function animationPayload(gifKey, animTitle, gifPath) {
  * @param {string} p.chestEmojiName registry emoji name for the chest
  */
 async function buildWeaponResultPayload(p) {
-  const buffer = await renderWeaponResults(p.items);
-  const grid = new AttachmentBuilder(buffer, { name: 'chest_results.png' });
+  const grid = await makeOptimizedAttachment(await renderWeaponResults(p.items), 'chest_results');
 
   const container = new ContainerBuilder()
     .setAccentColor(0xf0b232)
@@ -132,7 +132,7 @@ async function buildWeaponResultPayload(p) {
     )
     .addSeparatorComponents(sep)
     .addMediaGalleryComponents((g) =>
-      g.addItems((item) => item.setURL('attachment://chest_results.png'))
+      g.addItems((item) => item.setURL(grid.url))
     )
     .addTextDisplayComponents((td) => td.setContent(tierSummary(p.items)))
     .addSeparatorComponents(sep)
@@ -144,7 +144,7 @@ async function buildWeaponResultPayload(p) {
       )
     );
 
-  return { components: [container], files: [grid] };
+  return { components: [container], files: [grid.file] };
 }
 
 /**
@@ -206,8 +206,7 @@ async function playAnimatedOpen(message, { gifKey, gifPath, animTitle, buildResu
  * @param {string} p.bagEmoji       inline emoji string for the bag
  */
 async function buildRuneResultPayload(p) {
-  const buffer = await renderWeaponResults(p.items);
-  const grid = new AttachmentBuilder(buffer, { name: 'rune_results.png' });
+  const grid = await makeOptimizedAttachment(await renderWeaponResults(p.items), 'rune_results');
 
   const container = new ContainerBuilder()
     .setAccentColor(0x9b59b6)
@@ -216,7 +215,7 @@ async function buildRuneResultPayload(p) {
     )
     .addSeparatorComponents(sep)
     .addMediaGalleryComponents((g) =>
-      g.addItems((item) => item.setURL('attachment://rune_results.png'))
+      g.addItems((item) => item.setURL(grid.url))
     )
     .addTextDisplayComponents((td) => td.setContent(tierSummary(p.items)))
     .addSeparatorComponents(sep)
@@ -224,7 +223,7 @@ async function buildRuneResultPayload(p) {
       td.setContent(`-# ${p.bagEmoji} ${p.bagLabel}s left: **${p.remaining}** ・ 💡 \`crd runes\` ・ \`crd socket <gear_id> <rune_uid> <slot#>\``)
     );
 
-  return { components: [container], files: [grid] };
+  return { components: [container], files: [grid.file] };
 }
 
 module.exports = { playAnimatedOpen, buildWeaponResultPayload, buildRuneResultPayload, tierSummary, CHEST_GIFS, CHEST_FLAVOR };

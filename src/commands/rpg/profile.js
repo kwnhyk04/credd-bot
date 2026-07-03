@@ -1,6 +1,6 @@
 'use strict';
 
-const { AttachmentBuilder } = require('discord.js');
+const { makeOptimizedAttachment } = require('../../utils/imageOutput');
 const pool = require('../../db/pool');
 const { assemblePlayerStats, accumulateRuneStats } = require('../../engine/statAssembly');
 const { computeResonanceMods } = require('../../config/blessings');
@@ -186,12 +186,11 @@ async function execute(message) {
   data.skinPath = skin.path; // null → renderer keeps the default template
   data.topLabel = await resolveProfileLabel(pool, discordId);
 
-  const buffer = await renderProfileImage(data);
-  const file = new AttachmentBuilder(buffer, { name: 'profile.png' });
+  const image = await makeOptimizedAttachment(await renderProfileImage(data), 'profile');
 
   // Image only — no embed/container wrapper (RenderTweaks Tweak 2).
   await message.reply({
-    files: [file],
+    files: [image.file],
     allowedMentions: { repliedUser: false },
   });
 }

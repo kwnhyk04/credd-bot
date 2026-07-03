@@ -1,0 +1,35 @@
+'use strict';
+
+const sharp = require('sharp');
+const { AttachmentBuilder } = require('discord.js');
+
+async function optimizeOpaqueAttachment(buffer, baseName, {
+  quality = 85,
+  background = '#1f2125',
+  minSavings = 0.05,
+} = {}) {
+  const input = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  try {
+    const jpeg = await sharp(input)
+      .flatten({ background })
+      .jpeg({ quality, mozjpeg: true })
+      .toBuffer();
+    if (jpeg.length < input.length * (1 - minSavings)) {
+      return { buffer: jpeg, name: `${baseName}.jpg`, optimized: true };
+    }
+  } catch {
+    // Keep the original PNG if sharp cannot decode or encode the image.
+  }
+  return { buffer: input, name: `${baseName}.png`, optimized: false };
+}
+
+async function makeOptimizedAttachment(buffer, baseName, options) {
+  const image = await optimizeOpaqueAttachment(buffer, baseName, options);
+  return {
+    ...image,
+    url: `attachment://${image.name}`,
+    file: new AttachmentBuilder(image.buffer, { name: image.name }),
+  };
+}
+
+module.exports = { optimizeOpaqueAttachment, makeOptimizedAttachment };

@@ -12,7 +12,6 @@
 
 const {
   ContainerBuilder,
-  AttachmentBuilder,
   MessageFlags,
 } = require('discord.js');
 const fs = require('fs');
@@ -21,6 +20,7 @@ const pool = require('../../db/pool');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { resolveName } = require('../../utils/emojis');
 const { renderPortraitCard } = require('../../engine/renderPortraitCard');
+const { makeOptimizedAttachment } = require('../../utils/imageOutput');
 const { runeEmojiName } = require('../../config/runes');
 const { SELL_PRICES } = require('../../config/sellPrices');
 const { assetPath, isRemoteAssetsEnabled } = require('../../utils/assets');
@@ -156,7 +156,7 @@ async function buildInfoPayload(g, gearId, ownerId) {
   // [v5 Phase 2] Sockets render as a boxed panel under the text (renderPortraitCard).
   const sockets = await socketSlots(g);
 
-  const buffer = await renderPortraitCard({
+  const image = await makeOptimizedAttachment(await renderPortraitCard({
     // v5 keeps weapon and armor artwork in the shared assets/weapons registry.
     imagePath: artworkPath(WEAPONS_DIR, g.name),
     accent: TIER_HEX[g.tier] || TIER_HEX.Common,
@@ -164,8 +164,7 @@ async function buildInfoPayload(g, gearId, ownerId) {
     subtitle,
     sections,
     sockets,
-  });
-  const file = new AttachmentBuilder(buffer, { name: 'equipment_card.png' });
+  }), 'equipment_card');
 
   const headerName = ownerId ? `<@${ownerId}>'s` : '';
   const sellValue = SELL_PRICES[g.tier] || 0;
@@ -177,7 +176,7 @@ async function buildInfoPayload(g, gearId, ownerId) {
   container.addSeparatorComponents(sep);
   container
     .addMediaGalleryComponents((gal) =>
-      gal.addItems((item) => item.setURL('attachment://equipment_card.png')),
+      gal.addItems((item) => item.setURL(image.url)),
     )
     .addSeparatorComponents(sep);
 
@@ -200,7 +199,7 @@ async function buildInfoPayload(g, gearId, ownerId) {
 
   return {
     components: [container],
-    files: [file],
+    files: [image.file],
     flags: MessageFlags.IsComponentsV2,
   };
 }
