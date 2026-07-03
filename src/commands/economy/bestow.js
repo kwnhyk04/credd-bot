@@ -26,9 +26,6 @@ const { isBanned } = require('../../handlers/middleware');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emoji } = require('../../utils/emojis');
 
-// TODO Phase-rep: grant +50 reputation to the sender on a successful bestow (§18) —
-//   wire when awardReputation is extracted to a shared util (cap/rollover lives there).
-
 const DAILY_CAP = 1_000_000;            // receiver-side Credux/day (§3)
 const CONFIRM_WINDOW_MS = 60_000;
 

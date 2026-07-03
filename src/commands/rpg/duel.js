@@ -145,7 +145,6 @@ async function commitDuelResult(challengerId, opponentId, sim) {
     // daily-quest progress (§20): challenger gets duel_challenges (accepted + fought),
     // the winner gets duel_wins. Merge when the challenger is the winner; progress per
     // user in sorted-id order (bag rows already locked above).
-    // TODO Phase-rep: duel reputation award (§18) stays deferred.
     const deltaByUser = new Map();
     const bump = (id, type) => {
       const d = deltaByUser.get(id) || {};

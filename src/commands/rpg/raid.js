@@ -132,8 +132,6 @@ async function commitRewards(discordId, sim, mobRow, rng) {
         WHERE discord_id = $1`,
       [discordId]
     );
-    // TODO Phase-rep: raid-win reputation award (§18) — quest hook is wired below
-
     // game_logs — one row per currency/item changed (action 'Raid')
     if (credux > 0) {
       await client.query(

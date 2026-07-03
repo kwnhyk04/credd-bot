@@ -15,9 +15,6 @@ const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay, emoji } = require('../../utils/emojis');
 const { progressQuests } = require('../../utils/questProgress');
 
-// TODO Phase-rep: grant +50 reputation on enhance (§18), 5,000/day cap — wire when awardReputation
-//   is extracted to a shared util (do not duplicate cap/rollover logic)
-
 const TIER_COLOR = {
   Common: 0x95a5a6, Rare: 0x3498db, Mythic: 0x9b59b6, Legendary: 0xFFD700, Supreme: 0xe74c3c,
 };

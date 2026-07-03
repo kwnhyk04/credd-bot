@@ -2,6 +2,7 @@
 
 const { DEV_IDS } = require('../config/config');
 const { MessageContext } = require('../utils/commandContext');
+const { awardCommandBelieverExp } = require('../utils/awardBelieverExp');
 const guildConfig = require('./guildConfigCache');
 const ALIASES = require('../config/aliases');
 
@@ -209,6 +210,7 @@ async function handleMessage(message, { runMiddleware, isBanned }) {
     // Superuser-only (§2). Non-devs get NO reply (invisible), skipping all middleware.
     if (!DEV_IDS.includes(ctx.userId)) return true;
     await impl.run(ctx, { args: ctx.args });
+    await awardCommandBelieverExp(ctx.userId, command, ctx.args);
     return true;
   }
   if (impl.mw === 'ban') {
@@ -218,6 +220,7 @@ async function handleMessage(message, { runMiddleware, isBanned }) {
     if (!allowed) return true;
   }
   await impl.run(ctx, { args: ctx.args });
+  await awardCommandBelieverExp(ctx.userId, command, ctx.args);
   return true;
 }
 
