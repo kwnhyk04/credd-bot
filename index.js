@@ -1,6 +1,6 @@
 'use strict';
 
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, Options } = require('discord.js');
 const { BOT_TOKEN } = require('./src/config/config');
 const { setupGlobalErrorHandlers } = require('./src/utils/errorHandler');
 const { handleMessage } = require('./src/handlers/commandHandler');
@@ -27,6 +27,18 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
   ],
+  makeCache: Options.cacheWithLimits({
+    ...Options.DefaultMakeCacheSettings,
+    MessageManager: 25,
+    ReactionManager: 0,
+    PresenceManager: 0,
+    GuildMemberManager: {
+      maxSize: 100,
+      keepOverLimit: (member) => member.id === member.client.user?.id,
+    },
+    UserManager: 200,
+    GuildEmojiManager: 500,
+  }),
 });
 
 client.once('ready', async () => {
