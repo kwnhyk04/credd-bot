@@ -101,12 +101,11 @@ async function execute(ctx, { args } = {}) {
   const sub = (args[0] || '').toLowerCase();
   switch (sub) {
     case 'setprefix':                return setPrefix(ctx, args);
-    case 'setbotchannel':            return setChannel(ctx, args, 'bot_channel_id', 'Bot channel');
     case 'setannouncementchannel':   return setChannel(ctx, args, 'announcement_channel_id', 'Announcement channel');
     case 'setbosschannel':           return setChannel(ctx, args, 'boss_announcement_channel_id', 'Boss channel');
     case 'stats':                    return stats(ctx);
     default:
-      return err(ctx, 'Admin commands: `setprefix`, `setbotchannel`, `setannouncementchannel`, `setbosschannel`, `stats`.');
+      return err(ctx, 'Admin commands: `setprefix`, `setannouncementchannel`, `setbosschannel`, `stats`.');
   }
 }
 

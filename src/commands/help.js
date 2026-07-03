@@ -118,7 +118,6 @@ const CATEGORIES = [
     key: 'admin', emoji: '⚙️', title: 'Admin (requires Manage Server)',
     lines: [
       { canonical: 'admin', cmd: 'crd admin setprefix [prefix]', desc: 'Set a custom server prefix' },
-      { canonical: 'admin', cmd: 'crd admin setbotchannel [#channel]', desc: 'Restrict bot to a channel' },
       { canonical: 'admin', cmd: 'crd admin setannouncementchannel [#]', desc: 'Set announcement channel' },
       { canonical: 'admin', cmd: 'crd admin setbosschannel [#channel]', desc: 'Set boss spawn channel' },
       { canonical: 'admin', cmd: 'crd admin stats', desc: 'Server activity summary' },

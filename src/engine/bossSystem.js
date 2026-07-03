@@ -488,10 +488,10 @@ async function buildBossMessage({ state, mobRow, attackers, attackerCount, isDev
 /* ── live-message management ────────────────────────────────────────────── */
 async function resolveAnnounceChannelId(guildId) {
   const { rows } = await pool.query(
-    'SELECT boss_announcement_channel_id, bot_channel_id FROM server_config WHERE guild_id = $1',
+    'SELECT boss_announcement_channel_id FROM server_config WHERE guild_id = $1',
     [guildId]
   );
-  return rows[0]?.boss_announcement_channel_id || rows[0]?.bot_channel_id || null;
+  return rows[0]?.boss_announcement_channel_id || null;
 }
 
 /** Post a fresh boss message in the configured (or hinted) channel and repoint the Map. */

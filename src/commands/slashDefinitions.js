@@ -186,8 +186,6 @@ def('admin', 'admin',
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand((s) => s.setName('setprefix').setDescription('Set a custom server prefix')
       .addStringOption((o) => o.setName('prefix').setDescription('1–5 letters/numbers').setRequired(true)))
-    .addSubcommand((s) => s.setName('setbotchannel').setDescription('Restrict the bot to a channel')
-      .addChannelOption((o) => o.setName('channel').setDescription('Channel').setRequired(true)))
     .addSubcommand((s) => s.setName('setannouncementchannel').setDescription('Set the announcement channel')
       .addChannelOption((o) => o.setName('channel').setDescription('Channel').setRequired(true)))
     .addSubcommand((s) => s.setName('setbosschannel').setDescription('Set the boss spawn channel')

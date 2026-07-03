@@ -28,7 +28,7 @@ async function execute(message) {
       return reply(
         message,
         'No boss has spawned in this server yet — the scheduler checks every minute. ' +
-        'A configured bot/boss channel and at least one active player are required for the first spawn.'
+        'A configured boss channel and at least one active player are required for the first spawn.'
       );
     }
 
