@@ -11,26 +11,33 @@
 
 const pool = require('../db/pool');
 
-const cache = new Map(); // guildId -> { prefix, announcement_channel_id, boss_announcement_channel_id }
+const cache = new Map(); // guildId -> { prefix, bot_channel_id, announcement_channel_id, boss_announcement_channel_id }
 
 const DEFAULTS = Object.freeze({
   prefix: 'crd',
+  bot_channel_id: null,
   announcement_channel_id: null,
   boss_announcement_channel_id: null,
 });
 
+function normalizeChannelId(value) {
+  const id = String(value || '').replace(/[<#>]/g, '').trim();
+  return /^\d+$/.test(id) ? id : null;
+}
+
 /** Load every server_config row into the cache. Call once on `ready`. Returns the row count. */
 async function loadAll() {
   const { rows } = await pool.query(
-    `SELECT guild_id, prefix, announcement_channel_id, boss_announcement_channel_id
+    `SELECT guild_id, prefix, bot_channel_id, announcement_channel_id, boss_announcement_channel_id
        FROM server_config`
   );
   cache.clear();
   for (const r of rows) {
     cache.set(r.guild_id, {
       prefix: r.prefix || 'crd',
-      announcement_channel_id: r.announcement_channel_id || null,
-      boss_announcement_channel_id: r.boss_announcement_channel_id || null,
+      bot_channel_id: normalizeChannelId(r.bot_channel_id),
+      announcement_channel_id: normalizeChannelId(r.announcement_channel_id),
+      boss_announcement_channel_id: normalizeChannelId(r.boss_announcement_channel_id),
     });
   }
   return cache.size;
@@ -50,8 +57,8 @@ function getPrefix(guildId) {
 /** Update ONE field in the cache after a successful DB UPSERT (creates the entry if absent). */
 function setField(guildId, field, value) {
   const cur = cache.get(guildId) || { ...DEFAULTS };
-  cur[field] = value;
+  cur[field] = field.endsWith('_channel_id') ? normalizeChannelId(value) : value;
   cache.set(guildId, cur);
 }
 
-module.exports = { loadAll, getConfig, getPrefix, setField, cache, DEFAULTS };
+module.exports = { loadAll, getConfig, getPrefix, setField, cache, DEFAULTS, normalizeChannelId };

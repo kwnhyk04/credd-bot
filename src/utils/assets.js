@@ -68,6 +68,20 @@ function relativeAssetPath(source) {
   return cleanAssetPath(normalized);
 }
 
+function assetFileName(source, fallback = 'asset') {
+  const clean = String(source || '')
+    .replace(/\\/g, '/')
+    .replace(/[?#].*$/, '');
+  const name = clean.split('/').filter(Boolean).pop() || fallback;
+  return name.replace(/[^\w.-]/g, '_') || fallback;
+}
+
+function assetExtension(source, fallback = 'bin') {
+  const name = assetFileName(source, '');
+  const match = /\.([a-z0-9]+)$/i.exec(name);
+  return match ? match[1].toLowerCase() : fallback;
+}
+
 function assetSource(source) {
   if (!source) return source;
   if (isRemoteSource(source)) return source;
@@ -154,6 +168,8 @@ function assetSignatureSync(source) {
 module.exports = {
   ASSETS_ROOT,
   assetPath,
+  assetFileName,
+  assetExtension,
   assetSource,
   assetVersion,
   localAssetPath,

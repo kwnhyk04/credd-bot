@@ -29,7 +29,12 @@ const ent = require('./supporterEntitlements');
 const { skinEmojiByCode, iconToken, iconShop, iconSkins } = require('./skinEmojis');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { HELP_ICON } = require('./bagViews');
-const { assetPath, attachmentSource, isRemoteAssetsEnabled } = require('../utils/assets');
+const {
+  assetPath,
+  assetExtension,
+  attachmentSource,
+  isRemoteAssetsEnabled,
+} = require('../utils/assets');
 
 const BRAND = 0x9b59b6;
 const PAGES = ['profile', 'battle', 'battle_result', 'summon'];
@@ -187,7 +192,7 @@ async function buildPreview(db, viewerId, { page = 0, idx = 0, ctx = 'shop', var
   const files = [];
   const abs = previewFile(skin, variant);
   if (abs) {
-    const name = `skinpv_${skin.cosmetic_id}_${variant}.${abs.split('.').pop()}`;
+    const name = `skinpv_${skin.cosmetic_id}_${variant}.${assetExtension(abs, 'png')}`;
     files.push(new AttachmentBuilder(await attachmentSource(abs), { name }));
     container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(`attachment://${name}`)));
   } else {

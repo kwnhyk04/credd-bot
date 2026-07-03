@@ -68,6 +68,16 @@ async function setChannel(ctx, args, column, label) {
   await ctx.reply({ embeds: [okEmbed(`✅ ${label} set`, `${label} is now <#${id}>.`)] });
 }
 
+async function setBotChannel(ctx, args) {
+  const value = String(args[1] || '').trim().toLowerCase();
+  if (['off', 'none', 'clear', 'all'].includes(value)) {
+    await upsert(ctx.guildId, 'bot_channel_id', null);
+    guildConfig.setField(ctx.guildId, 'bot_channel_id', null);
+    return ctx.reply({ embeds: [okEmbed('Bot channel cleared', 'Credd commands now work in every channel the bot can access.')] });
+  }
+  return setChannel(ctx, args, 'bot_channel_id', 'Bot channel');
+}
+
 async function stats(ctx) {
   const { rows } = await pool.query(
     `SELECT COUNT(*)::int AS total,
@@ -101,11 +111,12 @@ async function execute(ctx, { args } = {}) {
   const sub = (args[0] || '').toLowerCase();
   switch (sub) {
     case 'setprefix':                return setPrefix(ctx, args);
+    case 'setbotchannel':            return setBotChannel(ctx, args);
     case 'setannouncementchannel':   return setChannel(ctx, args, 'announcement_channel_id', 'Announcement channel');
     case 'setbosschannel':           return setChannel(ctx, args, 'boss_announcement_channel_id', 'Boss channel');
     case 'stats':                    return stats(ctx);
     default:
-      return err(ctx, 'Admin commands: `setprefix`, `setannouncementchannel`, `setbosschannel`, `stats`.');
+      return err(ctx, 'Admin commands: `setprefix`, `setbotchannel [#channel|off]`, `setannouncementchannel`, `setbosschannel`, `stats`.');
   }
 }
 

@@ -19,6 +19,12 @@ const exchangeEssenceCmd = require('../commands/rpg/exchangeEssence');
 const questsCmd = require('../commands/economy/quests');
 const autoRaidCmd = require('../commands/rpg/autoRaid');
 
+const COLLECTOR_OWNED_BUTTONS = new Set([
+  'battle_log',
+  'duel_accept',
+  'duel_decline',
+]);
+
 /**
  * Routes button interactions by customId.
  * customId schemes (last segment is always the initiating user id):
@@ -43,6 +49,8 @@ async function handleInteraction(interaction) {
   const isButton = interaction.isButton();
   const isSelect = interaction.isStringSelectMenu && interaction.isStringSelectMenu();
   if (!isButton && !isSelect) return;
+
+  if (isButton && COLLECTOR_OWNED_BUTTONS.has(interaction.customId)) return;
 
   const parts = interaction.customId.split(':');
   const [namespace, action] = parts;

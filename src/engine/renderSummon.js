@@ -13,7 +13,7 @@
  * Requires: discord.js v14.19+, @napi-rs/canvas
  * Assets (relative to project root):
  *   assets/animations/gacha/card_remnant|awakened|undying|primordial.png  (rarity frames)
- *   assets/animations/gacha/card_flipping.gif                            (phase-1 suspense)
+ *   assets/animations/gacha/card_flip.gif                                (phase-1 suspense)
  */
 
 const {
@@ -27,6 +27,7 @@ const { emoji } = require('../utils/emojis');
 const {
   assetPath,
   assetExistsSync,
+  assetExtension,
   attachmentSource,
   loadAssetImage: loadAssetImageSource,
 } = require('../utils/assets');
@@ -224,7 +225,7 @@ async function renderSummonGrid(results) {
  */
 async function buildFlipMessage(flipPath = null) {
   const src = flipPath || FLIP_GIF_PATH;
-  const ext = (src.split('.').pop() || 'gif').toLowerCase();
+  const ext = assetExtension(src, 'gif');
   const name = `card_flip.${ext}`;
   const flip = new AttachmentBuilder(await attachmentSource(src), { name });
 

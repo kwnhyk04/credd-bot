@@ -18,12 +18,11 @@ const {
   AttachmentBuilder,
   MessageFlags,
 } = require('discord.js');
-const path = require('path');
 const { renderWeaponResults, TIERS } = require('./weaponResultRenderer');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji } = require('../utils/emojis');
 const { capitalizeLower } = require('../utils/textFormat');
-const { assetPath, assetExistsSync, attachmentSource } = require('../utils/assets');
+const { assetPath, assetExistsSync, assetFileName, attachmentSource } = require('../utils/assets');
 
 const ANIMATION_MS = 3000; // matches the ~2.5s GIFs + buffer
 
@@ -76,7 +75,7 @@ function tierSummary(items) {
 /** Resolve the gif's on-disk path + attachment name. gifPath (absolute) overrides
  *  the bundled CHEST_GIFS lookup so rune bags can load from assets/items/runes. */
 function resolveGif(gifKey, gifPath) {
-  if (gifPath) return { name: path.basename(gifPath), src: gifPath };
+  if (gifPath) return { name: assetFileName(gifPath, 'open.gif'), src: gifPath };
   const name = CHEST_GIFS[gifKey];
   return name ? { name, src: assetPath(`animations/chests/${name}`) } : null;
 }

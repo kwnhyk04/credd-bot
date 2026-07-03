@@ -484,6 +484,10 @@ function logEmbeds(sim) {
       .setDescription(d));
 }
 
+function isDiscordErrorCode(err, code) {
+  return err?.code === code || err?.rawError?.code === code;
+}
+
 /**
  * Entry point — animates an already-resolved sim.
  * @param {import('discord.js').TextBasedChannel} channel
@@ -587,6 +591,7 @@ async function runBattle(channel, {
         }
       }
     } catch (err) {
+      if (isDiscordErrorCode(err, 10062)) return;
       console.error('[battleRender] button error:', err.message);
       if (i.customId === 'battle_log' && (i.deferred || i.replied)) {
         await i.editReply({ content: 'Could not load the battle log right now.' }).catch(() => {});

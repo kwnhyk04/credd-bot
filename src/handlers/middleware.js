@@ -2,6 +2,7 @@
 
 const pool = require('../db/pool');
 const { cooldownMs } = require('../config/cooldowns');
+const guildConfig = require('./guildConfigCache');
 
 // In-memory cooldown store: "discord_id:commandKey" → timestamp of last use.
 // Compound key gives each command its own independent window (per-user, across guilds).
@@ -38,7 +39,7 @@ function blockedSlash(ctx) {
  * Middleware pipeline — runs before every RPG/economy/casino/admin command, on BOTH the prefix
  * and slash paths (it consumes a CommandContext). Order (Blueprint §4):
  *   1. Ban check  2. Registration check  3. Character check (requiresCharacter)
- *   4. Per-command cooldown  5. UPSERT user_guild_activity
+ *   4. Optional bot-channel check  5. Per-command cooldown  6. UPSERT user_guild_activity
  * Returns true if the command should proceed, false if blocked.
  */
 async function runMiddleware(ctx, { requiresCharacter = false, commandKey = '' } = {}) {
@@ -77,7 +78,16 @@ async function runMiddleware(ctx, { requiresCharacter = false, commandKey = '' }
     return false;
   }
 
-  // ── 4. Cooldown (per user PER COMMAND; window is per-command — [v4.8]) ─────
+  // ── 4. Optional bot-channel restriction (off by default) ───────────────────
+  if (guildId) {
+    const botChannelId = guildConfig.getConfig(guildId).bot_channel_id;
+    if (botChannelId && ctx.channel?.id !== botChannelId) {
+      await mwError(ctx, `Commands are restricted to <#${botChannelId}>.`);
+      return false;
+    }
+  }
+
+  // ── 5. Cooldown (per user PER COMMAND; window is per-command — [v4.8]) ─────
   const windowMs = cooldownMs(commandKey);
   const cooldownKey = `${discordId}:${commandKey}`;
   const now = Date.now();

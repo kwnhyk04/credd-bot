@@ -61,6 +61,24 @@ async function safeReleaseDuelLock(lock) {
   await releaseDuelLock(lock).catch((err) => console.error('[duel lock release]', err.message));
 }
 
+function isDiscordErrorCode(err, code) {
+  return err?.code === code || err?.rawError?.code === code;
+}
+
+function isUnknownInteraction(err) {
+  return isDiscordErrorCode(err, 10062);
+}
+
+async function acknowledgeButton(interaction) {
+  try {
+    if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
+    return true;
+  } catch (err) {
+    if (isUnknownInteraction(err)) return false;
+    throw err;
+  }
+}
+
 /**
  * [Jun-2026 §3] Parse an optional trailing level argument from the duel command.
  * Accepts `level 50`, `level50`, `lvl 50`, `lvl50` (case-insensitive, space optional);
@@ -262,11 +280,18 @@ async function runWager(message, challenger, target, stake) {
   collector.on('collect', async (i) => {
     try {
       if (i.user.id !== target.id) {
-        await i.reply({ content: 'Only the challenged player can respond.', flags: MessageFlags.Ephemeral });
+        await i.reply({ content: 'Only the challenged player can respond.', flags: MessageFlags.Ephemeral })
+          .catch((err) => {
+            if (!isUnknownInteraction(err)) throw err;
+          });
         return;
       }
-      if (settled) { await i.deferUpdate().catch(() => {}); return; }
-      await i.deferUpdate();
+      if (settled) { await acknowledgeButton(i); return; }
+      if (!(await acknowledgeButton(i))) {
+        await safeReleaseDuelLock(duelLock);
+        collector.stop('stale-interaction');
+        return;
+      }
       settled = true;
       collector.stop('settled');
 
@@ -331,6 +356,12 @@ async function runWager(message, challenger, target, stake) {
         await safeReleaseDuelLock(duelLock);
       }
     } catch (err) {
+      if (isUnknownInteraction(err)) {
+        await safeReleaseDuelLock(duelLock);
+        collector.stop('stale-interaction');
+        return;
+      }
+      await safeReleaseDuelLock(duelLock);
       console.error('[wager]', err);
       await challengeMsg.channel.send('Something went wrong running the wager.').catch(() => {});
     }
@@ -438,11 +469,18 @@ async function execute(message) {
     collector.on('collect', async (i) => {
       try {
         if (i.user.id !== target.id) {
-          await i.reply({ content: 'Only the challenged player can respond.', flags: MessageFlags.Ephemeral });
+          await i.reply({ content: 'Only the challenged player can respond.', flags: MessageFlags.Ephemeral })
+            .catch((err) => {
+              if (!isUnknownInteraction(err)) throw err;
+            });
           return;
         }
-        if (settled) { await i.deferUpdate().catch(() => {}); return; }
-        await i.deferUpdate();
+        if (settled) { await acknowledgeButton(i); return; }
+        if (!(await acknowledgeButton(i))) {
+          await safeReleaseDuelLock(duelLock);
+          collector.stop('stale-interaction');
+          return;
+        }
         settled = true;
         collector.stop('settled');
 
@@ -524,6 +562,12 @@ async function execute(message) {
           await safeReleaseDuelLock(duelLock);
         }
       } catch (err) {
+        if (isUnknownInteraction(err)) {
+          await safeReleaseDuelLock(duelLock);
+          collector.stop('stale-interaction');
+          return;
+        }
+        await safeReleaseDuelLock(duelLock);
         console.error('[duel]', err);
         // commit precedes render: a failure before COMMIT changed nothing; a
         // render failure after COMMIT already recorded the result.
