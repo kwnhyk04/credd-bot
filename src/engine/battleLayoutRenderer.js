@@ -27,7 +27,15 @@ for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
   }
 }
 
+function positiveIntEnv(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+const BATTLE_BASE_CACHE_MAX_ENTRIES = positiveIntEnv('BATTLE_BASE_CACHE_MAX_ENTRIES', 12);
 const skinCache = new Map(); // skin path -> { signature, promise }
+const battleBaseCache = new Map(); // skin path -> { signature, canvas, bytes, lastUsed }
+let battleBaseCacheBytes = 0;
 const warned = new Set();
 
 function warnOnce(key, message) {
@@ -60,6 +68,64 @@ function validateLayout(layout) {
   return true;
 }
 
+function estimateCanvasBytes(canvas) {
+  return Math.max(1, (Number(canvas?.width) || 0) * (Number(canvas?.height) || 0) * 4);
+}
+
+function trimBattleBaseCache() {
+  while (battleBaseCache.size > BATTLE_BASE_CACHE_MAX_ENTRIES) {
+    const oldest = battleBaseCache.entries().next().value;
+    if (!oldest) break;
+    battleBaseCache.delete(oldest[0]);
+    battleBaseCacheBytes -= oldest[1].bytes;
+  }
+}
+
+function cacheBattleBase(key, signature, canvas) {
+  const existing = battleBaseCache.get(key);
+  if (existing) {
+    battleBaseCache.delete(key);
+    battleBaseCacheBytes -= existing.bytes;
+  }
+  const entry = {
+    signature,
+    canvas,
+    bytes: estimateCanvasBytes(canvas),
+    lastUsed: Date.now(),
+  };
+  battleBaseCache.set(key, entry);
+  battleBaseCacheBytes += entry.bytes;
+  trimBattleBaseCache();
+  return canvas;
+}
+
+function cachedBattleBase(key, signature) {
+  const entry = battleBaseCache.get(key);
+  if (!entry) return null;
+  if (entry.signature !== signature) {
+    battleBaseCache.delete(key);
+    battleBaseCacheBytes -= entry.bytes;
+    return null;
+  }
+  entry.lastUsed = Date.now();
+  battleBaseCache.delete(key);
+  battleBaseCache.set(key, entry);
+  return entry.canvas;
+}
+
+function clearBattleBaseCache() {
+  battleBaseCache.clear();
+  battleBaseCacheBytes = 0;
+}
+
+function getBattleBaseCacheStats() {
+  return {
+    entries: battleBaseCache.size,
+    maxEntries: BATTLE_BASE_CACHE_MAX_ENTRIES,
+    bytes: battleBaseCacheBytes,
+  };
+}
+
 /** Load and cache a skin image together with its own colocated layout. */
 async function loadBattleSkin(skinPath) {
   if (!skinPath) return null;
@@ -82,7 +148,7 @@ async function loadBattleSkin(skinPath) {
       return null;
     }
     const image = await loadAssetImageSource(loadImage, skinPath);
-    return { image, layout, skinPath, configPath };
+    return { image, layout, skinPath, configPath, signature };
   })().catch((err) => {
     warnOnce(configPath, `[battleLayout] failed to load ${path.basename(skinPath)}: ${err.message}; using default battle render.`);
     return null;
@@ -280,6 +346,34 @@ function drawRect(ctx, rect) {
   }
 }
 
+function drawStaticBattleBase(ctx, skin) {
+  const layout = skin.layout;
+  ctx.drawImage(skin.image, 0, 0, layout.canvas.w, layout.canvas.h);
+
+  drawRect(ctx, layout.surface);
+  if (layout.divider && Number.isFinite(layout.divider.y)) {
+    ctx.fillStyle = layout.divider.color || 'rgba(255,255,255,0.12)';
+    ctx.fillRect(
+      Number(layout.divider.x) || 0,
+      layout.divider.y,
+      Number(layout.divider.w) || layout.canvas.w,
+      Math.max(1, Number(layout.divider.h) || 1)
+    );
+  }
+}
+
+function battleBaseCanvas(skin) {
+  const layout = skin.layout;
+  const key = skin.skinPath || skin.configPath;
+  const signature = skin.signature || key;
+  const cached = key ? cachedBattleBase(key, signature) : null;
+  if (cached) return cached;
+
+  const base = createCanvas(layout.canvas.w, layout.canvas.h);
+  drawStaticBattleBase(base.getContext('2d'), skin);
+  return key ? cacheBattleBase(key, signature, base) : base;
+}
+
 function drawAction(ctx, action, style) {
   if (!style || !action) return;
   if (style.title) drawFittedText(ctx, action.title || 'Ready', style.title);
@@ -293,18 +387,7 @@ function renderBattleSkinPanel(sim, snapIdx, skin, { mode = sim.mode, icons = nu
   const state = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
   const canvas = createCanvas(layout.canvas.w, layout.canvas.h);
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(skin.image, 0, 0, layout.canvas.w, layout.canvas.h);
-
-  drawRect(ctx, layout.surface);
-  if (layout.divider && Number.isFinite(layout.divider.y)) {
-    ctx.fillStyle = layout.divider.color || 'rgba(255,255,255,0.12)';
-    ctx.fillRect(
-      Number(layout.divider.x) || 0,
-      layout.divider.y,
-      Number(layout.divider.w) || layout.canvas.w,
-      Math.max(1, Number(layout.divider.h) || 1)
-    );
-  }
+  ctx.drawImage(battleBaseCanvas(skin), 0, 0);
 
   if (isStyle(layout.header)) {
     const label = mode === 'duel' ? `DUEL • TURN ${state.round}` : `BATTLE • TURN ${state.round}`;
@@ -324,4 +407,6 @@ module.exports = {
   validateLayout,
   loadBattleSkin,
   renderBattleSkinPanel,
+  clearBattleBaseCache,
+  getBattleBaseCacheStats,
 };

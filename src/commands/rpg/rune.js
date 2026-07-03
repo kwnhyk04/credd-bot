@@ -8,7 +8,6 @@
 
 const {
   ContainerBuilder,
-  AttachmentBuilder,
   MessageFlags,
   ButtonBuilder,
   ButtonStyle,
@@ -17,8 +16,6 @@ const {
 const pool = require('../../db/pool');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emoji } = require('../../utils/emojis');
-const { assetPath } = require('../../utils/assets');
-const { renderBagItemsImage } = require('../../engine/renderBagItems');
 const { BAGS, runeEmoji, runeDescription } = require('../../config/runes');
 
 const LANE_WORD = { offense: 'Offensive', defense: 'Defensive' };
@@ -54,23 +51,19 @@ async function runeBag(message) {
   );
   const bag = rows[0] || {};
 
-  const items = Object.entries(BAGS).map(([key, b]) => ({
-    emojiName: b.emojiName,
-    iconPath: assetPath(`items/rune bag/${key}_bag.png`),
-    name: b.display,
-    cmd: `crd open ${b.alias}`,
-    count: bag[b.column] ?? 0,
-  }));
-  const buffer = await renderBagItemsImage(items);
-  const file = new AttachmentBuilder(buffer, { name: 'rune_bags.png' });
+  const rowsText = Object.entries(BAGS)
+    .map(([, b]) =>
+      `\`${b.alias}\` ${emoji(b.emojiName)} **${b.display}** - **${Number(bag[b.column] ?? 0).toLocaleString()}**`
+    )
+    .join('\n');
 
   const container = new ContainerBuilder().setAccentColor(BRAND);
   container.addTextDisplayComponents((td) => td.setContent(`## ${emoji('rune_icon')} <@${discordId}>'s Rune Bags`));
   container.addTextDisplayComponents((td) => td.setContent('-# Buy bags in `crd essence shop`. Open with `crd open lb/gb/db [amount]` (max 10).'));
   container.addSeparatorComponents(sep);
-  container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL('attachment://rune_bags.png')));
+  container.addTextDisplayComponents((td) => td.setContent(rowsText));
 
-  return reply(message, { components: [container], files: [file], flags: MessageFlags.IsComponentsV2 });
+  return reply(message, { components: [container], flags: MessageFlags.IsComponentsV2 });
 }
 
 async function fetchRunes(discordId, requestedPage, rawLane = 'offense') {

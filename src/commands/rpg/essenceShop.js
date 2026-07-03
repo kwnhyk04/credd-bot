@@ -12,13 +12,11 @@
  */
 
 const {
-  ContainerBuilder, AttachmentBuilder, MessageFlags,
+  ContainerBuilder, MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emoji } = require('../../utils/emojis');
-const { assetPath } = require('../../utils/assets');
-const { renderBagItemsImage } = require('../../engine/renderBagItems');
 const { ESSENCE_SHOP } = require('../../config/runes');
 
 const BRAND = 0x9b59b6;
@@ -33,25 +31,12 @@ async function buildEssenceShop(viewerId) {
   const coin = emoji('credux_coin');
 
   // Boxed-row canvas: id (left) · image · name, with the exchange cost right-aligned.
-  const items = ESSENCE_SHOP.map((it) => {
+  const rowsText = ESSENCE_SHOP.map((it) => {
     const isBag = it.grant.column.endsWith('_rune_bag');
     const bagKey = isBag ? it.grant.column.replace('_rune_bag', '') : null;
-    return {
-      idLabel: String(it.id),
-      iconPath: isBag ? assetPath(`items/rune bag/${bagKey}_bag.png`) : null,
-      emojiName: isBag ? `${bagKey}_bag` : it.emojiName,
-      name: it.name,
-      // Fixed-font cost with inline emoji icons: <amt> <essence> + <credux> <coin>.
-      rightSegments: [
-        { text: `${it.cost.amount} ` },
-        { emojiName: `${it.cost.essence}_essence` },
-        { text: ` + ${it.cost.credux.toLocaleString()} ` },
-        { emojiName: 'credux_coin' },
-      ],
-    };
-  });
-  const buffer = await renderBagItemsImage(items);
-  const file = new AttachmentBuilder(buffer, { name: 'essence_shop.png' });
+    const iconName = isBag ? `${bagKey}_bag` : it.emojiName;
+    return `\`${it.id}\` ${emoji(iconName)} **${it.name}** - **${it.cost.amount}** ${emoji(`${it.cost.essence}_essence`)} + ${coin} **${it.cost.credux.toLocaleString()}**`;
+  }).join('\n');
 
   const container = new ContainerBuilder().setAccentColor(BRAND);
   container.addTextDisplayComponents((td) => td.setContent(`## ${emoji('general_essence')} Essence Shop`));
@@ -60,7 +45,7 @@ async function buildEssenceShop(viewerId) {
     + 'Essence tier-ups moved to `crd exchange essence`.'
   ));
   container.addSeparatorComponents(sep);
-  container.addMediaGalleryComponents((g) => g.addItems((i) => i.setURL('attachment://essence_shop.png')));
+  container.addTextDisplayComponents((td) => td.setContent(rowsText));
   container.addSeparatorComponents(sep);
   container.addTextDisplayComponents((td) => td.setContent(
     `-# Your essence — `
@@ -69,7 +54,7 @@ async function buildEssenceShop(viewerId) {
     + `${coin} ${Number(bag.credux ?? 0).toLocaleString()}`
   ));
 
-  return { components: [container], files: [file], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
+  return { components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
 }
 
 async function execute(message, { args }) {

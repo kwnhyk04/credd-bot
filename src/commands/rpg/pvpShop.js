@@ -3,8 +3,8 @@
 /**
  * pvpShop.js — `crd pvp shop` + `crd pvp buy <id> [qty]` (Phase 6, §D).
  *
- * The Valor Medal sink. Same canvas/Components-V2 styling as `crd essence shop`
- * (renderBagItemsImage rows). Three items, each with a PER-SEASON purchase cap
+ * The Valor Medal sink. Same Components-V2 text-row styling as `crd essence shop`.
+ * Three items, each with a PER-SEASON purchase cap
  * tracked in pvp_shop_purchases (keyed by the active season_id, so caps reset every
  * season). Buying is `crd pvp buy <id> [qty]`, validated + applied atomically.
  *
@@ -13,12 +13,11 @@
  */
 
 const {
-  ContainerBuilder, AttachmentBuilder, MessageFlags,
+  ContainerBuilder, MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emoji } = require('../../utils/emojis');
-const { renderBagItemsImage } = require('../../engine/renderBagItems');
 const { activeSeason } = require('../../engine/seasonEngine');
 
 const BRAND = 0xf0b232;
@@ -64,21 +63,10 @@ async function buildShop(viewerId) {
   const { valor, purchased } = await fetchState(viewerId, season?.season_id);
   const medal = emoji('valor_medal');
 
-  const items = SHOP.map((it) => {
+  const rowsText = SHOP.map((it) => {
     const bought = purchased[it.key] || 0;
-    return {
-      idLabel: String(it.id),
-      emojiName: it.emojiName,
-      name: it.name,
-      cmd: `season ${bought}/${it.cap}`,
-      rightSegments: [
-        { text: `${it.price.toLocaleString()} ` },
-        { emojiName: 'valor_medal' },
-      ],
-    };
-  });
-  const buffer = await renderBagItemsImage(items);
-  const file = new AttachmentBuilder(buffer, { name: 'pvp_shop.png' });
+    return `\`${it.id}\` ${emoji(it.emojiName)} **${it.name}** - season **${bought}/${it.cap}** - ${medal} **${it.price.toLocaleString()}**`;
+  }).join('\n');
 
   const container = new ContainerBuilder().setAccentColor(BRAND);
   container.addTextDisplayComponents((td) => td.setContent(`## ${medal} PvP Shop`));
@@ -86,7 +74,7 @@ async function buildShop(viewerId) {
     '-# Spend Valor Medals — buy with `crd pvp buy <id> [qty]`. Caps reset each season.'
   ));
   container.addSeparatorComponents(sep);
-  container.addMediaGalleryComponents((g) => g.addItems((i) => i.setURL('attachment://pvp_shop.png')));
+  container.addTextDisplayComponents((td) => td.setContent(rowsText));
   container.addSeparatorComponents(sep);
   container.addTextDisplayComponents((td) => td.setContent(
     `-# Your balance — ${medal} **${valor.toLocaleString()}** Valor Medals`
@@ -95,7 +83,7 @@ async function buildShop(viewerId) {
   container.addSeparatorComponents(sep);
   container.addTextDisplayComponents((td) => td.setContent(SHOP_QUOTE));
 
-  return { components: [container], files: [file], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
+  return { components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
 }
 
 /** `crd pvp buy <id> [qty]` — atomic Valor spend with per-season cap enforcement. */

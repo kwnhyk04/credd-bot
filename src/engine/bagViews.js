@@ -26,9 +26,6 @@ const {
 const pool = require('../db/pool');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji } = require('../utils/emojis');
-const { assetPath } = require('../utils/assets');
-const { makeOptimizedAttachment } = require('../utils/imageOutput');
-const { renderBagItemsImage } = require('./renderBagItems');
 const { CHESTS: CHEST_DROPS } = require('../config/dropRates');
 
 // [Jun-2026 §7] help_icon custom emoji for the interactive "?" on the chests view.
@@ -49,8 +46,8 @@ const CHESTS = [
 ];
 
 const RELICS = [
-  { name: 'Sacred Relic',  emojiName: 'sacred_relic',  countKey: 'sacred',  openCmd: 'crd open sr' },
-  { name: 'Supreme Relic', emojiName: 'supreme_relic', countKey: 'supreme', openCmd: 'crd open supr' },
+  { code: 'sr', name: 'Sacred Relic',  emojiName: 'sacred_relic',  countKey: 'sacred',  openCmd: 'crd open sr' },
+  { code: 'supr', name: 'Supreme Relic', emojiName: 'supreme_relic', countKey: 'supreme', openCmd: 'crd open supr' },
 ];
 
 function buildDropRatesButton(ownerId) {
@@ -74,18 +71,13 @@ function buildDropRatesButton(ownerId) {
  * }
  * ══════════════════════════════════════════ */
 async function buildBagOverview(user, data) {
-  // [v5 revamp] `crd bag` is a directory rendered in the SAME boxed-row canvas as
-  // `crd bag chests`: header → Credux + Belief Shards → boxed category rows (no footer).
-  const n = data.counts || {};
-  const items = [
-    { twemoji: '1f5e1', name: 'Weapons', cmd: 'crd bag weapons', count: Number(n.weapons || 0) }, // 🗡️ (header emoji)
-    { twemoji: '1f6e1', name: 'Armors',  cmd: 'crd bag armors',  count: Number(n.armors || 0) },  // 🛡️
-    { emojiName: 'general_chest',  name: 'Chests',   cmd: 'crd bag chests',  count: Number(n.chests || 0) },
-    { emojiName: 'bag',            name: 'Rune Bag', cmd: 'crd rune bag',    count: Number(n.runeBags || 0) },
-    { iconPath: assetPath('items/runes/rune_icon.png'),
-      emojiName: 'rune_icon', name: 'Runes', cmd: 'crd runes', count: Number(n.runes || 0) }, // [Phase 6] transparent local icon
+  const rows = [
+    `\u2694\uFE0F **Weapons**  -# \`crd bag weapons\``,
+    `\uD83D\uDEE1\uFE0F **Armors**  -# \`crd bag armors\``,
+    `${emoji('general_chest')} **Chests**  -# \`crd bag chests\``,
+    `${emoji('bag')} **Rune Bag**  -# \`crd rune bag\``,
+    `${emoji('rune_icon')} **Runes**  -# \`crd runes\``,
   ];
-  const image = await makeOptimizedAttachment(await renderBagItemsImage(items), 'bag_overview');
 
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
@@ -98,11 +90,10 @@ async function buildBagOverview(user, data) {
       )
     )
     .addSeparatorComponents(sep)
-    .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(image.url)));
+    .addTextDisplayComponents((td) => td.setContent(rows.join('\n')));
 
   return {
     components: [container],
-    files: [image.file],
     flags: MessageFlags.IsComponentsV2,
     allowedMentions: { parse: [] },
   };
@@ -117,11 +108,14 @@ async function buildBagOverview(user, data) {
  * counts = { sc, gc, btc, bgtc, supc, sacred, supreme }
  * ══════════════════════════════════════════ */
 async function buildChestsView(user, counts) {
-  const items = [
-    ...CHESTS.map((c) => ({ emojiName: c.emojiName, name: c.name, count: counts[c.code] ?? 0, cmd: c.openCmd })),
-    ...RELICS.map((r) => ({ emojiName: r.emojiName, name: r.name, count: counts[r.countKey] ?? 0, cmd: r.openCmd })),
+  const rows = [
+    ...CHESTS.map((c) =>
+      `\`${c.code}\` ${emoji(c.emojiName)} **${c.name}** - **${Number(counts[c.code] ?? 0).toLocaleString()}**`
+    ),
+    ...RELICS.map((r) =>
+      `\`${r.code}\` ${emoji(r.emojiName)} **${r.name}** - **${Number(counts[r.countKey] ?? 0).toLocaleString()}**`
+    ),
   ];
-  const image = await makeOptimizedAttachment(await renderBagItemsImage(items), 'bag_chests');
 
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
@@ -131,9 +125,7 @@ async function buildChestsView(user, counts) {
       .setButtonAccessory(buildDropRatesButton(user.id)))
     .addSeparatorComponents(sep)
     // ── Body: rendered boxed rows ──
-    .addMediaGalleryComponents((g) =>
-      g.addItems((item) => item.setURL(image.url))
-    )
+    .addTextDisplayComponents((td) => td.setContent(rows.join('\n')))
     .addSeparatorComponents(sep)
     // ── Footer ──
     .addTextDisplayComponents((td) =>
@@ -142,7 +134,6 @@ async function buildChestsView(user, counts) {
 
   return {
     components: [container],
-    files: [image.file],
     flags: MessageFlags.IsComponentsV2,
     allowedMentions: { parse: [] },
   };
