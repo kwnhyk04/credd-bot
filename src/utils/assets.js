@@ -4,6 +4,98 @@ const fs = require('fs');
 const path = require('path');
 
 const ASSETS_ROOT = path.join(process.cwd(), 'assets');
+const CACHE_MAX_ENTRIES = Math.max(1, Number(process.env.ASSET_CACHE_MAX_ENTRIES || 256));
+const CACHE_MAX_BYTES = Math.max(1024 * 1024, Number(process.env.ASSET_CACHE_MAX_MB || 128) * 1024 * 1024);
+const CACHE_TTL_MS = Math.max(0, Number(process.env.ASSET_CACHE_TTL_MS || 0));
+
+const bufferCache = new Map();
+const imageCache = new Map();
+let cacheBytes = 0;
+const cacheStats = {
+  bufferHits: 0,
+  bufferMisses: 0,
+  imageHits: 0,
+  imageMisses: 0,
+  evictions: 0,
+};
+
+function cacheEntryCount() {
+  return bufferCache.size + imageCache.size;
+}
+
+function estimateImageBytes(image) {
+  const w = Number(image?.width) || 0;
+  const h = Number(image?.height) || 0;
+  return Math.max(1, w * h * 4);
+}
+
+function cacheGet(cache, key, hitStat) {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (CACHE_TTL_MS && Date.now() - entry.createdAt > CACHE_TTL_MS) {
+    cache.delete(key);
+    cacheBytes -= entry.size;
+    return null;
+  }
+  cacheStats[hitStat] += 1;
+  entry.lastUsed = Date.now();
+  cache.delete(key);
+  cache.set(key, entry);
+  return entry.value;
+}
+
+function oldestEntry() {
+  const b = bufferCache.entries().next().value;
+  const i = imageCache.entries().next().value;
+  if (!b) return i ? { cache: imageCache, key: i[0], entry: i[1] } : null;
+  if (!i) return { cache: bufferCache, key: b[0], entry: b[1] };
+  return b[1].lastUsed <= i[1].lastUsed
+    ? { cache: bufferCache, key: b[0], entry: b[1] }
+    : { cache: imageCache, key: i[0], entry: i[1] };
+}
+
+function trimCache() {
+  while (cacheBytes > CACHE_MAX_BYTES || cacheEntryCount() > CACHE_MAX_ENTRIES) {
+    const old = oldestEntry();
+    if (!old) break;
+    old.cache.delete(old.key);
+    cacheBytes -= old.entry.size;
+    cacheStats.evictions += 1;
+  }
+}
+
+function cacheSet(cache, key, value, size) {
+  if (!value || size > CACHE_MAX_BYTES) return value;
+  const existing = cache.get(key);
+  if (existing) {
+    cache.delete(key);
+    cacheBytes -= existing.size;
+  }
+  const now = Date.now();
+  cache.set(key, { value, size, createdAt: now, lastUsed: now });
+  cacheBytes += size;
+  trimCache();
+  return value;
+}
+
+function clearAssetCache() {
+  bufferCache.clear();
+  imageCache.clear();
+  cacheBytes = 0;
+}
+
+function getAssetCacheStats() {
+  return {
+    ...cacheStats,
+    bufferEntries: bufferCache.size,
+    imageEntries: imageCache.size,
+    entries: cacheEntryCount(),
+    bytes: cacheBytes,
+    maxEntries: CACHE_MAX_ENTRIES,
+    maxBytes: CACHE_MAX_BYTES,
+    ttlMs: CACHE_TTL_MS,
+  };
+}
 
 function cleanAssetPath(relativePath) {
   return String(relativePath || '')
@@ -33,6 +125,12 @@ function assetPath(relativePath) {
   const baseUrl = assetBaseUrl();
   if (baseUrl) return versionedAssetUrl(`${baseUrl}/${cleanPath}`);
   return path.join(ASSETS_ROOT, ...cleanPath.split('/').filter(Boolean));
+}
+
+function getAssetUrl(relativePath) {
+  const baseUrl = assetBaseUrl();
+  if (!baseUrl) throw new Error('ASSET_BASE_URL is missing');
+  return versionedAssetUrl(`${baseUrl}/${cleanAssetPath(relativePath)}`);
 }
 
 function localAssetPath(relativePath) {
@@ -97,21 +195,30 @@ function assetSource(source) {
 
 async function fetchAssetBuffer(source) {
   const resolved = assetSource(source);
+  const cached = cacheGet(bufferCache, resolved, 'bufferHits');
+  if (cached) return cached;
+  cacheStats.bufferMisses += 1;
+
   if (isRemoteSource(resolved)) {
     try {
       const res = await fetch(resolved);
       if (!res.ok) throw new Error(`Asset fetch failed ${res.status}: ${resolved}`);
-      return Buffer.from(await res.arrayBuffer());
+      const buffer = Buffer.from(await res.arrayBuffer());
+      return cacheSet(bufferCache, resolved, buffer, buffer.length);
     } catch (err) {
       const rel = relativeAssetPath(resolved);
       const fallback = rel ? localAssetPath(rel) : null;
       if (fallback) {
-        try { return await fs.promises.readFile(fallback); } catch { /* throw original error */ }
+        try {
+          const buffer = await fs.promises.readFile(fallback);
+          return cacheSet(bufferCache, resolved, buffer, buffer.length);
+        } catch { /* throw original error */ }
       }
       throw err;
     }
   }
-  return fs.promises.readFile(resolved);
+  const buffer = await fs.promises.readFile(resolved);
+  return cacheSet(bufferCache, resolved, buffer, buffer.length);
 }
 
 async function attachmentSource(source) {
@@ -130,16 +237,35 @@ async function readAssetJson(source) {
 
 async function loadAssetImage(loadImageFn, source) {
   const resolved = assetSource(source);
+  const cached = cacheGet(imageCache, resolved, 'imageHits');
+  if (cached) return cached;
+  cacheStats.imageMisses += 1;
+
   try {
-    return await loadImageFn(resolved);
+    const image = isRemoteSource(resolved)
+      ? await loadImageFn(await fetchAssetBuffer(resolved))
+      : await loadImageFn(resolved);
+    return cacheSet(imageCache, resolved, image, estimateImageBytes(image));
   } catch (err) {
     if (isRemoteSource(resolved)) {
       const rel = relativeAssetPath(resolved);
       const fallback = rel ? localAssetPath(rel) : null;
-      if (fallback && fs.existsSync(fallback)) return loadImageFn(fallback);
+      if (fallback && fs.existsSync(fallback)) {
+        const image = await loadImageFn(fallback);
+        return cacheSet(imageCache, resolved, image, estimateImageBytes(image));
+      }
     }
     throw err;
   }
+}
+
+const loadCachedBuffer = fetchAssetBuffer;
+async function loadCachedImage(loadImageFnOrSource, maybeSource) {
+  if (typeof loadImageFnOrSource === 'function') {
+    return loadAssetImage(loadImageFnOrSource, maybeSource);
+  }
+  const { loadImage } = require('@napi-rs/canvas');
+  return loadAssetImage(loadImage, loadImageFnOrSource);
 }
 
 async function assetExists(source) {
@@ -168,6 +294,7 @@ function assetSignatureSync(source) {
 module.exports = {
   ASSETS_ROOT,
   assetPath,
+  getAssetUrl,
   assetFileName,
   assetExtension,
   assetSource,
@@ -175,13 +302,17 @@ module.exports = {
   localAssetPath,
   relativeAssetPath,
   fetchAssetBuffer,
+  loadCachedBuffer,
   attachmentSource,
   readAssetText,
   readAssetJson,
   loadAssetImage,
+  loadCachedImage,
   assetExists,
   assetExistsSync,
   assetSignatureSync,
+  clearAssetCache,
+  getAssetCacheStats,
   isRemoteSource,
   isRemoteAssetsEnabled,
 };

@@ -34,6 +34,7 @@ const {
   assetExtension,
   attachmentSource,
   isRemoteAssetsEnabled,
+  isRemoteSource,
 } = require('../utils/assets');
 
 const BRAND = 0x9b59b6;
@@ -193,8 +194,12 @@ async function buildPreview(db, viewerId, { page = 0, idx = 0, ctx = 'shop', var
   const abs = previewFile(skin, variant);
   if (abs) {
     const name = `skinpv_${skin.cosmetic_id}_${variant}.${assetExtension(abs, 'png')}`;
-    files.push(new AttachmentBuilder(await attachmentSource(abs), { name }));
-    container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(`attachment://${name}`)));
+    if (isRemoteSource(abs)) {
+      container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(abs)));
+    } else {
+      files.push(new AttachmentBuilder(await attachmentSource(abs), { name }));
+      container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(`attachment://${name}`)));
+    }
   } else {
     container.addTextDisplayComponents((td) => td.setContent('*No preview image available.*'));
   }

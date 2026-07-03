@@ -29,6 +29,7 @@ const {
   assetExistsSync,
   assetExtension,
   attachmentSource,
+  isRemoteSource,
   loadAssetImage: loadAssetImageSource,
 } = require('../utils/assets');
 const { getEmojiIcon } = require('./renderBagItems');
@@ -227,19 +228,21 @@ async function buildFlipMessage(flipPath = null) {
   const src = flipPath || FLIP_GIF_PATH;
   const ext = assetExtension(src, 'gif');
   const name = `card_flip.${ext}`;
-  const flip = new AttachmentBuilder(await attachmentSource(src), { name });
+  const remote = isRemoteSource(src);
+  const mediaUrl = remote ? src : `attachment://${name}`;
+  const files = remote ? [] : [new AttachmentBuilder(await attachmentSource(src), { name })];
 
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
     .addTextDisplayComponents((td) => td.setContent('## ✨ Invocation in progress...'))
     .addSeparatorComponents(sep)
     .addMediaGalleryComponents((g) =>
-      g.addItems((item) => item.setURL(`attachment://${name}`))
+      g.addItems((item) => item.setURL(mediaUrl))
     );
 
   return {
     components: [container],
-    files: [flip],
+    files,
     flags: MessageFlags.IsComponentsV2,
   };
 }

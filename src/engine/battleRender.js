@@ -427,7 +427,33 @@ async function renderRewardsPanel(sim, r) {
 /* ----------------------------------------------------------------------- */
 /* EMBEDS + ANIMATION                                                       */
 /* ----------------------------------------------------------------------- */
-function battleEmbed(sim, snapIdx, { mode }) {
+function fmtHp(side) {
+  return `${Math.max(0, Number(side.hp || 0)).toLocaleString()} / ${Number(side.maxHp || 0).toLocaleString()} HP`;
+}
+
+function statusText(side) {
+  const debuffs = Array.isArray(side.debuffs) ? side.debuffs : [];
+  if (!debuffs.length) return 'No active status';
+  return debuffs
+    .slice(0, 4)
+    .map((d) => `${ACTION_TAG_LABELS[d.tag] || d.tag} ${d.turnsLeft}`)
+    .join(' · ');
+}
+
+function battleTextSummary(sim, snapIdx, over) {
+  const s = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
+  const lines = [
+    `**${sim.a.name}** - ${fmtHp(s.a)}`,
+    `-# ${s.actions?.a?.title || 'Ready'}: ${s.actions?.a?.detail || 'Awaiting action'} · ${statusText(s.a)}`,
+    '',
+    `**${sim.b.name}** - ${fmtHp(s.b)}`,
+    `-# ${s.actions?.b?.title || 'Ready'}: ${s.actions?.b?.detail || 'Awaiting action'} · ${statusText(s.b)}`,
+  ];
+  if (over) lines.push('', '**Battle Over**');
+  return lines.join('\n');
+}
+
+function battleEmbed(sim, snapIdx, { mode, includeImage = true }) {
   const s = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
   const over = snapIdx >= sim.snapshots.length - 1;
   const playerWon = sim.winner === 'a';
@@ -453,8 +479,8 @@ function battleEmbed(sim, snapIdx, { mode }) {
   const e = new EmbedBuilder()
     .setColor(color)
     .setTitle(title)
-    .setDescription(`Turn ${s.round} ${over ? ' ‎ **\`Battle Over\`**' : ''}`)
-    .setImage('attachment://battle.png');
+    .setDescription(battleTextSummary(sim, snapIdx, over));
+  if (includeImage) e.setImage('attachment://battle.png');
   if (over && line) e.addFields({ name: '​', value: line });
   // raid result + rewards live in a SECOND embed below this one (runBattle) —
   // fields/description here would render above the image
@@ -547,24 +573,27 @@ async function runBattle(channel, {
 
   const frame = (i) => {
     const over = i >= sim.snapshots.length - 1;
-    const base = battleEmbed(sim, i, { mode });
+    const base = battleEmbed(sim, i, { mode, includeImage: over });
     // Phase 6: ranked threads its result into the embed — the tier matchup in the
     // HEADER (author, top), the outcome + rating move + Valor in the FOOTER (bottom).
     if (over && header) base.setAuthor({ name: header });
     if (over && footer) base.setFooter({ text: footer });
     const showRewards = over && resultEmbed;
+    const files = over
+      ? [
+          new AttachmentBuilder(
+            renderBattlePanel(sim, i, { mirror, icons, skin, mode }),
+            { name: 'battle.png' }
+          ),
+          ...(showRewards
+            ? [new AttachmentBuilder(rewardsBuffer, { name: 'rewards.png' })]
+            : []),
+        ]
+      : [];
     return {
       content: over && noticeLine ? noticeLine : '',
       embeds: showRewards ? [base, resultEmbed] : [base],
-      files: [
-        new AttachmentBuilder(
-          renderBattlePanel(sim, i, { mirror, icons, skin, mode }),
-          { name: 'battle.png' }
-        ),
-        ...(showRewards
-          ? [new AttachmentBuilder(rewardsBuffer, { name: 'rewards.png' })]
-          : []),
-      ],
+      files,
       attachments: [], // required to drop the previous panel image on edit
       components: over ? [buttons()] : [],
     };

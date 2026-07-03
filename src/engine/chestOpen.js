@@ -22,7 +22,13 @@ const { renderWeaponResults, TIERS } = require('./weaponResultRenderer');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji } = require('../utils/emojis');
 const { capitalizeLower } = require('../utils/textFormat');
-const { assetPath, assetExistsSync, assetFileName, attachmentSource } = require('../utils/assets');
+const {
+  assetPath,
+  assetExistsSync,
+  assetFileName,
+  attachmentSource,
+  isRemoteSource,
+} = require('../utils/assets');
 
 const ANIMATION_MS = 3000; // matches the ~2.5s GIFs + buffer
 
@@ -83,6 +89,8 @@ function resolveGif(gifKey, gifPath) {
 /** Animation-phase container: header → separator → the chest gif. */
 async function animationPayload(gifKey, animTitle, gifPath) {
   const g = resolveGif(gifKey, gifPath);
+  const remote = isRemoteSource(g.src);
+  const mediaUrl = remote ? g.src : `attachment://${g.name}`;
   const container = new ContainerBuilder()
     .setAccentColor(0xf0b232)
     .addTextDisplayComponents((td) =>
@@ -90,11 +98,11 @@ async function animationPayload(gifKey, animTitle, gifPath) {
     )
     .addSeparatorComponents(sep)
     .addMediaGalleryComponents((gal) =>
-      gal.addItems((item) => item.setURL(`attachment://${g.name}`))
+      gal.addItems((item) => item.setURL(mediaUrl))
     );
   return {
     components: [container],
-    files: [new AttachmentBuilder(await attachmentSource(g.src), { name: g.name })],
+    files: remote ? [] : [new AttachmentBuilder(await attachmentSource(g.src), { name: g.name })],
     flags: MessageFlags.IsComponentsV2,
     allowedMentions: { repliedUser: false },
   };

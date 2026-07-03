@@ -53,6 +53,7 @@ const { grantTitles } = require('../utils/titleGrant');
 const {
   assetPath,
   isRemoteAssetsEnabled,
+  isRemoteSource,
   loadAssetImage: loadAssetImageSource,
   localAssetPath,
   readAssetText,
@@ -356,8 +357,8 @@ async function fetchBossView(guildId) {
 
 /**
  * Full CV2 payload (components + files + flags) for the current view.
- * Layout: "## <Boss>" header → separator → banner image → status card
- * (raid-card style canvas: name/Lv/HP, passive, %-colored HP bar, stats) →
+ * Layout: "## <Boss>" header → separator → banner image → active text status
+ * (terminal views also include one final raid-card style canvas) →
  * separator → lore → separator → rewards → separator → Top 15 → separator →
  * footer + buttons.
  */
@@ -388,23 +389,45 @@ async function buildBossMessage({ state, mobRow, attackers, attackerCount, isDev
   // column — filename derived by convention)
   const files = [];
   const imgPath = bossImagePath(mobRow.name);
-  const banner = imgPath ? await bossBanner(imgPath) : null;
-  if (banner) {
-    files.push(new AttachmentBuilder(banner, { name: 'boss_banner.png' }));
+  if (imgPath && isRemoteSource(imgPath)) {
     container.addMediaGalleryComponents((g) =>
-      g.addItems((item) => item.setURL('attachment://boss_banner.png'))
+      g.addItems((item) => item.setURL(imgPath))
     );
+  } else {
+    const banner = imgPath ? await bossBanner(imgPath) : null;
+    if (banner) {
+      files.push(new AttachmentBuilder(banner, { name: 'boss_banner.png' }));
+      container.addMediaGalleryComponents((g) =>
+        g.addItems((item) => item.setURL('attachment://boss_banner.png'))
+      );
+    }
   }
 
-  // status card directly under the image — same width, raid-card style
-  try {
-    const card = renderBossStatusCard(state, mobRow);
-    files.push(new AttachmentBuilder(card, { name: 'boss_status.png' }));
-    container.addMediaGalleryComponents((g) =>
-      g.addItems((item) => item.setURL('attachment://boss_status.png'))
-    );
-  } catch (err) {
-    console.warn('[boss] status card render failed:', err.message);
+  // Active refreshes stay text-only; terminal boss messages get one final card.
+  const curHp = Number(state.current_hp);
+  const maxHp = Number(state.max_hp);
+  const hpPct = maxHp > 0 ? Math.max(0, Math.min(100, Math.round((curHp / maxHp) * 100))) : 0;
+  const passive = mobRow.skill_name && mobRow.skill_name !== '—'
+    ? `${mobRow.skill_name} - ${mobRow.skill_description}`
+    : (mobRow.skill_description || 'Basic attacks only.');
+  container
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(
+      `**HP:** ${curHp.toLocaleString()} / ${maxHp.toLocaleString()} (${hpPct}%)\n` +
+      `**Stats:** ATK ${Number(state.scaled_atk).toLocaleString()} · DEF ${Number(state.scaled_def).toLocaleString()} · CRIT ${Number(mobRow.base_crit).toFixed(1)}%\n` +
+      `-# Passive: ${passive}`
+    ));
+
+  if (status !== 'active') {
+    try {
+      const card = renderBossStatusCard(state, mobRow);
+      files.push(new AttachmentBuilder(card, { name: 'boss_status.png' }));
+      container.addMediaGalleryComponents((g) =>
+        g.addItems((item) => item.setURL('attachment://boss_status.png'))
+      );
+    } catch (err) {
+      console.warn('[boss] status card render failed:', err.message);
+    }
   }
 
   // lore — plain text wraps to the embed width on its own
@@ -438,7 +461,7 @@ async function buildBossMessage({ state, mobRow, attackers, attackerCount, isDev
       `${shardIcon} Belief Shards ×${reward.shards.toLocaleString()}`
     ));
 
-  // damage leaderboard (the HP pool lives on the status card now)
+  // damage leaderboard
   const lbRows = attackers.slice(0, TOP_N).map((a, i) =>
     `**#${i + 1}** · <@${a.discord_id}> · ${Number(a.total_damage).toLocaleString()}`);
   container
