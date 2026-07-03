@@ -427,32 +427,6 @@ async function renderRewardsPanel(sim, r) {
 /* ----------------------------------------------------------------------- */
 /* EMBEDS + ANIMATION                                                       */
 /* ----------------------------------------------------------------------- */
-function fmtHp(side) {
-  return `${Math.max(0, Number(side.hp || 0)).toLocaleString()} / ${Number(side.maxHp || 0).toLocaleString()} HP`;
-}
-
-function statusText(side) {
-  const debuffs = Array.isArray(side.debuffs) ? side.debuffs : [];
-  if (!debuffs.length) return 'No active status';
-  return debuffs
-    .slice(0, 4)
-    .map((d) => `${ACTION_TAG_LABELS[d.tag] || d.tag} ${d.turnsLeft}`)
-    .join(' · ');
-}
-
-function battleTextSummary(sim, snapIdx, over) {
-  const s = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
-  const lines = [
-    `**${sim.a.name}** - ${fmtHp(s.a)}`,
-    `-# ${s.actions?.a?.title || 'Ready'}: ${s.actions?.a?.detail || 'Awaiting action'} · ${statusText(s.a)}`,
-    '',
-    `**${sim.b.name}** - ${fmtHp(s.b)}`,
-    `-# ${s.actions?.b?.title || 'Ready'}: ${s.actions?.b?.detail || 'Awaiting action'} · ${statusText(s.b)}`,
-  ];
-  if (over) lines.push('', '**Battle Over**');
-  return lines.join('\n');
-}
-
 function battleEmbed(sim, snapIdx, { mode, includeImage = true }) {
   const s = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
   const over = snapIdx >= sim.snapshots.length - 1;
@@ -479,7 +453,7 @@ function battleEmbed(sim, snapIdx, { mode, includeImage = true }) {
   const e = new EmbedBuilder()
     .setColor(color)
     .setTitle(title)
-    .setDescription(battleTextSummary(sim, snapIdx, over));
+    .setDescription(`Turn ${s.round} ${over ? ' ‎ **\`Battle Over\`**' : ''}`);
   if (includeImage) e.setImage('attachment://battle.png');
   if (over && line) e.addFields({ name: '​', value: line });
   // raid result + rewards live in a SECOND embed below this one (runBattle) —
@@ -536,13 +510,14 @@ async function runBattle(channel, {
   battleSkinPath = null, resultSkinPath = null,
 }) {
   const mirror = mode === 'duel';
+  const showResultPanel = mode === 'raid';
   // STRICT outcome: resultSkinPath is the victory OR defeated canvas already
   // chosen by the caller (resolveSkin variant) — never both. A null/invalid
   // result skin falls through to the generic rewards strip below.
   const [icons, skin, resultSkin] = await Promise.all([
     prefetchIcons(sim).catch(() => null),
     loadBattleSkin(battleSkinPath),
-    loadResultSkin(resultSkinPath),
+    showResultPanel ? loadResultSkin(resultSkinPath) : Promise.resolve(null),
   ]);
 
   // result frame — rendered once, attached as a second embed on final frames.
@@ -550,14 +525,14 @@ async function runBattle(channel, {
   // rewards centered in its panel; otherwise the generic 640px strip is used.
   let resultEmbed = null;
   let rewardsBuffer = null;
-  if (resultSkin) {
+  if (showResultPanel && resultSkin) {
     rewardsBuffer = await renderResultPanel(sim, rewards, resultSkin, { loadIcon: getEmojiImage })
       .catch((err) => {
         console.warn('[battleRender] result skin panel:', err.message);
         return null;
       });
   }
-  if (!rewardsBuffer && rewards != null) {
+  if (showResultPanel && !rewardsBuffer && rewards != null) {
     rewardsBuffer = await renderRewardsPanel(sim, rewards).catch((err) => {
       console.warn('[battleRender] rewards panel:', err.message);
       return null;
@@ -573,23 +548,21 @@ async function runBattle(channel, {
 
   const frame = (i) => {
     const over = i >= sim.snapshots.length - 1;
-    const base = battleEmbed(sim, i, { mode, includeImage: over });
+    const base = battleEmbed(sim, i, { mode, includeImage: true });
     // Phase 6: ranked threads its result into the embed — the tier matchup in the
     // HEADER (author, top), the outcome + rating move + Valor in the FOOTER (bottom).
     if (over && header) base.setAuthor({ name: header });
     if (over && footer) base.setFooter({ text: footer });
     const showRewards = over && resultEmbed;
-    const files = over
-      ? [
-          new AttachmentBuilder(
-            renderBattlePanel(sim, i, { mirror, icons, skin, mode }),
-            { name: 'battle.png' }
-          ),
-          ...(showRewards
-            ? [new AttachmentBuilder(rewardsBuffer, { name: 'rewards.png' })]
-            : []),
-        ]
-      : [];
+    const files = [
+      new AttachmentBuilder(
+        renderBattlePanel(sim, i, { mirror, icons, skin, mode }),
+        { name: 'battle.png' }
+      ),
+      ...(showRewards
+        ? [new AttachmentBuilder(rewardsBuffer, { name: 'rewards.png' })]
+        : []),
+    ];
     return {
       content: over && noticeLine ? noticeLine : '',
       embeds: showRewards ? [base, resultEmbed] : [base],
@@ -603,9 +576,10 @@ async function runBattle(channel, {
   if (onMessage) {
     try { await onMessage(msg); } catch (err) { console.warn('[battleRender] onMessage:', err.message); }
   }
-  for (let i = 1; i < sim.snapshots.length; i++) {
-    await sleep(UPDATE_MS);
-    await msg.edit(frame(i));
+  const finalIndex = sim.snapshots.length - 1;
+  if (finalIndex > 0) {
+    await sleep(UPDATE_MS * finalIndex);
+    await msg.edit(frame(finalIndex));
   }
 
   const collector = msg.createMessageComponentCollector({ time: 300_000 });
