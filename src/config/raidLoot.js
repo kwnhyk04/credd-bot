@@ -23,7 +23,7 @@ const RAID_LOOT = {
       shards: [3, 5],          // was 1–3 @ ~50% — now guaranteed
       shardChance: 1.0,
       chest: 'silver_chest',
-      chestChance: 0.20,       // was 30%
+      chestChance: 0.05,
     },
     loss: { exp: 50 },
   },
@@ -34,7 +34,7 @@ const RAID_LOOT = {
       shards: [8, 10],         // was 3–5
       shardChance: 1.0,
       chest: 'gold_chest',
-      chestChance: 0.30,       // was 50%
+      chestChance: 0.10,
     },
     loss: { exp: 150 },
   },
