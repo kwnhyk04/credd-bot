@@ -58,6 +58,14 @@ function buildDropRatesButton(ownerId) {
     .setStyle(ButtonStyle.Secondary);
 }
 
+function buildChestIdButton(ownerId, code) {
+  return new ButtonBuilder()
+    .setCustomId(`chests:id:${ownerId}:${code}`)
+    .setLabel(code)
+    .setStyle(ButtonStyle.Secondary)
+    .setDisabled(true);
+}
+
 /* ════════════════════════════════════════════
  * CRD BAG — overview
  * One container; separator line between every section.
@@ -109,12 +117,14 @@ async function buildBagOverview(user, data) {
  * ══════════════════════════════════════════ */
 async function buildChestsView(user, counts) {
   const rows = [
-    ...CHESTS.map((c) =>
-      `\`${c.code}\` ${emoji(c.emojiName)} **${c.name}** - **${Number(counts[c.code] ?? 0).toLocaleString()}**`
-    ),
-    ...RELICS.map((r) =>
-      `\`${r.code}\` ${emoji(r.emojiName)} **${r.name}** - **${Number(counts[r.countKey] ?? 0).toLocaleString()}**`
-    ),
+    ...CHESTS.map((c) => ({
+      code: c.code,
+      text: `${emoji(c.emojiName)} **${c.name}** - **${Number(counts[c.code] ?? 0).toLocaleString()}**`,
+    })),
+    ...RELICS.map((r) => ({
+      code: r.code,
+      text: `${emoji(r.emojiName)} **${r.name}** - **${Number(counts[r.countKey] ?? 0).toLocaleString()}**`,
+    })),
   ];
 
   const container = new ContainerBuilder()
@@ -123,9 +133,16 @@ async function buildChestsView(user, counts) {
     .addSectionComponents((section) => section
       .addTextDisplayComponents((td) => td.setContent(`## ${emoji('bag')} <@${user.id}>'s Chests`))
       .setButtonAccessory(buildDropRatesButton(user.id)))
-    .addSeparatorComponents(sep)
+    .addSeparatorComponents(sep);
+
+  for (const row of rows) {
+    container.addSectionComponents((section) => section
+      .addTextDisplayComponents((td) => td.setContent(row.text))
+      .setButtonAccessory(buildChestIdButton(user.id, row.code)));
+  }
+
+  container
     // ── Body: rendered boxed rows ──
-    .addTextDisplayComponents((td) => td.setContent(rows.join('\n')))
     .addSeparatorComponents(sep)
     // ── Footer ──
     .addTextDisplayComponents((td) =>

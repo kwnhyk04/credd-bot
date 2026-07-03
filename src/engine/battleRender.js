@@ -463,6 +463,25 @@ function battleEmbed(sim, snapIdx, { mode, includeImage = true, imageName = 'bat
   return e;
 }
 
+function rewardFooterText(sim, r) {
+  if (!r) return null;
+  const won = sim.winner === 'a';
+  const result = won ? `${sim.b.name} defeated!` : `Defeated by ${sim.b.name}.`;
+  const rewardParts = [];
+
+  if (won) {
+    rewardParts.push(`+${Number(r.credux || 0).toLocaleString()} Credux`);
+    rewardParts.push(`+${Number(r.exp || 0).toLocaleString()} EXP`);
+    if (Number(r.shards || 0) > 0) rewardParts.push(`+${Number(r.shards).toLocaleString()} Belief Shards`);
+    if (r.chestLabel) rewardParts.push(`${r.chestLabel} x1`);
+    if (r.leveledUp) rewardParts.push(`LEVEL UP! ${r.levelFrom} -> ${r.levelTo}`);
+  } else {
+    rewardParts.push(`+${Number(r.exp || 0).toLocaleString()} EXP`);
+  }
+
+  return `${result} Rewards Obtained: ${rewardParts.join(' · ')}`;
+}
+
 function buttons() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('battle_log').setLabel('Battle Log').setEmoji('📋').setStyle(ButtonStyle.Secondary),
@@ -533,12 +552,9 @@ async function runBattle(channel, {
         return null;
       });
   }
-  if (showResultPanel && !rewardsBuffer && rewards != null) {
-    rewardsBuffer = await renderRewardsPanel(sim, rewards).catch((err) => {
-      console.warn('[battleRender] rewards panel:', err.message);
-      return null;
-    });
-  }
+  const defaultRewardFooter = showResultPanel && !rewardsBuffer && rewards != null
+    ? rewardFooterText(sim, rewards)
+    : null;
   if (rewardsBuffer) {
     resultEmbed = new EmbedBuilder()
       .setColor(sim.winner === 'a' ? 0x43d675 : 0xf23f43);
@@ -557,7 +573,9 @@ async function runBattle(channel, {
     // Phase 6: ranked threads its result into the embed — the tier matchup in the
     // HEADER (author, top), the outcome + rating move + Valor in the FOOTER (bottom).
     if (over && header) base.setAuthor({ name: header });
-    if (over && footer) base.setFooter({ text: footer });
+    if (over && (footer || defaultRewardFooter)) {
+      base.setFooter({ text: [footer, defaultRewardFooter].filter(Boolean).join(' · ') });
+    }
     const showRewards = over && resultEmbed;
     const rewardsImage = showRewards
       ? await optimizeOpaqueAttachment(rewardsBuffer, 'rewards', { background: COLORS.bg })
