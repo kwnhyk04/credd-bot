@@ -7,7 +7,7 @@
 --   DB-4  users.last_boss_attack_date (global boss lock)
 --   DB-5  boss_state.spawn_id + boss_attack_log.boss_spawn_id (per-spawn scope)
 --   DB-6  users.last_daily_claim_date
---   DB-7  user_character.reputation_exp_today / reset_date (5k/day cap)
+--   DB-7  user_character.reputation_exp_today / reset_date (1.5k/day cap)
 --   DB-9  boss_state.scaled_atk / scaled_def (post-scaling snapshot)
 --   DB-12 game_logs.item_type
 --   DB-13 user_guild_activity table (server avg level + admin stats)
@@ -195,7 +195,7 @@ CREATE TABLE user_character (
     pvp_losses                INTEGER     NOT NULL DEFAULT 0,
     believer_level            INTEGER     NOT NULL DEFAULT 1,    -- reputation level, unlimited
     believer_exp              BIGINT      NOT NULL DEFAULT 0,    -- 3000 flat per level
-    reputation_exp_today      INTEGER     NOT NULL DEFAULT 0,    -- DB-7: 5000/day cap
+    reputation_exp_today      INTEGER     NOT NULL DEFAULT 0,    -- DB-7: 1500/day cap
     reputation_exp_reset_date DATE,                              -- DB-7: PHT reset anchor
     created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

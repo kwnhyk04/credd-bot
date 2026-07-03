@@ -44,8 +44,11 @@ function skinAsset(relPath) {
 /** First existing file (absolute) among `candidates` basenames inside a skins-relative folder. */
 function firstExistingInFolder(relFolder, candidates) {
   for (const name of candidates) {
-    const p = skinAsset(`${relFolder}/${name}`);
-    if (p) return p;
+    const rel = `${relFolder}/${name}`;
+    const abs = skinFilePath(rel);
+    if (existsAbs(abs)) {
+      return isRemoteAssetsEnabled() ? assetPath(`skins/${rel.replace(/\\/g, '/')}`) : abs;
+    }
   }
   return null;
 }

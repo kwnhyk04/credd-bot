@@ -15,7 +15,7 @@
  *   - duplicate      → tier-based essence in users_bag (+1 Epic, +2 Mythic, +5 Legendary, +10 Supreme)
  *   - pity           → advanced/reset per roll; relic-forced tiers leave it as-is
  *   - active_deity   → auto-set to the FIRST new deity if the player had none
- *   - reputation     → +10/pull (5,000/day PHT cap), believer level roll-up
+ *   - reputation     → +10/pull (1,500/day PHT cap), believer level roll-up
  *   - one game_logs "Deity Pull" row per pull (essence on dupe; shards if summon)
  *
  * Within-batch dedupe: an in-memory ownedSet is seeded from user_deities and
@@ -224,7 +224,7 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
     );
   }
 
-  // ── Reputation: +10/pull, 5,000/day PHT cap, 3,000-flat level roll-up ────
+  // ── Reputation: +10/pull, 1,500/day PHT cap, 3,000-flat level roll-up ────
   const reputationAwarded = await awardReputation(client, discordId, char, count);
 
   // ── Collection titles: per-mythology completion + full Pantheon Keeper ───
@@ -271,7 +271,7 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
 /**
  * Credit believer reputation EXP inside the txn. Rolls over reputation_exp_today
  * when the PHT date changed (defensive — the midnight scheduler normally does
- * this), clamps to the 5,000/day cap, and applies flat 3,000-per-level ups
+ * this), clamps to the 1,500/day cap, and applies flat 3,000-per-level ups
  * (believer_exp is within-level progress; remainder carries).
  */
 async function awardReputation(client, discordId, char, count) {
