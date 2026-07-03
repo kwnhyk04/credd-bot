@@ -23,16 +23,7 @@ const { resolveName } = require('../../utils/emojis');
 const { renderPortraitCard } = require('../../engine/renderPortraitCard');
 const { runeEmojiName } = require('../../config/runes');
 const { SELL_PRICES } = require('../../config/sellPrices');
-
-const RUNES_DIR = path.join(
-  __dirname,
-  '..',
-  '..',
-  '..',
-  'assets',
-  'items',
-  'runes',
-);
+const { assetPath, isRemoteAssetsEnabled } = require('../../utils/assets');
 
 // Lane of each socket array by gear kind (Naming Conv §5).
 const SOCKET_LANES = {
@@ -80,10 +71,7 @@ async function socketSlots(g) {
       slots.push(
         rune
           ? {
-              imagePath: path.join(
-                RUNES_DIR,
-                `${runeEmojiName(rune.effect_key)}.png`,
-              ),
+              imagePath: assetPath(`items/runes/${runeEmojiName(rune.effect_key)}.png`),
               label: rune.name,
               tier: rune.tier,
               lane,
@@ -130,6 +118,9 @@ function artworkPath(baseDir, name) {
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
   const slugs = [resolveName(name), derived].filter(Boolean);
+  if (isRemoteAssetsEnabled()) {
+    return slugs.flatMap((slug) => ['png', 'jpg'].map((ext) => assetPath(`weapons/${slug}.${ext}`)));
+  }
   for (const slug of slugs) {
     for (const ext of ['png', 'jpg']) {
       const p = path.join(baseDir, `${slug}.${ext}`);

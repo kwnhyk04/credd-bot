@@ -6,7 +6,6 @@
  *   crd runes     - owned runes, filtered by lane and paginated at 10 rows.
  */
 
-const path = require('path');
 const {
   ContainerBuilder,
   AttachmentBuilder,
@@ -18,10 +17,9 @@ const {
 const pool = require('../../db/pool');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emoji } = require('../../utils/emojis');
+const { assetPath } = require('../../utils/assets');
 const { renderBagItemsImage } = require('../../engine/renderBagItems');
 const { BAGS, runeEmoji, runeDescription } = require('../../config/runes');
-
-const BAG_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'items', 'rune bag');
 
 const LANE_WORD = { offense: 'Offensive', defense: 'Defensive' };
 
@@ -58,7 +56,7 @@ async function runeBag(message) {
 
   const items = Object.entries(BAGS).map(([key, b]) => ({
     emojiName: b.emojiName,
-    iconPath: path.join(BAG_DIR, `${key}_bag.png`),
+    iconPath: assetPath(`items/rune bag/${key}_bag.png`),
     name: b.display,
     cmd: `crd open ${b.alias}`,
     count: bag[b.column] ?? 0,

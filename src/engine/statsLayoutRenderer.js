@@ -7,12 +7,19 @@
  * (copied from its `<skin>.layout.json` to start identical); no skin-specific coords here.
  */
 
-const fs = require('fs');
 const path = require('path');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const { getEmojiIcon } = require('./renderBagItems');
 const { resolveName } = require('../utils/emojis');
 const { formatIntegerEnUS: fmt } = require('../utils/textFormat');
+const {
+  assetSource,
+  assetExistsSync,
+  assetSignatureSync,
+  isRemoteAssetsEnabled,
+  loadAssetImage: loadAssetImageSource,
+  readAssetJson,
+} = require('../utils/assets');
 
 const ROOT = path.join(__dirname, '..', '..');
 
@@ -25,18 +32,19 @@ function layoutPathFor(skinPath) {
 }
 
 function hasStatsLayout(skinPath) {
-  return Boolean(skinPath && fs.existsSync(layoutPathFor(skinPath)));
+  return Boolean(skinPath && (isRemoteAssetsEnabled() || assetExistsSync(layoutPathFor(skinPath))));
 }
 
 const layoutCache = new Map(); // layout path -> { mtimeMs, layout }
 
-function loadLayout(configPath) {
-  const mtimeMs = fs.statSync(configPath).mtimeMs;
-  const cached = layoutCache.get(configPath);
+async function loadLayout(configPath) {
+  const resolved = assetSource(configPath);
+  const mtimeMs = assetSignatureSync(resolved);
+  const cached = layoutCache.get(resolved);
   if (cached && cached.mtimeMs === mtimeMs) return cached.layout;
 
-  const layout = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  layoutCache.set(configPath, { mtimeMs, layout });
+  const layout = await readAssetJson(resolved);
+  layoutCache.set(resolved, { mtimeMs, layout });
   return layout;
 }
 
@@ -86,7 +94,7 @@ async function loadRemoteImage(primary, fallback) {
 
 async function loadOptionalImage(source) {
   if (!source) return null;
-  try { return await loadImage(source); } catch { return null; }
+  try { return await loadAssetImageSource(loadImage, source); } catch { return null; }
 }
 
 async function loadRenderImages(d, skinPath, options) {
@@ -110,7 +118,7 @@ async function loadRenderImages(d, skinPath, options) {
     : getEmojiIcon('combat_exp');
 
   const [skin, avatar, weapon, armor, deity, deity2, deity3, combatExp] = await Promise.all([
-    loadImage(skinPath), avatarPromise, weaponPromise, armorPromise, deityPromise, deity2Promise, deity3Promise, combatExpPromise,
+    loadOptionalImage(skinPath), avatarPromise, weaponPromise, armorPromise, deityPromise, deity2Promise, deity3Promise, combatExpPromise,
   ]);
   return { skin, avatar, weapon, armor, deity, deity2, deity3, combatExp };
 }
@@ -120,8 +128,7 @@ function iconFor(style, layout, images) {
   if (style.icon === '$weapon') return images.weapon;
   if (style.icon === '$deity') return images.deity;
   if (style.icon === 'combat_exp.png' && images.combatExp) return images.combatExp;
-  const abs = path.join(ROOT, ...layout.icons_dir.split('/'), style.icon);
-  return loadOptionalImage(abs);
+  return loadOptionalImage(`${layout.icons_dir}/${style.icon}`);
 }
 
 async function drawText(ctx, key, content, layout, view, images) {
@@ -497,9 +504,10 @@ function repositionStats(layout, skinPath) {
 async function renderStatsLayoutImage(d, options = {}) {
   const skinPath = options.skinPath || d.skinPath;
   const configPath = options.layoutPath || layoutPathFor(skinPath);
-  const rawLayout = loadLayout(configPath);
+  const rawLayout = await loadLayout(configPath);
   const layout = repositionStats(rawLayout, skinPath);
   const images = await loadRenderImages(d, skinPath, options);
+  if (!images.skin) throw new Error(`Skin image unavailable: ${skinPath}`);
   const view = buildView(d);
 
   const canvas = createCanvas(layout.canvas.w, layout.canvas.h);

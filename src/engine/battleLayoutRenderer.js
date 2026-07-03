@@ -9,9 +9,13 @@
  * null so battleRender can preserve its original generic panel unchanged.
  */
 
-const fs = require('fs');
 const path = require('path');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+const {
+  assetSignatureSync,
+  loadAssetImage: loadAssetImageSource,
+  readAssetJson,
+} = require('../utils/assets');
 
 const ROOT = path.join(__dirname, '..', '..');
 const FONT_FALLBACK = 'DejaVu Sans';
@@ -62,7 +66,7 @@ async function loadBattleSkin(skinPath) {
   const configPath = layoutPathFor(skinPath);
   let signature;
   try {
-    signature = `${fs.statSync(skinPath).mtimeMs}:${fs.statSync(configPath).mtimeMs}`;
+    signature = `${assetSignatureSync(skinPath)}:${assetSignatureSync(configPath)}`;
   } catch {
     warnOnce(skinPath, `[battleLayout] skin or layout missing for ${path.basename(skinPath)}; using default battle render.`);
     return null;
@@ -72,12 +76,12 @@ async function loadBattleSkin(skinPath) {
   if (cached && cached.signature === signature) return cached.promise;
 
   const promise = (async () => {
-    const layout = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const layout = await readAssetJson(configPath);
     if (!validateLayout(layout)) {
       warnOnce(configPath, `[battleLayout] invalid layout ${configPath}; using default battle render.`);
       return null;
     }
-    const image = await loadImage(skinPath);
+    const image = await loadAssetImageSource(loadImage, skinPath);
     return { image, layout, skinPath, configPath };
   })().catch((err) => {
     warnOnce(configPath, `[battleLayout] failed to load ${path.basename(skinPath)}: ${err.message}; using default battle render.`);

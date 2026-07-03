@@ -18,6 +18,7 @@ const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const fs = require('fs');
 const path = require('path');
 const { emoji } = require('../utils/emojis');
+const { assetSource, isRemoteSource, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
 
 const ROOT = path.join(__dirname, '..', '..');
 const CACHE_DIR = path.join(ROOT, 'assets', 'cache', 'emojis');
@@ -106,23 +107,30 @@ async function getUnicodeIcon(hex) {
   }
 }
 
+async function loadAssetImage(source) {
+  return loadAssetImageSource(loadImage, source);
+}
+
 async function getLocalIcon(filePath) {
-  let mtimeMs;
-  try {
-    mtimeMs = fs.statSync(filePath).mtimeMs;
-  } catch {
-    return null;
+  const resolved = assetSource(filePath);
+  let mtimeMs = 'remote';
+  if (!isRemoteSource(resolved)) {
+    try {
+      mtimeMs = fs.statSync(resolved).mtimeMs;
+    } catch {
+      return null;
+    }
   }
 
-  const cached = localIconCache.get(filePath);
+  const cached = localIconCache.get(resolved);
   if (cached && cached.mtimeMs === mtimeMs) return cached.image;
 
   try {
-    const image = await loadImage(filePath);
-    localIconCache.set(filePath, { mtimeMs, image });
+    const image = await loadAssetImage(resolved);
+    localIconCache.set(resolved, { mtimeMs, image });
     return image;
   } catch {
-    localIconCache.set(filePath, { mtimeMs, image: null });
+    localIconCache.set(resolved, { mtimeMs, image: null });
     return null;
   }
 }

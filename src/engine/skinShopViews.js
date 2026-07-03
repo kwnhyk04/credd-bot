@@ -29,6 +29,7 @@ const ent = require('./supporterEntitlements');
 const { skinEmojiByCode, iconToken, iconShop, iconSkins } = require('./skinEmojis');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { HELP_ICON } = require('./bagViews');
+const { assetPath, attachmentSource, isRemoteAssetsEnabled } = require('../utils/assets');
 
 const BRAND = 0x9b59b6;
 const PAGES = ['profile', 'battle', 'battle_result', 'summon'];
@@ -150,6 +151,9 @@ function previewFile(skin, variant) {
   } else {
     rel = skin.display_filename || skin.render_filename;
   }
+  if (isRemoteAssetsEnabled()) {
+    return rel && /\.(png|jpe?g|webp|gif)$/i.test(rel) ? assetPath(`skins/${rel}`) : null;
+  }
   const abs = skinFilePath(rel);
   if (!abs || !fs.existsSync(abs) || !/\.(png|jpe?g|webp|gif)$/i.test(abs)) return null;
   return abs;
@@ -184,7 +188,7 @@ async function buildPreview(db, viewerId, { page = 0, idx = 0, ctx = 'shop', var
   const abs = previewFile(skin, variant);
   if (abs) {
     const name = `skinpv_${skin.cosmetic_id}_${variant}.${abs.split('.').pop()}`;
-    files.push(new AttachmentBuilder(abs, { name }));
+    files.push(new AttachmentBuilder(await attachmentSource(abs), { name }));
     container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(`attachment://${name}`)));
   } else {
     container.addTextDisplayComponents((td) => td.setContent('*No preview image available.*'));

@@ -23,6 +23,13 @@ const path = require('path');
 const fs = require('fs');
 const { resolveName } = require('../utils/emojis');
 const { capitalizeLower } = require('../utils/textFormat');
+const {
+  assetPath,
+  assetSource,
+  isRemoteAssetsEnabled,
+  isRemoteSource,
+  loadAssetImage: loadAssetImageSource,
+} = require('../utils/assets');
 
 const ROOT = path.join(__dirname, '..', '..');
 const WEAPONS_DIR = path.join(ROOT, 'assets', 'weapons');
@@ -69,6 +76,9 @@ function tierOf(item) {
 function weaponImagePath(name) {
   const derived = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
   const slugs = [resolveName(name), derived].filter(Boolean);
+  if (isRemoteAssetsEnabled()) {
+    return slugs.flatMap((slug) => ['png', 'jpg'].map((ext) => assetPath(`weapons/${slug}.${ext}`)));
+  }
   for (const slug of slugs) {
     for (const ext of ['png', 'jpg']) {
       const p = path.join(WEAPONS_DIR, `${slug}.${ext}`);
@@ -106,26 +116,39 @@ function statsLine(item) {
     .join(' · ');
 }
 
-async function loadSprite(imgPath) {
+async function loadSpriteOne(imgPath) {
+  const resolved = assetSource(imgPath);
   let mtimeMs;
-  try {
-    mtimeMs = fs.statSync(imgPath).mtimeMs;
-  } catch {
-    return null;
+  if (isRemoteSource(resolved)) {
+    mtimeMs = 'remote';
+  } else {
+    try {
+      mtimeMs = fs.statSync(resolved).mtimeMs;
+    } catch {
+      return null;
+    }
   }
 
-  const cached = spriteCache.get(imgPath);
+  const cached = spriteCache.get(resolved);
   if (cached && cached.mtimeMs === mtimeMs) return cached.image;
 
   try {
-    const image = await loadImage(imgPath);
-    spriteCache.set(imgPath, { mtimeMs, image });
+    const image = await loadAssetImageSource(loadImage, resolved);
+    spriteCache.set(resolved, { mtimeMs, image });
     return image;
   } catch (err) {
-    console.error(`[weaponResultRenderer] sprite load failed (${imgPath}):`, err.message);
-    spriteCache.set(imgPath, { mtimeMs, image: null });
+    spriteCache.set(resolved, { mtimeMs, image: null });
     return null;
   }
+}
+
+async function loadSprite(imgPath) {
+  const candidates = Array.isArray(imgPath) ? imgPath : [imgPath];
+  for (const candidate of candidates.filter(Boolean)) {
+    const image = await loadSpriteOne(candidate);
+    if (image) return image;
+  }
+  return null;
 }
 
 async function drawCard(ctx, item, x, y) {

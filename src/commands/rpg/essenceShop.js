@@ -11,18 +11,17 @@
  * Routed by the canonical first token `essence`; only `crd essence shop` is live.
  */
 
-const path = require('path');
 const {
   ContainerBuilder, AttachmentBuilder, MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emoji } = require('../../utils/emojis');
+const { assetPath } = require('../../utils/assets');
 const { renderBagItemsImage } = require('../../engine/renderBagItems');
 const { ESSENCE_SHOP } = require('../../config/runes');
 
 const BRAND = 0x9b59b6;
-const BAG_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'items', 'rune bag');
 
 async function buildEssenceShop(viewerId) {
   const { rows } = await pool.query(
@@ -39,7 +38,7 @@ async function buildEssenceShop(viewerId) {
     const bagKey = isBag ? it.grant.column.replace('_rune_bag', '') : null;
     return {
       idLabel: String(it.id),
-      iconPath: isBag ? path.join(BAG_DIR, `${bagKey}_bag.png`) : null,
+      iconPath: isBag ? assetPath(`items/rune bag/${bagKey}_bag.png`) : null,
       emojiName: isBag ? `${bagKey}_bag` : it.emojiName,
       name: it.name,
       // Fixed-font cost with inline emoji icons: <amt> <essence> + <credux> <coin>.

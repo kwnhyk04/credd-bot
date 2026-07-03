@@ -1,6 +1,5 @@
 'use strict';
 
-const path = require('path');
 const pool = require('../../db/pool');
 const {
   CHESTS, CHEST_ALIASES, MAX_OPEN,
@@ -16,9 +15,7 @@ const {
   BAGS, BAG_ALIAS, BAG_ALIASES, RUNE_BAG_MAX_OPEN,
   bagEmoji, runeEmojiName, rollRuneValue, runeDescription,
 } = require('../../config/runes');
-
-const RUNES_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'items', 'runes');
-const BAG_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'items', 'rune bag');
+const { assetPath } = require('../../utils/assets');
 
 // Relic gacha config (Master §6): which relic feeds how many deity rolls.
 //   sr   → 1 Sacred Relic  → 10 deity rolls (pity applies)
@@ -430,12 +427,12 @@ async function openRuneBags(message, alias, rawAmount) {
   const items = res.drops.map((d) => ({
     id: d.id, name: d.name, tier: d.tier, stats: runeDescription(d.effect_key, d.value),
     // [v5 #5] rune sprite from assets/items/runes/<key>_rune.png.
-    imagePath: path.join(RUNES_DIR, `${runeEmojiName(d.effect_key)}.png`),
+    imagePath: assetPath(`items/runes/${runeEmojiName(d.effect_key)}.png`),
   }));
   await playAnimatedOpen(message, {
     gifKey: bag.gifKey,
     // Rune-bag gif lives in assets/items/rune bag (e.g. lesser_bag.gif).
-    gifPath: path.join(BAG_DIR, `${bagKey}_bag.gif`),
+    gifPath: assetPath(`items/rune bag/${bagKey}_bag.gif`),
     animTitle: `Opening ${amount} × ${bag.display}…`,
     buildResult: () => buildRuneResultPayload({
       gifKey: bag.gifKey,

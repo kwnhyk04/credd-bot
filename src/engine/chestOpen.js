@@ -19,13 +19,12 @@ const {
   MessageFlags,
 } = require('discord.js');
 const path = require('path');
-const fs = require('fs');
 const { renderWeaponResults, TIERS } = require('./weaponResultRenderer');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji } = require('../utils/emojis');
 const { capitalizeLower } = require('../utils/textFormat');
+const { assetPath, assetExistsSync, attachmentSource } = require('../utils/assets');
 
-const ANIM_DIR = path.join(__dirname, '..', '..', 'assets', 'animations', 'chests');
 const ANIMATION_MS = 3000; // matches the ~2.5s GIFs + buffer
 
 // gifKey (users_bag column / relic kind) → gif filename in assets/animations/chests
@@ -77,13 +76,13 @@ function tierSummary(items) {
 /** Resolve the gif's on-disk path + attachment name. gifPath (absolute) overrides
  *  the bundled CHEST_GIFS lookup so rune bags can load from assets/items/runes. */
 function resolveGif(gifKey, gifPath) {
-  if (gifPath) return { name: path.basename(gifPath), abs: gifPath };
+  if (gifPath) return { name: path.basename(gifPath), src: gifPath };
   const name = CHEST_GIFS[gifKey];
-  return name ? { name, abs: path.join(ANIM_DIR, name) } : null;
+  return name ? { name, src: assetPath(`animations/chests/${name}`) } : null;
 }
 
 /** Animation-phase container: header → separator → the chest gif. */
-function animationPayload(gifKey, animTitle, gifPath) {
+async function animationPayload(gifKey, animTitle, gifPath) {
   const g = resolveGif(gifKey, gifPath);
   const container = new ContainerBuilder()
     .setAccentColor(0xf0b232)
@@ -96,7 +95,7 @@ function animationPayload(gifKey, animTitle, gifPath) {
     );
   return {
     components: [container],
-    files: [new AttachmentBuilder(g.abs, { name: g.name })],
+    files: [new AttachmentBuilder(await attachmentSource(g.src), { name: g.name })],
     flags: MessageFlags.IsComponentsV2,
     allowedMentions: { repliedUser: false },
   };
@@ -154,14 +153,14 @@ async function buildWeaponResultPayload(p) {
 async function playAnimatedOpen(message, { gifKey, gifPath, animTitle, buildResult }) {
   const g = resolveGif(gifKey, gifPath);
   if (!g) throw new Error(`playAnimatedOpen: unknown gifKey ${gifKey}`);
-  const gifOnDisk = fs.existsSync(g.abs);
+  const gifOnDisk = assetExistsSync(g.src);
 
   let msg = null;
   let result = null;
   try {
     if (gifOnDisk) {
       // Pre-render the result DURING the animation so the edit lands instantly.
-      msg = await message.reply(animationPayload(gifKey, animTitle, gifPath));
+      msg = await message.reply(await animationPayload(gifKey, animTitle, gifPath));
       [result] = await Promise.all([buildResult(), sleep(ANIMATION_MS)]);
     } else {
       // gif missing → skip the suspense phase, results only.

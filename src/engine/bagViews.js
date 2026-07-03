@@ -27,6 +27,7 @@ const {
 const pool = require('../db/pool');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji } = require('../utils/emojis');
+const { assetPath } = require('../utils/assets');
 const { renderBagItemsImage } = require('./renderBagItems');
 const { CHESTS: CHEST_DROPS } = require('../config/dropRates');
 
@@ -81,7 +82,7 @@ async function buildBagOverview(user, data) {
     { twemoji: '1f6e1', name: 'Armors',  cmd: 'crd bag armors',  count: Number(n.armors || 0) },  // 🛡️
     { emojiName: 'general_chest',  name: 'Chests',   cmd: 'crd bag chests',  count: Number(n.chests || 0) },
     { emojiName: 'bag',            name: 'Rune Bag', cmd: 'crd rune bag',    count: Number(n.runeBags || 0) },
-    { iconPath: require('path').join(__dirname, '..', '..', 'assets', 'items', 'runes', 'rune_icon.png'),
+    { iconPath: assetPath('items/runes/rune_icon.png'),
       emojiName: 'rune_icon', name: 'Runes', cmd: 'crd runes', count: Number(n.runes || 0) }, // [Phase 6] transparent local icon
   ];
   const buffer = await renderBagItemsImage(items);

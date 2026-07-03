@@ -15,20 +15,26 @@
  */
 
 const sharp = require('sharp');
-const fs = require('fs');
+const { assetSource, fetchAssetBuffer, isRemoteSource } = require('../utils/assets');
 
 const cache = new Map(); // key → Promise<Buffer>
 const transparent = { r: 0, g: 0, b: 0, alpha: 0 };
 
+async function sharpInput(srcPath) {
+  const resolved = assetSource(srcPath);
+  return isRemoteSource(resolved) ? fetchAssetBuffer(resolved) : resolved;
+}
+
 async function build(srcPath, { W, H, contentH }, animated) {
-  const meta = await sharp(srcPath, { animated }).metadata();
+  const input = await sharpInput(srcPath);
+  const meta = await sharp(input, { animated }).metadata();
   const srcH = animated ? (meta.pageHeight || meta.height) : meta.height;
   const w = Math.max(1, Math.round(contentH * (meta.width / srcH)));
   const left = Math.max(0, Math.floor((W - w) / 2));
   const right = Math.max(0, W - w - left);
   const top = Math.max(0, Math.floor((H - contentH) / 2));
   const bottom = Math.max(0, H - contentH - top);
-  const pipe = sharp(srcPath, { animated })
+  const pipe = sharp(input, { animated })
     .resize({ height: contentH })
     .extend({ left, right, top, bottom, background: transparent });
   return animated ? pipe.gif().toBuffer() : pipe.png().toBuffer();
@@ -39,7 +45,7 @@ function pad(srcPath, dims, animated) {
   if (!cache.has(key)) {
     cache.set(key, build(srcPath, dims, animated).catch((err) => {
       console.error('[imagePad]', srcPath, err.message);
-      try { return fs.readFileSync(srcPath); } catch { return Buffer.alloc(0); }
+      return fetchAssetBuffer(srcPath).catch(() => Buffer.alloc(0));
     }));
   }
   return cache.get(key);
@@ -52,7 +58,7 @@ const padPng = (srcPath, dims) => pad(srcPath, dims, false);
 const durCache = new Map();
 function gifDuration(srcPath) {
   if (!durCache.has(srcPath)) {
-    durCache.set(srcPath, sharp(srcPath, { animated: true }).metadata()
+    durCache.set(srcPath, sharpInput(srcPath).then((input) => sharp(input, { animated: true }).metadata())
       .then((m) => (m.delay || []).reduce((a, b) => a + (b || 0), 0) || 3000)
       .catch(() => 3000));
   }
@@ -70,8 +76,9 @@ async function buildReelStrip(reelPaths, { tile, gap, panelW, step }) {
   const meta = [];
   const raw = [];
   for (const r of reelPaths) {
-    meta.push(await sharp(r, { animated: true }).metadata());
-    raw.push(await sharp(r, { animated: true }).resize({ width: tile, height: tile, fit: 'fill' }).raw().toBuffer());
+    const input = await sharpInput(r);
+    meta.push(await sharp(input, { animated: true }).metadata());
+    raw.push(await sharp(input, { animated: true }).resize({ width: tile, height: tile, fit: 'fill' }).raw().toBuffer());
   }
   const pages = meta.map((m) => m.pages || 1);
   const P = Math.max(...pages);
@@ -103,7 +110,7 @@ function reelStripGif(reelPaths, { tile = 92, gap = 14, panelW = 460, step = 2 }
   if (!stripCache.has(key)) {
     stripCache.set(key, buildReelStrip(reelPaths, { tile, gap, panelW, step }).catch((err) => {
       console.error('[imagePad] reelStrip', err.message);
-      return fs.readFileSync(reelPaths[0]);
+      return fetchAssetBuffer(reelPaths[0]).catch(() => Buffer.alloc(0));
     }));
   }
   return stripCache.get(key);

@@ -13,6 +13,7 @@ const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const fs = require('fs');
 const path = require('path');
 const { FONT_FAMILY } = require('./renderBagItems');
+const { assetSource, isRemoteSource, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
 
 const ROOT = path.join(__dirname, '..', '..');
 for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
@@ -86,22 +87,33 @@ function roundRectPath(ctx, x, y, w, h, r) {
 }
 
 async function loadLocalImage(filePath) {
-  let mtimeMs;
-  try {
-    mtimeMs = fs.statSync(filePath).mtimeMs;
-  } catch {
+  if (Array.isArray(filePath)) {
+    for (const candidate of filePath) {
+      const image = await loadLocalImage(candidate);
+      if (image) return image;
+    }
     return null;
   }
 
-  const cached = imageCache.get(filePath);
+  const resolved = assetSource(filePath);
+  let mtimeMs = 'remote';
+  if (!isRemoteSource(resolved)) {
+    try {
+      mtimeMs = fs.statSync(resolved).mtimeMs;
+    } catch {
+      return null;
+    }
+  }
+
+  const cached = imageCache.get(resolved);
   if (cached && cached.mtimeMs === mtimeMs) return cached.image;
 
   try {
-    const image = await loadImage(filePath);
-    imageCache.set(filePath, { mtimeMs, image });
+    const image = await loadAssetImageSource(loadImage, resolved);
+    imageCache.set(resolved, { mtimeMs, image });
     return image;
   } catch {
-    imageCache.set(filePath, { mtimeMs, image: null });
+    imageCache.set(resolved, { mtimeMs, image: null });
     return null;
   }
 }

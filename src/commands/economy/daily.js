@@ -20,29 +20,31 @@ const {
   ContainerBuilder, MediaGalleryBuilder, AttachmentBuilder,
   MessageFlags,
 } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const pool = require('../../db/pool');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay } = require('../../utils/emojis');
+const { assetPath, loadAssetImage: loadAssetImageSource } = require('../../utils/assets');
 
 const TODAY = `(NOW() AT TIME ZONE 'Asia/Manila')::date`;
 const ACCENT = 0xf0b232;
 
-const BANNER_PATH = path.join(__dirname, '..', '..', '..', 'assets', 'quest icons', 'attendance.png');
+const BANNER_PATH = assetPath('quest icons/attendance.png');
 // [v4.8] The raw attendance icon rendered at full media-gallery width (oversized). Composite it
 // smaller and centered on a transparent panel so it reads as a proportional badge on the card.
 const ICON_MAX_H = 132;
 const PANEL_W = 420;
 const PANEL_H = ICON_MAX_H + 16;
 let bannerPromise; // cached Promise<Buffer|null>
+async function loadAssetImage(source) {
+  return loadAssetImageSource(loadImage, source);
+}
+
 function banner() {
   if (bannerPromise !== undefined) return bannerPromise;
   bannerPromise = (async () => {
     try {
-      if (!fs.existsSync(BANNER_PATH)) return null;
-      const img = await loadImage(BANNER_PATH);
+      const img = await loadAssetImage(BANNER_PATH);
       const scale = Math.min((PANEL_W - 16) / img.width, ICON_MAX_H / img.height);
       const w = img.width * scale, h = img.height * scale;
       const canvas = createCanvas(PANEL_W, PANEL_H);

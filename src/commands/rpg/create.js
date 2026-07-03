@@ -16,6 +16,7 @@ const {
 } = require('../../config/starter');
 const { generateUniqueGearId } = require('../../utils/weaponId');
 const { renderPortraitCard } = require('../../engine/renderPortraitCard');
+const { assetPath, isRemoteAssetsEnabled } = require('../../utils/assets');
 
 const BRAND = 0x9b59b6;
 
@@ -25,6 +26,7 @@ const CLASSES_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'classes');
 
 /** Absolute path to a class image, or null if missing (caller falls back to text-only). */
 function classImageFile(className) {
+  if (isRemoteAssetsEnabled()) return assetPath(`classes/${className.toLowerCase()}.png`);
   const p = path.join(CLASSES_DIR, `${className.toLowerCase()}.png`);
   try { if (fs.existsSync(p)) return p; } catch { /* ignore */ }
   return null;

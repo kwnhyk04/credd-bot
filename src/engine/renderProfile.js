@@ -26,6 +26,7 @@ const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const { getEmojiIcon, FONT_FAMILY } = require('./renderBagItems');
 const { hasProfileLayout, renderProfileLayoutImage } = require('./profileLayoutRenderer');
 const { resolveName } = require('../utils/emojis');
+const { assetPath, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
 
 /* ── Background template ([v4.6]) ───────────────────────────────────────────
  * The profile card is drawn on top of a template image. TEMPLATE_FILE is a single
@@ -33,15 +34,18 @@ const { resolveName } = require('../utils/emojis');
  * (believer_/cbeliever_/eternal_) without restructuring this renderer. A faint scrim
  * keeps text legible over arbitrary art. If the template is missing, fall back to the
  * old flat dark background at the native 600-wide layout. */
-const TEMPLATE_DIR = path.join(__dirname, '..', '..', 'assets', 'profile');
 const TEMPLATE_FILE = 'default_template.png';
 const SCRIM = 'rgba(18,19,22,0.50)';
 let templateCache;
 function loadTemplate() {
   if (templateCache === undefined) {
-    templateCache = loadImage(path.join(TEMPLATE_DIR, TEMPLATE_FILE)).catch(() => null);
+    templateCache = loadAssetImage(assetPath(`profile/${TEMPLATE_FILE}`)).catch(() => null);
   }
   return templateCache;
+}
+
+async function loadAssetImage(source) {
+  return loadAssetImageSource(loadImage, source);
 }
 
 /* ── Layout ─────────────────────────────────────────────────────────────── */
@@ -158,7 +162,7 @@ async function renderProfileImage(d) {
   // [Supporter-stage §6] When a profile skin resolves (d.skinPath), it replaces the default
   // template as the bottom layer; otherwise fall back to the shared default template.
   const [template, avatar, weaponIcon, armorIcon, deityIcon, expIcon] = await Promise.all([
-    d.skinPath ? loadImage(d.skinPath).catch(() => null).then((img) => img || loadTemplate()) : loadTemplate(),
+    d.skinPath ? loadAssetImage(d.skinPath).catch(() => null).then((img) => img || loadTemplate()) : loadTemplate(),
     loadAvatar(d.avatarUrl, d.fallbackAvatarUrl),
     d.weaponName ? getEmojiIcon(resolveName(d.weaponName) || '') : Promise.resolve(null),
     d.armorName ? getEmojiIcon(resolveName(d.armorName) || '') : Promise.resolve(null),

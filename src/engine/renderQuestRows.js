@@ -10,9 +10,9 @@
  */
 
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
-const fs = require('fs');
 const path = require('path');
 const { getEmojiIcon, FONT_FAMILY } = require('./renderBagItems');
+const { assetPath, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
 
 const ROOT = path.join(__dirname, '..', '..');
 for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
@@ -22,7 +22,6 @@ for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
 }
 
 // Per-type quest icons live in `assets/quest icons/` (PNG; loaded from disk, cached).
-const QUEST_ICON_DIR = path.join(ROOT, 'assets', 'quest icons');
 const QUEST_ICON_FILE = {
   raid_wins: 'quest_raid.png',
   elite_defeats: 'quest_raid.png',
@@ -32,11 +31,15 @@ const QUEST_ICON_FILE = {
   duel_challenges: 'quest_duel.png',
 };
 const questIconCache = new Map(); // type → Image | null
+async function loadAssetImage(source) {
+  return loadAssetImageSource(loadImage, source);
+}
+
 async function getQuestIcon(type) {
   if (questIconCache.has(type)) return questIconCache.get(type);
-  const file = path.join(QUEST_ICON_DIR, QUEST_ICON_FILE[type] || 'quest_icon.png');
+  const file = assetPath(`quest icons/${QUEST_ICON_FILE[type] || 'quest_icon.png'}`);
   let img = null;
-  try { if (fs.existsSync(file)) img = await loadImage(file); }
+  try { img = await loadAssetImage(file); }
   catch (err) { console.error(`[renderQuestRows] icon '${type}' failed:`, err.message); }
   questIconCache.set(type, img);
   return img;

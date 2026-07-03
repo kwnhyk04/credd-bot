@@ -22,10 +22,14 @@ const {
   MessageFlags,
 } = require('discord.js');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
-const fs = require('fs');
-const path = require('path');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji } = require('../utils/emojis');
+const {
+  assetPath,
+  assetExistsSync,
+  attachmentSource,
+  loadAssetImage: loadAssetImageSource,
+} = require('../utils/assets');
 const { getEmojiIcon } = require('./renderBagItems');
 const { TIER_ALIAS, TIER_ESSENCE_COLUMN } = require('../config/gachaRates');
 
@@ -41,10 +45,8 @@ const ALIAS_TO_ESSENCE = Object.fromEntries(
  * ══════════════════════════════════════════ */
 const ACCENT = 0xf0b232;
 // Anchored to the project root (this file is src/engine/), not process.cwd().
-const ROOT = path.join(__dirname, '..', '..');
-const FLIP_GIF_PATH = path.join(ROOT, 'assets', 'animations', 'gacha', 'card_flip.gif');
+const FLIP_GIF_PATH = assetPath('animations/gacha/card_flip.gif');
 // The 1024×1024 rarity frames live with the gacha animation assets (§35.7).
-const CARDS_DIR = path.join(ROOT, 'assets', 'animations', 'gacha');
 
 const FRAME_FILES = {
   Remnant:    'card_remnant.png',
@@ -90,7 +92,11 @@ const RARITY_FONT_SCALE = 0.055;
 
 /** Phase 1 needs the flip GIF on disk — callers skip the flip when absent. */
 function flipGifExists() {
-  try { return fs.existsSync(FLIP_GIF_PATH); } catch { return false; }
+  return assetExistsSync(FLIP_GIF_PATH);
+}
+
+async function loadAssetImage(source) {
+  return loadAssetImageSource(loadImage, source);
 }
 
 /** Simple 4-point star (sparkle) path — drawn, never a unicode glyph (tofu risk). */
@@ -113,7 +119,7 @@ async function loadFrames() {
   if (frames.Remnant) return;
   await Promise.all(
     Object.entries(FRAME_FILES).map(async ([rarity, file]) => {
-      frames[rarity] = await loadImage(path.join(CARDS_DIR, file));
+      frames[rarity] = await loadAssetImage(assetPath(`animations/gacha/${file}`));
     })
   );
 }
@@ -216,11 +222,11 @@ async function renderSummonGrid(results) {
  *   (.webp/.gif). When given, it plays in place of the bundled flip gif (§6); the webp is a
  *   complete pre-rendered animation — sent as-is, no per-pull compositing.
  */
-function buildFlipMessage(flipPath = null) {
+async function buildFlipMessage(flipPath = null) {
   const src = flipPath || FLIP_GIF_PATH;
   const ext = (src.split('.').pop() || 'gif').toLowerCase();
   const name = `card_flip.${ext}`;
-  const flip = new AttachmentBuilder(src, { name });
+  const flip = new AttachmentBuilder(await attachmentSource(src), { name });
 
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
@@ -331,7 +337,7 @@ async function renderDeityCard({ name, rarity, portraitPath }) {
   let portrait = null;
   if (portraitPath) {
     try {
-      if (fs.existsSync(portraitPath)) portrait = await loadImage(portraitPath);
+      portrait = await loadAssetImage(portraitPath);
     } catch (err) {
       console.error(`[renderSummon] portrait load failed (${portraitPath}):`, err.message);
     }
@@ -382,7 +388,7 @@ async function renderDeityCard({ name, rarity, portraitPath }) {
 async function renderCenteredArt(filePath) {
   let img;
   try {
-    img = await loadImage(filePath);
+    img = await loadAssetImage(filePath);
   } catch (err) {
     console.error(`[renderSummon] art load failed (${filePath}):`, err.message);
     return null;

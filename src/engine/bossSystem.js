@@ -50,6 +50,13 @@ const { isBanned } = require('../handlers/middleware');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emojiForDisplay } = require('../utils/emojis');
 const { grantTitles } = require('../utils/titleGrant');
+const {
+  assetPath,
+  isRemoteAssetsEnabled,
+  loadAssetImage: loadAssetImageSource,
+  localAssetPath,
+  readAssetText,
+} = require('../utils/assets');
 const { bossFeatTitlesFor } = require('../config/titles');
 const {
   isGreaterBoss, bossRewards, rollBossChest, hpMultiplierForChest, pickWeightedBoss,
@@ -69,7 +76,7 @@ const BOSS_FLAVOR = {
 };
 // [v4.4] Greater Boss spawn header — distinct apex framing above the boss name.
 const GREATER_FLAVOR = '☠️ **GREATER BOSS** — *A world-ender awakes…*';
-const BOSS_ASSET_DIR = path.join(__dirname, '..', '..', 'assets', 'monsters', 'boss');
+const BOSS_ASSET_DIR = localAssetPath('monsters/boss');
 
 /* ── in-memory state ────────────────────────────────────────────────────── */
 const liveMessages = new Map();  // guildId → { channelId, messageId }
@@ -135,6 +142,7 @@ function bossAssetFiles() {
 function bossImagePath(name) {
   try {
     const slug = bossSlug(name);
+    if (isRemoteAssetsEnabled()) return assetPath(`monsters/boss/${slug}.png`);
     const lookup = bossAssetFiles();
     if (lookup.resolved.has(slug)) return lookup.resolved.get(slug);
 
@@ -158,11 +166,15 @@ function bossImagePath(name) {
 const BANNER_W = 1200, BANNER_H = 600;
 const bannerCache = new Map(); // imgPath → Promise<Buffer|null>
 
+async function loadAssetImage(source) {
+  return loadAssetImageSource(loadImage, source);
+}
+
 function bossBanner(imgPath) {
   if (!bannerCache.has(imgPath)) {
     bannerCache.set(imgPath, (async () => {
       try {
-        const img = await loadImage(imgPath);
+        const img = await loadAssetImage(imgPath);
         const canvas = createCanvas(BANNER_W, BANNER_H);
         const ctx = canvas.getContext('2d');
         ctx.fillStyle = '#1f2125';
@@ -181,14 +193,14 @@ function bossBanner(imgPath) {
 }
 
 /* ── boss lore (assets/monsters/boss/lore/boss_lores.txt: "Name: text") ──── */
-const LORE_PATH = path.join(BOSS_ASSET_DIR, 'lore', 'boss_lores.txt');
+const LORE_PATH = assetPath('monsters/boss/lore/boss_lores.txt');
 let loreMap = null; // lazy-parsed once; mythology header lines have no text after ':' so they never match
 
-function bossLore(name) {
+async function bossLore(name) {
   if (loreMap === null) {
     loreMap = new Map();
     try {
-      const txt = fs.readFileSync(LORE_PATH, 'utf8');
+      const txt = await readAssetText(LORE_PATH);
       for (const line of txt.split(/\r?\n/)) {
         const m = /^([A-Za-z'’ &]+):\s+(.+)$/.exec(line.trim());
         if (m) loreMap.set(m[1].trim().toLowerCase(), m[2].trim());
@@ -396,7 +408,7 @@ async function buildBossMessage({ state, mobRow, attackers, attackerCount, isDev
   }
 
   // lore — plain text wraps to the embed width on its own
-  const lore = bossLore(mobRow.name);
+  const lore = await bossLore(mobRow.name);
   if (lore) {
     container
       .addSeparatorComponents(sep)

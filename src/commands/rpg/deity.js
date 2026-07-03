@@ -15,6 +15,7 @@ const pool = require('../../db/pool');
 const { TIER_ALIAS, TIER_COLOR, TIER_ESSENCE_COLUMN } = require('../../config/gachaRates');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay, emoji } = require('../../utils/emojis');
+const { assetPath, isRemoteAssetsEnabled, loadAssetImage: loadAssetImageSource } = require('../../utils/assets');
 const { RARITY_SYMBOLS } = require('../../engine/renderSummon');
 const { renderPortraitCard } = require('../../engine/renderPortraitCard');
 const { computeDeityStats, nextDeityAttempt, MAX_ENHANCEMENT } = require('../../engine/deityEnhancement');
@@ -44,6 +45,10 @@ const MYTHOLOGY_DIR = { PH: 'philippine', Norse: 'norse', Greek: 'greek' };
 const DEITIES_DIR = path.resolve(__dirname, '..', '..', '..', 'assets', 'deities');
 let mythologyPageCache = null;
 
+async function loadAssetImage(source) {
+  return loadAssetImageSource(loadImage, source);
+}
+
 function safeDeityImagePath(...parts) {
   const cleanParts = [];
   for (const part of parts) {
@@ -59,7 +64,7 @@ function safeDeityImagePath(...parts) {
   const abs = path.resolve(DEITIES_DIR, ...cleanParts);
   const rel = path.relative(DEITIES_DIR, abs);
   if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null;
-  return abs;
+  return isRemoteAssetsEnabled() ? assetPath(`deities/${cleanParts.join('/')}`) : abs;
 }
 
 function reply(message, payload) {
@@ -234,9 +239,13 @@ async function info(message, name) {
   const slug = d.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
   const dir = MYTHOLOGY_DIR[d.mythology] ?? d.mythology?.toLowerCase();
   let portraitPath = null;
-  for (const ext of ['png', 'jpg']) {
-    const p = safeDeityImagePath(dir, `${slug}.${ext}`);
-    if (p && fs.existsSync(p)) { portraitPath = p; break; }
+  if (isRemoteAssetsEnabled()) {
+    portraitPath = ['png', 'jpg'].map((ext) => safeDeityImagePath(dir, `${slug}.${ext}`)).filter(Boolean);
+  } else {
+    for (const ext of ['png', 'jpg']) {
+      const p = safeDeityImagePath(dir, `${slug}.${ext}`);
+      if (p && fs.existsSync(p)) { portraitPath = p; break; }
+    }
   }
 
   await reply(message, await buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, ownerId: message.author.id }));
@@ -869,8 +878,8 @@ async function deities(message) {
       const imgName = s.img || `${s.name.toLowerCase().replace(/\s+/g, '_')}.png`;
       const imgPath = safeDeityImagePath(mythDir || '', imgName);
       try {
-        if (imgPath && fs.existsSync(imgPath)) {
-          const portrait = await loadImage(imgPath);
+        if (imgPath && (isRemoteAssetsEnabled() || fs.existsSync(imgPath))) {
+          const portrait = await loadAssetImage(imgPath);
           ctx.save();
           ctx.beginPath();
           ctx.roundRect(x, BOX_Y, BOX_W, BOX_H, RAD);

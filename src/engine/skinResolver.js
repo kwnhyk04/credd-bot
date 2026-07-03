@@ -25,6 +25,7 @@ const path = require('path');
 const {
   SKINS_DIR, DIRS, SET_FILES, skinFilePath, DEV_ACCOUNT_IDS, BETA_MODE,
 } = require('../config/cosmetics');
+const { assetPath, isRemoteAssetsEnabled } = require('../utils/assets');
 const {
   getEquipped, getCatalogById, getSupporter, isActiveSupporter,
 } = require('./supporterEntitlements');
@@ -33,11 +34,18 @@ function existsAbs(p) {
   try { return p != null && fs.existsSync(p); } catch { return false; }
 }
 
+function skinAsset(relPath) {
+  const abs = skinFilePath(relPath);
+  if (!abs) return null;
+  if (existsAbs(abs)) return isRemoteAssetsEnabled() ? assetPath(`skins/${String(relPath).replace(/\\/g, '/')}`) : abs;
+  return isRemoteAssetsEnabled() ? assetPath(`skins/${String(relPath).replace(/\\/g, '/')}`) : null;
+}
+
 /** First existing file (absolute) among `candidates` basenames inside a skins-relative folder. */
 function firstExistingInFolder(relFolder, candidates) {
   for (const name of candidates) {
-    const abs = skinFilePath(`${relFolder}/${name}`);
-    if (existsAbs(abs)) return abs;
+    const p = skinAsset(`${relFolder}/${name}`);
+    if (p) return p;
   }
   return null;
 }
@@ -47,8 +55,7 @@ function resolveOverride(relPath, category, variant) {
   if (!relPath) return null;
   // A path with an extension is a concrete single file.
   if (path.extname(relPath)) {
-    const abs = skinFilePath(relPath);
-    return existsAbs(abs) ? abs : null;
+    return skinAsset(relPath);
   }
   // Otherwise it's a set folder — pick the file for this category/variant.
   let key = category;
@@ -63,8 +70,7 @@ function catalogFile(cat, category, variant) {
   let rel;
   if (category === 'battle_result') rel = variant === 'defeated' ? cat.defeated_filename : cat.victory_filename;
   else rel = cat.render_filename;
-  const abs = skinFilePath(rel);
-  return existsAbs(abs) ? abs : null;
+  return skinAsset(rel);
 }
 
 /**

@@ -14,6 +14,7 @@ const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const path = require('path');
 const pool = require('../db/pool');
 const { rankLabel, SUIT_LABEL } = require('./cardDeck');
+const { assetPath, assetSource, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
 
 const ROOT = path.join(__dirname, '..', '..');
 const FONT = 'DejaVu Sans';
@@ -30,8 +31,11 @@ const COLORS = {
 
 const imgCache = new Map();
 function loadCached(p) {
-  if (!imgCache.has(p)) imgCache.set(p, loadImage(p).catch(() => null));
-  return imgCache.get(p);
+  const resolved = assetSource(p);
+  if (!imgCache.has(resolved)) {
+    imgCache.set(resolved, loadAssetImageSource(loadImage, resolved).catch(() => null));
+  }
+  return imgCache.get(resolved);
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -61,8 +65,8 @@ function drawContain(ctx, img, bx, by, bw, bh) {
  * falls back to a programmatic card for THAT card only and logs the path to
  * dev_logs — the game never crashes on a missing file.
  */
-const CARDS_IMG = path.join(ROOT, 'assets', 'casino', 'cards', 'img');
-const CARD_CANVAS_DIR = path.join(CARDS_IMG, 'Card Canvas');
+const CARDS_IMG = 'casino/cards/img';
+const CARD_CANVAS_DIR = `${CARDS_IMG}/Card Canvas`;
 const ROYAL_RANKS = new Set(['j', 'q', 'k']);
 const CARD_RANK_HEIGHT_FRAC = 0.85 * 0.75;
 const CARD_SYMBOL_HEIGHT_FRAC = 0.85;
@@ -70,10 +74,10 @@ const CARD_RANK_Y_OFFSET_FRAC = 0.035;
 const CARD_SYMBOL_Y_OFFSET_FRAC = -0.04;
 const capSuit = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
-const canvasBgPath = (suit) => path.join(CARD_CANVAS_DIR, `${suit}_canvas.png`);
-const numberPngPath = (suit, rank) => path.join(CARDS_IMG, capSuit(suit), `${suit}_${rank}.png`);
-const symbolPngPath = (suit) => path.join(CARDS_IMG, `${suit}.png`);
-const royalPngPath = (suit, rank) => path.join(CARDS_IMG, `${suit}_royal_${rank}.png`);
+const canvasBgPath = (suit) => assetPath(`${CARD_CANVAS_DIR}/${suit}_canvas.png`);
+const numberPngPath = (suit, rank) => assetPath(`${CARDS_IMG}/${capSuit(suit)}/${suit}_${rank}.png`);
+const symbolPngPath = (suit) => assetPath(`${CARDS_IMG}/${suit}.png`);
+const royalPngPath = (suit, rank) => assetPath(`${CARDS_IMG}/${suit}_royal_${rank}.png`);
 
 // Fire-and-forget dev_logs note for a missing asset, deduped so one bad path logs once.
 const loggedMissing = new Set();

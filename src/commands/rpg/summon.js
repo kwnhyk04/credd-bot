@@ -1,10 +1,10 @@
 'use strict';
 
-const fs = require('fs');
 const pool = require('../../db/pool');
 const { runSummon } = require('../../engine/summonEngine');
 const { buildFlipMessage, buildResultMessage, flipGifExists } = require('../../engine/renderSummon');
 const { resolveSkin } = require('../../engine/skinResolver');
+const { assetExistsSync, readAssetJson } = require('../../utils/assets');
 const {
   SHARDS_PER_PULL,
   ALLOWED_SUMMON_COUNTS,
@@ -103,8 +103,8 @@ async function execute(message, { args }) {
   if (flipPath) {
     try {
       const cfgPath = flipPath.replace(/\.[^.]+$/, '.json');
-      if (fs.existsSync(cfgPath)) {
-        const sec = JSON.parse(fs.readFileSync(cfgPath, 'utf8')).flip_seconds;
+      if (assetExistsSync(cfgPath)) {
+        const sec = (await readAssetJson(cfgPath)).flip_seconds;
         if (Number.isFinite(sec) && sec > 0) flipMs = Math.round(sec * 1000);
       }
     } catch { /* keep the 4s default */ }
@@ -113,7 +113,7 @@ async function execute(message, { args }) {
   let sent = null;
   try {
     if (haveFlip) {
-      sent = await reply(message, buildFlipMessage(flipPath));
+      sent = await reply(message, await buildFlipMessage(flipPath));
       await sleep(flipMs); // flip plays per-skin duration (default 4s; founder_summon = 7s)
       // attachments: [] drops the flip animation from the edited message.
       await sent.edit({ ...(await buildResultMessage(results, balances)), attachments: [] });

@@ -13,15 +13,13 @@ const {
   ContainerBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
   AttachmentBuilder, MessageFlags,
 } = require('discord.js');
-const path = require('path');
 const imagePad = require('./imagePad');
 const canvas = require('./casinoCanvas');
 const { smallDivider: sep } = require('../utils/componentsV2');
+const { assetPath } = require('../utils/assets');
 const { COLORS } = canvas;
 const { SLOT_FACE_INDEX } = require('./payoutTables');
 const { BACK_FILE, blackjackValue } = require('./cardDeck');
-
-const CASINO_DIR = path.join(__dirname, '..', '..', 'assets', 'casino');
 
 const ACCENT = {
   coin: 0xc9ccd1, dice: 0xc77b3b, baccarat: 0x9b59b6,
@@ -34,13 +32,13 @@ const DIM = { coin: { W: 460, H: 132, contentH: 92 }, dice: { W: 200, H: 120, co
 const fmt = (n) => Number(n).toLocaleString();
 const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);
 
-const coinGif = (r) => path.join(CASINO_DIR, 'coin', `flip_${r}.gif`);
-const coinPng = (r) => path.join(CASINO_DIR, 'coin', `${r}.png`);
-const diceGif = (n) => path.join(CASINO_DIR, 'dice', `dice_roll_${n}.gif`);
-const dicePng = (n) => path.join(CASINO_DIR, 'dice', `face_${n}.png`);
-const cardBack = path.join(CASINO_DIR, 'cards', 'img', BACK_FILE); // [fix] back lives in img/ alongside faces
-const slotReelGif = (i, face) => path.join(CASINO_DIR, 'slots', ['3s', '4s', '5s'][i], `${['3s', '4s', '5s'][i]}_${face}_${SLOT_FACE_INDEX[face]}.gif`);
-const slotFacePng = (face) => path.join(CASINO_DIR, 'slots', `${face}_face.png`);
+const coinGif = (r) => assetPath(`casino/coin/flip_${r}.gif`);
+const coinPng = (r) => assetPath(`casino/coin/${r}.png`);
+const diceGif = (n) => assetPath(`casino/dice/dice_roll_${n}.gif`);
+const dicePng = (n) => assetPath(`casino/dice/face_${n}.png`);
+const cardBack = assetPath(`casino/cards/img/${BACK_FILE}`); // [fix] back lives in img/ alongside faces
+const slotReelGif = (i, face) => assetPath(`casino/slots/${['3s', '4s', '5s'][i]}/${['3s', '4s', '5s'][i]}_${face}_${SLOT_FACE_INDEX[face]}.gif`);
+const slotFacePng = (face) => assetPath(`casino/slots/${face}_face.png`);
 
 function head(c, title, subtitle) {
   c.addTextDisplayComponents((td) => td.setContent(title));
