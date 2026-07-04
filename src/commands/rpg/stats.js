@@ -1,6 +1,8 @@
 'use strict';
 
+const { MediaGalleryBuilder, MessageFlags } = require('discord.js');
 const { makeOptimizedAttachment } = require('../../utils/imageOutput');
+const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 const pool = require('../../db/pool');
 const { assemblePlayerStats, accumulateRuneStats } = require('../../engine/statAssembly');
 const { computeResonanceMods } = require('../../config/blessings');
@@ -9,6 +11,9 @@ const { BELIEVER_EXP_PER_LEVEL, believerTitle } = require('../../config/believer
 const { renderStatsImage } = require('../../engine/renderStats');
 const { resolveSkin, resolveProfileLabel } = require('../../engine/skinResolver');
 const { resolveProfileTarget } = require('../../utils/profileTarget');
+
+// Bump when renderStats output changes visually (busts every cached stats card).
+const STATS_RENDER_REV = 1;
 
 /**
  * `crd profile [@user]` / `crd stats [@user]` — full Canvas profile card.
@@ -192,6 +197,20 @@ async function execute(message) {
   const skin = await resolveSkin(pool, discordId, 'profile');
   data.skinPath = skin.path; // null → renderer keeps the default template
   data.topLabel = await resolveProfileLabel(pool, discordId);
+
+  // [egress] Render-once cache — see profile.js; same pattern.
+  const cached = await getCachedCanvasUrl(
+    ['stats', STATS_RENDER_REV, data],
+    () => renderStatsImage(data)
+  );
+  if (cached) {
+    await message.reply({
+      components: [new MediaGalleryBuilder().addItems((item) => item.setURL(cached.url))],
+      flags: MessageFlags.IsComponentsV2,
+      allowedMentions: { repliedUser: false },
+    });
+    return;
+  }
 
   const image = await makeOptimizedAttachment(await renderStatsImage(data), 'stats');
 

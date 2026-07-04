@@ -1,6 +1,8 @@
 'use strict';
 
+const { MediaGalleryBuilder, MessageFlags } = require('discord.js');
 const { makeOptimizedAttachment } = require('../../utils/imageOutput');
+const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 const pool = require('../../db/pool');
 const { assemblePlayerStats, accumulateRuneStats } = require('../../engine/statAssembly');
 const { computeResonanceMods } = require('../../config/blessings');
@@ -9,6 +11,9 @@ const { BELIEVER_EXP_PER_LEVEL, believerTitle } = require('../../config/believer
 const { renderProfileImage } = require('../../engine/renderProfile');
 const { resolveSkin, resolveProfileLabel } = require('../../engine/skinResolver');
 const { resolveProfileTarget } = require('../../utils/profileTarget');
+
+// Bump when renderProfile output changes visually (busts every cached profile card).
+const PROFILE_RENDER_REV = 1;
 
 /**
  * `crd profile [@user]` / `crd stats [@user]` — full Canvas profile card.
@@ -185,6 +190,22 @@ async function execute(message) {
   const skin = await resolveSkin(pool, discordId, 'profile');
   data.skinPath = skin.path; // null → renderer keeps the default template
   data.topLabel = await resolveProfileLabel(pool, discordId);
+
+  // [egress] Render-once cache: same profile state → same key → served from R2
+  // by URL (zero upload). PROFILE_RENDER_REV must be bumped when renderProfile
+  // visuals change so old cached images stop matching.
+  const cached = await getCachedCanvasUrl(
+    ['profile', PROFILE_RENDER_REV, data],
+    () => renderProfileImage(data)
+  );
+  if (cached) {
+    await message.reply({
+      components: [new MediaGalleryBuilder().addItems((item) => item.setURL(cached.url))],
+      flags: MessageFlags.IsComponentsV2,
+      allowedMentions: { repliedUser: false },
+    });
+    return;
+  }
 
   const image = await makeOptimizedAttachment(await renderProfileImage(data), 'profile');
 

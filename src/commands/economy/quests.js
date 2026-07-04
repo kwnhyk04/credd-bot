@@ -24,6 +24,25 @@ const { smallDivider: sep } = require('../../utils/componentsV2');
 const { phtWeek } = require('../../config/ranked');
 const { renderQuestRowsImage } = require('../../engine/renderQuestRows');
 const { makeOptimizedAttachment } = require('../../utils/imageOutput');
+const { getCachedCanvasUrl } = require('../../utils/canvasCache');
+
+// Bump when renderQuestRows visuals change (busts cached quest boards).
+const QUEST_BOARD_REV = 1;
+
+/**
+ * [egress] Resolve the quest-rows image as a cached R2 URL (render-once; the
+ * Daily/Weekly scope switch then edits the message with a URL and transfers
+ * zero image bytes) or fall back to the attach path. The board image is a pure
+ * function of the quest rows + reward icon.
+ */
+async function questBoardImage(quests, rewardIcon, name) {
+  const cached = await getCachedCanvasUrl(
+    ['quest-board', QUEST_BOARD_REV, rewardIcon, quests],
+    () => renderQuestRowsImage(quests, { rewardIcon })
+  );
+  if (cached) return { url: cached.url, file: null };
+  return makeOptimizedAttachment(await renderQuestRowsImage(quests, { rewardIcon }), name);
+}
 
 const ACCENT = 0xf0b232;
 
@@ -85,7 +104,7 @@ async function dailyPayload(ownerId, note) {
   const refreshesUsed = Number(rows[0]?.refreshes_used || 0);
   const refreshesLeft = Math.max(0, REFRESH_ALLOWANCE - refreshesUsed);
   const hours = hoursUntilMidnightPHT();
-  const image = await makeOptimizedAttachment(await renderQuestRowsImage(quests), 'quests');
+  const image = await questBoardImage(quests, 'belief_shards', 'quests');
 
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
@@ -100,7 +119,7 @@ async function dailyPayload(ownerId, note) {
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent('-# *"The gods reward those who prove their worth."*'));
 
-  return { components: [container], files: [image.file], flags: MessageFlags.IsComponentsV2 };
+  return { components: [container], files: image.file ? [image.file] : [], flags: MessageFlags.IsComponentsV2 };
 }
 
 // ── WEEKLY ─────────────────────────────────────────────────────────────────
@@ -137,7 +156,7 @@ async function weeklyPayload(ownerId, note) {
 
   // Reuse the quest-row renderer; map Valor into the shard slot + swap the icon.
   const rowItems = quests.map((q) => ({ ...q, rewardShards: q.rewardValor }));
-  const image = await makeOptimizedAttachment(await renderQuestRowsImage(rowItems, { rewardIcon: 'valor_medal' }), 'weekly');
+  const image = await questBoardImage(rowItems, 'valor_medal', 'weekly');
 
   const grandLine = claimed
     ? '-# 🏆 Grand reward claimed this week.'
@@ -163,7 +182,7 @@ async function weeklyPayload(ownerId, note) {
       new ButtonBuilder().setCustomId(`quest:claim:${ownerId}`).setLabel('🏆 Claim Grand Reward').setStyle(ButtonStyle.Success),
     ));
   }
-  return { components, files: [image.file], flags: MessageFlags.IsComponentsV2 };
+  return { components, files: image.file ? [image.file] : [], flags: MessageFlags.IsComponentsV2 };
 }
 
 async function showQuests(message, note = null, scope = 'daily') {
