@@ -16,7 +16,7 @@ const {
 const imagePad = require('./imagePad');
 const canvas = require('./casinoCanvas');
 const { smallDivider: sep } = require('../utils/componentsV2');
-const { assetPath } = require('../utils/assets');
+const { assetPath, getAssetUrl, remoteAssetAvailable } = require('../utils/assets');
 const { COLORS } = canvas;
 const { SLOT_FACE_INDEX } = require('./payoutTables');
 const { BACK_FILE, blackjackValue } = require('./cardDeck');
@@ -52,6 +52,35 @@ function galleryOne(c, name) {
 }
 function att(buf, name) { return new AttachmentBuilder(buf, { name }); }
 
+/**
+ * Egress guard: deterministic media (spin GIFs, result face strips) is
+ * pre-rendered by scripts/build-casino-spin-assets.js and uploaded to R2, so
+ * the message can reference the public URL — the bot uploads ZERO bytes to
+ * Discord for it. Attach-fallback (byte-identical render) covers a missing/
+ * not-yet-uploaded object, so behavior never changes for users.
+ * `rels` = one gallery row; all-or-nothing so a row never mixes URL + attach.
+ */
+async function galleryFromCdn(c, files, rels, fallbacks) {
+  const relList = Array.isArray(rels) ? rels : [rels];
+  const available = await Promise.all(relList.map((rel) => remoteAssetAvailable(rel)));
+  if (available.every(Boolean)) {
+    c.addMediaGalleryComponents((g) => {
+      for (const rel of relList) g.addItems((i) => i.setURL(getAssetUrl(rel)));
+      return g;
+    });
+    return;
+  }
+  for (const fb of (Array.isArray(fallbacks) ? fallbacks : [fallbacks])) {
+    files.push(att(await fb.build(), fb.name));
+  }
+  c.addMediaGalleryComponents((g) => {
+    for (const fb of (Array.isArray(fallbacks) ? fallbacks : [fallbacks])) {
+      g.addItems((i) => i.setURL(`attachment://${fb.name}`));
+    }
+    return g;
+  });
+}
+
 /** Plain (no-emoji) banner line for the centered canvas text. */
 function bannerLine(kind, game, { net, bet, extra } = {}) {
   const flavor = {
@@ -79,15 +108,20 @@ async function buildCoin({ phase, uid, bet, pick, outcome, balance }) {
   const files = [];
   if (result) {
     const kind = outcome.win ? 'win' : 'loss';
-    files.push(att(await canvas.strip([coinPng(outcome.result)], { tile: 78 }), 'coin_img.png'));
+    await galleryFromCdn(c, files, `generated/casino/coin_face_${outcome.result}.png`, {
+      name: 'coin_img.png',
+      build: () => canvas.strip([coinPng(outcome.result)], { tile: 78 }),
+    });
     files.push(att(await canvas.resultStrip([
       { text: `${outcome.faceName} — ${cap(outcome.result)}`, size: 11, bold: true },
       { text: bannerLine(kind, 'coin_toss', { net: outcome.payout - bet, bet }), size: 10, bold: true, color: bannerColor(kind) },
     ]), 'coin_res.png'));
-    galleryOne(c, 'coin_img.png'); c.addSeparatorComponents(sep); galleryOne(c, 'coin_res.png');
+    c.addSeparatorComponents(sep); galleryOne(c, 'coin_res.png');
   } else {
-    files.push(att(await imagePad.padGif(coinGif(outcome.result), DIM.coin), 'coin_spin.gif'));
-    galleryOne(c, 'coin_spin.gif');
+    await galleryFromCdn(c, files, `generated/casino/coin_spin_${outcome.result}.gif`, {
+      name: 'coin_spin.gif',
+      build: () => imagePad.padGif(coinGif(outcome.result), DIM.coin),
+    });
     c.addTextDisplayComponents((td) => td.setContent('-# *The coin spins through the air…*'));
   }
   balanceLine(c, balance);
@@ -103,16 +137,22 @@ async function buildDice({ phase, uid, bet, pick, outcome, balance }) {
   const files = [];
   if (result) {
     const kind = outcome.win ? 'win' : 'loss';
-    files.push(att(await canvas.strip([dicePng(outcome.d1), dicePng(outcome.d2)], { tile: 72 }), 'dice_img.png'));
+    await galleryFromCdn(c, files, `generated/casino/dice_faces_${outcome.d1}_${outcome.d2}.png`, {
+      name: 'dice_img.png',
+      build: () => canvas.strip([dicePng(outcome.d1), dicePng(outcome.d2)], { tile: 72 }),
+    });
     files.push(att(await canvas.resultStrip([
       { text: `Total: ${outcome.sum} — ${cap(outcome.parity)}`, size: 11, bold: true },
       { text: bannerLine(kind, 'dice_roll', { net: outcome.payout - bet, bet }), size: 10, bold: true, color: bannerColor(kind) },
     ]), 'dice_res.png'));
-    galleryOne(c, 'dice_img.png'); c.addSeparatorComponents(sep); galleryOne(c, 'dice_res.png');
+    c.addSeparatorComponents(sep); galleryOne(c, 'dice_res.png');
   } else {
-    files.push(att(await imagePad.padGif(diceGif(outcome.d1), DIM.dice), 'die1.gif'));
-    files.push(att(await imagePad.padGif(diceGif(outcome.d2), DIM.dice), 'die2.gif'));
-    c.addMediaGalleryComponents((g) => g.addItems((i) => i.setURL('attachment://die1.gif')).addItems((i) => i.setURL('attachment://die2.gif')));
+    await galleryFromCdn(c, files,
+      [`generated/casino/die_${outcome.d1}.gif`, `generated/casino/die_${outcome.d2}.gif`],
+      [
+        { name: 'die1.gif', build: () => imagePad.padGif(diceGif(outcome.d1), DIM.dice) },
+        { name: 'die2.gif', build: () => imagePad.padGif(diceGif(outcome.d2), DIM.dice) },
+      ]);
     c.addTextDisplayComponents((td) => td.setContent('-# *The ancient dice tumble…*'));
   }
   balanceLine(c, balance);
@@ -216,8 +256,10 @@ async function buildSlot({ phase, uid, bet, outcome, balance }) {
   const files = [];
   if (result) {
     const kind = outcome.win ? 'win' : 'loss';
-    files.push(att(await canvas.strip(outcome.reels.map(slotFacePng), { tile: 84 }), 'slot_img.png'));
-    galleryOne(c, 'slot_img.png');
+    await galleryFromCdn(c, files, `generated/casino/slot_faces_${outcome.reels.join('_')}.png`, {
+      name: 'slot_img.png',
+      build: () => canvas.strip(outcome.reels.map(slotFacePng), { tile: 84 }),
+    });
     c.addTextDisplayComponents((td) => td.setContent(SLOT_LEGEND));
     files.push(att(await canvas.resultStrip([
       { text: outcome.reels.map(cap).join(' — '), size: 9, color: COLORS.dim },
@@ -226,8 +268,10 @@ async function buildSlot({ phase, uid, bet, outcome, balance }) {
     c.addSeparatorComponents(sep); galleryOne(c, 'slot_res.png');
   } else {
     // One-line composited reel strip (reels keep their 3s/4s/5s stagger; holds last frame on end).
-    files.push(att(await imagePad.reelStripGif([slotReelGif(0, outcome.reels[0]), slotReelGif(1, outcome.reels[1]), slotReelGif(2, outcome.reels[2])]), 'slot_spin.gif'));
-    galleryOne(c, 'slot_spin.gif');
+    await galleryFromCdn(c, files, `generated/casino/slot_spin_${outcome.reels.join('_')}.gif`, {
+      name: 'slot_spin.gif',
+      build: () => imagePad.reelStripGif([slotReelGif(0, outcome.reels[0]), slotReelGif(1, outcome.reels[1]), slotReelGif(2, outcome.reels[2])]),
+    });
     c.addTextDisplayComponents((td) => td.setContent(SLOT_LEGEND))
      .addTextDisplayComponents((td) => td.setContent('-# *The sacred reels spin…*'));
   }
