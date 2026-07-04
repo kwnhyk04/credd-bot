@@ -2,7 +2,7 @@
 
 const {
   ContainerBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
-  AttachmentBuilder, MessageFlags,
+  MessageFlags,
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -17,8 +17,11 @@ const {
 const { generateUniqueGearId } = require('../../utils/weaponId');
 const { renderPortraitCard } = require('../../engine/renderPortraitCard');
 const { assetPath, isRemoteAssetsEnabled } = require('../../utils/assets');
+const { getCachedCanvasUrl } = require('../../utils/canvasCache');
+const { makeOptimizedAttachment } = require('../../utils/imageOutput');
 
 const BRAND = 0x9b59b6;
+const CLASS_CARD_RENDER_REV = 1;
 
 // Class art (Roster Conventions Part 4): assets/classes/{class_lowercase}.png
 // — swordsman/fighter/mage/knight/archer.
@@ -73,11 +76,10 @@ function classSelectRow(userId) {
 // RIGHT. Missing art / render failure → text-only fallback, never crashes.
 async function classPreviewPayload(className, userId) {
   const cls = CLASSES[className];
-  const attachName = `class_${className.toLowerCase()}.png`;
 
-  let file = null;
+  let image = null;
   try {
-    const buffer = await renderPortraitCard({
+    const cardInput = {
       imagePath: classImageFile(className),
       accent: '#9b59b6',
       title: className,
@@ -86,15 +88,21 @@ async function classPreviewPayload(className, userId) {
         { body: cls.flavor },
         { body: cls.passiveLine.replace(/\*\*/g, '') },
       ],
-    });
-    file = new AttachmentBuilder(buffer, { name: attachName });
+    };
+    const cached = await getCachedCanvasUrl(
+      ['class-preview-card', CLASS_CARD_RENDER_REV, cardInput],
+      () => renderPortraitCard(cardInput)
+    );
+    image = cached
+      ? { url: cached.url, file: null }
+      : await makeOptimizedAttachment(await renderPortraitCard(cardInput), `class_${className.toLowerCase()}`);
   } catch (err) {
     console.error('[create] class card render failed:', err.message);
   }
 
   const container = new ContainerBuilder().setAccentColor(BRAND);
-  if (file) {
-    container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(`attachment://${attachName}`)));
+  if (image) {
+    container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(image.url)));
   } else {
     container
       .addTextDisplayComponents((td) => td.setContent(`## ${cls.emoji} ${className}`))
@@ -107,7 +115,7 @@ async function classPreviewPayload(className, userId) {
 
   return {
     components: [container, previewRow(className, userId)],
-    files: file ? [file] : [],
+    files: image?.file ? [image.file] : [],
     flags: MessageFlags.IsComponentsV2,
   };
 }

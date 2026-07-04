@@ -67,9 +67,10 @@ function dbWarn(err) {
  * Resolve (or create) the cached public URL for a deterministic canvas.
  * @param {Array|Object} parts    exact render inputs + a render revision number
  * @param {Function} renderPng    async () => PNG Buffer — called only on a miss
+ * @param {object} imageOptions   optimizeOpaqueAttachment options
  * @returns {Promise<{url:string}|null>}  null → caller must attach as before
  */
-async function getCachedCanvasUrl(parts, renderPng) {
+async function getCachedCanvasUrl(parts, renderPng, imageOptions = {}) {
   if (!enabled()) return null;
   const key = hashParts(parts);
 
@@ -98,7 +99,7 @@ async function getCachedCanvasUrl(parts, renderPng) {
     try {
       const png = await renderPng();
       // Same encoder as the attach path → byte-identical visuals either way.
-      const image = await optimizeOpaqueAttachment(png, 'canvas');
+      const image = await optimizeOpaqueAttachment(png, 'canvas', imageOptions);
       const ext = image.name.endsWith('.jpg') ? 'jpg' : 'png';
       const objectKey = `cache/canvas/${key}.${ext}`;
       const contentType = ext === 'jpg' ? 'image/jpeg' : 'image/png';

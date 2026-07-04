@@ -22,6 +22,7 @@ const { renderWeaponResults, TIERS } = require('./weaponResultRenderer');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji } = require('../utils/emojis');
 const { makeOptimizedAttachment } = require('../utils/imageOutput');
+const { getCachedCanvasUrl } = require('../utils/canvasCache');
 const { capitalizeLower } = require('../utils/textFormat');
 const {
   assetPath,
@@ -32,6 +33,8 @@ const {
 } = require('../utils/assets');
 
 const ANIMATION_MS = 3000; // matches the ~2.5s GIFs + buffer
+const CHEST_RESULT_RENDER_REV = 1;
+const RUNE_RESULT_RENDER_REV = 1;
 
 // gifKey (users_bag column / relic kind) → gif filename in assets/animations/chests
 const CHEST_GIFS = {
@@ -87,6 +90,16 @@ function resolveGif(gifKey, gifPath) {
   return name ? { name, src: assetPath(`animations/chests/${name}`) } : null;
 }
 
+async function cachedResultGrid(cacheKind, rev, items, baseName) {
+  const cached = await getCachedCanvasUrl(
+    [cacheKind, rev, items],
+    () => renderWeaponResults(items)
+  );
+  return cached
+    ? { url: cached.url, file: null }
+    : makeOptimizedAttachment(await renderWeaponResults(items), baseName);
+}
+
 /** Animation-phase container: header → separator → the chest gif. */
 async function animationPayload(gifKey, animTitle, gifPath) {
   const g = resolveGif(gifKey, gifPath);
@@ -123,7 +136,7 @@ async function animationPayload(gifKey, animTitle, gifPath) {
  * @param {string} p.chestEmojiName registry emoji name for the chest
  */
 async function buildWeaponResultPayload(p) {
-  const grid = await makeOptimizedAttachment(await renderWeaponResults(p.items), 'chest_results');
+  const grid = await cachedResultGrid('chest-result-grid', CHEST_RESULT_RENDER_REV, p.items, 'chest_results');
 
   const container = new ContainerBuilder()
     .setAccentColor(0xf0b232)
@@ -206,7 +219,7 @@ async function playAnimatedOpen(message, { gifKey, gifPath, animTitle, buildResu
  * @param {string} p.bagEmoji       inline emoji string for the bag
  */
 async function buildRuneResultPayload(p) {
-  const grid = await makeOptimizedAttachment(await renderWeaponResults(p.items), 'rune_results');
+  const grid = await cachedResultGrid('rune-result-grid', RUNE_RESULT_RENDER_REV, p.items, 'rune_results');
 
   const container = new ContainerBuilder()
     .setAccentColor(0x9b59b6)

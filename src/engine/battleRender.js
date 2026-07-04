@@ -41,6 +41,7 @@ const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const path = require('path');
 const { emojiForDisplay } = require('../utils/emojis');
 const { optimizeOpaqueAttachment } = require('../utils/imageOutput');
+const { getCachedCanvasUrl } = require('../utils/canvasCache');
 const { loadBattleSkin, renderBattleSkinPanel } = require('./battleLayoutRenderer');
 const { loadResultSkin, renderResultPanel } = require('./resultLayoutRenderer');
 
@@ -55,6 +56,9 @@ for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
 }
 
 const UPDATE_MS = 1800; // delay between embed edits (≥1500ms — rate-limit safety)
+
+const BATTLE_FRAME_RENDER_REV = 1;
+const BATTLE_RESULT_RENDER_REV = 1;
 
 const COLORS = {
   bg: '#1f2125', card: '#26282d', cardLine: '#36393f',
@@ -428,7 +432,7 @@ async function renderRewardsPanel(sim, r) {
 /* ----------------------------------------------------------------------- */
 /* EMBEDS + ANIMATION                                                       */
 /* ----------------------------------------------------------------------- */
-function battleEmbed(sim, snapIdx, { mode, includeImage = true, imageName = 'battle.png' }) {
+function battleEmbed(sim, snapIdx, { mode, includeImage = true, imageUrl = null }) {
   const s = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
   const over = snapIdx >= sim.snapshots.length - 1;
   const playerWon = sim.winner === 'a';
@@ -455,12 +459,66 @@ function battleEmbed(sim, snapIdx, { mode, includeImage = true, imageName = 'bat
     .setColor(color)
     .setTitle(title)
     .setDescription(`Turn ${s.round} ${over ? ' ‎ **\`Battle Over\`**' : ''}`);
-  if (includeImage) e.setImage(`attachment://${imageName}`);
+  if (includeImage && imageUrl) e.setImage(imageUrl);
   if (over && line) e.addFields({ name: '​', value: line });
   // raid result + rewards live in a SECOND embed below this one (runBattle) —
   // fields/description here would render above the image
   // seed intentionally NOT in the embed — it stays in the Battle Log header
   return e;
+}
+
+function battleFrameCacheParts(sim, snapIdx, { mode, mirror, battleSkinPath }) {
+  const idx = Math.min(snapIdx, sim.snapshots.length - 1);
+  return {
+    mode,
+    mirror,
+    battleSkinPath: battleSkinPath || null,
+    fighterA: sim.a,
+    fighterB: sim.b,
+    snapshot: sim.snapshots[idx] || null,
+  };
+}
+
+function battleResultCacheParts(sim, rewards, resultSkinPath) {
+  return {
+    resultSkinPath: resultSkinPath || null,
+    winner: sim.winner,
+    outcome: sim.outcome || null,
+    fighterA: sim.a,
+    fighterB: sim.b,
+    rewards: rewards || null,
+  };
+}
+
+async function cachedBattleFrame(sim, snapIdx, { mode, mirror, icons, skin, battleSkinPath }) {
+  const render = () => renderBattlePanel(sim, snapIdx, { mirror, icons, skin, mode });
+  const imageOptions = { background: COLORS.bg, maxWidth: 1024 };
+  const cached = await getCachedCanvasUrl(
+    ['battle-frame', BATTLE_FRAME_RENDER_REV, battleFrameCacheParts(sim, snapIdx, { mode, mirror, battleSkinPath })],
+    render,
+    imageOptions
+  );
+  if (cached) return { url: cached.url, files: [] };
+  const image = await optimizeOpaqueAttachment(render(), 'battle', imageOptions);
+  return {
+    url: `attachment://${image.name}`,
+    files: [new AttachmentBuilder(image.buffer, { name: image.name })],
+  };
+}
+
+async function cachedBattleResultImage(buffer, sim, rewards, resultSkinPath) {
+  const imageOptions = { background: COLORS.bg, maxWidth: 1024 };
+  const cached = await getCachedCanvasUrl(
+    ['battle-result-panel', BATTLE_RESULT_RENDER_REV, battleResultCacheParts(sim, rewards, resultSkinPath)],
+    () => buffer,
+    imageOptions
+  );
+  if (cached) return { url: cached.url, files: [] };
+  const image = await optimizeOpaqueAttachment(buffer, 'rewards', imageOptions);
+  return {
+    url: `attachment://${image.name}`,
+    files: [new AttachmentBuilder(image.buffer, { name: image.name })],
+  };
 }
 
 function rewardFooterText(sim, r) {
@@ -566,12 +624,8 @@ async function runBattle(channel, {
     const over = i >= sim.snapshots.length - 1;
     // [egress] battle frames ship at 1024px wide (owner-approved) — layout renders
     // unchanged, only the encoded output shrinks (~55% fewer bytes on 1536px skins).
-    const battleImage = await optimizeOpaqueAttachment(
-      renderBattlePanel(sim, i, { mirror, icons, skin, mode }),
-      'battle',
-      { background: COLORS.bg, maxWidth: 1024 }
-    );
-    const base = battleEmbed(sim, i, { mode, includeImage: true, imageName: battleImage.name });
+    const battleImage = await cachedBattleFrame(sim, i, { mode, mirror, icons, skin, battleSkinPath });
+    const base = battleEmbed(sim, i, { mode, includeImage: true, imageUrl: battleImage.url });
     // Phase 6: ranked threads its result into the embed — the tier matchup in the
     // HEADER (author, top), the outcome + rating move + Valor in the FOOTER (bottom).
     if (over && header) base.setAuthor({ name: header });
@@ -580,14 +634,12 @@ async function runBattle(channel, {
     }
     const showRewards = over && resultEmbed;
     const rewardsImage = showRewards
-      ? await optimizeOpaqueAttachment(rewardsBuffer, 'rewards', { background: COLORS.bg, maxWidth: 1024 })
+      ? await cachedBattleResultImage(rewardsBuffer, sim, rewards, resultSkinPath)
       : null;
-    if (rewardsImage) resultEmbed.setImage(`attachment://${rewardsImage.name}`);
+    if (rewardsImage) resultEmbed.setImage(rewardsImage.url);
     const files = [
-      new AttachmentBuilder(battleImage.buffer, { name: battleImage.name }),
-      ...(showRewards
-        ? [new AttachmentBuilder(rewardsImage.buffer, { name: rewardsImage.name })]
-        : []),
+      ...battleImage.files,
+      ...(showRewards && rewardsImage ? rewardsImage.files : []),
     ];
     return {
       content: over && noticeLine ? noticeLine : '',

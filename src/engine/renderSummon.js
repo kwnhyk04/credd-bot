@@ -25,6 +25,7 @@ const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji } = require('../utils/emojis');
 const { makeOptimizedAttachment } = require('../utils/imageOutput');
+const { getCachedCanvasUrl } = require('../utils/canvasCache');
 const {
   assetPath,
   assetExistsSync,
@@ -47,6 +48,7 @@ const ALIAS_TO_ESSENCE = Object.fromEntries(
  * CONFIG
  * ══════════════════════════════════════════ */
 const ACCENT = 0xf0b232;
+const SUMMON_RESULT_RENDER_REV = 1;
 // Anchored to the project root (this file is src/engine/), not process.cwd().
 const FLIP_GIF_PATH = assetPath('animations/gacha/card_flip.gif');
 // The 1024×1024 rarity frames live with the gacha animation assets (§35.7).
@@ -217,6 +219,16 @@ async function renderSummonGrid(results) {
   return canvas.toBuffer('image/png');
 }
 
+async function cachedSummonGrid(results) {
+  const cached = await getCachedCanvasUrl(
+    ['summon-result-grid', SUMMON_RESULT_RENDER_REV, results],
+    () => renderSummonGrid(results)
+  );
+  return cached
+    ? { url: cached.url, file: null }
+    : makeOptimizedAttachment(await renderSummonGrid(results), 'summon_result');
+}
+
 /* ════════════════════════════════════════════
  * PHASE 1 — flip message (suspense)
  * ══════════════════════════════════════════ */
@@ -259,7 +271,7 @@ async function buildFlipMessage(flipPath = null) {
  *        supremeRelics is optional — only the relic-open paths show it.
  */
 async function buildResultMessage(results, balances) {
-  const grid = await makeOptimizedAttachment(await renderSummonGrid(results), 'summon_result');
+  const grid = await cachedSummonGrid(results);
 
   // Rarity counts, ordered rarest-first
   const order = ['Primordial', 'Undying', 'Awakened', 'Remnant'];

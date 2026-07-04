@@ -58,6 +58,8 @@ const {
   localAssetPath,
   readAssetText,
 } = require('../utils/assets');
+const { getCachedCanvasUrl } = require('../utils/canvasCache');
+const { makeOptimizedAttachment } = require('../utils/imageOutput');
 const { bossFeatTitlesFor } = require('../config/titles');
 const {
   isGreaterBoss, bossRewards, rollBossChest, hpMultiplierForChest, pickWeightedBoss,
@@ -218,6 +220,7 @@ async function bossLore(name) {
  *    the right, passive line, percentage-colored HP bar, stats row. Rendered
  *    fresh per update (HP changes); fonts registered by battleRender. ────── */
 const FONT = 'DejaVu Sans';
+const BOSS_STATUS_RENDER_REV = 1;
 const CARD_COLORS = {
   bg: '#1f2125', card: '#26282d', cardLine: '#36393f',
   enemy: '#f23f43', text: '#e7e9ec', dim: '#9aa0a8', barBg: '#3b3e44',
@@ -314,6 +317,33 @@ function renderBossStatusCard(state, mobRow) {
   return canvas.toBuffer('image/png');
 }
 
+function bossStatusCacheParts(state, mobRow) {
+  return {
+    spawnId: state.spawn_id,
+    status: state.status,
+    mobId: state.mob_id,
+    bossLevel: Number(state.boss_level),
+    currentHp: Number(state.current_hp),
+    maxHp: Number(state.max_hp),
+    scaledAtk: Number(state.scaled_atk),
+    scaledDef: Number(state.scaled_def),
+    name: mobRow.name,
+    crit: Number(mobRow.base_crit),
+    skillName: mobRow.skill_name || '',
+    skillDescription: mobRow.skill_description || '',
+  };
+}
+
+async function bossStatusImage(state, mobRow) {
+  const cached = await getCachedCanvasUrl(
+    ['boss-status-card', BOSS_STATUS_RENDER_REV, bossStatusCacheParts(state, mobRow)],
+    () => renderBossStatusCard(state, mobRow)
+  );
+  return cached
+    ? { url: cached.url, file: null }
+    : makeOptimizedAttachment(renderBossStatusCard(state, mobRow), 'boss_status');
+}
+
 /** Fetch everything the message needs in one place. Null when no boss_state row. */
 async function fetchBossView(guildId) {
   const stateRes = await pool.query(
@@ -404,10 +434,10 @@ async function buildBossMessage({ state, mobRow, attackers, attackerCount, isDev
 
   container.addSeparatorComponents(sep);
   try {
-    const card = renderBossStatusCard(state, mobRow);
-    files.push(new AttachmentBuilder(card, { name: 'boss_status.png' }));
+    const card = await bossStatusImage(state, mobRow);
+    if (card.file) files.push(card.file);
     container.addMediaGalleryComponents((g) =>
-      g.addItems((item) => item.setURL('attachment://boss_status.png'))
+      g.addItems((item) => item.setURL(card.url))
     );
   } catch (err) {
     console.warn('[boss] status card render failed:', err.message);
