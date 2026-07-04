@@ -403,9 +403,10 @@ section('4. Targeted scenarios');
   const ev = roundEvents(sim, 1);
   const iAttack = ev.findIndex((e) => e.includes('Hero attacks'));
   const iBleed = ev.findIndex((e) => e.includes('Hero suffers 140 Bleed damage'));
+  const iDeath = ev.findIndex((e) => e.includes('Hero died from bleeding'));
   const iMob = ev.findIndex((e) => e.includes('Lamia strikes'));
   check('DOT after affected action can end fight before opponent attack',
-    sim.winner === 'b' && sim.outcome === 'dot' && iAttack !== -1 && iAttack < iBleed && iMob === -1,
+    sim.winner === 'b' && sim.outcome === 'dot' && iAttack !== -1 && iAttack < iBleed && iBleed < iDeath && iMob === -1,
     `winner=${sim.winner} outcome=${sim.outcome} events=${ev.join(' | ')}`);
 }
 

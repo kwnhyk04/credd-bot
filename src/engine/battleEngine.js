@@ -107,6 +107,11 @@ const BLEED_MAX_STACKS = 5;       // capped at 5 stacks = 40% of ATK
 
 const SKIP_TAGS = ['stun', 'paralyze', 'freeze', 'petrify', 'charm', 'confuse', 'miss'];
 const DOT_TAGS = ['bleed', 'burn', 'hp_pct_dot'];
+const DOT_DEATH_TEXT = {
+  bleed: 'bleeding',
+  burn: 'burning',
+  hp_pct_dot: 'rot',
+};
 
 const ACTION_TAG_LABELS = {
   bleed: 'Bleed', burn: 'Burn', hp_pct_dot: 'Rot', stun: 'Stun', freeze: 'Freeze',
@@ -888,7 +893,10 @@ function resolveBattle(a, b, opts = {}) {
         if (tick > 0) {
           damage(side, tick);
           shared.events.push(`🩸 ${side.name} suffers ${tick} ${d.tag === 'burn' ? 'Burn' : d.tag === 'bleed' ? 'Bleed' : 'Rot'} damage!`);
-          if (checkDeaths('dot')) break;
+          if (checkDeaths('dot')) {
+            shared.events.push(`💀 ${side.name} died from ${DOT_DEATH_TEXT[d.tag] || 'damage'}!`);
+            break;
+          }
         }
         d.turnsLeft -= 1;
       }
