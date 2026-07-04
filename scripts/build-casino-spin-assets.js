@@ -94,7 +94,18 @@ async function writeOut(name, bufferPromise) {
     }
   }
 
-  console.log(`\nDone: ${count} files, ${(total / 1024 / 1024).toFixed(1)} MB in ${OUT_DIR}`);
+  console.log('[daily] attendance banner');
+  const dailyDir = path.join(process.cwd(), 'assets', 'generated', 'daily');
+  await fs.promises.mkdir(dailyDir, { recursive: true });
+  const bannerBuf = await require('../src/commands/economy/daily').banner();
+  if (bannerBuf) {
+    await fs.promises.writeFile(path.join(dailyDir, 'attendance_banner.png'), bannerBuf);
+    total += bannerBuf.length;
+    count += 1;
+    console.log(`  attendance_banner.png  ${(bannerBuf.length / 1024).toFixed(0)} KB`);
+  }
+
+  console.log(`\nDone: ${count} files, ${(total / 1024 / 1024).toFixed(1)} MB in assets/generated/`);
   console.log('Upload assets/generated/ to the R2 bucket (same relative path), then the bot');
   console.log('serves these via URL automatically — no restart or env change needed.');
   process.exit(0);

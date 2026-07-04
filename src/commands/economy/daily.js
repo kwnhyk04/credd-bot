@@ -24,7 +24,14 @@ const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const pool = require('../../db/pool');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay } = require('../../utils/emojis');
-const { assetPath, loadAssetImage: loadAssetImageSource } = require('../../utils/assets');
+const {
+  assetPath, loadAssetImage: loadAssetImageSource,
+  remoteAssetAvailable, getAssetUrl,
+} = require('../../utils/assets');
+
+// [egress] The attendance banner is one fixed image — pre-rendered by
+// scripts/build-casino-spin-assets.js and served from R2 when uploaded.
+const BANNER_REL = 'generated/daily/attendance_banner.png';
 
 const TODAY = `(NOW() AT TIME ZONE 'Asia/Manila')::date`;
 const ACCENT = 0xf0b232;
@@ -160,11 +167,17 @@ async function buildDailyPayload(result) {
 
   const container = new ContainerBuilder().setAccentColor(ACCENT);
   const files = [];
-  const buf = await banner();
-  if (buf) {
-    files.push(new AttachmentBuilder(buf, { name: 'attendance.png' }));
+  if (await remoteAssetAvailable(BANNER_REL)) {
+    // Zero-egress path: Discord fetches the banner straight from R2.
     container.addMediaGalleryComponents((g) =>
-      g.addItems((item) => item.setURL('attachment://attendance.png')));
+      g.addItems((item) => item.setURL(getAssetUrl(BANNER_REL))));
+  } else {
+    const buf = await banner();
+    if (buf) {
+      files.push(new AttachmentBuilder(buf, { name: 'attendance.png' }));
+      container.addMediaGalleryComponents((g) =>
+        g.addItems((item) => item.setURL('attachment://attendance.png')));
+    }
   }
   container
     .addTextDisplayComponents((td) => td.setContent(`## 📅 Daily Attendance — Day ${result.day}`))
@@ -208,4 +221,4 @@ async function execute(message) {
   return reply(message, await buildDailyPayload(result));
 }
 
-module.exports = { execute, claimDaily, dailyReward, buildDailyPayload };
+module.exports = { execute, claimDaily, dailyReward, buildDailyPayload, banner };
