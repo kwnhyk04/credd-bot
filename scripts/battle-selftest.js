@@ -320,12 +320,9 @@ section('4. Targeted scenarios');
     /* r6 */ 0.99, 0.99, 0.5, 0.99, 0.5];
   const sim = resolveBattle(mk(), mob({ hp: 100000, skillKey: 'santelmo_will_o_wisp' }),
     { seed: 1, rng: scripted(script) });
-  check('directional: player ACTS round 2 (the CC proc round)', hasEvent(roundEvents(sim, 2), 'attacks'));
-  check('skip-CC gates round 3: player unable to act', hasEvent(roundEvents(sim, 3), 'unable to act'));
-  check('skip-CC on round 3: overcharge lost (no marker, no attack)',
-    !hasEvent(roundEvents(sim, 3), 'Overcharge') && !hasEvent(roundEvents(sim, 3), 'attacks'));
-  check('skip-CC: no carry-over to round 4', !hasEvent(roundEvents(sim, 4), 'Overcharge'));
-  check('skip-CC: next overcharge fires round 6', hasEvent(roundEvents(sim, 6), 'Overcharge'));
+  check('same-turn skip-CC gates round 2: player unable to act', hasEvent(roundEvents(sim, 2), 'unable to act'));
+  check('same-turn skip-CC: no carry-over to round 3', !hasEvent(roundEvents(sim, 3), 'unable to act'));
+  check('same-turn skip-CC: overcharge still fires round 3', hasEvent(roundEvents(sim, 3), 'Overcharge'));
 }
 
 // — Overcharge suppresses crit even vs an auto-crit grant (Apollo round 12) —
@@ -388,9 +385,25 @@ section('4. Targeted scenarios');
   const action = sim.snapshots.find((s) => s.round === 1)?.actions;
   check('snapshot actions: weapon move title', action?.a.title === 'Casts Arrow Volley', action?.a.title);
   check('snapshot actions: actual damage included', /HP to Amalanhig/.test(action?.a.detail || ''), action?.a.detail);
-  check('snapshot actions: mob debuff + duration included',
-    action?.b.title === 'Infectious Bite' && /Rot inflicted \(2 turns\)/.test(action?.b.detail || ''),
+  check('snapshot actions: mob debuff + immediate tick duration included',
+    action?.b.title === 'Infectious Bite' && /Rot inflicted \(1 turn\)/.test(action?.b.detail || ''),
     `${action?.b.title} / ${action?.b.detail}`);
+}
+
+// DOT now ticks right after the affected side acts, before the opponent can attack.
+{
+  const sim = resolveBattle(
+    player({ name: 'Hero', hp: 100, def: 0, atk: 1, crit: 0 }),
+    mob({ name: 'Lamia', atk: 400, skillKey: 'lamia_serpent_bite', hp: 3000 }),
+    { mode: 'raid', rng: () => 0 }
+  );
+  const ev = roundEvents(sim, 1);
+  const iAttack = ev.findIndex((e) => e.includes('Hero attacks'));
+  const iBleed = ev.findIndex((e) => e.includes('Hero suffers 140 Bleed damage'));
+  const iMob = ev.findIndex((e) => e.includes('Lamia strikes'));
+  check('DOT after affected action can end fight before opponent attack',
+    sim.winner === 'b' && sim.outcome === 'dot' && iAttack !== -1 && iAttack < iBleed && iMob === -1,
+    `winner=${sim.winner} outcome=${sim.outcome} events=${ev.join(' | ')}`);
 }
 
 // — R2 + [Jun-2026 §2]: Fighter class stun 1/2 turns gates the mob's NEXT turn(s),
@@ -402,20 +415,19 @@ section('4. Targeted scenarios');
   // Minimal script (order, r1 critPre 0.99, r1 stunPre 0.05); fallback 0.5 means no further stuns.
   const s2 = resolveBattle(mkF(), mob({ hp: 100000 }),
     { seed: 1, rng: scripted([0.0, 0.99, 0.05]) });
-  check('R2: 2-turn stun — mob ACTS r1 (CC is directional, gates next turn)', hasEvent(roundEvents(s2, 1), 'strikes'));
+  check('R2: 2-turn stun - mob skips r1 immediately', hasEvent(roundEvents(s2, 1), 'unable to act'));
   check('R2: 2-turn stun — mob skips r2', hasEvent(roundEvents(s2, 2), 'unable to act'));
-  check('R2: 2-turn stun — mob skips r3', hasEvent(roundEvents(s2, 3), 'unable to act'));
-  check('R2: mob acts round 4', hasEvent(roundEvents(s2, 4), 'strikes'));
+  check('R2: mob acts round 3', hasEvent(roundEvents(s2, 3), 'strikes'));
   // re-proc a 2-turn stun in r2 (player's r2 hit) → refresh to max(remaining,2)=2 → still
   // skips r2+r3, acts r4 (extend semantics would stack to 3 and delay to r5).
   const sR = resolveBattle(mkF(), mob({ hp: 100000 }),
     { seed: 1, rng: scripted([0.0, 0.99, 0.05, 0.5, 0.99, 0.5, /* r2 */ 0.99, 0.05]) });
-  check('R2 refresh: skips r3', hasEvent(roundEvents(sR, 3), 'unable to act'));
+  check('R2 refresh: acts r3 after same-turn 2-turn stun expires', hasEvent(roundEvents(sR, 3), 'strikes'));
   check('R2 refresh-not-extend: acts r4', hasEvent(roundEvents(sR, 4), 'strikes'));
   // 1-turn band (0.10 ≤ r < 0.35): mob acts r1, skips r2, acts r3.
   const s1 = resolveBattle(mkF(), mob({ hp: 100000 }),
     { seed: 1, rng: scripted([0.0, 0.99, 0.20]) });
-  check('R2: 1-turn stun — skips r2 only', hasEvent(roundEvents(s1, 1), 'strikes') && hasEvent(roundEvents(s1, 2), 'unable to act') && hasEvent(roundEvents(s1, 3), 'strikes'));
+  check('R2: 1-turn stun - skips r1 only', hasEvent(roundEvents(s1, 1), 'unable to act') && hasEvent(roundEvents(s1, 2), 'strikes'));
   // stun-immune boss: no stun ever, mob acts round 1
   const sImm = resolveBattle(mkF(), mob({ hp: 100000, immunityTags: ['stun'] }),
     { seed: 1, rng: scripted([0.0, 0.99, 0.05]) });

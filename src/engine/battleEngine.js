@@ -37,13 +37,13 @@
  *   pre-rolls (R1 latch: crit_landed_this_hit / stun_just_applied refer to THIS
  *   round's main hit) → passive phase (each passive exactly once per round; death
  *   check after every registry call) → consume hydra local regen / bathala HP flag →
- *   clear consumed latches → actions in actor order → end of round: DOT ticks
- *   (death check per tick), stat-debuff expiry, sudden-death drain (round ≥ 30),
+ *   clear consumed latches → actions in actor order; after each side acts, its DOT
+ *   ticks before the next side can act → stat-debuff expiry, sudden-death drain (round ≥ 30),
  *   snapshot per mode cadence. Hard cap round 50 (§35.3).
  *
  * LOG DISPLAY ORDER ([Jun-2026]): execution is UNCHANGED (passives resolve before the
  *   attacks to set up the hits), but each round's log is re-sequenced for readability to
- *   [attacks] → [passive procs] → [end-of-round DOT / sudden-death], so a side's proc reads
+ *   [attacks + their own DOT] → [passive procs] → [sudden-death], so a side's proc reads
  *   as the consequence shown after its attack. Only sim.rounds[].events ordering changes.
  *
  * SNAPSHOT CADENCE ([v4.2], mode-dependent — the renderer's edit loop consumes
@@ -285,9 +285,13 @@ function resolveBattle(a, b, opts = {}) {
   const damage = (side, amount) => setHp(side, side.hp - Math.max(0, Math.floor(amount)));
   const heal = (side, amount) => setHp(side, side.hp + Math.max(0, Math.floor(amount)));
 
+  let pendingActionSides = null;
+
   // ── debuff helpers (§13.1: refresh don't stack/extend; highest value wins) ─
   const findDebuff = (side, tag) => side.debuffs.find((d) => d.tag === tag);
   const debuffValue = (side, tag) => { const d = findDebuff(side, tag); return d ? d.value : 0; };
+  const shouldArmSkipDebuffNow = (side, tag) =>
+    SKIP_TAGS.includes(tag) && pendingActionSides && pendingActionSides.has(side);
   const addDebuff = (side, tag, turns, value = 0) => {
     // [v5] armor defensive hooks on a player recipient (anting / salakot). Both run
     // at debuff-apply time so they catch CC from passives AND attacks. Existing fights
@@ -308,11 +312,11 @@ function resolveBattle(a, b, opts = {}) {
     if (ex) {
       ex.turnsLeft = Math.max(ex.turnsLeft, turns);
       ex.value = Math.max(ex.value, value);
+      if (shouldArmSkipDebuffNow(side, tag)) ex.armed = true;
     } else {
-      // [Jun-2026 §2] `armed:false` — a skip-CC applied THIS round is directional and only
-      // gates the recipient's NEXT turn; the round-start arming pass flips it true so it can
-      // be consumed then. It never cancels an action already due this round (no deadlock).
-      side.debuffs.push({ tag, turnsLeft: turns, value, armed: false });
+      // Skip-CC applied before the recipient's action is still pending gates that
+      // same turn. If the recipient has already acted, it arms next round.
+      side.debuffs.push({ tag, turnsLeft: turns, value, armed: shouldArmSkipDebuffNow(side, tag) });
     }
   };
   const sideImmune = (side, tag) => {
@@ -711,10 +715,8 @@ function resolveBattle(a, b, opts = {}) {
   const act = (S) => {
     if (result) return;
     const O = oppOf(S);
-    // [Jun-2026 §2] Skip-CC gates only on ARMED tags — CC that was active at the START of this
-    // round (i.e. applied on a PREVIOUS turn). CC procced THIS round is unarmed → directional,
-    // gating only the recipient's NEXT turn, never cancelling an action already due this round.
-    // Two opposing CC passives can no longer pre-emptively lock each other in the same round.
+    // Skip-CC gates only on ARMED tags. Existing CC arms at round start; new
+    // skip-CC arms immediately only if this side's action is still pending.
     const skipTags = S.debuffs.filter((d) => SKIP_TAGS.includes(d.tag) && d.armed);
     if (skipTags.length > 0) {
       for (const d of skipTags) d.turnsLeft -= 1;
@@ -870,6 +872,33 @@ function resolveBattle(a, b, opts = {}) {
         b: summarizeAction(B, A, actionStartB, actionStartA, actionEndB, actionEndA, shared.events),
       };
     };
+    const captureActionFor = (actor) => {
+      const actionEndA = actionState(A);
+      const actionEndB = actionState(B);
+      if (actor === A) {
+        lastActions.a = summarizeAction(A, B, actionStartA, actionStartB, actionEndA, actionEndB, shared.events);
+      } else {
+        lastActions.b = summarizeAction(B, A, actionStartB, actionStartA, actionEndB, actionEndA, shared.events);
+      }
+    };
+    const tickDotsForSide = (side) => {
+      if (result) return;
+      for (const d of side.debuffs) {
+        if (!DOT_TAGS.includes(d.tag)) continue;
+        let tick = d.tag === 'hp_pct_dot'
+          ? Math.floor(side.maxHp * d.value)
+          : Math.floor(d.value);
+        // [v5 Phase 2] Warding rune reduces incoming DOT damage on the bearer.
+        if (side.flags.rune_warding_pct > 0) tick = Math.floor(tick * (1 - side.flags.rune_warding_pct));
+        if (tick > 0) {
+          damage(side, tick);
+          shared.events.push(`🩸 ${side.name} suffers ${tick} ${d.tag === 'burn' ? 'Burn' : d.tag === 'bleed' ? 'Bleed' : 'Rot'} damage!`);
+          if (checkDeaths('dot')) break;
+        }
+        d.turnsLeft -= 1;
+      }
+      side.debuffs = side.debuffs.filter((d) => !DOT_TAGS.includes(d.tag) || d.turnsLeft > 0);
+    };
 
     // 1. round start: scratch + latches
     for (const side of order) resetScratch(side);
@@ -885,6 +914,7 @@ function resolveBattle(a, b, opts = {}) {
       }
       side.skipped = armedCC;
     }
+    pendingActionSides = new Set(order);
 
     // 2. pre-rolls (R1) — always drawn for stream stability, voided when skip-CC'd
     for (const side of order) {
@@ -940,45 +970,29 @@ function resolveBattle(a, b, opts = {}) {
 
     // 4. actions
     const procEnd = shared.events.length; // events so far = this round's passive procs
+    let act1DotStart = -1;                 // index where actor 1's post-action DOT begins
     let act2Start = -1;                    // index where the SECOND actor's segment begins
     for (let oi = 0; oi < order.length; oi++) {
-      act(order[oi]);
+      const actor = order[oi];
+      act(actor);
+      captureActionFor(actor);
+      if (oi === 0) act1DotStart = shared.events.length;
+      tickDotsForSide(actor);
+      pendingActionSides.delete(actor);
       if (oi === 0) act2Start = shared.events.length; // close the first actor's segment
+      if (result) break;
     }
-    const actionEnd = shared.events.length; // procEnd..actionEnd = the attack events
-    // Capture the active moves before end-of-round DOT ticks/expiry alter their
-    // damage and freshly-applied debuff durations.
-    captureActions();
+    pendingActionSides = null;
+    const actionEnd = shared.events.length; // procEnd..actionEnd = attack + action-DOT events
 
     // 5. end of round
     if (!result) {
-      // DOT ticks in actor order; death check after each tick (§35.3)
-      for (const side of order) {
-        if (result) break;
-        for (const d of side.debuffs) {
-          if (!DOT_TAGS.includes(d.tag)) continue;
-          let tick = d.tag === 'hp_pct_dot'
-            ? Math.floor(side.maxHp * d.value)
-            : Math.floor(d.value);
-          // [v5 Phase 2] Warding rune reduces incoming DOT damage on the bearer.
-          if (side.flags.rune_warding_pct > 0) tick = Math.floor(tick * (1 - side.flags.rune_warding_pct));
-          if (tick > 0) {
-            damage(side, tick);
-            shared.events.push(`🩸 ${side.name} suffers ${tick} ${d.tag === 'burn' ? 'Burn' : d.tag === 'bleed' ? 'Bleed' : 'Rot'} damage!`);
-            if (checkDeaths('dot')) break;
-          }
-          d.turnsLeft -= 1;
-        }
-        side.debuffs = side.debuffs.filter((d) => !DOT_TAGS.includes(d.tag) || d.turnsLeft > 0);
-      }
       // 1-turn stat debuffs expire at end of round (§35.1)
-      if (!result) {
-        for (const side of order) {
-          for (const d of side.debuffs) {
-            if (!DOT_TAGS.includes(d.tag) && !SKIP_TAGS.includes(d.tag)) d.turnsLeft -= 1;
-          }
-          side.debuffs = side.debuffs.filter((d) => d.turnsLeft > 0);
+      for (const side of order) {
+        for (const d of side.debuffs) {
+          if (!DOT_TAGS.includes(d.tag) && !SKIP_TAGS.includes(d.tag)) d.turnsLeft -= 1;
         }
+        side.debuffs = side.debuffs.filter((d) => d.turnsLeft > 0);
       }
       // sudden death (§35.3): simultaneous drain; both dead → mob/challenged wins (R5)
       if (!result && round >= SUDDEN_DEATH_FROM) {
@@ -994,17 +1008,19 @@ function resolveBattle(a, b, opts = {}) {
 
     // [Phase 6] Log DISPLAY order only (execution is unchanged — passives still resolve
     // before the attacks to set up the hits). Interleave per the per-turn template:
-    //   [actor-1 attack + its weapon procs/reactive] → [passive HP/DEF buffs] →
-    //   [actor-2 attack + its dodge/thorns] → [end-of-round DOT / sudden death].
+    //   [actor-1 attack + weapon procs/reactive] → [passive HP/DEF buffs] →
+    //   [actor-1 DOT] → [actor-2 attack + DOT/dodge/thorns] → [sudden death].
     // Weapon procs, dodge/evade and reflect are pushed inside each actor's own segment,
     // so they stay attached to the right attack; only the passive-buff block moves between
     // the two attacks.
     const seg2 = act2Start < 0 ? actionEnd : act2Start;
+    const seg1Dot = act1DotStart < 0 ? seg2 : act1DotStart;
     shared.events = [
-      ...shared.events.slice(procEnd, seg2),     // actor 1: attack + weapon procs + reactive
+      ...shared.events.slice(procEnd, seg1Dot),  // actor 1: attack + weapon procs + reactive
       ...shared.events.slice(0, procEnd),        // passive HP/DEF buffs (deity/armor)
-      ...shared.events.slice(seg2, actionEnd),   // actor 2: attack + dodge/thorns
-      ...shared.events.slice(actionEnd),         // DOT ticks / sudden death
+      ...shared.events.slice(seg1Dot, seg2),     // actor 1: post-action DOT
+      ...shared.events.slice(seg2, actionEnd),   // actor 2: attack + DOT + dodge/thorns
+      ...shared.events.slice(actionEnd),         // sudden death
     ];
     rounds.push({ round, events: shared.events, actions: lastActions });
     // [v4.8] snapshot cadence is mode-dependent: raid + duel snapshot on rounds 1,4,16,…
