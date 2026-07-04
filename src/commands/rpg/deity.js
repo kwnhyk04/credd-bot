@@ -16,6 +16,10 @@ const { TIER_ALIAS, TIER_COLOR, TIER_ESSENCE_COLUMN } = require('../../config/ga
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay, emoji } = require('../../utils/emojis');
 const { makeOptimizedAttachment } = require('../../utils/imageOutput');
+const { getCachedCanvasUrl } = require('../../utils/canvasCache');
+
+// Bump when renderPortraitCard / the deities-grid visuals change (busts cached cards).
+const DEITY_RENDER_REV = 1;
 const { assetPath, isRemoteAssetsEnabled, loadAssetImage: loadAssetImageSource } = require('../../utils/assets');
 const { RARITY_SYMBOLS } = require('../../engine/renderSummon');
 const { renderPortraitCard } = require('../../engine/renderPortraitCard');
@@ -268,13 +272,22 @@ async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, o
 
   let file = null;
   try {
-    file = await makeOptimizedAttachment(await renderPortraitCard({
+    const cardInput = {
       imagePath: portraitPath,
       accent: accentHex,
       title: `${d.name} +${d.enhancement - 1}`,
       subtitle: `${mythologyLabel} · ${alias}`,
       sections,
-    }), 'deity_card');
+    };
+    // [egress] Render-once cache: card is a pure function of cardInput → repeat
+    // views are served from R2 by URL (zero upload). Attach fallback unchanged.
+    const cached = await getCachedCanvasUrl(
+      ['deity-card', DEITY_RENDER_REV, cardInput],
+      () => renderPortraitCard(cardInput)
+    );
+    file = cached
+      ? { url: cached.url, file: null }
+      : await makeOptimizedAttachment(await renderPortraitCard(cardInput), 'deity_card');
   } catch (err) {
     console.error('[deity] card render failed:', err.message);
   }
@@ -308,7 +321,7 @@ async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, o
 
   return {
     components: [container],
-    files: file ? [file.file] : [],
+    files: file && file.file ? [file.file] : [],
     flags: MessageFlags.IsComponentsV2,
   };
 }
@@ -926,7 +939,16 @@ async function deities(message) {
     }
   }
 
-  const attachment = await makeOptimizedAttachment(canvas.toBuffer('image/png'), 'deities');
+  // [egress] The equipped-deities grid is a pure function of (slots, believer
+  // level): repeat views are served from R2 by URL. The canvas above is already
+  // drawn either way (cheap); only the Discord upload is skipped on a hit.
+  const gridCached = await getCachedCanvasUrl(
+    ['deities-collection', DEITY_RENDER_REV, slots, believerLevel],
+    async () => canvas.toBuffer('image/png')
+  );
+  const attachment = gridCached
+    ? { url: gridCached.url, file: null }
+    : await makeOptimizedAttachment(canvas.toBuffer('image/png'), 'deities');
 
   // Build resonance info
   const deityInfos = slots.map((s, idx) =>
@@ -978,7 +1000,7 @@ async function deities(message) {
 
   await reply(message, {
     components: [container],
-    files: [attachment.file],
+    files: attachment.file ? [attachment.file] : [],
     flags: MessageFlags.IsComponentsV2,
   });
 }
