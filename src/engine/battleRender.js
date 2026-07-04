@@ -468,8 +468,7 @@ function battleEmbed(sim, snapIdx, { mode, includeImage = true, imageUrl = null 
 }
 
 function footerRewardIcon(displayName, fallback) {
-  const icon = emojiForDisplay(displayName, fallback);
-  return /^<a?:/i.test(icon || '') ? fallback : icon;
+  return emojiForDisplay(displayName, fallback);
 }
 
 function battleFrameCacheParts(sim, snapIdx, { mode, mirror, battleSkinPath }) {
