@@ -15,11 +15,14 @@ const { startSeasonScheduler } = require('./src/schedulers/seasonScheduler');
 const pool = require('./src/db/pool');
 const { auditWeaponEmojis, reconcileEmojiIds } = require('./src/utils/emojis');
 const { recoverExpiredSessions } = require('./src/casino/sessionStore');
+const { sweepCanvasCache } = require('./src/utils/canvasCache');
 
 setupGlobalErrorHandlers();
 
 const CASINO_SWEEP_MS = 60_000;
+const CANVAS_CACHE_SWEEP_MS = 6 * 3600_000;
 let casinoSweepInterval = null;
+let canvasCacheSweepInterval = null;
 
 const client = new Client({
   intents: [
@@ -73,6 +76,10 @@ client.once('ready', async () => {
     recoverExpiredSessions()
       .catch((err) => console.error('[casinoSweep] sweep failed:', err.message));
   }, CASINO_SWEEP_MS);
+  // Canvas-cache eviction (no-op unless R2 write creds are configured).
+  canvasCacheSweepInterval = setInterval(() => {
+    sweepCanvasCache().catch((err) => console.error('[canvasCache] sweep failed:', err.message));
+  }, CANVAS_CACHE_SWEEP_MS);
 });
 
 client.on('messageCreate', async (message) => {
@@ -109,6 +116,7 @@ async function shutdown(signal) {
   shuttingDown = true;
   console.log(`[credd] ${signal} received — shutting down.`);
   if (casinoSweepInterval) clearInterval(casinoSweepInterval);
+  if (canvasCacheSweepInterval) clearInterval(canvasCacheSweepInterval);
   try { client.destroy(); } catch (err) { console.error('[credd] client.destroy failed:', err.message); }
   try { await pool.end(); } catch (err) { console.error('[credd] pool.end failed:', err.message); }
   process.exit(0);
