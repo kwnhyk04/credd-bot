@@ -271,6 +271,18 @@ function checkEnvironment() {
   for (const key of DANGEROUS_FLAGS) {
     if (envTrue(key)) warn(`dangerous/dev-only flag ${key}=true`, true);
   }
+
+  // Egress guard: without ASSET_BASE_URL every static image (chest/summon GIFs,
+  // boss art, skin previews, casino spin media) is re-uploaded to Discord on
+  // every command — Railway bills each upload. With it, they're served from R2
+  // (free egress) by URL. Missing in production = massive egress bill.
+  if (hasEnv('ASSET_BASE_URL')) {
+    const base = String(process.env.ASSET_BASE_URL).trim();
+    if (/^https:\/\//i.test(base)) pass('env ASSET_BASE_URL is set (static assets served from R2, zero bot egress)');
+    else fail(`env ASSET_BASE_URL is not an https URL: ${base}`);
+  } else {
+    warn('env ASSET_BASE_URL is missing — every static image will be uploaded to Discord per command (billable egress)', true);
+  }
 }
 
 function checkFiles() {

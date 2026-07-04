@@ -43,6 +43,12 @@ const client = new Client({
 
 client.once('ready', async () => {
   console.log(`[credd] Logged in as ${client.user.tag}`);
+  if (!String(process.env.ASSET_BASE_URL || '').trim()) {
+    console.warn(
+      '[credd] ASSET_BASE_URL is NOT set — static images will be re-uploaded to Discord '
+      + 'on every command (billable egress). Set it to the R2 public bucket URL.'
+    );
+  }
   // Load per-guild config (prefix + channel ids) once — middleware reads from this cache (§1.2).
   try {
     const n = await guildConfig.loadAll();
