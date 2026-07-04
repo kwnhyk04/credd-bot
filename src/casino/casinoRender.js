@@ -17,6 +17,7 @@ const imagePad = require('./imagePad');
 const canvas = require('./casinoCanvas');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { assetPath, getAssetUrl, remoteAssetAvailable } = require('../utils/assets');
+const { getCachedCanvasUrl } = require('../utils/canvasCache');
 const { COLORS } = canvas;
 const { SLOT_FACE_INDEX } = require('./payoutTables');
 const { BACK_FILE, blackjackValue } = require('./cardDeck');
@@ -28,6 +29,7 @@ const ACCENT = {
 };
 // Padded-canvas sizes for the SPIN GIFs (smaller per feedback).
 const DIM = { coin: { W: 460, H: 132, contentH: 92 }, dice: { W: 200, H: 120, contentH: 84 } };
+const CASINO_CANVAS_RENDER_REV = 1;
 
 const fmt = (n) => Number(n).toLocaleString();
 const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);
@@ -47,10 +49,26 @@ function head(c, title, subtitle) {
 function balanceLine(c, balance) {
   c.addSeparatorComponents(sep).addTextDisplayComponents((td) => td.setContent(`-# **Balance:** ${fmt(balance)} Credux`));
 }
+function galleryUrl(c, url) {
+  c.addMediaGalleryComponents((g) => g.addItems((i) => i.setURL(url)));
+}
 function galleryOne(c, name) {
-  c.addMediaGalleryComponents((g) => g.addItems((i) => i.setURL(`attachment://${name}`)));
+  galleryUrl(c, `attachment://${name}`);
 }
 function att(buf, name) { return new AttachmentBuilder(buf, { name }); }
+
+async function galleryFromCanvasCache(c, files, parts, build, name) {
+  const cached = await getCachedCanvasUrl(
+    ['casino-canvas', CASINO_CANVAS_RENDER_REV, parts],
+    build
+  );
+  if (cached) {
+    galleryUrl(c, cached.url);
+    return;
+  }
+  files.push(att(await build(), name));
+  galleryOne(c, name);
+}
 
 /**
  * Egress guard: deterministic media (spin GIFs, result face strips) is
@@ -179,13 +197,15 @@ async function buildBaccarat({ uid, bet, pick, player, banker, outcome, result, 
   const faceOrBack = (hand, shown) => hand.map((card, i) => (i < shown ? card : cardBack));
   const pShown = result ? player.length : (pReveal || 0);
   const bShown = result ? banker.length : (bReveal || 0);
+  const playerCards = faceOrBack(player, pShown);
+  const bankerCards = faceOrBack(banker, bShown);
 
   const files = [];
   c.addTextDisplayComponents((td) => td.setContent(result ? `**PLAYER** — Score ${outcome.pScore}` : '**PLAYER**'));
-  files.push(att(await canvas.cardStrip(faceOrBack(player, pShown)), 'bac_p.png')); galleryOne(c, 'bac_p.png');
+  await galleryFromCanvasCache(c, files, ['baccarat-player', playerCards], () => canvas.cardStrip(playerCards), 'bac_p.png');
   c.addSeparatorComponents(sep);
   c.addTextDisplayComponents((td) => td.setContent(result ? `**BANKER** — Score ${outcome.bScore}` : '**BANKER**'));
-  files.push(att(await canvas.cardStrip(faceOrBack(banker, bShown)), 'bac_b.png')); galleryOne(c, 'bac_b.png');
+  await galleryFromCanvasCache(c, files, ['baccarat-banker', bankerCards], () => canvas.cardStrip(bankerCards), 'bac_b.png');
 
   if (result) {
     const verdict = outcome.push ? 'Tie' : `${cap(outcome.winner)} wins`;
@@ -224,19 +244,21 @@ async function buildBlackjack({ mode, uid, bet, session, balance }) {
   const dealerScore = session.revealed ? String(blackjackValue(session.dealer)) : `${blackjackValue([session.dealer[0]])} + ?`;
   const files = [];
   c.addTextDisplayComponents((td) => td.setContent(`**DEALER** — Score ${dealerScore}`));
-  files.push(att(await canvas.cardStrip(dealerCards), 'bj_d.png')); galleryOne(c, 'bj_d.png');
+  await galleryFromCanvasCache(c, files, ['blackjack-dealer', dealerCards], () => canvas.cardStrip(dealerCards), 'bj_d.png');
   c.addSeparatorComponents(sep);
   c.addTextDisplayComponents((td) => td.setContent(`**YOU** — Score ${blackjackValue(session.player)}`));
-  files.push(att(await canvas.cardStrip(cardEntries(session.player)), 'bj_y.png')); galleryOne(c, 'bj_y.png');
+  const playerCards = cardEntries(session.player);
+  await galleryFromCanvasCache(c, files, ['blackjack-player', playerCards], () => canvas.cardStrip(playerCards), 'bj_y.png');
 
   const components = [c];
   if (final) {
     const kind = session.outcome === 'push' ? 'push' : session.outcome === 'win' ? 'win' : 'loss';
     const bust = blackjackValue(session.player) > 21;
-    files.push(att(await canvas.resultStrip([
+    const resultLines = [
       { text: bannerLine(kind, 'blackjack', { net: session.payout - bet, bet, extra: bust ? 'Bust' : undefined }), size: 10, bold: true, color: bannerColor(kind) },
-    ]), 'bj_res.png'));
-    c.addSeparatorComponents(sep); galleryOne(c, 'bj_res.png');
+    ];
+    c.addSeparatorComponents(sep);
+    await galleryFromCanvasCache(c, files, ['blackjack-result', resultLines], () => canvas.resultStrip(resultLines), 'bj_res.png');
   } else {
     c.addSeparatorComponents(sep).addTextDisplayComponents((td) => td.setContent('-# Your move — Hit or Stand?'));
     components.push(blackjackButtons(uid));
@@ -297,8 +319,9 @@ async function buildCrash({ uid, bet, session, balance }) {
   c.addSeparatorComponents(sep);
 
   const name = `crash_${session.state}_${session.push}.png`;
-  const files = [att(await canvas.crashPanel({ multiplier: session.multiplier, crashed, crashPoint: session.crashPoint, bet, pushes: session.push }), name)];
-  galleryOne(c, name);
+  const files = [];
+  const panelInput = { multiplier: session.multiplier, crashed, crashPoint: session.crashPoint, bet, pushes: session.push };
+  await galleryFromCanvasCache(c, files, ['crash-panel', panelInput], () => canvas.crashPanel(panelInput), name);
 
   const components = [c];
   if (active) {
@@ -308,10 +331,11 @@ async function buildCrash({ uid, bet, session, balance }) {
   } else {
     const kind = crashed ? 'loss' : 'win';
     const extra = cashed ? `You ascended to ${session.multiplier}×` : `The ascension collapsed at ${session.crashPoint}×`;
-    files.push(att(await canvas.resultStrip([
+    const resultLines = [
       { text: bannerLine(kind, 'crash', { net: session.payout - bet, bet, extra }), size: 10, bold: true, color: bannerColor(kind) },
-    ]), 'crash_res.png'));
-    c.addSeparatorComponents(sep); galleryOne(c, 'crash_res.png');
+    ];
+    c.addSeparatorComponents(sep);
+    await galleryFromCanvasCache(c, files, ['crash-result', resultLines], () => canvas.resultStrip(resultLines), 'crash_res.png');
   }
   balanceLine(c, balance);
   return { components, files, flags: MessageFlags.IsComponentsV2 };
