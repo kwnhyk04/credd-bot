@@ -564,10 +564,12 @@ async function runBattle(channel, {
 
   const frame = async (i) => {
     const over = i >= sim.snapshots.length - 1;
+    // [egress] battle frames ship at 1024px wide (owner-approved) — layout renders
+    // unchanged, only the encoded output shrinks (~55% fewer bytes on 1536px skins).
     const battleImage = await optimizeOpaqueAttachment(
       renderBattlePanel(sim, i, { mirror, icons, skin, mode }),
       'battle',
-      { background: COLORS.bg }
+      { background: COLORS.bg, maxWidth: 1024 }
     );
     const base = battleEmbed(sim, i, { mode, includeImage: true, imageName: battleImage.name });
     // Phase 6: ranked threads its result into the embed — the tier matchup in the
@@ -578,7 +580,7 @@ async function runBattle(channel, {
     }
     const showRewards = over && resultEmbed;
     const rewardsImage = showRewards
-      ? await optimizeOpaqueAttachment(rewardsBuffer, 'rewards', { background: COLORS.bg })
+      ? await optimizeOpaqueAttachment(rewardsBuffer, 'rewards', { background: COLORS.bg, maxWidth: 1024 })
       : null;
     if (rewardsImage) resultEmbed.setImage(`attachment://${rewardsImage.name}`);
     const files = [
