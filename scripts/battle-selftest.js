@@ -396,14 +396,14 @@ section('4. Targeted scenarios');
 // DOT now ticks right after the affected side acts, before the opponent can attack.
 {
   const sim = resolveBattle(
-    player({ name: 'Hero', hp: 100, def: 0, atk: 1, crit: 0 }),
+    player({ name: 'TestUser', hp: 100, def: 0, atk: 1, crit: 0 }),
     mob({ name: 'Lamia', atk: 400, skillKey: 'lamia_serpent_bite', hp: 3000 }),
     { mode: 'raid', rng: () => 0 }
   );
   const ev = roundEvents(sim, 1);
-  const iAttack = ev.findIndex((e) => e.includes('Hero attacks'));
-  const iBleed = ev.findIndex((e) => e.includes('Hero suffers 140 Bleed damage'));
-  const iDeath = ev.findIndex((e) => e.includes('Hero died from bleeding'));
+  const iAttack = ev.findIndex((e) => e.includes('TestUser attacks'));
+  const iBleed = ev.findIndex((e) => e.includes('TestUser suffers 140 Bleed damage'));
+  const iDeath = ev.findIndex((e) => e.includes('TestUser died from bleeding'));
   const iMob = ev.findIndex((e) => e.includes('Lamia strikes'));
   check('DOT after affected action can end fight before opponent attack',
     sim.winner === 'b' && sim.outcome === 'dot' && iAttack !== -1 && iAttack < iBleed && iBleed < iDeath && iMob === -1,

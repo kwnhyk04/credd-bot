@@ -126,6 +126,10 @@ function actionState(side) {
   };
 }
 
+function combatantName(side) {
+  return String(side?.name || side?.in?.username || side?.in?.displayName || side?.in?.name || 'Combatant');
+}
+
 function actionNameForWeapon(name) {
   const n = String(name || '').toLowerCase();
   if (/bow|crossbow/.test(n)) return 'Arrow Volley';
@@ -892,9 +896,10 @@ function resolveBattle(a, b, opts = {}) {
         if (side.flags.rune_warding_pct > 0) tick = Math.floor(tick * (1 - side.flags.rune_warding_pct));
         if (tick > 0) {
           damage(side, tick);
-          shared.events.push(`🩸 ${side.name} suffers ${tick} ${d.tag === 'burn' ? 'Burn' : d.tag === 'bleed' ? 'Bleed' : 'Rot'} damage!`);
+          const name = combatantName(side);
+          shared.events.push(`🩸 ${name} suffers ${tick} ${d.tag === 'burn' ? 'Burn' : d.tag === 'bleed' ? 'Bleed' : 'Rot'} damage!`);
           if (checkDeaths('dot')) {
-            shared.events.push(`💀 ${side.name} died from ${DOT_DEATH_TEXT[d.tag] || 'damage'}!`);
+            shared.events.push(`💀 ${name} died from ${DOT_DEATH_TEXT[d.tag] || 'damage'}!`);
             break;
           }
         }
