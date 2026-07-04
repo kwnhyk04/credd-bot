@@ -60,6 +60,16 @@ async function fetchState(discordId, seasonId) {
 
 async function buildShop(viewerId) {
   const season = await activeSeason(pool);
+  if (!season) {
+    const medal = emoji('valor_medal');
+    const container = new ContainerBuilder().setAccentColor(BRAND);
+    container.addTextDisplayComponents((td) => td.setContent(`## ${medal} PvP Shop Closed`));
+    container.addSeparatorComponents(sep);
+    container.addTextDisplayComponents((td) => td.setContent(
+      '-# No active PvP season. The shop opens when a season is manually started.'
+    ));
+    return { components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
+  }
   const { valor, purchased } = await fetchState(viewerId, season?.season_id);
   const medal = emoji('valor_medal');
 
@@ -77,8 +87,7 @@ async function buildShop(viewerId) {
   container.addTextDisplayComponents((td) => td.setContent(rowsText));
   container.addSeparatorComponents(sep);
   container.addTextDisplayComponents((td) => td.setContent(
-    `-# Your balance — ${medal} **${valor.toLocaleString()}** Valor Medals`
-    + (season ? ` · Season ${season.season_id}` : ' · *no active season*')
+    `-# Your balance — ${medal} **${valor.toLocaleString()}** Valor Medals · Season ${season.season_id}`
   ));
   container.addSeparatorComponents(sep);
   container.addTextDisplayComponents((td) => td.setContent(SHOP_QUOTE));

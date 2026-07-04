@@ -607,10 +607,10 @@ async function devSeason(message, args, devId) {
       const r = await seasonEngine.rolloverIfDue(pool, { force: true });
       if (r.rolled) {
         await logDev(pool, devId, 'season_rollover', devId,
-          `ended=${r.endedSeason} next=${r.nextSeason} paid=${r.paid}`).catch(() => {});
+          `ended=${r.endedSeason} paid=${r.paid}`).catch(() => {});
       }
       return reply(message, r.rolled
-        ? `✅ Rolled season ${r.endedSeason} → ${r.nextSeason}. Paid **${r.paid}** players, ratings soft-reset.`
+        ? `✅ Rolled season ${r.endedSeason}. Paid **${r.paid}** players and closed ranked season. Use \`crd dev season start\` to open the next season.`
         : 'No active season to roll.');
     }
     const s = await seasonEngine.activeSeason(pool);

@@ -5,7 +5,7 @@
  *   - season-end ranked payout by PEAK bracket (ranked_reward.season_end_payload)
  *   - soft ranked reset (rating × 0.6, floor 1000; peak/shield reset)
  *   - season-rank title grant (Divine = rotating exclusive; lower = per-season title)
- *   - activation of the next season
+ *   - closing the season until a dev manually starts the next one
  * Banner + reward track are intentionally NOT handled here (deferred).
  */
 
@@ -106,17 +106,11 @@ async function rolloverIfDue(db, { force = false } = {}) {
               pvp_demotion_shield = TRUE`
     );
 
-    // close this season, open the next (banner featured_deity left NULL — deferred)
+    // Close this season. The next season is intentionally manual: `crd dev season start`.
     await client.query('UPDATE seasons SET is_active = FALSE WHERE season_id = $1', [season.season_id]);
-    const next = await client.query(
-      `INSERT INTO seasons (name, theme, starts_at, ends_at, is_active)
-       VALUES ($1, NULL, NOW(), NOW() + ($2 || ' days')::interval, TRUE)
-       RETURNING season_id`,
-      [`Season ${season.season_id + 1}`, String(SEASON_DAYS)]
-    );
 
     await client.query('COMMIT');
-    return { rolled: true, endedSeason: season.season_id, paid, nextSeason: next.rows[0].season_id };
+    return { rolled: true, endedSeason: season.season_id, paid, nextSeason: null };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     throw err;
@@ -131,6 +125,12 @@ async function startSeason(db, name) {
   try {
     await client.query('BEGIN');
     await client.query('UPDATE seasons SET is_active = FALSE WHERE is_active = TRUE');
+    await client.query(
+      `UPDATE user_character
+          SET pvp_rating = 1000,
+              pvp_peak = 1000,
+              pvp_demotion_shield = TRUE`
+    );
     const res = await client.query(
       `INSERT INTO seasons (name, starts_at, ends_at, is_active)
        VALUES ($1, NOW(), NOW() + ($2 || ' days')::interval, TRUE)
@@ -157,7 +157,13 @@ async function endSeasonNow(db) {
 
 async function activeSeason(db) {
   const res = await db.query(
-    'SELECT season_id, name, starts_at, ends_at FROM seasons WHERE is_active = TRUE ORDER BY ends_at LIMIT 1'
+    `SELECT season_id, name, starts_at, ends_at
+       FROM seasons
+      WHERE is_active = TRUE
+        AND starts_at <= NOW()
+        AND ends_at > NOW()
+      ORDER BY ends_at
+      LIMIT 1`
   );
   return res.rows[0] || null;
 }

@@ -17,6 +17,7 @@ const { resolveBattle } = require('../../engine/battleEngine');
 const { buildPlayerFighter } = require('../../engine/statAssembly');
 const { runBattle } = require('../../engine/battleRender');
 const { resolveSkin } = require('../../engine/skinResolver');
+const { activeSeason } = require('../../engine/seasonEngine');
 const {
   bracketOf, bracketFloor, bracketIndex, matchRange, matchRangeWide,
   eloDelta, valorForResult, phtWeek, WEEKLY_MIN_GAMES,
@@ -97,6 +98,8 @@ async function fight(message) {
   if (selfRes.rows.length === 0) return reply(message, 'No character found.');
   const self = selfRes.rows[0];
   const rating = self.pvp_rating;
+  const season = await activeSeason(pool);
+  const inSeason = !!season;
 
   // Avoid an immediate rematch: the most recent opponent is excluded first, so a
   // thin bracket doesn't pit you against the same player twice in a row.
@@ -166,7 +169,7 @@ async function fight(message) {
     const locked = lockedRes.rows[0];
     ratingBefore = Number(locked.pvp_rating);
     delta = eloDelta(ratingBefore, oppRating, won);          // dynamic — scales with rank gap
-    medals = valorForResult(ratingBefore, oppRating, won);   // Valor for win AND loss
+    medals = inSeason ? valorForResult(ratingBefore, oppRating, won) : 0; // Rating always moves; Valor is seasonal.
     const { rating: nextRating, shield } = applyRating(ratingBefore, locked.pvp_demotion_shield, delta);
     newRating = nextRating;
     const newPeak = Math.max(Number(locked.pvp_peak || 0), newRating);
@@ -175,10 +178,12 @@ async function fight(message) {
       `UPDATE user_character SET pvp_rating = $2, pvp_demotion_shield = $3, pvp_peak = $4 WHERE discord_id = $1`,
       [me, newRating, shield, newPeak]
     );
-    await client.query(
-      'UPDATE users_bag SET valor_medals = valor_medals + $2 WHERE discord_id = $1',
-      [me, medals]
-    );
+    if (medals > 0) {
+      await client.query(
+        'UPDATE users_bag SET valor_medals = valor_medals + $2 WHERE discord_id = $1',
+        [me, medals]
+      );
+    }
     await client.query(
       `INSERT INTO ranked_logs (player_id, opponent_id, result, rating_before, rating_after)
        VALUES ($1, $2, $3, $4, $5)`,
@@ -202,7 +207,8 @@ async function fight(message) {
   const oppTier = bracketIndex(oppBracket.name) + 1;
   const opponentMention = `<@${opp.discord_id}>`;
   const header = `You: Tier ${myTier} ${myBracket.name}   ·   ${opponentMention}: Tier ${oppTier} ${oppBracket.name}`;
-  const footer = `${won ? '🏆 Victory' : '💀 Defeat'} vs ${opponentMention}  ·  Rating ${sign}${delta} → ${newRating} (${myBracket.name})  ·  +${medals} Valor`;
+  const valorText = inSeason ? `+${medals} Valor` : 'No Valor - off season';
+  const footer = `${won ? '🏆 Victory' : '💀 Defeat'} vs ${opponentMention}  ·  Rating ${sign}${delta} → ${newRating} (${myBracket.name})  ·  ${valorText}`;
 
   let battleSkinPath = null;
   let resultSkinPath = null;
@@ -227,6 +233,10 @@ async function fight(message) {
 async function claim(message) {
   const me = message.author.id;
   const week = phtWeek();
+  const season = await activeSeason(pool);
+  if (!season) {
+    return reply(message, '⚔️ No active PvP season — weekly ranked rewards are closed.');
+  }
 
   const client = await pool.connect();
   try {
