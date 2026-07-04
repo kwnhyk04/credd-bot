@@ -944,22 +944,30 @@ function resolveBattle(a, b, opts = {}) {
     }
 
     // 3. passive phase — each active passive exactly once per round (§35.1)
+    const passiveEvents = new Map([[A, []], [B, []]]);
+    const collectPassiveEvents = (side, fn) => {
+      const start = shared.events.length;
+      fn();
+      if (shared.events.length > start) {
+        passiveEvents.get(side).push(...shared.events.slice(start));
+      }
+    };
     if (mode === 'duel') {
       for (const side of order) {
         const P = perspectiveOf(side);
-        runRegistry(side.weaponPassiveKey, P);
-        runRegistry(side.deityBlessingKey, P);
-        runRegistry(side.echoBlessingKey, P);  // [v5 Phase 3] echo blessing
-        runRegistry(side.armorPassiveKey, P);
-        applyRunes(side, P);
+        collectPassiveEvents(side, () => runRegistry(side.weaponPassiveKey, P));
+        collectPassiveEvents(side, () => runRegistry(side.deityBlessingKey, P));
+        collectPassiveEvents(side, () => runRegistry(side.echoBlessingKey, P));  // [v5 Phase 3] echo blessing
+        collectPassiveEvents(side, () => runRegistry(side.armorPassiveKey, P));
+        collectPassiveEvents(side, () => applyRunes(side, P));
       }
     } else {
-      runRegistry(A.weaponPassiveKey, PA);
-      runRegistry(A.deityBlessingKey, PA);
-      runRegistry(A.echoBlessingKey, PA);      // [v5 Phase 3] echo blessing
-      runRegistry(A.armorPassiveKey, PA);
-      applyRunes(A, PA);
-      runRegistry(B.skillKey, PA);
+      collectPassiveEvents(A, () => runRegistry(A.weaponPassiveKey, PA));
+      collectPassiveEvents(A, () => runRegistry(A.deityBlessingKey, PA));
+      collectPassiveEvents(A, () => runRegistry(A.echoBlessingKey, PA));      // [v5 Phase 3] echo blessing
+      collectPassiveEvents(A, () => runRegistry(A.armorPassiveKey, PA));
+      collectPassiveEvents(A, () => applyRunes(A, PA));
+      collectPassiveEvents(B, () => runRegistry(B.skillKey, PA));
     }
     // consume hydra local regen (local mirror only — never the shared pool)
     if (!result && A.flags.hydra_local_regen > 0) {
@@ -978,11 +986,13 @@ function resolveBattle(a, b, opts = {}) {
     const procEnd = shared.events.length; // events so far = this round's passive procs
     let act1DotStart = -1;                 // index where actor 1's post-action DOT begins
     let act2Start = -1;                    // index where the SECOND actor's segment begins
+    let act2DotStart = -1;                 // index where actor 2's post-action DOT begins
     for (let oi = 0; oi < order.length; oi++) {
       const actor = order[oi];
       act(actor);
       captureActionFor(actor);
       if (oi === 0) act1DotStart = shared.events.length;
+      else if (oi === 1) act2DotStart = shared.events.length;
       tickDotsForSide(actor);
       if (oi === 0) act2Start = shared.events.length; // close the first actor's segment
       if (result) break;
@@ -1012,18 +1022,23 @@ function resolveBattle(a, b, opts = {}) {
 
     // [Phase 6] Log DISPLAY order only (execution is unchanged — passives still resolve
     // before the attacks to set up the hits). Interleave per the per-turn template:
-    //   [actor-1 attack + weapon procs/reactive] → [passive HP/DEF buffs] →
-    //   [actor-1 DOT] → [actor-2 attack + DOT/dodge/thorns] → [sudden death].
+    //   [actor-1 attack + weapon procs/reactive] → [actor-1 passive logs] →
+    //   [actor-1 DOT] → [actor-2 attack + dodge/thorns] → [actor-2 passive logs] →
+    //   [actor-2 DOT] → [sudden death].
     // Weapon procs, dodge/evade and reflect are pushed inside each actor's own segment,
-    // so they stay attached to the right attack; only the passive-buff block moves between
-    // the two attacks.
+    // so they stay attached to the right attack. Registry logs are grouped by owner.
     const seg2 = act2Start < 0 ? actionEnd : act2Start;
     const seg1Dot = act1DotStart < 0 ? seg2 : act1DotStart;
+    const seg2Dot = act2DotStart < 0 ? actionEnd : act2DotStart;
+    const actor1 = order[0];
+    const actor2 = order[1];
     shared.events = [
       ...shared.events.slice(procEnd, seg1Dot),  // actor 1: attack + weapon procs + reactive
-      ...shared.events.slice(0, procEnd),        // passive HP/DEF buffs (deity/armor)
+      ...(passiveEvents.get(actor1) || []),       // actor 1: weapon/deity/skill/rune logs
       ...shared.events.slice(seg1Dot, seg2),     // actor 1: post-action DOT
-      ...shared.events.slice(seg2, actionEnd),   // actor 2: attack + DOT + dodge/thorns
+      ...shared.events.slice(seg2, seg2Dot),     // actor 2: attack + dodge/thorns
+      ...(passiveEvents.get(actor2) || []),       // actor 2: weapon/deity/skill/rune logs
+      ...shared.events.slice(seg2Dot, actionEnd), // actor 2: post-action DOT
       ...shared.events.slice(actionEnd),         // sudden death
     ];
     rounds.push({ round, events: shared.events, actions: lastActions });

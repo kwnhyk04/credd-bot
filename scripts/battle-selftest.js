@@ -410,6 +410,23 @@ section('4. Targeted scenarios');
     `winner=${sim.winner} outcome=${sim.outcome} events=${ev.join(' | ')}`);
 }
 
+// Passive log display follows the owner: actor 2's weapon/deity logs must appear
+// after actor 2's attack, not between actor 1 and actor 2.
+{
+  const sim = resolveBattle(
+    player({ name: 'First', weaponPassiveKey: 'arrow_of_eros', atk: 20, hp: 100000, def: 0, crit: 0 }),
+    player({ name: 'Second', weaponPassiveKey: 'arrow_of_eros', atk: 20, hp: 100000, def: 0, crit: 0 }),
+    { mode: 'duel', rng: () => 0 }
+  );
+  const ev = roundEvents(sim, 1);
+  const firstAttack = ev.findIndex((e) => e.includes('First attacks'));
+  const secondAttack = ev.findIndex((e) => e.includes('Second attacks'));
+  const arrows = ev.map((e, i) => e.includes('Arrow of Eros') ? i : -1).filter((i) => i >= 0);
+  check('passive logs render after their owner attack',
+    arrows.length >= 2 && firstAttack < arrows[0] && arrows[0] < secondAttack && secondAttack < arrows[1],
+    ev.join(' | '));
+}
+
 // Poseidon Tidal Force applies after the attack for turn flow: proc on turn 4,
 // target loses its next turn (turn 5), not the current turn.
 {
