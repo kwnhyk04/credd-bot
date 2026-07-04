@@ -320,9 +320,12 @@ section('4. Targeted scenarios');
     /* r6 */ 0.99, 0.99, 0.5, 0.99, 0.5];
   const sim = resolveBattle(mk(), mob({ hp: 100000, skillKey: 'santelmo_will_o_wisp' }),
     { seed: 1, rng: scripted(script) });
-  check('same-turn skip-CC gates round 2: player unable to act', hasEvent(roundEvents(sim, 2), 'unable to act'));
-  check('same-turn skip-CC: no carry-over to round 3', !hasEvent(roundEvents(sim, 3), 'unable to act'));
-  check('same-turn skip-CC: overcharge still fires round 3', hasEvent(roundEvents(sim, 3), 'Overcharge'));
+  check('directional: player ACTS round 2 (the CC proc round)', hasEvent(roundEvents(sim, 2), 'attacks'));
+  check('skip-CC gates round 3: player unable to act', hasEvent(roundEvents(sim, 3), 'unable to act'));
+  check('skip-CC on round 3: overcharge lost (no marker, no attack)',
+    !hasEvent(roundEvents(sim, 3), 'Overcharge') && !hasEvent(roundEvents(sim, 3), 'attacks'));
+  check('skip-CC: no carry-over to round 4', !hasEvent(roundEvents(sim, 4), 'Overcharge'));
+  check('skip-CC: next overcharge fires round 6', hasEvent(roundEvents(sim, 6), 'Overcharge'));
 }
 
 // — Overcharge suppresses crit even vs an auto-crit grant (Apollo round 12) —
@@ -406,6 +409,35 @@ section('4. Targeted scenarios');
     `winner=${sim.winner} outcome=${sim.outcome} events=${ev.join(' | ')}`);
 }
 
+// Poseidon Tidal Force applies after the attack for turn flow: proc on turn 4,
+// target loses its next turn (turn 5), not the current turn.
+{
+  const sim = resolveBattle(
+    player({ deityBlessingKey: 'poseidon_tidal_force', atk: 20, hp: 100000, def: 10, crit: 0 }),
+    mob({ name: 'Dummy', atk: 1, hp: 100000, def: 0, crit: 0 }),
+    { mode: 'raid', rng: () => 0 }
+  );
+  const r4 = roundEvents(sim, 4);
+  const r5 = roundEvents(sim, 5);
+  check('Poseidon stun is delayed to target next turn',
+    hasEvent(r4, 'Poseidon: Tidal Force') && hasEvent(r4, 'Dummy strikes') && !hasEvent(r4, 'Dummy is unable to act') && hasEvent(r5, 'Dummy is unable to act'),
+    `r4=${r4.join(' | ')} r5=${r5.join(' | ')}`);
+}
+
+// The same directional timing applies to all skip-CC tags, not only stun.
+{
+  const sim = resolveBattle(
+    player({ deityBlessingKey: 'skadi_winters_hunt', atk: 20, hp: 100000, def: 10, crit: 0 }),
+    mob({ name: 'Dummy', atk: 1, hp: 100000, def: 0, crit: 0 }),
+    { mode: 'raid', rng: () => 0 }
+  );
+  const r3 = roundEvents(sim, 3);
+  const r4 = roundEvents(sim, 4);
+  check('non-stun skip-CC is delayed to target next turn',
+    hasEvent(r3, 'Skadi: Winter') && hasEvent(r3, 'Dummy strikes') && !hasEvent(r3, 'Dummy is unable to act') && hasEvent(r4, 'Dummy is unable to act (freeze)'),
+    `r3=${r3.join(' | ')} r4=${r4.join(' | ')}`);
+}
+
 // — R2 + [Jun-2026 §2]: Fighter class stun 1/2 turns gates the mob's NEXT turn(s),
 //   refresh-don't-extend. The stun is applied on the player's r1 hit, so the mob still
 //   ACTS r1 (directional CC never cancels an action already due) and is gated AFTER. —
@@ -415,19 +447,20 @@ section('4. Targeted scenarios');
   // Minimal script (order, r1 critPre 0.99, r1 stunPre 0.05); fallback 0.5 means no further stuns.
   const s2 = resolveBattle(mkF(), mob({ hp: 100000 }),
     { seed: 1, rng: scripted([0.0, 0.99, 0.05]) });
-  check('R2: 2-turn stun - mob skips r1 immediately', hasEvent(roundEvents(s2, 1), 'unable to act'));
+  check('R2: 2-turn stun - mob ACTS r1 (CC is directional, gates next turn)', hasEvent(roundEvents(s2, 1), 'strikes'));
   check('R2: 2-turn stun — mob skips r2', hasEvent(roundEvents(s2, 2), 'unable to act'));
-  check('R2: mob acts round 3', hasEvent(roundEvents(s2, 3), 'strikes'));
+  check('R2: 2-turn stun — mob skips r3', hasEvent(roundEvents(s2, 3), 'unable to act'));
+  check('R2: mob acts round 4', hasEvent(roundEvents(s2, 4), 'strikes'));
   // re-proc a 2-turn stun in r2 (player's r2 hit) → refresh to max(remaining,2)=2 → still
   // skips r2+r3, acts r4 (extend semantics would stack to 3 and delay to r5).
   const sR = resolveBattle(mkF(), mob({ hp: 100000 }),
     { seed: 1, rng: scripted([0.0, 0.99, 0.05, 0.5, 0.99, 0.5, /* r2 */ 0.99, 0.05]) });
-  check('R2 refresh: acts r3 after same-turn 2-turn stun expires', hasEvent(roundEvents(sR, 3), 'strikes'));
+  check('R2 refresh: skips r3', hasEvent(roundEvents(sR, 3), 'unable to act'));
   check('R2 refresh-not-extend: acts r4', hasEvent(roundEvents(sR, 4), 'strikes'));
   // 1-turn band (0.10 ≤ r < 0.35): mob acts r1, skips r2, acts r3.
   const s1 = resolveBattle(mkF(), mob({ hp: 100000 }),
     { seed: 1, rng: scripted([0.0, 0.99, 0.20]) });
-  check('R2: 1-turn stun - skips r1 only', hasEvent(roundEvents(s1, 1), 'unable to act') && hasEvent(roundEvents(s1, 2), 'strikes'));
+  check('R2: 1-turn stun - skips r2 only', hasEvent(roundEvents(s1, 1), 'strikes') && hasEvent(roundEvents(s1, 2), 'unable to act') && hasEvent(roundEvents(s1, 3), 'strikes'));
   // stun-immune boss: no stun ever, mob acts round 1
   const sImm = resolveBattle(mkF(), mob({ hp: 100000, immunityTags: ['stun'] }),
     { seed: 1, rng: scripted([0.0, 0.99, 0.05]) });

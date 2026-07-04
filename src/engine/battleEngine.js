@@ -285,13 +285,9 @@ function resolveBattle(a, b, opts = {}) {
   const damage = (side, amount) => setHp(side, side.hp - Math.max(0, Math.floor(amount)));
   const heal = (side, amount) => setHp(side, side.hp + Math.max(0, Math.floor(amount)));
 
-  let pendingActionSides = null;
-
   // ── debuff helpers (§13.1: refresh don't stack/extend; highest value wins) ─
   const findDebuff = (side, tag) => side.debuffs.find((d) => d.tag === tag);
   const debuffValue = (side, tag) => { const d = findDebuff(side, tag); return d ? d.value : 0; };
-  const shouldArmSkipDebuffNow = (side, tag) =>
-    SKIP_TAGS.includes(tag) && pendingActionSides && pendingActionSides.has(side);
   const addDebuff = (side, tag, turns, value = 0) => {
     // [v5] armor defensive hooks on a player recipient (anting / salakot). Both run
     // at debuff-apply time so they catch CC from passives AND attacks. Existing fights
@@ -312,11 +308,10 @@ function resolveBattle(a, b, opts = {}) {
     if (ex) {
       ex.turnsLeft = Math.max(ex.turnsLeft, turns);
       ex.value = Math.max(ex.value, value);
-      if (shouldArmSkipDebuffNow(side, tag)) ex.armed = true;
     } else {
-      // Skip-CC applied before the recipient's action is still pending gates that
-      // same turn. If the recipient has already acted, it arms next round.
-      side.debuffs.push({ tag, turnsLeft: turns, value, armed: shouldArmSkipDebuffNow(side, tag) });
+      // Skip-CC applied this round is directional and gates the recipient's next
+      // turn. It arms at round start, so it never cancels an action already due.
+      side.debuffs.push({ tag, turnsLeft: turns, value, armed: false });
     }
   };
   const sideImmune = (side, tag) => {
@@ -716,7 +711,7 @@ function resolveBattle(a, b, opts = {}) {
     if (result) return;
     const O = oppOf(S);
     // Skip-CC gates only on ARMED tags. Existing CC arms at round start; new
-    // skip-CC arms immediately only if this side's action is still pending.
+    // skip-CC applied during this round gates the recipient's next turn.
     const skipTags = S.debuffs.filter((d) => SKIP_TAGS.includes(d.tag) && d.armed);
     if (skipTags.length > 0) {
       for (const d of skipTags) d.turnsLeft -= 1;
@@ -914,8 +909,6 @@ function resolveBattle(a, b, opts = {}) {
       }
       side.skipped = armedCC;
     }
-    pendingActionSides = new Set(order);
-
     // 2. pre-rolls (R1) — always drawn for stream stability, voided when skip-CC'd
     for (const side of order) {
       if (side.kind !== 'player') continue;
@@ -978,11 +971,9 @@ function resolveBattle(a, b, opts = {}) {
       captureActionFor(actor);
       if (oi === 0) act1DotStart = shared.events.length;
       tickDotsForSide(actor);
-      pendingActionSides.delete(actor);
       if (oi === 0) act2Start = shared.events.length; // close the first actor's segment
       if (result) break;
     }
-    pendingActionSides = null;
     const actionEnd = shared.events.length; // procEnd..actionEnd = attack + action-DOT events
 
     // 5. end of round
