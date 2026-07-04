@@ -20,6 +20,9 @@ build/
 .cache/
 coverage/
 assets/cache/
+# Derived casino spin media (scripts/build-casino-spin-assets.js) — lives in R2,
+# regenerated on demand; runtime falls back to on-the-fly render if absent.
+assets/generated/
 
 # Generated skin-alignment artifacts (scripts/alignSkins.js, scripts/skinPreview.js)
 tmp/

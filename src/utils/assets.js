@@ -268,6 +268,38 @@ async function loadCachedImage(loadImageFnOrSource, maybeSource) {
   return loadAssetImage(loadImage, loadImageFnOrSource);
 }
 
+// remoteAssetAvailable — can this asset be served straight from the R2 public
+// bucket (zero bot egress)? HEAD-checked once and cached; a missing object is
+// re-checked after a TTL so uploading it later needs no restart. Callers use
+// this to decide URL-reference vs attach-fallback, so it must never throw.
+const REMOTE_CHECK_NEGATIVE_TTL_MS = Math.max(0, Number(process.env.ASSET_REMOTE_CHECK_TTL_MS || 600_000));
+const remoteAvailability = new Map(); // url → { promise, checkedAt, resolvedFalse }
+
+function remoteAssetAvailable(relativePath) {
+  if (!isRemoteAssetsEnabled()) return Promise.resolve(false);
+  const url = getAssetUrl(relativePath);
+  const entry = remoteAvailability.get(url);
+  if (entry) {
+    const expired = entry.resolvedFalse
+      && REMOTE_CHECK_NEGATIVE_TTL_MS > 0
+      && Date.now() - entry.checkedAt > REMOTE_CHECK_NEGATIVE_TTL_MS;
+    if (!expired) return entry.promise;
+  }
+  const record = { checkedAt: Date.now(), resolvedFalse: false };
+  record.promise = (async () => {
+    try {
+      const res = await fetch(url, { method: 'HEAD' });
+      if (!res.ok) record.resolvedFalse = true;
+      return res.ok;
+    } catch {
+      record.resolvedFalse = true;
+      return false;
+    }
+  })();
+  remoteAvailability.set(url, record);
+  return record.promise;
+}
+
 async function assetExists(source) {
   const resolved = assetSource(source);
   if (isRemoteSource(resolved)) return true;
@@ -310,6 +342,7 @@ module.exports = {
   loadCachedImage,
   assetExists,
   assetExistsSync,
+  remoteAssetAvailable,
   assetSignatureSync,
   clearAssetCache,
   getAssetCacheStats,
