@@ -467,6 +467,11 @@ function battleEmbed(sim, snapIdx, { mode, includeImage = true, imageUrl = null 
   return e;
 }
 
+function footerRewardIcon(displayName, fallback) {
+  const icon = emojiForDisplay(displayName, fallback);
+  return /^<a?:/i.test(icon || '') ? fallback : icon;
+}
+
 function battleFrameCacheParts(sim, snapIdx, { mode, mirror, battleSkinPath }) {
   const idx = Math.min(snapIdx, sim.snapshots.length - 1);
   return {
@@ -526,15 +531,18 @@ function rewardFooterText(sim, r) {
   const won = sim.winner === 'a';
   const result = won ? `${sim.b.name} defeated!` : `Defeated by ${sim.b.name}.`;
   const rewardParts = [];
+  const creduxIcon = footerRewardIcon('Credux Coin', '🪙');
+  const expIcon = footerRewardIcon('Combat Exp', '✨');
+  const shardIcon = footerRewardIcon('Belief Shards', '🔮');
 
   if (won) {
-    rewardParts.push(`+${Number(r.credux || 0).toLocaleString()} Credux`);
-    rewardParts.push(`+${Number(r.exp || 0).toLocaleString()} EXP`);
-    if (Number(r.shards || 0) > 0) rewardParts.push(`+${Number(r.shards).toLocaleString()} Belief Shards`);
-    if (r.chestLabel) rewardParts.push(`${r.chestLabel} x1`);
-    if (r.leveledUp) rewardParts.push(`LEVEL UP! ${r.levelFrom} -> ${r.levelTo}`);
+    rewardParts.push(`${creduxIcon} +${Number(r.credux || 0).toLocaleString()} Credux`);
+    rewardParts.push(`${expIcon} +${Number(r.exp || 0).toLocaleString()} EXP`);
+    if (Number(r.shards || 0) > 0) rewardParts.push(`${shardIcon} +${Number(r.shards).toLocaleString()} Belief Shards`);
+    if (r.chestLabel) rewardParts.push(`${footerRewardIcon(r.chestLabel, '🎁')} ${r.chestLabel} x1`);
+    if (r.leveledUp) rewardParts.push(`⬆️ LEVEL UP! ${r.levelFrom} -> ${r.levelTo}`);
   } else {
-    rewardParts.push(`+${Number(r.exp || 0).toLocaleString()} EXP`);
+    rewardParts.push(`${expIcon} +${Number(r.exp || 0).toLocaleString()} EXP`);
   }
 
   return `${result} Rewards Obtained: ${rewardParts.join(' · ')}`;
