@@ -4,10 +4,12 @@
  * chestOpen.js — gif-animated open flow for chests AND relics (Components V2).
  *
  * Flow (backend has ALREADY rolled + committed before this is called):
- *   1. reply: container [header → separator → chest GIF media gallery]
+ *   1. reply: text-only animation phase — header line + animated open emoji
+ *      (Components V2 top-level TextDisplay, no embed; spec §G)
  *   2. Promise.all([build result payload, play-once delay])
- *   3. EDIT the same message into the result container (attachments: [] drops
- *      the old gif — required or discord.js keeps it attached)
+ *   3. EDIT the same message into the result container. Both phases are CV2, so
+ *      the edit is a legal CV2→CV2 swap (a legacy-content phase-1 would make
+ *      Discord reject the edit: MESSAGE_CANNOT_USE_LEGACY_FIELDS_WITH_COMPONENTS_V2).
  *
  * The result payload is caller-supplied (weapon grid via buildWeaponResultPayload,
  * or renderSummon's deity container for relics) so both paths share one runner.
@@ -15,16 +17,13 @@
 
 const {
   ContainerBuilder,
+  TextDisplayBuilder,
   MessageFlags,
 } = require('discord.js');
 const { TIERS } = require('./weaponResultRenderer');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji, emojiForDisplay } = require('../utils/emojis');
 const { capitalizeLower } = require('../utils/textFormat');
-const {
-  assetPath,
-  assetFileName,
-} = require('../utils/assets');
 
 const ANIMATION_MS = 3000; // matches the ~2.5s GIFs + buffer
 
@@ -87,18 +86,23 @@ function tierSummary(items) {
     .join(' ・ ');
 }
 
-/** Resolve the gif's on-disk path + attachment name. gifPath (absolute) overrides
- *  the bundled CHEST_GIFS lookup so rune bags can load from assets/items/runes. */
-function resolveGif(gifKey, gifPath) {
-  if (gifPath) return { name: assetFileName(gifPath, 'open.gif'), src: gifPath };
-  const name = CHEST_GIFS[gifKey];
-  return name ? { name, src: assetPath(`animations/chests/${name}`) } : null;
-}
-
-/** Animation-phase container: header → separator → the chest gif. */
-async function animationPayload(gifKey, animTitle, gifPath) {
+/**
+ * Animation phase (chest/relic/rune bags): text-only — header line then the
+ * animated open emoji on the next line (no embed, per spec §G).
+ *
+ * MUST be a Components-V2 payload (top-level TextDisplay, no container = no box)
+ * NOT a legacy `content` message: the result phase edits this same message into
+ * a CV2 container, and Discord rejects converting a legacy-content message into
+ * CV2 (MESSAGE_CANNOT_USE_LEGACY_FIELDS_WITH_COMPONENTS_V2). emoji() already
+ * returns a safe '▫️' fallback when a mapping is missing, so this never throws.
+ */
+function animationPayload(gifKey, animTitle) {
+  const td = new TextDisplayBuilder().setContent(
+    '**' + animTitle + '**\n' + emoji(OPEN_EMOJI[gifKey] || gifKey)
+  );
   return {
-    content: '**' + animTitle + '**\n' + emoji(OPEN_EMOJI[gifKey] || gifKey),
+    components: [td],
+    flags: MessageFlags.IsComponentsV2,
     files: [],
     allowedMentions: { repliedUser: false },
   };
@@ -148,14 +152,11 @@ async function buildWeaponResultPayload(p) {
  * @param {string}   opts.animTitle     header for the animation phase
  * @param {Function} opts.buildResult   async () => { components, files } (CV2, no flags)
  */
-async function playAnimatedOpen(message, { gifKey, gifPath, animTitle, buildResult }) {
-  const g = resolveGif(gifKey, gifPath);
-  if (!g) throw new Error(`playAnimatedOpen: unknown gifKey ${gifKey}`);
-
+async function playAnimatedOpen(message, { gifKey, animTitle, buildResult }) {
   let msg = null;
   let result = null;
   try {
-    msg = await message.reply(await animationPayload(gifKey, animTitle, gifPath));
+    msg = await message.reply(animationPayload(gifKey, animTitle));
     [result] = await Promise.all([buildResult(), sleep(ANIMATION_MS)]);
   } catch (err) {
     // Rolls are committed — never swallow them. Try to still build/show results.

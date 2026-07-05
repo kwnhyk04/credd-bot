@@ -222,9 +222,21 @@ async function renderSummonGrid(results) {
  *   complete pre-rendered animation — sent as-is, no per-pull compositing.
  */
 async function buildFlipMessage(flipPath = null) {
+  // Summon suspense is an EMBED again (spec §A): header → separator → body GIF.
+  // The "GIF" body is the equipped summon skin's animated emoji (summonFlipEmoji
+  // safely falls back to card_flip, then to '▫️'), so nothing here can throw and
+  // no image bytes are re-uploaded. MUST be Components-V2 (not legacy `content`):
+  // the result phase edits this message into a CV2 container, and Discord rejects
+  // converting a legacy-content message to CV2.
   const icon = summonFlipEmoji(flipPath);
+  const container = new ContainerBuilder()
+    .setAccentColor(ACCENT)
+    .addTextDisplayComponents((td) => td.setContent('## Invocation in progress...'))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(icon));
   return {
-    content: `**Invocation in progress...**\n${icon}`,
+    components: [container],
+    flags: MessageFlags.IsComponentsV2,
     allowedMentions: { parse: [] },
   };
 }
