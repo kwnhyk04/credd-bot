@@ -19,7 +19,7 @@ const { makeOptimizedAttachment } = require('../../utils/imageOutput');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 
 // Bump when renderPortraitCard / the deities-grid visuals change (busts cached cards).
-const DEITY_RENDER_REV = 2;
+const DEITY_RENDER_REV = 3;
 const { assetPath, isRemoteAssetsEnabled, loadAssetImage: loadAssetImageSource } = require('../../utils/assets');
 const { RARITY_SYMBOLS, renderCenteredArt } = require('../../engine/renderSummon');
 const { computeDeityStats, nextDeityAttempt, MAX_ENHANCEMENT } = require('../../engine/deityEnhancement');

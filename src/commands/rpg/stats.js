@@ -13,7 +13,7 @@ const { resolveSkin, resolveProfileLabel } = require('../../engine/skinResolver'
 const { resolveProfileTarget } = require('../../utils/profileTarget');
 
 // Bump when renderStats output changes visually (busts every cached stats card).
-const STATS_RENDER_REV = 1;
+const STATS_RENDER_REV = 2;
 
 /**
  * `crd profile [@user]` / `crd stats [@user]` — full Canvas profile card.
