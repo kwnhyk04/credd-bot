@@ -636,8 +636,9 @@ async function runBattle(channel, {
     // Phase 6: ranked threads its result into the embed — the tier matchup in the
     // HEADER (author, top), the outcome + rating move + Valor in the FOOTER (bottom).
     if (over && header) base.setAuthor({ name: header });
-    if (over && (footer || defaultRewardFooter)) {
-      base.setFooter({ text: [footer, defaultRewardFooter].filter(Boolean).join(' · ') });
+    if (over && footer) base.setFooter({ text: footer });
+    if (over && defaultRewardFooter) {
+      base.addFields({ name: '\u200b', value: defaultRewardFooter });
     }
     const showRewards = over && resultEmbed;
     const rewardsImage = showRewards

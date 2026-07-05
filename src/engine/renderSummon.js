@@ -18,20 +18,14 @@
 
 const {
   ContainerBuilder,
-  AttachmentBuilder,
   MessageFlags,
 } = require('discord.js');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const { smallDivider: sep } = require('../utils/componentsV2');
-const { emoji } = require('../utils/emojis');
-const { makeOptimizedAttachment } = require('../utils/imageOutput');
-const { getCachedCanvasUrl } = require('../utils/canvasCache');
+const { emoji, emojiForDisplay } = require('../utils/emojis');
 const {
   assetPath,
   assetExistsSync,
-  assetExtension,
-  attachmentSource,
-  isRemoteSource,
   loadAssetImage: loadAssetImageSource,
 } = require('../utils/assets');
 const { getEmojiIcon } = require('./renderBagItems');
@@ -48,7 +42,6 @@ const ALIAS_TO_ESSENCE = Object.fromEntries(
  * CONFIG
  * ══════════════════════════════════════════ */
 const ACCENT = 0xf0b232;
-const SUMMON_RESULT_RENDER_REV = 1;
 // Anchored to the project root (this file is src/engine/), not process.cwd().
 const FLIP_GIF_PATH = assetPath('animations/gacha/card_flip.gif');
 // The 1024×1024 rarity frames live with the gacha animation assets (§35.7).
@@ -78,6 +71,7 @@ const FLAVOR = {
   1:  'A forgotten god has answered your call. Their power flows into you.',
   5:  'The veil thins. Five forgotten souls answer the call of the Last Believer.',
   10: 'The heavens fracture. Ten forgotten souls answer the call of the Last Believer.',
+  30: 'The heavens fracture. Thirty forgotten souls answer the call of the Last Believer.',
 };
 
 // Measured from the rarity frame PNGs — uniform crop fitting the largest glow
@@ -219,16 +213,6 @@ async function renderSummonGrid(results) {
   return canvas.toBuffer('image/png');
 }
 
-async function cachedSummonGrid(results) {
-  const cached = await getCachedCanvasUrl(
-    ['summon-result-grid', SUMMON_RESULT_RENDER_REV, results],
-    () => renderSummonGrid(results)
-  );
-  return cached
-    ? { url: cached.url, file: null }
-    : makeOptimizedAttachment(await renderSummonGrid(results), 'summon_result');
-}
-
 /* ════════════════════════════════════════════
  * PHASE 1 — flip message (suspense)
  * ══════════════════════════════════════════ */
@@ -238,25 +222,10 @@ async function cachedSummonGrid(results) {
  *   complete pre-rendered animation — sent as-is, no per-pull compositing.
  */
 async function buildFlipMessage(flipPath = null) {
-  const src = flipPath || FLIP_GIF_PATH;
-  const ext = assetExtension(src, 'gif');
-  const name = `card_flip.${ext}`;
-  const remote = isRemoteSource(src);
-  const mediaUrl = remote ? src : `attachment://${name}`;
-  const files = remote ? [] : [new AttachmentBuilder(await attachmentSource(src), { name })];
-
-  const container = new ContainerBuilder()
-    .setAccentColor(ACCENT)
-    .addTextDisplayComponents((td) => td.setContent('## ✨ Invocation in progress...'))
-    .addSeparatorComponents(sep)
-    .addMediaGalleryComponents((g) =>
-      g.addItems((item) => item.setURL(mediaUrl))
-    );
-
+  const icon = summonFlipEmoji(flipPath);
   return {
-    components: [container],
-    files,
-    flags: MessageFlags.IsComponentsV2,
+    content: `**Invocation in progress...**\n${icon}`,
+    allowedMentions: { parse: [] },
   };
 }
 
@@ -271,49 +240,78 @@ async function buildFlipMessage(flipPath = null) {
  *        supremeRelics is optional — only the relic-open paths show it.
  */
 async function buildResultMessage(results, balances) {
-  const grid = await cachedSummonGrid(results);
-
-  // Rarity counts, ordered rarest-first
   const order = ['Primordial', 'Undying', 'Awakened', 'Remnant'];
   const counts = {};
   for (const r of results) counts[r.rarity] = (counts[r.rarity] ?? 0) + 1;
   const summary = order
     .filter((r) => counts[r])
-    .map((r) => `${RARITY_SYMBOLS[r]} ${r} ×**${counts[r]}**`)
-    .join(' ・ ');
+    .map((r) => `${RARITY_SYMBOLS[r]} ${r} x**${counts[r]}**`)
+    .join(' - ');
 
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
-    // ── Header ──
     .addTextDisplayComponents((td) =>
       td.setContent(
-        `## ✨ Invocation Complete\n*${FLAVOR[results.length] ?? FLAVOR[10]}*`
+        `## Invocation Complete\n*${FLAVOR[results.length] ?? FLAVOR[10]}*`
       )
     )
     .addSeparatorComponents(sep)
-    // ── Body: the rendered card grid ──
-    .addMediaGalleryComponents((g) =>
-      g.addItems((item) => item.setURL(grid.url))
-    )
+    .addTextDisplayComponents((td) => td.setContent(groupSummonResults(results)))
     .addSeparatorComponents(sep)
-    // ── Summary ──
     .addTextDisplayComponents((td) => td.setContent(summary))
     .addSeparatorComponents(sep)
-    // ── Footer (same icons as the bag overview — shared via utils/emojis) ──
     .addTextDisplayComponents((td) =>
       td.setContent(
-        `-# ${emoji('belief_shards')} Belief Shards: **${balances.beliefShards.toLocaleString()}** ・ ${emoji('sacred_relic')} Sacred Relics: **${balances.sacredRelics.toLocaleString()}**` +
+        `-# ${emoji('belief_shards')} Belief Shards: **${balances.beliefShards.toLocaleString()}** - ${emoji('sacred_relic')} Sacred Relics: **${balances.sacredRelics.toLocaleString()}**` +
         (balances.supremeRelics != null
-          ? ` ・ ${emoji('supreme_relic')} Supreme Relics: **${balances.supremeRelics.toLocaleString()}**`
+          ? ` - ${emoji('supreme_relic')} Supreme Relics: **${balances.supremeRelics.toLocaleString()}**`
           : '')
       )
     );
 
   return {
     components: [container],
-    files: [grid.file],
+    files: [],
     flags: MessageFlags.IsComponentsV2,
   };
+}
+
+function summonFlipEmoji(flipPath = null) {
+  const raw = String(flipPath || '').replace(/\\/g, '/').toLowerCase();
+  const base = raw.split('/').pop()?.replace(/\.[^.]+$/, '') || '';
+  const known = [
+    'e_stardust_constellation_s4',
+    'e_eternal_supernova_s3',
+    'e_aurora_ribbon_s2',
+    'c_rune_glow_s1',
+    'stardust_constellation',
+    'eternal_supernova',
+    'aurora_ribbon',
+    'rune_glow',
+  ];
+  const key = known.find((name) => base === name || raw.includes(`/${name}.`)) || 'card_flip';
+  const icon = emoji(key);
+  return icon === emoji('__missing__') ? emoji('card_flip') : icon;
+}
+
+function groupSummonResults(results) {
+  const groups = new Map();
+  for (const r of results) {
+    const key = `${r.name}|${r.rarity}`;
+    const entry = groups.get(key) || { name: r.name, rarity: r.rarity, newCount: 0, essence: 0, pulls: 0 };
+    entry.pulls += 1;
+    if (r.isNew) entry.newCount += 1;
+    else entry.essence += Number(r.essence) || 0;
+    groups.set(key, entry);
+  }
+  return [...groups.values()].map((g) => {
+    const status = [
+      g.newCount ? `New${g.newCount > 1 ? ` x${g.newCount}` : ''}` : null,
+      g.essence ? `Essence +${g.essence.toLocaleString()}` : null,
+    ].filter(Boolean).join(' + ') || 'Owned';
+    const count = g.pulls > 1 ? ` x${g.pulls}` : '';
+    return `${emojiForDisplay(g.name, 'Deity')} **${g.name}**${count} - ${g.rarity} - ${status}`;
+  }).join('\n');
 }
 
 /* ════════════════════════════════════════════
@@ -430,5 +428,6 @@ module.exports = {
   buildFlipMessage,
   buildResultMessage,
   flipGifExists,
+  summonFlipEmoji,
   RARITY_SYMBOLS,
 };

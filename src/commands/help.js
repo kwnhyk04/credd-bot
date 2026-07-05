@@ -52,20 +52,9 @@ const CATEGORIES = [
     ],
   },
   {
-    key: 'casino', emoji: '🎰', title: 'Casino',
-    lines: [
-      { canonical: 'coin', cmd: 'crd coin toss [bet] heads/tails (ct)', desc: 'Coin Toss' },
-      { canonical: 'dice', cmd: 'crd dice roll [bet] odd/even (dr)', desc: 'Odd or Even' },
-      { canonical: 'baccarat', cmd: 'crd baccarat [bet] player/banker (bac)', desc: 'Player or Banker' },
-      { canonical: 'blackjack', cmd: 'crd blackjack [bet] (bj)', desc: 'Beat the dealer' },
-      { canonical: 'slot', cmd: 'crd slot machine [bet] (sl/sm)', desc: 'Spin the reels' },
-      { canonical: 'crash', cmd: 'crd crash [bet]', desc: 'Cash out before it crashes' },
-    ],
-  },
-  {
     key: 'gacha', emoji: '🌟', title: 'Gacha & Deities',
     lines: [
-      { canonical: 'summon', cmd: 'crd summon [1/5/10] (s)', desc: 'Invoke a deity (100 shards/pull)' },
+      { canonical: 'summon', cmd: 'crd summon [1-30] (s)', desc: 'Invoke a deity (100 shards/pull)' },
       { canonical: 'deity', cmd: 'crd deity collection (dc)', desc: 'Browse your collection' },
       { canonical: 'deity', cmd: 'crd deity info [name] (di)', desc: 'Deity info card' },
       { canonical: 'deity', cmd: 'crd deity equip [name] [slot] (de)', desc: 'Equip a deity (3 slots)' },

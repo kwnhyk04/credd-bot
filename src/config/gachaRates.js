@@ -26,8 +26,8 @@ const PITY_THRESHOLD = 500;
 
 // ── Cost / batch sizing (Master §4, lines 74–77) ───────────────────────────
 const SHARDS_PER_PULL = 100;
-const ALLOWED_SUMMON_COUNTS = [1, 5, 10];
-const MAX_PULLS = 10;
+const ALLOWED_SUMMON_COUNTS = Array.from({ length: 30 }, (_, i) => i + 1);
+const MAX_PULLS = 30;
 
 // ── Duplicate → tier essence (Blueprint line 266; Master §35.0 line 1957) ──
 // Epic duplicates grant +1 essence; Mythic +2; Legendary +5; Supreme +10.

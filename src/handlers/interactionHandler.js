@@ -10,8 +10,6 @@ const deityCmd = require('../commands/rpg/deity');
 const enhanceCmd = require('../commands/rpg/enhance');
 const sellCmd = require('../commands/rpg/sell');
 const bossSystem = require('../engine/bossSystem');
-const blackjackCmd = require('../commands/casino/blackjack');
-const crashCmd = require('../commands/casino/crash');
 const skinShop = require('../engine/skinShopViews');
 const leaderboardCmd = require('../commands/rpg/leaderboard');
 const titleCmd = require('../commands/rpg/title');
@@ -96,12 +94,12 @@ async function handleInteraction(interaction) {
     }
 
     if (namespace === 'bj') {
-      await blackjackCmd.handleButton(interaction, action, parts[2]);
+      await interaction.reply({ content: 'Casino commands are currently disabled.', flags: MessageFlags.Ephemeral }).catch(() => {});
       return;
     }
 
     if (namespace === 'crash') {
-      await crashCmd.handleButton(interaction, action, parts[2]);
+      await interaction.reply({ content: 'Casino commands are currently disabled.', flags: MessageFlags.Ephemeral }).catch(() => {});
       return;
     }
 

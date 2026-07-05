@@ -37,7 +37,7 @@ const CHESTS = {
 };
 
 const CHEST_ALIASES = Object.keys(CHESTS); // ['sc','gc','btc','bgtc','supc']
-const MAX_OPEN = 10;
+const MAX_OPEN = 20;
 
 // [v5] Per-drop gear-class roll: weapon vs armor. 0.5 = 50/50 (Blueprint 1.2).
 // Single tunable constant (re-checked in the Phase 6 economy pass), NOT in the DB.

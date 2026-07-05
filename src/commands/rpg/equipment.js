@@ -19,13 +19,13 @@ const path = require('path');
 const pool = require('../../db/pool');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { resolveName } = require('../../utils/emojis');
-const { renderPortraitCard } = require('../../engine/renderPortraitCard');
+const { renderCenteredArt } = require('../../engine/renderSummon');
 const { makeOptimizedAttachment } = require('../../utils/imageOutput');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 
 // Bump when renderPortraitCard visuals change (busts cached equipment cards).
-const EQUIPMENT_CARD_REV = 1;
-const { runeEmojiName } = require('../../config/runes');
+const EQUIPMENT_CARD_REV = 2;
+const { runeEmojiName, runeEmoji } = require('../../config/runes');
 const { SELL_PRICES } = require('../../config/sellPrices');
 const { assetPath, isRemoteAssetsEnabled } = require('../../utils/assets');
 
@@ -77,6 +77,7 @@ async function socketSlots(g) {
           ? {
               imagePath: assetPath(`items/runes/${runeEmojiName(rune.effect_key)}.png`),
               label: rune.name,
+              emoji: runeEmoji(rune.effect_key),
               tier: rune.tier,
               lane,
             }
@@ -149,8 +150,6 @@ async function buildInfoPayload(g, gearId, ownerId) {
       statLines.push(`Bonus +${Number(g.bonus_dmg_pct)}% DMG`);
   }
 
-  // [v5 tweak] Armor type ("(Medium)") is no longer shown in displays.
-  const subtitle = g.tier;
   const sections = [
     { heading: 'Stats', body: statLines.join('\n') },
     hasPassive
@@ -160,24 +159,16 @@ async function buildInfoPayload(g, gearId, ownerId) {
   // [v5 Phase 2] Sockets render as a boxed panel under the text (renderPortraitCard).
   const sockets = await socketSlots(g);
 
-  const cardInput = {
-    // v5 keeps weapon and armor artwork in the shared assets/weapons registry.
-    imagePath: artworkPath(WEAPONS_DIR, g.name),
-    accent: TIER_HEX[g.tier] || TIER_HEX.Common,
-    title: `${g.name} +${g.enhancement - 1}`,
-    subtitle,
-    sections,
-    sockets,
-  };
-  // [egress] Render-once cache: card is a pure function of cardInput → served
-  // from R2 by URL on repeat views. EQUIPMENT_CARD_REV busts on visual changes.
-  const cached = await getCachedCanvasUrl(
-    ['equipment-card', EQUIPMENT_CARD_REV, cardInput],
-    () => renderPortraitCard(cardInput)
-  );
+  const imagePath = artworkPath(WEAPONS_DIR, g.name);
+  const renderArt = () => renderCenteredArt(imagePath);
+  const cached = imagePath ? await getCachedCanvasUrl(
+    ['equipment-art', EQUIPMENT_CARD_REV, imagePath || g.name],
+    renderArt
+  ) : null;
+  const renderedArt = cached ? null : await renderArt();
   const image = cached
     ? { url: cached.url, file: null }
-    : await makeOptimizedAttachment(await renderPortraitCard(cardInput), 'equipment_card');
+    : (renderedArt ? await makeOptimizedAttachment(renderedArt, 'equipment_card') : null);
 
   const headerName = ownerId ? `<@${ownerId}>'s` : '';
   const sellValue = SELL_PRICES[g.tier] || 0;
@@ -187,10 +178,15 @@ async function buildInfoPayload(g, gearId, ownerId) {
     .setAccentColor(TIER_COLOR[g.tier] ?? TIER_COLOR.Common);
   container.addTextDisplayComponents((td) => td.setContent(`## ${headerName} ${g.name}`));
   container.addSeparatorComponents(sep);
+  if (image) {
+    container
+      .addMediaGalleryComponents((gal) =>
+        gal.addItems((item) => item.setURL(image.url)),
+      )
+      .addSeparatorComponents(sep);
+  }
   container
-    .addMediaGalleryComponents((gal) =>
-      gal.addItems((item) => item.setURL(image.url)),
-    )
+    .addTextDisplayComponents((td) => td.setContent(formatEquipmentDetails(g, statLines, sections, sockets)))
     .addSeparatorComponents(sep);
 
   const hasLore = typeof g.lore === 'string' && g.lore.trim().length > 0;
@@ -212,9 +208,28 @@ async function buildInfoPayload(g, gearId, ownerId) {
 
   return {
     components: [container],
-    files: image.file ? [image.file] : [],
+    files: image?.file ? [image.file] : [],
     flags: MessageFlags.IsComponentsV2,
   };
+}
+
+function formatEquipmentDetails(g, statLines, sections, sockets) {
+  const runeLines = [];
+  const total = Math.max(2, sockets.length);
+  for (let i = 0; i < total; i++) {
+    const slot = sockets[i];
+    runeLines.push(slot && slot.label
+      ? ('Rune slot ' + (i + 1) + ': ' + (slot.emoji || '') + ' ' + slot.label).trim()
+      : 'Rune slot ' + (i + 1) + ': blank');
+  }
+  const passive = sections[1];
+  return [
+    '**Tier:** ' + g.tier,
+    '**Enhancement:** +' + (g.enhancement - 1),
+    '**Stats**\n' + statLines.join('\n'),
+    '**' + passive.heading + '**\n' + passive.body,
+    '**Rune slots**\n' + runeLines.join('\n'),
+  ].join('\n\n');
 }
 
 /** Fetch a gear row by id (weapon first, then armor), normalized for the card. */

@@ -59,7 +59,7 @@ async function runeBag(message) {
 
   const container = new ContainerBuilder().setAccentColor(BRAND);
   container.addTextDisplayComponents((td) => td.setContent(`## ${emoji('rune_icon')} <@${discordId}>'s Rune Bags`));
-  container.addTextDisplayComponents((td) => td.setContent('-# Buy bags in `crd essence shop`. Open with `crd open lb/gb/db [amount]` (max 10).'));
+  container.addTextDisplayComponents((td) => td.setContent('-# Buy bags in `crd essence shop`. Open with `crd open lb/gb/db [amount]` (max 20).'));
   container.addSeparatorComponents(sep);
   container.addTextDisplayComponents((td) => td.setContent(rowsText));
 

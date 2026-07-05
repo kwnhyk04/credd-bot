@@ -15,26 +15,18 @@
 
 const {
   ContainerBuilder,
-  AttachmentBuilder,
   MessageFlags,
 } = require('discord.js');
-const { renderWeaponResults, TIERS } = require('./weaponResultRenderer');
+const { TIERS } = require('./weaponResultRenderer');
 const { smallDivider: sep } = require('../utils/componentsV2');
-const { emoji } = require('../utils/emojis');
-const { makeOptimizedAttachment } = require('../utils/imageOutput');
-const { getCachedCanvasUrl } = require('../utils/canvasCache');
+const { emoji, emojiForDisplay } = require('../utils/emojis');
 const { capitalizeLower } = require('../utils/textFormat');
 const {
   assetPath,
-  assetExistsSync,
   assetFileName,
-  attachmentSource,
-  isRemoteSource,
 } = require('../utils/assets');
 
 const ANIMATION_MS = 3000; // matches the ~2.5s GIFs + buffer
-const CHEST_RESULT_RENDER_REV = 1;
-const RUNE_RESULT_RENDER_REV = 1;
 
 // gifKey (users_bag column / relic kind) → gif filename in assets/animations/chests
 const CHEST_GIFS = {
@@ -49,6 +41,19 @@ const CHEST_GIFS = {
   lesser_bag: 'lesser_bag.gif',
   greater_bag: 'greater_bag.gif',
   divine_bag: 'divine_bag.gif',
+};
+
+const OPEN_EMOJI = {
+  silver_chest: 'silver_open',
+  gold_chest: 'gold_open',
+  boss_treasure_chest: 'tboss_open',
+  boss_golden_chest: 'gboss_open',
+  supreme_chest: 'supreme_open',
+  sacred_relic: 'rsacred_open',
+  supreme_relic: 'rsupreme_open',
+  lesser_bag: 'lesser_bag_open',
+  greater_bag: 'greater_bag_open',
+  divine_bag: 'divine_bag_open',
 };
 
 const CHEST_FLAVOR = {
@@ -90,34 +95,11 @@ function resolveGif(gifKey, gifPath) {
   return name ? { name, src: assetPath(`animations/chests/${name}`) } : null;
 }
 
-async function cachedResultGrid(cacheKind, rev, items, baseName) {
-  const cached = await getCachedCanvasUrl(
-    [cacheKind, rev, items],
-    () => renderWeaponResults(items)
-  );
-  return cached
-    ? { url: cached.url, file: null }
-    : makeOptimizedAttachment(await renderWeaponResults(items), baseName);
-}
-
 /** Animation-phase container: header → separator → the chest gif. */
 async function animationPayload(gifKey, animTitle, gifPath) {
-  const g = resolveGif(gifKey, gifPath);
-  const remote = isRemoteSource(g.src);
-  const mediaUrl = remote ? g.src : `attachment://${g.name}`;
-  const container = new ContainerBuilder()
-    .setAccentColor(0xf0b232)
-    .addTextDisplayComponents((td) =>
-      td.setContent(`## ✨ ${animTitle}\n*${CHEST_FLAVOR[gifKey] ?? 'The chest creaks open...'}*`)
-    )
-    .addSeparatorComponents(sep)
-    .addMediaGalleryComponents((gal) =>
-      gal.addItems((item) => item.setURL(mediaUrl))
-    );
   return {
-    components: [container],
-    files: remote ? [] : [new AttachmentBuilder(await attachmentSource(g.src), { name: g.name })],
-    flags: MessageFlags.IsComponentsV2,
+    content: '**' + animTitle + '**\n' + emoji(OPEN_EMOJI[gifKey] || gifKey),
+    files: [],
     allowedMentions: { repliedUser: false },
   };
 }
@@ -136,28 +118,24 @@ async function animationPayload(gifKey, animTitle, gifPath) {
  * @param {string} p.chestEmojiName registry emoji name for the chest
  */
 async function buildWeaponResultPayload(p) {
-  const grid = await cachedResultGrid('chest-result-grid', CHEST_RESULT_RENDER_REV, p.items, 'chest_results');
-
   const container = new ContainerBuilder()
     .setAccentColor(0xf0b232)
     .addTextDisplayComponents((td) =>
-      td.setContent(`## ✨ ${p.title}\n*${CHEST_FLAVOR[p.gifKey] ?? 'The chest creaks open...'}*`)
+      td.setContent('## ' + p.title + '\n*' + (CHEST_FLAVOR[p.gifKey] || 'The chest creaks open...') + '*')
     )
     .addSeparatorComponents(sep)
-    .addMediaGalleryComponents((g) =>
-      g.addItems((item) => item.setURL(grid.url))
-    )
+    .addTextDisplayComponents((td) => td.setContent(formatGearDrops(p.items)))
     .addTextDisplayComponents((td) => td.setContent(tierSummary(p.items)))
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) =>
       td.setContent(
-        `-# ${emoji('sacred_relic')} Sacred Relics: **${p.sacredRelics.toLocaleString()}** ・ ` +
-        `${emoji('supreme_relic')} Supreme Relics: **${p.supremeRelics.toLocaleString()}**\n` +
-        `-# ${emoji(p.chestEmojiName)} ${p.chestLabel}s left: **${p.remaining}** ・ 💡 \`crd equip <id>\``
+        '-# ' + emoji('sacred_relic') + ' Sacred Relics: **' + p.sacredRelics.toLocaleString() + '** - ' +
+        emoji('supreme_relic') + ' Supreme Relics: **' + p.supremeRelics.toLocaleString() + '**\n' +
+        '-# ' + emoji(p.chestEmojiName) + ' ' + p.chestLabel + 's left: **' + p.remaining + '** - Tip: `crd equip <id>`'
       )
     );
 
-  return { components: [container], files: [grid.file] };
+  return { components: [container], files: [] };
 }
 
 /**
@@ -173,19 +151,12 @@ async function buildWeaponResultPayload(p) {
 async function playAnimatedOpen(message, { gifKey, gifPath, animTitle, buildResult }) {
   const g = resolveGif(gifKey, gifPath);
   if (!g) throw new Error(`playAnimatedOpen: unknown gifKey ${gifKey}`);
-  const gifOnDisk = assetExistsSync(g.src);
 
   let msg = null;
   let result = null;
   try {
-    if (gifOnDisk) {
-      // Pre-render the result DURING the animation so the edit lands instantly.
-      msg = await message.reply(await animationPayload(gifKey, animTitle, gifPath));
-      [result] = await Promise.all([buildResult(), sleep(ANIMATION_MS)]);
-    } else {
-      // gif missing → skip the suspense phase, results only.
-      result = await buildResult();
-    }
+    msg = await message.reply(await animationPayload(gifKey, animTitle, gifPath));
+    [result] = await Promise.all([buildResult(), sleep(ANIMATION_MS)]);
   } catch (err) {
     // Rolls are committed — never swallow them. Try to still build/show results.
     console.error(`[chestOpen] animation phase failed (${gifKey}):`, err.message);
@@ -219,24 +190,35 @@ async function playAnimatedOpen(message, { gifKey, gifPath, animTitle, buildResu
  * @param {string} p.bagEmoji       inline emoji string for the bag
  */
 async function buildRuneResultPayload(p) {
-  const grid = await cachedResultGrid('rune-result-grid', RUNE_RESULT_RENDER_REV, p.items, 'rune_results');
-
   const container = new ContainerBuilder()
     .setAccentColor(0x9b59b6)
     .addTextDisplayComponents((td) =>
-      td.setContent(`## ✨ ${p.title}\n*${CHEST_FLAVOR[p.gifKey] ?? 'The bag spills open...'}*`)
+      td.setContent('## ' + p.title + '\n*' + (CHEST_FLAVOR[p.gifKey] || 'The bag spills open...') + '*')
     )
     .addSeparatorComponents(sep)
-    .addMediaGalleryComponents((g) =>
-      g.addItems((item) => item.setURL(grid.url))
-    )
+    .addTextDisplayComponents((td) => td.setContent(formatRuneDrops(p.items)))
     .addTextDisplayComponents((td) => td.setContent(tierSummary(p.items)))
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) =>
-      td.setContent(`-# ${p.bagEmoji} ${p.bagLabel}s left: **${p.remaining}** ・ 💡 \`crd runes\` ・ \`crd socket <gear_id> <rune_uid> <slot#>\``)
+      td.setContent('-# ' + p.bagEmoji + ' ' + p.bagLabel + 's left: **' + p.remaining + '** - Tip: `crd runes` - `crd socket <gear_id> <rune_uid> <slot#>`')
     );
 
-  return { components: [container], files: [grid.file] };
+  return { components: [container], files: [] };
+}
+
+function formatGearDrops(items) {
+  return items.map((it) => {
+    const icon = emojiForDisplay(it.name, it.gearClass === 'armor' ? 'Armor' : 'Weapon');
+    const slots = Number(it.sockets) || 0;
+    return '`' + it.id + '` ' + icon + ' **' + it.name + '** - ' + it.tier + ' - ' + emoji('rune_slot') + ' ' + slots;
+  }).join('\n');
+}
+
+function formatRuneDrops(items) {
+  return items.map((it) => {
+    const icon = it.emoji || '';
+    return ('`' + it.id + '` ' + icon + ' **' + it.name + '** - ' + it.tier).replace(/\s+/g, ' ').trim();
+  }).join('\n');
 }
 
 module.exports = { playAnimatedOpen, buildWeaponResultPayload, buildRuneResultPayload, tierSummary, CHEST_GIFS, CHEST_FLAVOR };

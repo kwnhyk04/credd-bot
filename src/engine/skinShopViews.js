@@ -29,6 +29,7 @@ const ent = require('./supporterEntitlements');
 const { skinEmojiByCode, iconToken, iconShop, iconSkins } = require('./skinEmojis');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { HELP_ICON } = require('./bagViews');
+const { emoji } = require('../utils/emojis');
 const {
   assetPath,
   assetExtension,
@@ -82,7 +83,7 @@ async function gather(db, viewerId, page, ctx = 'shop') {
 
 function skinRow(s, owned, equippedId, ctx) {
   const isOwned = owned.has(s.cosmetic_id);
-  const emo = skinEmojiByCode(s.skin_code, s.category, s.cosmetic_key);
+  const emo = summonSkinEmoji(s) || skinEmojiByCode(s.skin_code, s.category, s.cosmetic_key);
   const code = s.skin_code ? ` \`${s.skin_code}\`` : '';
   const lock = isOwned ? '' : ' 🔒';                 // ownership shown ONLY by the lock's absence
   const name = isOwned ? `**${s.display_name}**` : `*${s.display_name}*`;
@@ -95,6 +96,23 @@ function skinRow(s, owned, equippedId, ctx) {
   const price = s.is_base ? '' : `${iconToken()} ${s.token_cost} `;
   const idTxt = s.skin_code ? `\`${s.skin_code}\` ` : '';
   return `${price}${idTxt}${emo} ${name}${lock}`;
+}
+
+function summonSkinEmoji(s) {
+  if (s.category !== 'summon') return null;
+  const key = String(s.cosmetic_key || '').toLowerCase();
+  const name = String(s.display_name || '').toLowerCase();
+  const candidates = [
+    key,
+    key.replace(/_flip$/, ''),
+    name.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''),
+  ];
+  const missing = emoji('__missing__');
+  for (const candidate of candidates) {
+    const icon = emoji(candidate);
+    if (icon !== missing) return icon;
+  }
+  return null;
 }
 
 /** Paginated shop/collection page (one category). */

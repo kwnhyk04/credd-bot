@@ -21,8 +21,7 @@ const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 // Bump when renderPortraitCard / the deities-grid visuals change (busts cached cards).
 const DEITY_RENDER_REV = 1;
 const { assetPath, isRemoteAssetsEnabled, loadAssetImage: loadAssetImageSource } = require('../../utils/assets');
-const { RARITY_SYMBOLS } = require('../../engine/renderSummon');
-const { renderPortraitCard } = require('../../engine/renderPortraitCard');
+const { RARITY_SYMBOLS, renderDeityCard } = require('../../engine/renderSummon');
 const { computeDeityStats, nextDeityAttempt, MAX_ENHANCEMENT } = require('../../engine/deityEnhancement');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const {
@@ -263,31 +262,24 @@ const AI_DISCLAIMER = '-# Images are AI-generated interpretations and may not be
  * then lore + AI disclaimer + enhance hint as text. Mirrors the weapon-info card.
  */
 async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, ownerId }) {
-  const accentHex = `#${(TIER_COLOR[d.tier] ?? BRAND).toString(16).padStart(6, '0')}`;
   const btype = DIVINE_BLESSING_DEITIES.has(d.name) ? 'Divine' : 'Echo';
-  const sections = [
-    { heading: `${btype} Blessing — ${d.blessing_name}`, body: d.blessing_description },
-    { heading: 'Stats', body: `ATK   ${d.curr_atk}\nHP    ${d.curr_hp}\nDEF   ${d.curr_def}` },
-  ];
 
   let file = null;
   try {
     const cardInput = {
-      imagePath: portraitPath,
-      accent: accentHex,
-      title: `${d.name} +${d.enhancement - 1}`,
-      subtitle: `${mythologyLabel} · ${alias}`,
-      sections,
+      name: d.name,
+      rarity: alias,
+      portraitPath,
     };
     // [egress] Render-once cache: card is a pure function of cardInput → repeat
     // views are served from R2 by URL (zero upload). Attach fallback unchanged.
     const cached = await getCachedCanvasUrl(
-      ['deity-card', DEITY_RENDER_REV, cardInput],
-      () => renderPortraitCard(cardInput)
+      ['deity-art', DEITY_RENDER_REV, cardInput],
+      () => renderDeityCard(cardInput)
     );
     file = cached
       ? { url: cached.url, file: null }
-      : await makeOptimizedAttachment(await renderPortraitCard(cardInput), 'deity_card');
+      : await makeOptimizedAttachment(await renderDeityCard(cardInput), 'deity_card');
   } catch (err) {
     console.error('[deity] card render failed:', err.message);
   }
@@ -303,17 +295,17 @@ async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, o
     container
       .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(file.url)))
       .addSeparatorComponents(sep);
-  } else {
-    container
-      .addTextDisplayComponents((td) =>
-        td.setContent(
-          `-# ${mythologyLabel} (${alias})\n\n` +
-          `**${btype} Blessing — ${d.blessing_name}**\n${d.blessing_description}\n\n` +
-          `ATK **${d.curr_atk}** · HP **${d.curr_hp}** · DEF **${d.curr_def}**`
-        )
-      )
-      .addSeparatorComponents(sep);
   }
+  container
+    .addTextDisplayComponents((td) =>
+      td.setContent(
+        '-# ' + mythologyLabel + ' (' + alias + ')\n\n' +
+        '**' + btype + ' Blessing - ' + d.blessing_name + '**\n' + d.blessing_description + '\n\n' +
+        '**Enhancement:** +' + (d.enhancement - 1) + '\n' +
+        '**Stats**\nATK ' + d.curr_atk + '\nHP ' + d.curr_hp + '\nDEF ' + d.curr_def
+      )
+    )
+    .addSeparatorComponents(sep);
   container
     .addTextDisplayComponents((td) => td.setContent(`${loreBlock}\n\n${AI_DISCLAIMER}`))
     .addSeparatorComponents(sep)

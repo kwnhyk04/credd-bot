@@ -24,12 +24,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function execute(message, { args }) {
   const raw = (args[0] ?? '1').trim();
   if (!/^\d+$/.test(raw)) {
-    await reply(message, { content: 'Usage: `crd summon [1|5|10]`' });
+    await reply(message, { content: 'Usage: `crd summon [1-30]`' });
     return;
   }
   const count = parseInt(raw, 10);
   if (!ALLOWED_SUMMON_COUNTS.includes(count)) {
-    await reply(message, { content: `You can summon ${ALLOWED_SUMMON_COUNTS.join(', ')} at a time — e.g. \`crd summon 10\`.` });
+    await reply(message, { content: 'You can summon between 1 and 30 at a time - e.g. `crd summon 30`.' });
     return;
   }
 

@@ -13,7 +13,7 @@ const { playAnimatedOpen, buildWeaponResultPayload, buildRuneResultPayload } = r
 const { buildResultMessage } = require('../../engine/renderSummon');
 const {
   BAGS, BAG_ALIAS, BAG_ALIASES, RUNE_BAG_MAX_OPEN,
-  bagEmoji, runeEmojiName, rollRuneValue, runeDescription,
+  bagEmoji, runeEmojiName, runeEmoji, rollRuneValue, runeDescription,
 } = require('../../config/runes');
 const { assetPath } = require('../../utils/assets');
 
@@ -225,9 +225,9 @@ async function execute(message, { args }) {
   // Display layer (committed already): gif animation → weapon-grid result.
   const items = drops.map((d) => ({
     id: d.id,
+    gearClass: d.gearClass,
     name: d.name,
     tier: d.tier,
-    stats: dropStatsLine(d),
     sockets: d.socketCount, // [v5 Phase 2] centered slot-count line on the card
   }));
 
@@ -403,7 +403,7 @@ async function openRuneBagsTxn(discordId, bagKey, amount) {
   }
 }
 
-/** `crd open <lb|gb|db> [amount]` — open stockpiled rune bags (max 10). */
+/** `crd open <lb|gb|db> [amount]` — open stockpiled rune bags (max 20). */
 async function openRuneBags(message, alias, rawAmount) {
   const bagKey = BAG_ALIAS[alias];
   const bag = BAGS[bagKey];
@@ -425,7 +425,7 @@ async function openRuneBags(message, alias, rawAmount) {
   }
 
   const items = res.drops.map((d) => ({
-    id: d.id, name: d.name, tier: d.tier, stats: runeDescription(d.effect_key, d.value),
+    id: d.id, name: d.name, tier: d.tier, emoji: runeEmoji(d.effect_key), stats: runeDescription(d.effect_key, d.value),
     // [v5 #5] rune sprite from assets/items/runes/<key>_rune.png.
     imagePath: assetPath(`items/runes/${runeEmojiName(d.effect_key)}.png`),
   }));

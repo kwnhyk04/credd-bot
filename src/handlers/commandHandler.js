@@ -43,12 +43,7 @@ const useCmd = require('../commands/rpg/use');
 const setCmd = require('../commands/rpg/set');
 const helpCmd = require('../commands/help');
 const adminCmd = require('../commands/admin');
-const coinCmd = require('../commands/casino/coin');
-const diceCmd = require('../commands/casino/dice');
-const baccaratCmd = require('../commands/casino/baccarat');
-const blackjackCmd = require('../commands/casino/blackjack');
-const slotCmd = require('../commands/casino/slot');
-const crashCmd = require('../commands/casino/crash');
+const disabledCasinoCmd = require('../commands/casino/disabled');
 
 // Implemented commands, keyed by CANONICAL command (first token). Shorthands route here via
 // config/aliases.js (expanded before lookup), so no direct alias keys live in this map.
@@ -100,12 +95,12 @@ const IMPLEMENTED = {
   set:      { mw: 'full', run: setCmd.execute },
 
   // ── Casino (Phase 10) — requiresCharacter:false (registration gate only) ──
-  coin:      { mw: 'full', run: coinCmd.execute },
-  dice:      { mw: 'full', run: diceCmd.execute },
-  baccarat:  { mw: 'full', run: baccaratCmd.execute },
-  blackjack: { mw: 'full', run: blackjackCmd.execute },
-  slot:      { mw: 'full', run: slotCmd.execute },
-  crash:     { mw: 'full', run: crashCmd.execute },
+  coin:      { mw: 'full', run: disabledCasinoCmd.execute },
+  dice:      { mw: 'full', run: disabledCasinoCmd.execute },
+  baccarat:  { mw: 'full', run: disabledCasinoCmd.execute },
+  blackjack: { mw: 'full', run: disabledCasinoCmd.execute },
+  slot:      { mw: 'full', run: disabledCasinoCmd.execute },
+  crash:     { mw: 'full', run: disabledCasinoCmd.execute },
 };
 
 // requiresCharacter source, keyed by canonical command. true → character middleware check runs.

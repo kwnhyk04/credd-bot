@@ -72,7 +72,7 @@ const BAGS = {
 // open alias → bag key
 const BAG_ALIAS = { lb: 'lesser', gb: 'greater', db: 'divine' };
 const BAG_ALIASES = Object.keys(BAG_ALIAS);          // ['lb','gb','db']
-const RUNE_BAG_MAX_OPEN = 10;
+const RUNE_BAG_MAX_OPEN = 20;
 
 // ── Essence columns (users_bag) ──────────────────────────────────────────────
 const ESSENCE_COLUMN = {

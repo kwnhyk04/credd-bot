@@ -61,8 +61,16 @@ def('open', 'open',
         { name: 'Supreme Chest', value: 'supc' },
         { name: 'Sacred Relic', value: 'sr' },
         { name: 'Supreme Relic', value: 'supr' },
-      )),
-  (i) => ({ args: [i.options.getString('type')], mentions: [] }));
+        { name: 'Lesser Rune Bag', value: 'lb' },
+        { name: 'Greater Rune Bag', value: 'gb' },
+        { name: 'Divine Rune Bag', value: 'db' },
+      ))
+    .addIntegerOption((o) => o.setName('amount').setDescription('How many to open').setRequired(false)
+      .setMinValue(1).setMaxValue(20)),
+  (i) => {
+    const amount = i.options.getInteger('amount');
+    return { args: amount ? [i.options.getString('type'), String(amount)] : [i.options.getString('type')], mentions: [] };
+  });
 
 def('equip', 'equip',
   new SlashCommandBuilder().setDescription('Equip a weapon')
@@ -99,7 +107,7 @@ def('sell', 'sell',
 def('summon', 'summon',
   new SlashCommandBuilder().setDescription('Invoke a deity (100 shards per pull)')
     .addIntegerOption((o) => o.setName('count').setDescription('How many pulls').setRequired(false)
-      .addChoices({ name: '1', value: 1 }, { name: '5', value: 5 }, { name: '10', value: 10 })),
+      .setMinValue(1).setMaxValue(30)),
   (i) => { const c = i.options.getInteger('count'); return { args: c ? [String(c)] : [], mentions: [] }; });
 
 def('deity', 'deity',
@@ -143,43 +151,6 @@ def('bestow', 'bestow',
 def('daily', 'daily', new SlashCommandBuilder().setDescription('Claim your daily reward'), noArgs);
 def('quests', 'quests', new SlashCommandBuilder().setDescription("View today's daily quests"), noArgs);
 
-// ── Casino ──────────────────────────────────────────────────────────────────
-def('coin-toss', 'coin',
-  new SlashCommandBuilder().setDescription('Coin Toss — Aeternvm or Obscvrvm')
-    .addIntegerOption((o) => o.setName('bet').setDescription('Bet (max 150k)').setRequired(true).setMinValue(1))
-    .addStringOption((o) => o.setName('choice').setDescription('Your pick').setRequired(true)
-      .addChoices({ name: 'Aeternvm (Heads)', value: 'heads' }, { name: 'Obscvrvm (Tails)', value: 'tails' })),
-  (i) => ({ args: ['toss', String(i.options.getInteger('bet')), i.options.getString('choice')], mentions: [] }));
-
-def('dice-roll', 'dice',
-  new SlashCommandBuilder().setDescription('Dice Roll — Odd or Even')
-    .addIntegerOption((o) => o.setName('bet').setDescription('Bet (max 150k)').setRequired(true).setMinValue(1))
-    .addStringOption((o) => o.setName('choice').setDescription('Your pick').setRequired(true)
-      .addChoices({ name: 'Odd', value: 'odd' }, { name: 'Even', value: 'even' })),
-  (i) => ({ args: ['roll', String(i.options.getInteger('bet')), i.options.getString('choice')], mentions: [] }));
-
-def('baccarat', 'baccarat',
-  new SlashCommandBuilder().setDescription('Baccarat — Player or Banker')
-    .addIntegerOption((o) => o.setName('bet').setDescription('Bet (max 150k)').setRequired(true).setMinValue(1))
-    .addStringOption((o) => o.setName('choice').setDescription('Your pick').setRequired(true)
-      .addChoices({ name: 'Player', value: 'player' }, { name: 'Banker', value: 'banker' })),
-  (i) => ({ args: [String(i.options.getInteger('bet')), i.options.getString('choice')], mentions: [] }));
-
-def('blackjack', 'blackjack',
-  new SlashCommandBuilder().setDescription('Blackjack — beat the dealer')
-    .addIntegerOption((o) => o.setName('bet').setDescription('Bet (max 150k)').setRequired(true).setMinValue(1)),
-  (i) => ({ args: [String(i.options.getInteger('bet'))], mentions: [] }));
-
-def('slot-machine', 'slot',
-  new SlashCommandBuilder().setDescription('Slot Machine — spin the reels')
-    .addIntegerOption((o) => o.setName('bet').setDescription('Bet (max 150k)').setRequired(true).setMinValue(1)),
-  (i) => ({ args: ['machine', String(i.options.getInteger('bet'))], mentions: [] }));
-
-def('crash', 'crash',
-  new SlashCommandBuilder().setDescription('Crash — cash out before it crashes')
-    .addIntegerOption((o) => o.setName('bet').setDescription('Bet (max 25k)').setRequired(true).setMinValue(1)),
-  (i) => ({ args: [String(i.options.getInteger('bet'))], mentions: [] }));
-
 // ── Admin ─────────────────────────────────────────────────────────────────
 def('admin', 'admin',
   new SlashCommandBuilder().setDescription('Server settings (Manage Server)')
@@ -207,7 +178,7 @@ def('help', 'help',
     .addStringOption((o) => o.setName('category').setDescription('Filter to one category').setRequired(false)
       .addChoices(
         { name: 'account', value: 'account' }, { name: 'battle', value: 'battle' },
-        { name: 'casino', value: 'casino' }, { name: 'gacha', value: 'gacha' },
+        { name: 'gacha', value: 'gacha' },
         { name: 'inventory', value: 'inventory' }, { name: 'economy', value: 'economy' },
         { name: 'admin', value: 'admin' },
       )),
