@@ -19,9 +19,9 @@ const { makeOptimizedAttachment } = require('../../utils/imageOutput');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 
 // Bump when renderPortraitCard / the deities-grid visuals change (busts cached cards).
-const DEITY_RENDER_REV = 1;
+const DEITY_RENDER_REV = 2;
 const { assetPath, isRemoteAssetsEnabled, loadAssetImage: loadAssetImageSource } = require('../../utils/assets');
-const { RARITY_SYMBOLS, renderDeityCard } = require('../../engine/renderSummon');
+const { RARITY_SYMBOLS, renderCenteredArt } = require('../../engine/renderSummon');
 const { computeDeityStats, nextDeityAttempt, MAX_ENHANCEMENT } = require('../../engine/deityEnhancement');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const {
@@ -264,24 +264,22 @@ const AI_DISCLAIMER = '-# Images are AI-generated interpretations and may not be
 async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, ownerId }) {
   const btype = DIVINE_BLESSING_DEITIES.has(d.name) ? 'Divine' : 'Echo';
 
+  // Image-ONLY art (no name/rarity/stats drawn on the canvas — same approach as
+  // equipment info): the portrait is centered raw, all details live as embed text
+  // below. Render-once cache → repeat views served from R2 by URL (zero upload).
+  // Missing/failed portrait → no image; the embed continues text-only.
   let file = null;
   try {
-    const cardInput = {
-      name: d.name,
-      rarity: alias,
-      portraitPath,
-    };
-    // [egress] Render-once cache: card is a pure function of cardInput → repeat
-    // views are served from R2 by URL (zero upload). Attach fallback unchanged.
-    const cached = await getCachedCanvasUrl(
-      ['deity-art', DEITY_RENDER_REV, cardInput],
-      () => renderDeityCard(cardInput)
-    );
+    const renderArt = () => renderCenteredArt(portraitPath);
+    const cached = portraitPath
+      ? await getCachedCanvasUrl(['deity-art', DEITY_RENDER_REV, portraitPath], renderArt)
+      : null;
+    const renderedArt = cached ? null : (portraitPath ? await renderArt() : null);
     file = cached
       ? { url: cached.url, file: null }
-      : await makeOptimizedAttachment(await renderDeityCard(cardInput), 'deity_card');
+      : (renderedArt ? await makeOptimizedAttachment(renderedArt, 'deity_card') : null);
   } catch (err) {
-    console.error('[deity] card render failed:', err.message);
+    console.error('[deity] art render failed:', err.message);
   }
 
   const hasLore = typeof d.lore === 'string' && d.lore.trim().length > 0;
