@@ -544,7 +544,7 @@ function rewardFooterText(sim, r) {
     rewardParts.push(`${expIcon} +${Number(r.exp || 0).toLocaleString()} EXP`);
   }
 
-  return `${result}\nRewards Obtained: ${rewardParts.join(' · ')}`;
+  return `${result}\nRewards Obtained:\n${rewardParts.join(' · ')}`;
 }
 
 function buttons() {

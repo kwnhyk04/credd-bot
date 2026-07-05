@@ -220,7 +220,7 @@ function formatEquipmentDetails(g, statLines, sections, sockets) {
     const slot = sockets[i];
     runeLines.push(slot && slot.label
       ? ('Rune slot ' + (i + 1) + ': ' + (slot.emoji || '') + ' ' + slot.label).trim()
-      : 'Rune slot ' + (i + 1) + ': blank');
+      : 'Rune slot ' + (i + 1) + ': empty');
   }
   const passive = sections[1];
   return [
