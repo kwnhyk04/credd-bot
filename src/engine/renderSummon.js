@@ -225,42 +225,49 @@ async function renderSummonGrid(results) {
  *   (.webp/.gif). When given, it plays in place of the bundled flip gif (§6); the webp is a
  *   complete pre-rendered animation — sent as-is, no per-pull compositing.
  */
-async function buildFlipMessage(flipPath = null) {
-  // Summon suspense EMBED (CV2): header (star + title) → separator → body.
-  //  · An equipped summon skin resolves (via resolveSkin's override_path chain)
-  //    to a real image asset — e.g. a tester's `testers/<id>/summon.gif` served
-  //    as an R2 URL — which is shown as the body GIF (MediaGallery). R2 URLs cost
-  //    no bot egress; a local file is attached instead.
-  //  · Anything unresolved / non-image (no skin, invalid skin, missing gif) falls
-  //    back to the default animated flip emoji so summon never breaks.
-  // MUST be Components-V2 (not legacy `content`): the result phase edits this
-  // message into a CV2 container and Discord rejects a legacy→CV2 conversion.
-  const container = new ContainerBuilder().setAccentColor(ACCENT);
-  container.addTextDisplayComponents((td) => td.setContent('## ✨ Invocation in progress...'));
-  container.addSeparatorComponents(sep);
-
-  const files = [];
+/**
+ * Add the summon header to `container` and return any files it needs.
+ *  · An equipped summon skin that resolves to an image asset (e.g. a tester's
+ *    `testers/<id>/summon.gif`, R2 URL) shows the header line `## ✨ <title>`
+ *    followed by the GIF as a MediaGallery — remote URLs cost no bot egress; a
+ *    local file is attached. This same block is reused in the result so the gif
+ *    is kept after the reveal.
+ *  · Otherwise the header is a single line — animated emoji + title together
+ *    (`## <emoji> <title>`). flipPath → the skin's flip emoji; else headerEmoji
+ *    (relic-open path); else the default card_flip emoji. Never throws.
+ * @param {{ flipPath?: string|null, headerEmoji?: string|null, title: string }} o
+ * @returns {Promise<Array>} files to attach (empty unless a local gif was used)
+ */
+async function addSummonHeader(container, { flipPath = null, headerEmoji = null, title }) {
   const isImage = typeof flipPath === 'string' && /\.(gif|webp|png|jpe?g)$/i.test(flipPath);
-  let rendered = false;
   if (isImage) {
     try {
+      container.addTextDisplayComponents((td) => td.setContent('## ✨ ' + title));
       if (isRemoteSource(flipPath)) {
         container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(flipPath)));
-      } else {
-        const name = `summonflip.${assetExtension(flipPath, 'gif')}`;
-        files.push(new AttachmentBuilder(await attachmentSource(flipPath), { name }));
-        container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(`attachment://${name}`)));
+        return [];
       }
-      rendered = true;
+      const name = `summonflip.${assetExtension(flipPath, 'gif')}`;
+      const file = new AttachmentBuilder(await attachmentSource(flipPath), { name });
+      container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(`attachment://${name}`)));
+      return [file];
     } catch (err) {
-      // Missing/unreadable skin gif → fall through to the default emoji body.
+      // Missing/unreadable skin gif → fall through to the default emoji header.
       console.error('[renderSummon] summon-skin gif render failed, using default:', err.message);
     }
   }
-  if (!rendered) {
-    container.addTextDisplayComponents((td) => td.setContent(summonFlipEmoji(flipPath)));
-  }
+  const e = flipPath ? summonFlipEmoji(flipPath) : (headerEmoji || summonFlipEmoji(null));
+  container.addTextDisplayComponents((td) => td.setContent('## ' + e + ' ' + title));
+  return [];
+}
 
+async function buildFlipMessage(flipPath = null) {
+  // Summon suspense EMBED (CV2): one header line — emoji + title together (or the
+  // skin gif directly under the header). MUST be Components-V2 (not legacy
+  // `content`): the result phase edits this into a CV2 container and Discord
+  // rejects a legacy→CV2 conversion.
+  const container = new ContainerBuilder().setAccentColor(ACCENT);
+  const files = await addSummonHeader(container, { flipPath, title: 'Invocation in progress...' });
   return {
     components: [container],
     files,
@@ -279,7 +286,7 @@ async function buildFlipMessage(flipPath = null) {
  * @param {{beliefShards: number, sacredRelics: number, supremeRelics?: number}} balances
  *        supremeRelics is optional — only the relic-open paths show it.
  */
-async function buildResultMessage(results, balances) {
+async function buildResultMessage(results, balances, opts = {}) {
   const order = ['Primordial', 'Undying', 'Awakened', 'Remnant'];
   const counts = {};
   for (const r of results) counts[r.rarity] = (counts[r.rarity] ?? 0) + 1;
@@ -288,13 +295,15 @@ async function buildResultMessage(results, balances) {
     .map((r) => `${RARITY_SYMBOLS[r]} ${r} x**${counts[r]}**`)
     .join(' - ');
 
-  const container = new ContainerBuilder()
-    .setAccentColor(ACCENT)
-    .addTextDisplayComponents((td) =>
-      td.setContent(
-        `## Invocation Complete\n*${FLAVOR[results.length] ?? FLAVOR[10]}*`
-      )
-    )
+  // Keep the animation header (play-once emoji, or the tester gif) and update the
+  // title to the finished text, then add the result body below (§ reveal).
+  const container = new ContainerBuilder().setAccentColor(ACCENT);
+  const files = await addSummonHeader(container, {
+    flipPath: opts.flipPath,
+    headerEmoji: opts.headerEmoji,
+    title: `Invocation Complete\n*${FLAVOR[results.length] ?? FLAVOR[10]}*`,
+  });
+  container
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(groupSummonResults(results)))
     .addSeparatorComponents(sep)
@@ -311,7 +320,7 @@ async function buildResultMessage(results, balances) {
 
   return {
     components: [container],
-    files: [],
+    files,
     flags: MessageFlags.IsComponentsV2,
   };
 }

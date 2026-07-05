@@ -9,7 +9,8 @@ const {
 const { generateUniqueGearId, generateUniqueRuneUid } = require('../../utils/weaponId');
 const { runSummon } = require('../../engine/summonEngine');
 const { TIER_ALIAS } = require('../../config/gachaRates');
-const { playAnimatedOpen, buildWeaponResultPayload, buildRuneResultPayload } = require('../../engine/chestOpen');
+const { playAnimatedOpen, buildWeaponResultPayload, buildRuneResultPayload, OPEN_EMOJI } = require('../../engine/chestOpen');
+const { emoji } = require('../../utils/emojis');
 const { buildResultMessage } = require('../../engine/renderSummon');
 const {
   BAGS, BAG_ALIAS, BAG_ALIASES, RUNE_BAG_MAX_OPEN,
@@ -327,7 +328,8 @@ async function openRelic(message, alias) {
     gifKey: relic.emojiName, // sacred_relic | supreme_relic
     animTitle: `Opening ${relic.action}…`,
     userId: discordId,
-    buildResult: () => buildResultMessage(results, balances),
+    // Keep the relic-open emoji in the result header (matches the animation).
+    buildResult: () => buildResultMessage(results, balances, { headerEmoji: emoji(OPEN_EMOJI[relic.emojiName]) }),
   });
 }
 

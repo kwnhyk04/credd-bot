@@ -94,12 +94,17 @@ function tierSummary(items) {
  * container, and Discord rejects converting a legacy-content message into CV2
  * (MESSAGE_CANNOT_USE_LEGACY_FIELDS_WITH_COMPONENTS_V2).
  */
+/** '## <a:silver_open:…> Opening 1 × Silver Chest…' — emoji + title on one line.
+ *  Shared by the animation phase and the result header so the (play-once) open
+ *  emoji stays visible after the reveal. emoji() gives a safe '▫️' fallback. */
+function openHeaderLine(gifKey, title) {
+  return '## ' + emoji(OPEN_EMOJI[gifKey] || gifKey) + ' ' + title;
+}
+
 function animationPayload(gifKey, animTitle) {
   const container = new ContainerBuilder()
     .setAccentColor(0xf0b232)
-    .addTextDisplayComponents((td) => td.setContent(emoji(OPEN_EMOJI[gifKey] || gifKey)))
-    .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) => td.setContent('## ' + animTitle));
+    .addTextDisplayComponents((td) => td.setContent(openHeaderLine(gifKey, animTitle)));
   return {
     components: [container],
     flags: MessageFlags.IsComponentsV2,
@@ -125,7 +130,7 @@ async function buildWeaponResultPayload(p) {
   const container = new ContainerBuilder()
     .setAccentColor(0xf0b232)
     .addTextDisplayComponents((td) =>
-      td.setContent('## ' + p.title + '\n*' + (CHEST_FLAVOR[p.gifKey] || 'The chest creaks open...') + '*')
+      td.setContent(openHeaderLine(p.gifKey, p.title) + '\n*' + (CHEST_FLAVOR[p.gifKey] || 'The chest creaks open...') + '*')
     )
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(formatGearDrops(p.items)))
@@ -194,7 +199,7 @@ async function buildRuneResultPayload(p) {
   const container = new ContainerBuilder()
     .setAccentColor(0x9b59b6)
     .addTextDisplayComponents((td) =>
-      td.setContent('## ' + p.title + '\n*' + (CHEST_FLAVOR[p.gifKey] || 'The bag spills open...') + '*')
+      td.setContent(openHeaderLine(p.gifKey, p.title) + '\n*' + (CHEST_FLAVOR[p.gifKey] || 'The bag spills open...') + '*')
     )
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(formatRuneDrops(p.items)))
@@ -222,4 +227,4 @@ function formatRuneDrops(items) {
   }).join('\n');
 }
 
-module.exports = { playAnimatedOpen, buildWeaponResultPayload, buildRuneResultPayload, tierSummary, CHEST_GIFS, CHEST_FLAVOR };
+module.exports = { playAnimatedOpen, buildWeaponResultPayload, buildRuneResultPayload, tierSummary, CHEST_GIFS, CHEST_FLAVOR, OPEN_EMOJI };

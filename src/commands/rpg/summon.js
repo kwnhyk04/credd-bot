@@ -115,11 +115,12 @@ async function execute(message, { args }) {
     if (haveFlip) {
       sent = await reply(message, await buildFlipMessage(flipPath));
       await sleep(flipMs); // flip plays per-skin duration (default 4s; founder_summon = 7s)
-      // attachments: [] drops the flip animation from the edited message.
-      await sent.edit({ ...(await buildResultMessage(results, balances)), attachments: [] });
+      // Keep the flip emoji / skin gif in the result header (pass flipPath);
+      // attachments: [] clears the old upload — a remote R2 gif re-uses its URL.
+      await sent.edit({ ...(await buildResultMessage(results, balances, { flipPath })), attachments: [] });
     } else {
       // card_flip.gif not on disk — skip the suspense phase.
-      await reply(message, await buildResultMessage(results, balances));
+      await reply(message, await buildResultMessage(results, balances, { flipPath }));
     }
   } catch (err) {
     // Display-only failure: the pulls are committed — always tell the player.
