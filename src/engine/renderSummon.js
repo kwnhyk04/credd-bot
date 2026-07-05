@@ -231,9 +231,9 @@ async function buildFlipMessage(flipPath = null) {
   const icon = summonFlipEmoji(flipPath);
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
-    .addTextDisplayComponents((td) => td.setContent('## Invocation in progress...'))
+    .addTextDisplayComponents((td) => td.setContent(icon))
     .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) => td.setContent(icon));
+    .addTextDisplayComponents((td) => td.setContent('## Invocation in progress...'));
   return {
     components: [container],
     flags: MessageFlags.IsComponentsV2,

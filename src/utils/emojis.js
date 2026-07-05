@@ -31,7 +31,22 @@ const path = require('path');
 const REGISTRY_PATHS = [
   path.join(__dirname, '..', '..', 'assets', 'data', 'game_items.txt'),
   path.join(__dirname, '..', '..', 'assets', 'data', 'game_deities.txt'),
+  // skins.txt holds the summon-skin / card-flip / chest-open animated emojis.
+  path.join(__dirname, '..', '..', 'assets', 'data', 'skins.txt'),
 ];
+
+// Animated (gif) emojis MUST render as <a:name:id> — the static <:name:id> tag
+// only shows the first frame ("gif not playing"). The registry format has no
+// animated column, so these known-animated names emit the animated tag. A row
+// can also opt in explicitly via an optional 4th field (`... | a`).
+const ANIMATED_NAMES = new Set([
+  // chest / relic / rune-bag open animations
+  'silver_open', 'gold_open', 'tboss_open', 'gboss_open', 'supreme_open',
+  'rsacred_open', 'rsupreme_open', 'lesser_bag_open', 'greater_bag_open', 'divine_bag_open',
+  // card flip + summon-skin base + summon-skin flip animations
+  'card_flip', 'rune_glow', 'aurora_ribbon', 'eternal_supernova', 'stardust_constellation',
+  'c_rune_glow_s1', 'e_aurora_ribbon_s2', 'e_eternal_supernova_s3', 'e_stardust_constellation_s4',
+]);
 
 // Belief Shards lives in game_items.txt as `belief_shards`; keep this legacy
 // export aligned for older callers, but prefer emoji('belief_shards') in new code.
@@ -66,8 +81,9 @@ function normPossessive(s) {
   return norm(s.toLowerCase().replace(/'s\b/g, '').replace(/s\b/g, ''));
 }
 
-function tag(name, id) {
-  return VALID_NAME.test(name) && VALID_ID.test(id) ? `<:${name}:${id}>` : null;
+function tag(name, id, animated) {
+  if (!(VALID_NAME.test(name) && VALID_ID.test(id))) return null;
+  return `<${animated ? 'a' : ''}:${name}:${id}>`;
 }
 
 function load() {
@@ -82,14 +98,16 @@ function load() {
     }
     for (const line of raw.split('\n')) {
       const parts = line.split('|').map((s) => s.trim().replace(/^'|'$/g, ''));
-      if (parts.length !== 3) continue;            // skips header + divider rows
-      const [display, name, id] = parts;
+      if (parts.length < 3 || parts.length > 4) continue; // skips header + divider rows
+      const [display, name, id, flag] = parts;
       if (!VALID_ID.test(id)) continue;            // only rows with a numeric ID
       if (!VALID_NAME.test(name)) {                // malformed name → never emit it
         console.warn(`[emojis] skipping registry row with invalid emoji name: ${JSON.stringify(name)}`);
         continue;
       }
-      registry.set(name, { id, display });
+      // Animated when listed in ANIMATED_NAMES or flagged via the optional 4th field.
+      const animated = ANIMATED_NAMES.has(name) || /^(a|anim|animated|gif)$/i.test(flag || '');
+      registry.set(name, { id, display, animated });
       // Index both the emoji name and the display name, plain + possessive-stripped.
       for (const key of [norm(name), norm(display), normPossessive(display)]) {
         if (key && !displayIndex.has(key)) displayIndex.set(key, name);
@@ -102,7 +120,7 @@ function load() {
 function emoji(name) {
   load();
   const e = registry.get(name);
-  return (e && tag(name, e.id)) || '▫️';
+  return (e && tag(name, e.id, e.animated)) || '▫️';
 }
 
 /** Display name from emoji name (weapons list, etc.) */
@@ -127,7 +145,8 @@ function resolveName(display) {
 function emojiForDisplay(display, fallback = '▫️') {
   const name = resolveName(display);
   if (!name) return fallback;
-  return tag(name, registry.get(name).id) || fallback;
+  const e = registry.get(name);
+  return tag(name, e.id, e.animated) || fallback;
 }
 
 // ── Startup diagnostics ─────────────────────────────────────────────────────

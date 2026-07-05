@@ -4,8 +4,7 @@
  * chestOpen.js — gif-animated open flow for chests AND relics (Components V2).
  *
  * Flow (backend has ALREADY rolled + committed before this is called):
- *   1. reply: text-only animation phase — header line + animated open emoji
- *      (Components V2 top-level TextDisplay, no embed; spec §G)
+ *   1. reply: embed (CV2 container) — animated open emoji (gif) + header line
  *   2. Promise.all([build result payload, play-once delay])
  *   3. EDIT the same message into the result container. Both phases are CV2, so
  *      the edit is a legal CV2→CV2 swap (a legacy-content phase-1 would make
@@ -17,7 +16,6 @@
 
 const {
   ContainerBuilder,
-  TextDisplayBuilder,
   MessageFlags,
 } = require('discord.js');
 const { TIERS } = require('./weaponResultRenderer');
@@ -25,7 +23,7 @@ const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji, emojiForDisplay } = require('../utils/emojis');
 const { capitalizeLower } = require('../utils/textFormat');
 
-const ANIMATION_MS = 3000; // matches the ~2.5s GIFs + buffer
+const ANIMATION_MS = 5000; // chest/relic/rune-bag reveal countdown (owner: 5s)
 
 // gifKey (users_bag column / relic kind) → gif filename in assets/animations/chests
 const CHEST_GIFS = {
@@ -87,21 +85,23 @@ function tierSummary(items) {
 }
 
 /**
- * Animation phase (chest/relic/rune bags): text-only — header line then the
- * animated open emoji on the next line (no embed, per spec §G).
+ * Animation phase (chest/relic/rune bags): an EMBED (CV2 container) — the
+ * animated open emoji (gif) on top, then the header line. emoji() returns the
+ * animated <a:…> tag for these gif emojis and a safe '▫️' fallback when a
+ * mapping is missing, so this never throws.
  *
- * MUST be a Components-V2 payload (top-level TextDisplay, no container = no box)
- * NOT a legacy `content` message: the result phase edits this same message into
- * a CV2 container, and Discord rejects converting a legacy-content message into
- * CV2 (MESSAGE_CANNOT_USE_LEGACY_FIELDS_WITH_COMPONENTS_V2). emoji() already
- * returns a safe '▫️' fallback when a mapping is missing, so this never throws.
+ * MUST be Components-V2: the result phase edits this same message into a CV2
+ * container, and Discord rejects converting a legacy-content message into CV2
+ * (MESSAGE_CANNOT_USE_LEGACY_FIELDS_WITH_COMPONENTS_V2).
  */
 function animationPayload(gifKey, animTitle) {
-  const td = new TextDisplayBuilder().setContent(
-    '**' + animTitle + '**\n' + emoji(OPEN_EMOJI[gifKey] || gifKey)
-  );
+  const container = new ContainerBuilder()
+    .setAccentColor(0xf0b232)
+    .addTextDisplayComponents((td) => td.setContent(emoji(OPEN_EMOJI[gifKey] || gifKey)))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent('## ' + animTitle));
   return {
-    components: [td],
+    components: [container],
     flags: MessageFlags.IsComponentsV2,
     files: [],
     allowedMentions: { repliedUser: false },
