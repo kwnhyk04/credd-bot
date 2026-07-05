@@ -25,7 +25,12 @@ const path = require('path');
 const {
   SKINS_DIR, DIRS, SET_FILES, skinFilePath, DEV_ACCOUNT_IDS, BETA_MODE,
 } = require('../config/cosmetics');
-const { assetPath, isRemoteAssetsEnabled } = require('../utils/assets');
+const {
+  assetPath,
+  assetExistsSync,
+  isRemoteAssetsEnabled,
+  remoteAssetAvailable,
+} = require('../utils/assets');
 const {
   getEquipped, getCatalogById, getSupporter, isActiveSupporter,
 } = require('./supporterEntitlements');
@@ -65,6 +70,48 @@ function resolveOverride(relPath, category, variant) {
   if (category === 'battle_result') key = variant === 'defeated' ? 'defeated' : 'victory';
   else if (category === 'summon') key = 'summon';
   return firstExistingInFolder(relPath, SET_FILES[key] || []);
+}
+
+function cleanOverrideFolder(relPath) {
+  const raw = String(relPath || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  if (
+    !raw ||
+    path.isAbsolute(raw) ||
+    /^[a-zA-Z]:/.test(raw) ||
+    /^https?:\/\//i.test(raw) ||
+    raw.split('/').some((part) => !part || part === '.' || part === '..')
+  ) {
+    return null;
+  }
+  return raw;
+}
+
+function summonOverrideRelativePath(overridePath) {
+  const folder = cleanOverrideFolder(overridePath);
+  return folder ? `skins/${folder}/summon.gif` : null;
+}
+
+async function resolveSummonAnimation(db, userId) {
+  const { rows } = await db.query(
+    `SELECT override_path
+       FROM equipped_skins
+      WHERE discord_id = $1
+        AND category = 'summon'
+      LIMIT 1`,
+    [userId]
+  );
+  const rel = summonOverrideRelativePath(rows[0]?.override_path);
+  if (!rel) return { path: null, source: 'default' };
+
+  if (isRemoteAssetsEnabled()) {
+    if (!(await remoteAssetAvailable(rel))) return { path: null, source: 'default' };
+    return { path: assetPath(rel), source: 'override' };
+  }
+
+  const local = assetPath(rel);
+  return assetExistsSync(local)
+    ? { path: local, source: 'override' }
+    : { path: null, source: 'default' };
 }
 
 /** Pull the right *_filename off a catalog row for the category/variant. */
@@ -158,4 +205,9 @@ async function resolveProfileLabel(db, userId) {
   return { hasTopLabel, word };
 }
 
-module.exports = { resolveSkin, resolveProfileLabel };
+module.exports = {
+  resolveSkin,
+  resolveProfileLabel,
+  resolveSummonAnimation,
+  summonOverrideRelativePath,
+};

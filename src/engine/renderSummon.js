@@ -28,7 +28,7 @@ const {
   assetPath,
   assetExistsSync,
   assetExtension,
-  attachmentSource,
+  loadCachedBuffer,
   isRemoteSource,
   loadAssetImage: loadAssetImageSource,
 } = require('../utils/assets');
@@ -235,20 +235,21 @@ async function renderSummonGrid(results) {
  *  · Otherwise the header is a single line — animated emoji + title together
  *    (`## <emoji> <title>`). flipPath → the skin's flip emoji; else headerEmoji
  *    (relic-open path); else the default card_flip emoji. Never throws.
- * @param {{ flipPath?: string|null, headerEmoji?: string|null, title: string }} o
+ * @param {{ flipPath?: string|null, headerEmoji?: string|null, title: string, separateMedia?: boolean }} o
  * @returns {Promise<Array>} files to attach (empty unless a local gif was used)
  */
-async function addSummonHeader(container, { flipPath = null, headerEmoji = null, title }) {
+async function addSummonHeader(container, { flipPath = null, headerEmoji = null, title, separateMedia = false }) {
   const isImage = typeof flipPath === 'string' && /\.(gif|webp|png|jpe?g)$/i.test(flipPath);
   if (isImage) {
     try {
       container.addTextDisplayComponents((td) => td.setContent('## ✨ ' + title));
+      if (separateMedia) container.addSeparatorComponents(sep);
       if (isRemoteSource(flipPath)) {
         container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(flipPath)));
         return [];
       }
       const name = `summonflip.${assetExtension(flipPath, 'gif')}`;
-      const file = new AttachmentBuilder(await attachmentSource(flipPath), { name });
+      const file = new AttachmentBuilder(await loadCachedBuffer(flipPath), { name });
       container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(`attachment://${name}`)));
       return [file];
     } catch (err) {
@@ -267,7 +268,11 @@ async function buildFlipMessage(flipPath = null) {
   // `content`): the result phase edits this into a CV2 container and Discord
   // rejects a legacy→CV2 conversion.
   const container = new ContainerBuilder().setAccentColor(ACCENT);
-  const files = await addSummonHeader(container, { flipPath, title: 'Invocation in progress...' });
+  const files = await addSummonHeader(container, {
+    flipPath,
+    title: 'Invocation in progress...',
+    separateMedia: true,
+  });
   return {
     components: [container],
     files,

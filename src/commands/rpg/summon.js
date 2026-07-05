@@ -3,7 +3,7 @@
 const pool = require('../../db/pool');
 const { runSummon } = require('../../engine/summonEngine');
 const { buildFlipMessage, buildResultMessage, flipGifExists } = require('../../engine/renderSummon');
-const { resolveSkin } = require('../../engine/skinResolver');
+const { resolveSummonAnimation } = require('../../engine/skinResolver');
 const { assetExistsSync, readAssetJson } = require('../../utils/assets');
 const {
   SHARDS_PER_PULL,
@@ -91,10 +91,10 @@ async function execute(message, { args }) {
   }));
   const balances = { beliefShards: shardsRemaining, sacredRelics };
 
-  // [Supporter-stage §6] An equipped summon skin (or beta/base default) plays as the flip
-  // animation; otherwise fall back to the bundled flip gif. Display-only resolution.
+  // Equipped summon skins use equipped_skins(category='summon').override_path + /summon.gif.
+  // Missing/invalid mappings fall back to the bundled card flip. Display-only resolution.
   let flipPath = null;
-  try { flipPath = (await resolveSkin(pool, discordId, 'summon')).path; } catch { /* default flip */ }
+  try { flipPath = (await resolveSummonAnimation(pool, discordId)).path; } catch { /* default flip */ }
   const haveFlip = !!flipPath || flipGifExists();
 
   // Per-skin flip duration: a summon skin may ship a colocated `<basename>.json` with
