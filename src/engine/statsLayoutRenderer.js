@@ -470,7 +470,7 @@ function repositionStats(layout, skinPath) {
   // p1 (Divine Radiance) & p3 (Aurora Constellation) skins have a themed top space — keep the
   // supporter tier word at the art's original top position instead of moving it under the avatar.
   const keepTopTop = /_p(1|3)\b/i.test(String(skinPath || ''));
-  const nameY = leftTop + (keepTopTop ? 4 : 34);
+  const nameY = keepTopTop ? (layout.name?.y ?? leftTop + 34) : leftTop + 34;
   const titleColor = (layout.tier_line && layout.tier_line.color) || '#67E7FF';
   return {
     ...layout,

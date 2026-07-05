@@ -799,8 +799,8 @@ const SLOT_LAYOUT = [
   { slot: 3, x: 415, label: 'Slot 3' },
 ];
 const SLOT_UNLOCK_TEXT = {
-  2: 'Unlocks at Believer Lvl 10',
-  3: 'Unlock at Believer Lvl 25',
+  2: `Unlocks at Believer Lvl ${SLOT_UNLOCK_GATES[2]}`,
+  3: `Unlock at Believer Lvl ${SLOT_UNLOCK_GATES[3]}`,
 };
 
 function slotUnlocked(slot, believerLevel) {

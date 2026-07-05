@@ -449,11 +449,21 @@ async function renderDeityCard({ name, rarity, portraitPath }) {
  * @returns {Promise<Buffer|null>} PNG, or null when the file can't be loaded
  */
 async function renderCenteredArt(filePath) {
+  const candidates = Array.isArray(filePath) ? filePath : [filePath];
   let img;
-  try {
-    img = await loadAssetImage(filePath);
-  } catch (err) {
-    console.error(`[renderSummon] art load failed (${filePath}):`, err.message);
+  let lastErr = null;
+  for (const candidate of candidates.filter(Boolean)) {
+    try {
+      img = await loadAssetImage(candidate);
+      break;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  if (!img) {
+    if (lastErr) {
+      console.error(`[renderSummon] art load failed (${candidates.filter(Boolean).join(', ')}):`, lastErr.message);
+    }
     return null;
   }
   const cardH = Math.round(LAYOUTS[1].cardW * (SRC.h / SRC.w));
