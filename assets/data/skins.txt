@@ -22,3 +22,12 @@ Norse Myth Profile Skin | 'norse_profile' | 1518387861114585278
 Norse Myth Battle Skin | 'norse_battle' | 1518387858803654829
 Greek Myth Profile Skin | 'greek_profile' | 1518387856828010527
 Greek Myth Battle Skin | 'greek_battle' | 1518387854814871552
+Card flip | 'card_flip' | '1523058101173878866'
+Stardust constellation | 'stardust_constellation' | '1523058977422835824'
+Rune glow | 'rune_glow' | '1523058975392661625'
+Eternal supernova | 'eternal_supernova' | '1523058973543104722'
+Aurora ribbon | 'aurora_ribbon' | '1523058971358007367'
+Stardust Constellation Flip | 'e_stardust_constellation_s4' | '1523064855190306866'
+Eternal Supernova Flip | 'e_eternal_supernova_s3' | '1523064851415568545'
+Aurora Ribbon Flip | 'e_aurora_ribbon_s2' | '1523064848450064404'
+Rune Glow Flip | 'c_rune_glow_s1' | '1523064836185915555'
