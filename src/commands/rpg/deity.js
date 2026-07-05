@@ -929,11 +929,15 @@ async function deities(message) {
     }
   }
 
-  // [egress] The equipped-deities grid is a pure function of (slots, believer
-  // level): repeat views are served from R2 by URL. The canvas above is already
-  // drawn either way (cheap); only the Discord upload is skipped on a hit.
+  // [egress] The equipped-deities grid is a pure function of equipped slots and
+  // lock state. Use lock booleans instead of raw believer level so the cache
+  // changes exactly when level 15/30 unlocks alter the canvas.
+  const unlockState = {
+    slot2: slotUnlocked(2, believerLevel),
+    slot3: slotUnlocked(3, believerLevel),
+  };
   const gridCached = await getCachedCanvasUrl(
-    ['deities-collection', DEITY_RENDER_REV, slots, believerLevel],
+    ['deities-collection', DEITY_RENDER_REV, slots, unlockState],
     async () => canvas.toBuffer('image/png')
   );
   const attachment = gridCached
