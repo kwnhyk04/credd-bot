@@ -18,6 +18,7 @@
 
 const {
   ContainerBuilder,
+  AttachmentBuilder,
   MessageFlags,
 } = require('discord.js');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
@@ -26,6 +27,9 @@ const { emoji, emojiForDisplay } = require('../utils/emojis');
 const {
   assetPath,
   assetExistsSync,
+  assetExtension,
+  attachmentSource,
+  isRemoteSource,
   loadAssetImage: loadAssetImageSource,
 } = require('../utils/assets');
 const { getEmojiIcon } = require('./renderBagItems');
@@ -222,20 +226,44 @@ async function renderSummonGrid(results) {
  *   complete pre-rendered animation — sent as-is, no per-pull compositing.
  */
 async function buildFlipMessage(flipPath = null) {
-  // Summon suspense is an EMBED again (spec §A): header → separator → body GIF.
-  // The "GIF" body is the equipped summon skin's animated emoji (summonFlipEmoji
-  // safely falls back to card_flip, then to '▫️'), so nothing here can throw and
-  // no image bytes are re-uploaded. MUST be Components-V2 (not legacy `content`):
-  // the result phase edits this message into a CV2 container, and Discord rejects
-  // converting a legacy-content message to CV2.
-  const icon = summonFlipEmoji(flipPath);
-  const container = new ContainerBuilder()
-    .setAccentColor(ACCENT)
-    .addTextDisplayComponents((td) => td.setContent(icon))
-    .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) => td.setContent('## Invocation in progress...'));
+  // Summon suspense EMBED (CV2): header (star + title) → separator → body.
+  //  · An equipped summon skin resolves (via resolveSkin's override_path chain)
+  //    to a real image asset — e.g. a tester's `testers/<id>/summon.gif` served
+  //    as an R2 URL — which is shown as the body GIF (MediaGallery). R2 URLs cost
+  //    no bot egress; a local file is attached instead.
+  //  · Anything unresolved / non-image (no skin, invalid skin, missing gif) falls
+  //    back to the default animated flip emoji so summon never breaks.
+  // MUST be Components-V2 (not legacy `content`): the result phase edits this
+  // message into a CV2 container and Discord rejects a legacy→CV2 conversion.
+  const container = new ContainerBuilder().setAccentColor(ACCENT);
+  container.addTextDisplayComponents((td) => td.setContent('## ✨ Invocation in progress...'));
+  container.addSeparatorComponents(sep);
+
+  const files = [];
+  const isImage = typeof flipPath === 'string' && /\.(gif|webp|png|jpe?g)$/i.test(flipPath);
+  let rendered = false;
+  if (isImage) {
+    try {
+      if (isRemoteSource(flipPath)) {
+        container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(flipPath)));
+      } else {
+        const name = `summonflip.${assetExtension(flipPath, 'gif')}`;
+        files.push(new AttachmentBuilder(await attachmentSource(flipPath), { name }));
+        container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(`attachment://${name}`)));
+      }
+      rendered = true;
+    } catch (err) {
+      // Missing/unreadable skin gif → fall through to the default emoji body.
+      console.error('[renderSummon] summon-skin gif render failed, using default:', err.message);
+    }
+  }
+  if (!rendered) {
+    container.addTextDisplayComponents((td) => td.setContent(summonFlipEmoji(flipPath)));
+  }
+
   return {
     components: [container],
+    files,
     flags: MessageFlags.IsComponentsV2,
     allowedMentions: { parse: [] },
   };
