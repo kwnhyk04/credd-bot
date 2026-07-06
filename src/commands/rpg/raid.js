@@ -283,7 +283,14 @@ async function execute(message) {
         const hint = isDiscordMissingPermissions(err)
           ? '\n\nI could not update the battle image in this channel. Please give the bot Send Messages, Embed Links, Attach Files, Read Message History, and Use External Emojis.'
           : '\n\nI could not render the battle image, but the battle was already resolved.';
-        console.error('[raid] render failed after rewards were committed:', err);
+        if (isDiscordMissingPermissions(err)) {
+          console.warn(
+            `[raid] render failed after rewards were committed: Discord missing permissions `
+            + `(guild=${message.guildId || 'unknown'}, channel=${message.channel?.id || 'unknown'}).`
+          );
+        } else {
+          console.error('[raid] render failed after rewards were committed:', err);
+        }
         await reply(message, `${rewardSummaryText(sim, mobRow.name, rewards)}${hint}`).catch(() => {});
       }
     } finally {

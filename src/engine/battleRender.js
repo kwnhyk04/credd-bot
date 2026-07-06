@@ -674,14 +674,24 @@ async function runBattle(channel, {
     };
   };
 
-  const msg = await channel.send({ ...(await frame(0)), attachments: undefined });
+  let msg = await channel.send({ ...(await frame(0)), attachments: undefined });
   if (onMessage) {
     try { await onMessage(msg); } catch (err) { console.warn('[battleRender] onMessage:', err.message); }
   }
   const finalIndex = sim.snapshots.length - 1;
   if (finalIndex > 0) {
     await sleep(UPDATE_MS * finalIndex);
-    await msg.edit(await frame(finalIndex));
+    const finalPayload = await frame(finalIndex);
+    try {
+      await msg.edit(finalPayload);
+    } catch (err) {
+      if (!isDiscordErrorCode(err, 50013)) throw err;
+      console.warn('[battleRender] Final battle edit blocked by Discord permissions; sending final frame as a new message.');
+      msg = await channel.send({ ...finalPayload, attachments: undefined });
+      if (onMessage) {
+        try { await onMessage(msg); } catch (onMessageErr) { console.warn('[battleRender] onMessage:', onMessageErr.message); }
+      }
+    }
   }
 
   const collector = msg.createMessageComponentCollector({ time: 300_000 });
