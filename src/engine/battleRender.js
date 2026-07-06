@@ -35,7 +35,7 @@
 
 const {
   EmbedBuilder, AttachmentBuilder,
-  ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, PermissionsBitField,
 } = require('discord.js');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const path = require('path');
@@ -530,19 +530,35 @@ function battleResultText(sim, r) {
   return won ? `${sim.b.name} defeated!` : `Defeated by ${sim.b.name}.`;
 }
 
-function rewardText(sim, r) {
+function channelAllowsExternalEmojis(channel) {
+  try {
+    if (!channel?.guild) return true;
+    const me = channel.guild.members.me
+      || (channel.client?.user ? channel.guild.members.cache.get(channel.client.user.id) : null);
+    const permissions = channel.permissionsFor(me || channel.client?.user);
+    return permissions?.has(PermissionsBitField.Flags.UseExternalEmojis) ?? false;
+  } catch {
+    return false;
+  }
+}
+
+function rewardIcon(displayName, fallback, allowCustomEmojis) {
+  return allowCustomEmojis ? emojiForDisplay(displayName, fallback) : fallback;
+}
+
+function rewardText(sim, r, { allowCustomEmojis = false } = {}) {
   if (!r) return null;
   const won = sim.winner === 'a';
   const rewardParts = [];
-  const creduxIcon = '🪙';
-  const expIcon = '✨';
-  const shardIcon = '🔮';
+  const creduxIcon = rewardIcon('Credux Coin', '🪙', allowCustomEmojis);
+  const expIcon = rewardIcon('Combat Exp', '✨', allowCustomEmojis);
+  const shardIcon = rewardIcon('Belief Shards', '🔮', allowCustomEmojis);
 
   if (won) {
     rewardParts.push(`${creduxIcon} +${Number(r.credux || 0).toLocaleString()} Credux`);
     rewardParts.push(`${expIcon} +${Number(r.exp || 0).toLocaleString()} EXP`);
     if (Number(r.shards || 0) > 0) rewardParts.push(`${shardIcon} +${Number(r.shards).toLocaleString()} Belief Shards`);
-    if (r.chestLabel) rewardParts.push(`🎁 ${r.chestLabel} x1`);
+    if (r.chestLabel) rewardParts.push(`${rewardIcon(r.chestLabel, '🎁', allowCustomEmojis)} ${r.chestLabel} x1`);
     if (r.leveledUp) rewardParts.push(`⬆️ LEVEL UP! ${r.levelFrom} -> ${r.levelTo}`);
   } else {
     rewardParts.push(`${expIcon} +${Number(r.exp || 0).toLocaleString()} EXP`);
@@ -624,8 +640,9 @@ async function runBattle(channel, {
   const defaultResultText = showResultPanel && !rewardsBuffer && rewards != null
     ? battleResultText(sim, rewards)
     : null;
+  const allowCustomRewardEmojis = channelAllowsExternalEmojis(channel);
   const defaultRewardText = showResultPanel && !rewardsBuffer && rewards != null
-    ? rewardText(sim, rewards)
+    ? rewardText(sim, rewards, { allowCustomEmojis: allowCustomRewardEmojis })
     : null;
   if (rewardsBuffer) {
     resultEmbed = new EmbedBuilder()
