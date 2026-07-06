@@ -43,6 +43,32 @@ function reply(message, content) {
 
 const randInt = (rng, [min, max]) => min + Math.floor(rng() * (max - min + 1));
 
+function rewardSummaryText(sim, mobName, rewards) {
+  const won = sim.winner === 'a';
+  const lines = [
+    won ? `${mobName} defeated!` : `Defeated by ${mobName}.`,
+    'Rewards Obtained:',
+  ];
+  const parts = [];
+  if (won) {
+    parts.push(`🪙 +${Number(rewards.credux || 0).toLocaleString()} Credux`);
+    parts.push(`✨ +${Number(rewards.exp || 0).toLocaleString()} EXP`);
+    if (Number(rewards.shards || 0) > 0) {
+      parts.push(`🔮 +${Number(rewards.shards).toLocaleString()} Belief Shards`);
+    }
+    if (rewards.chestLabel) parts.push(`🎁 ${rewards.chestLabel} x1`);
+    if (rewards.leveledUp) parts.push(`⬆️ LEVEL UP! ${rewards.levelFrom} -> ${rewards.levelTo}`);
+  } else {
+    parts.push(`✨ +${Number(rewards.exp || 0).toLocaleString()} EXP`);
+  }
+  lines.push(parts.join(' · '));
+  return lines.join('\n');
+}
+
+function isDiscordMissingPermissions(err) {
+  return err?.code === 50013 || err?.rawError?.code === 50013;
+}
+
 /** Claim the player's active_battles slot. False = a live battle already exists. */
 async function claimBattleSlot(discordId, channelId, sim, mobRow, level) {
   const vals = [
@@ -240,18 +266,26 @@ async function execute(message) {
         // misreport an already-committed battle result.
         console.warn('[raid] battle skin resolution:', err.message);
       }
-      await runBattle(message.channel, {
-        mode: 'raid',
-        sim,
-        battleSkinPath,
-        resultSkinPath,
-        rewards,
-        notices: rewards.questNotices,
-        onMessage: (msg) => pool.query(
-          'UPDATE active_battles SET message_id = $2, channel_id = $3 WHERE discord_id = $1',
-          [discordId, msg.id, msg.channel.id]
-        ),
-      });
+      try {
+        await runBattle(message.channel, {
+          mode: 'raid',
+          sim,
+          battleSkinPath,
+          resultSkinPath,
+          rewards,
+          notices: rewards.questNotices,
+          onMessage: (msg) => pool.query(
+            'UPDATE active_battles SET message_id = $2, channel_id = $3 WHERE discord_id = $1',
+            [discordId, msg.id, msg.channel.id]
+          ),
+        });
+      } catch (err) {
+        const hint = isDiscordMissingPermissions(err)
+          ? '\n\nI could not update the battle image in this channel. Please give the bot Send Messages, Embed Links, Attach Files, Read Message History, and Use External Emojis.'
+          : '\n\nI could not render the battle image, but the battle was already resolved.';
+        console.error('[raid] render failed after rewards were committed:', err);
+        await reply(message, `${rewardSummaryText(sim, mobRow.name, rewards)}${hint}`).catch(() => {});
+      }
     } finally {
       await pool.query('DELETE FROM active_battles WHERE discord_id = $1', [discordId])
         .catch(() => {});
