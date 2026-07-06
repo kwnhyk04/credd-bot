@@ -1,7 +1,7 @@
 'use strict';
 
 const { Client, GatewayIntentBits, Options } = require('discord.js');
-const { BOT_TOKEN } = require('./src/config/config');
+const { BOT_TOKEN, CLIENT_ID } = require('./src/config/config');
 const { setupGlobalErrorHandlers } = require('./src/utils/errorHandler');
 const { handleMessage } = require('./src/handlers/commandHandler');
 const { handleInteraction } = require('./src/handlers/interactionHandler');
@@ -16,6 +16,7 @@ const pool = require('./src/db/pool');
 const { auditWeaponEmojis, reconcileEmojiIds } = require('./src/utils/emojis');
 const { recoverExpiredSessions } = require('./src/casino/sessionStore');
 const { sweepCanvasCache, verifyCanvasCacheReady } = require('./src/utils/canvasCache');
+const { syncSlashCommandsOnStart } = require('./src/utils/slashCommandSync');
 const {
   discordImageAttachmentsAllowed,
   productionEgressIssues,
@@ -77,6 +78,11 @@ client.once('ready', async () => {
     console.log(`[credd] Loaded server_config for ${n} guild(s).`);
   } catch (err) {
     console.error('[credd] server_config cache load failed:', err.message);
+  }
+  try {
+    await syncSlashCommandsOnStart(client, { token: BOT_TOKEN, clientId: CLIENT_ID });
+  } catch (err) {
+    console.error('[commands] Slash-command sync failed:', err.message);
   }
   await startBattleReaper();
   startResetScheduler();

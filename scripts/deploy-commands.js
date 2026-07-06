@@ -14,18 +14,18 @@
 
 require('dotenv').config();
 const { REST, Routes } = require('discord.js');
-const { definitions } = require('../src/commands/slashDefinitions');
+const { commandBody, parseGuildIds } = require('../src/utils/slashCommandSync');
 
 const CLIENT_ID = process.env.CLIENT_ID;
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const GUILD_IDS = (process.env.GUILD_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
+const GUILD_IDS = parseGuildIds(process.env.GUILD_IDS);
 
 async function main() {
   if (!CLIENT_ID || !BOT_TOKEN) {
     console.error('Missing CLIENT_ID or BOT_TOKEN in .env — cannot deploy.');
     process.exit(1);
   }
-  const body = definitions.map((d) => d.builder.toJSON());
+  const body = commandBody();
   const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
 
   if (GUILD_IDS.length) {

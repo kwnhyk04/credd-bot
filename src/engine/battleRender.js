@@ -528,10 +528,15 @@ async function cachedBattleResultImage(buffer, sim, rewards, resultSkinPath) {
   };
 }
 
-function rewardFooterText(sim, r) {
+function battleResultText(sim, r) {
   if (!r) return null;
   const won = sim.winner === 'a';
-  const result = won ? `${sim.b.name} defeated!` : `Defeated by ${sim.b.name}.`;
+  return won ? `${sim.b.name} defeated!` : `Defeated by ${sim.b.name}.`;
+}
+
+function rewardText(sim, r) {
+  if (!r) return null;
+  const won = sim.winner === 'a';
   const rewardParts = [];
   const creduxIcon = footerRewardIcon('Credux Coin', '🪙');
   const expIcon = footerRewardIcon('Combat Exp', '✨');
@@ -547,7 +552,7 @@ function rewardFooterText(sim, r) {
     rewardParts.push(`${expIcon} +${Number(r.exp || 0).toLocaleString()} EXP`);
   }
 
-  return `${result}\nRewards Obtained:\n${rewardParts.join(' · ')}`;
+  return `Rewards Obtained:\n${rewardParts.join(' · ')}`;
 }
 
 function buttons() {
@@ -620,8 +625,11 @@ async function runBattle(channel, {
         return null;
       });
   }
-  const defaultRewardFooter = showResultPanel && !rewardsBuffer && rewards != null
-    ? rewardFooterText(sim, rewards)
+  const defaultResultText = showResultPanel && !rewardsBuffer && rewards != null
+    ? battleResultText(sim, rewards)
+    : null;
+  const defaultRewardText = showResultPanel && !rewardsBuffer && rewards != null
+    ? rewardText(sim, rewards)
     : null;
   if (rewardsBuffer) {
     resultEmbed = new EmbedBuilder()
@@ -640,21 +648,30 @@ async function runBattle(channel, {
     // HEADER (author, top), the outcome + rating move + Valor in the FOOTER (bottom).
     if (over && header) base.setAuthor({ name: header });
     if (over && footer) base.setFooter({ text: footer });
-    if (over && defaultRewardFooter) {
-      base.addFields({ name: '\u200b', value: defaultRewardFooter });
+    if (over && defaultResultText) {
+      base.addFields({ name: '\u200b', value: defaultResultText });
     }
     const showRewards = over && resultEmbed;
+    const showRewardText = over && defaultRewardText;
     const rewardsImage = showRewards
       ? await cachedBattleResultImage(rewardsBuffer, sim, rewards, resultSkinPath)
       : null;
     if (rewardsImage) resultEmbed.setImage(rewardsImage.url);
+    const rewardTextEmbed = showRewardText
+      ? new EmbedBuilder()
+        .setColor(sim.winner === 'a' ? 0x43d675 : 0xf23f43)
+        .setDescription(defaultRewardText)
+      : null;
     const files = [
       ...battleImage.files,
       ...(showRewards && rewardsImage ? rewardsImage.files : []),
     ];
+    const embeds = [base];
+    if (showRewards) embeds.push(resultEmbed);
+    if (rewardTextEmbed) embeds.push(rewardTextEmbed);
     return {
       content: over && noticeLine ? noticeLine : '',
-      embeds: showRewards ? [base, resultEmbed] : [base],
+      embeds,
       files,
       attachments: [], // required to drop the previous panel image on edit
       components: over ? [buttons()] : [],
