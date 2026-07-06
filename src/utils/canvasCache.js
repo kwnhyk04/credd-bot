@@ -156,4 +156,12 @@ async function sweepCanvasCache({ maxAgeDays = Number(process.env.CANVAS_CACHE_M
   return swept;
 }
 
-module.exports = { getCachedCanvasUrl, sweepCanvasCache };
+async function verifyCanvasCacheReady() {
+  if (!enabled()) return false;
+  await pool.query(
+    'SELECT cache_key, object_key, url, last_used_at FROM canvas_cache LIMIT 1'
+  );
+  return true;
+}
+
+module.exports = { getCachedCanvasUrl, sweepCanvasCache, verifyCanvasCacheReady };

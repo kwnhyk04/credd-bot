@@ -26,6 +26,13 @@ const { ECHO_BLESSING_KEY_MAP, DIVINE_BLESSING_DEITIES, computeResonanceMods } =
 
 const MOB_LEVEL_MIN = 1;
 const MOB_LEVEL_MAX = 55;
+const MOB_ROSTER_CACHE_TTL_MS = Math.max(0, Number(process.env.MOB_ROSTER_CACHE_TTL_MS || 300_000));
+const MOB_SELECT_COLUMNS = `
+  mob_id, name, mythology, mob_type, base_hp, hp_per_level, base_atk,
+  atk_per_level, base_def, def_per_level, base_crit, skill_key,
+  skill_name, skill_description, immunity_tags, special_flags
+`;
+const mobRosterCache = new Map();
 
 const CLASS_PASSIVES = {
   Swordsman: 'bleed',
@@ -34,6 +41,39 @@ const CLASS_PASSIVES = {
   Knight: 'damage_reduction',
   Archer: 'pierce',
 };
+
+function cloneRows(rows) {
+  return rows.map((row) => ({ ...row }));
+}
+
+function cachedMobRows(key) {
+  if (MOB_ROSTER_CACHE_TTL_MS <= 0) return null;
+  const hit = mobRosterCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > MOB_ROSTER_CACHE_TTL_MS) {
+    mobRosterCache.delete(key);
+    return null;
+  }
+  return cloneRows(hit.rows);
+}
+
+function rememberMobRows(key, rows) {
+  if (MOB_ROSTER_CACHE_TTL_MS > 0) {
+    mobRosterCache.set(key, { at: Date.now(), rows: cloneRows(rows) });
+  }
+  return rows;
+}
+
+async function queryMobRows(db, key, sql, params = []) {
+  const cached = cachedMobRows(key);
+  if (cached) return cached;
+  const res = await db.query(sql, params);
+  return rememberMobRows(key, res.rows);
+}
+
+function clearMobRosterCache() {
+  mobRosterCache.clear();
+}
 
 /**
  * Authoritative class battle stats: per-class base + scaling × (level − 1), floored.
@@ -336,28 +376,34 @@ function buildBossFighter(row, bossState) {
  * rosters only). rng injectable for tests; the scheduler passes Math.random.
  */
 async function fetchRandomBoss(db, rng) {
-  const res = await db.query(
-    `SELECT * FROM mob_roster WHERE mob_type = 'boss' ORDER BY mob_id`
+  const rows = await queryMobRows(
+    db,
+    'mob_type:boss',
+    `SELECT ${MOB_SELECT_COLUMNS} FROM mob_roster WHERE mob_type = 'boss' ORDER BY mob_id`
   );
-  if (res.rows.length === 0) return null;
-  return res.rows[Math.floor(rng() * res.rows.length)];
+  if (rows.length === 0) return null;
+  return rows[Math.floor(rng() * rows.length)];
 }
 
 /** All boss rows (for the weighted Greater/normal tier pick at spawn — §16 [v4.4]). */
 async function fetchAllBosses(db) {
-  const res = await db.query(
-    `SELECT * FROM mob_roster WHERE mob_type = 'boss' ORDER BY mob_id`
+  return queryMobRows(
+    db,
+    'mob_type:boss',
+    `SELECT ${MOB_SELECT_COLUMNS} FROM mob_roster WHERE mob_type = 'boss' ORDER BY mob_id`
   );
-  return res.rows;
 }
 
 /** Case-insensitive exact-name lookup in mob_roster. */
 async function fetchMobByName(db, name) {
-  const res = await db.query(
-    `SELECT * FROM mob_roster WHERE LOWER(name) = LOWER($1) LIMIT 1`,
+  const key = `name:${String(name || '').trim().toLowerCase()}`;
+  const rows = await queryMobRows(
+    db,
+    key,
+    `SELECT ${MOB_SELECT_COLUMNS} FROM mob_roster WHERE LOWER(name) = LOWER($1) LIMIT 1`,
     [name]
   );
-  return res.rows[0] || null;
+  return rows[0] || null;
 }
 
 /**
@@ -368,12 +414,14 @@ async function fetchMobByName(db, name) {
  */
 async function fetchRandomMob(db, rng) {
   const type = rng() < 1 - ELITE_SPAWN_CHANCE ? 'regular' : 'elite';
-  const res = await db.query(
-    `SELECT * FROM mob_roster WHERE mob_type = $1 ORDER BY mob_id`,
+  const rows = await queryMobRows(
+    db,
+    `mob_type:${type}`,
+    `SELECT ${MOB_SELECT_COLUMNS} FROM mob_roster WHERE mob_type = $1 ORDER BY mob_id`,
     [type]
   );
-  if (res.rows.length === 0) return null;
-  return res.rows[Math.floor(rng() * res.rows.length)];
+  if (rows.length === 0) return null;
+  return rows[Math.floor(rng() * rows.length)];
 }
 
 module.exports = {
@@ -391,4 +439,5 @@ module.exports = {
   fetchRandomMob,
   fetchRandomBoss,
   fetchAllBosses,
+  clearMobRosterCache,
 };

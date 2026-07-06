@@ -34,6 +34,12 @@ const STORAGE_TIER_CANDIDATES = {
   chosen: ['chosen', 'chosen_believer'],
   eternal: ['eternal', 'eternal_believer'],
 };
+const SUPPORTER_COLUMNS = 'discord_id, tier, status, current_period_end, expires_at, founder_number, token_balance';
+const COSMETIC_CATALOG_COLUMNS = `
+  cosmetic_id, cosmetic_key, category, tier, display_name, token_cost,
+  is_base, has_top_label, display_filename, render_filename,
+  victory_filename, defeated_filename, is_active, skin_code
+`;
 
 function normalizeTier(tier) {
   const raw = String(tier || '').trim().toLowerCase();
@@ -87,14 +93,14 @@ function storageTierFor(appTier, tierValues) {
 
 // ── Supporter row ───────────────────────────────────────────────────────────
 async function getSupporter(db, userId) {
-  const { rows } = await db.query('SELECT * FROM supporters WHERE discord_id = $1', [userId]);
+  const { rows } = await db.query(`SELECT ${SUPPORTER_COLUMNS} FROM supporters WHERE discord_id = $1`, [userId]);
   return rows[0] || null;
 }
 
 /** Active = status 'active' and (if a period end is set) not past it. */
 function isActiveSupporter(sup) {
   if (!sup || sup.status !== 'active') return false;
-  const end = sup.chosen_expires_at || sup.current_period_end;
+  const end = sup.chosen_expires_at || sup.current_period_end || sup.expires_at;
   if (end && new Date(end).getTime() < Date.now()) return false;
   return true;
 }
@@ -106,17 +112,20 @@ function effectiveTier(sup) {
 // ── Catalog ─────────────────────────────────────────────────────────────────
 async function listActiveCatalog(db, category) {
   const { rows } = await db.query(
-    'SELECT * FROM cosmetic_catalog WHERE is_active = true AND category = $1 ORDER BY is_base DESC, tier, display_name',
+    `SELECT ${COSMETIC_CATALOG_COLUMNS}
+       FROM cosmetic_catalog
+      WHERE is_active = true AND category = $1
+      ORDER BY is_base DESC, tier, display_name`,
     [category]
   );
   return rows;
 }
 async function getCatalogByKey(db, key) {
-  const { rows } = await db.query('SELECT * FROM cosmetic_catalog WHERE cosmetic_key = $1', [key]);
+  const { rows } = await db.query(`SELECT ${COSMETIC_CATALOG_COLUMNS} FROM cosmetic_catalog WHERE cosmetic_key = $1`, [key]);
   return rows[0] || null;
 }
 async function getCatalogById(db, id) {
-  const { rows } = await db.query('SELECT * FROM cosmetic_catalog WHERE cosmetic_id = $1', [id]);
+  const { rows } = await db.query(`SELECT ${COSMETIC_CATALOG_COLUMNS} FROM cosmetic_catalog WHERE cosmetic_id = $1`, [id]);
   return rows[0] || null;
 }
 
@@ -186,7 +195,11 @@ async function ownsResolved(db, userId, cosmeticId) {
 /** Resolve a shop skin by its skin_code (category is implied by the leading letter). */
 async function getCatalogByCode(db, code) {
   const { rows } = await db.query(
-    'SELECT * FROM cosmetic_catalog WHERE LOWER(skin_code) = LOWER($1) AND is_active = true', [code]
+    `SELECT ${COSMETIC_CATALOG_COLUMNS}
+       FROM cosmetic_catalog
+      WHERE LOWER(skin_code) = LOWER($1) AND is_active = true
+      LIMIT 1`,
+    [code]
   );
   return rows[0] || null;
 }
@@ -207,12 +220,14 @@ async function resolveCatalogRef(db, userId, ref) {
   const raw = String(ref || '').trim();
   if (!raw) return null;
   const { rows } = await db.query(
-    `SELECT * FROM cosmetic_catalog
+    `SELECT ${COSMETIC_CATALOG_COLUMNS} FROM cosmetic_catalog
        WHERE is_active = true
          AND (LOWER(skin_code) = LOWER($1)
               OR LOWER(cosmetic_key) = LOWER($1)
               OR LOWER(display_name) = LOWER($1)
-              OR LOWER(display_name) LIKE LOWER($2))`,
+              OR LOWER(display_name) LIKE LOWER($2))
+       ORDER BY display_name
+       LIMIT 25`,
     [raw, `%${raw}%`]
   );
   if (rows.length === 0) return null;

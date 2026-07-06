@@ -2,6 +2,7 @@
 
 const sharp = require('sharp');
 const { AttachmentBuilder } = require('discord.js');
+const { assertDiscordImageAttachmentsAllowed } = require('./egressGuard');
 
 async function optimizeOpaqueAttachment(buffer, baseName, {
   quality = 85,
@@ -27,6 +28,7 @@ async function optimizeOpaqueAttachment(buffer, baseName, {
 }
 
 async function makeOptimizedAttachment(buffer, baseName, options) {
+  assertDiscordImageAttachmentsAllowed(`${baseName} attachment fallback`);
   const image = await optimizeOpaqueAttachment(buffer, baseName, options);
   return {
     ...image,

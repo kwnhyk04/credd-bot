@@ -37,6 +37,7 @@ const {
   isRemoteAssetsEnabled,
   isRemoteSource,
 } = require('../utils/assets');
+const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard');
 
 const BRAND = 0x9b59b6;
 const PAGES = ['profile', 'battle', 'battle_result', 'summon'];
@@ -215,6 +216,7 @@ async function buildPreview(db, viewerId, { page = 0, idx = 0, ctx = 'shop', var
     if (isRemoteSource(abs)) {
       container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(abs)));
     } else {
+      assertDiscordImageAttachmentsAllowed('skin preview attachment fallback');
       files.push(new AttachmentBuilder(await attachmentSource(abs), { name }));
       container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(`attachment://${name}`)));
     }

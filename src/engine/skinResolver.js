@@ -32,7 +32,7 @@ const {
   remoteAssetAvailable,
 } = require('../utils/assets');
 const {
-  getEquipped, getCatalogById, getSupporter, isActiveSupporter,
+  getEquipped, getCatalogById, getSupporter, isActiveSupporter, listActiveCatalog,
 } = require('./supporterEntitlements');
 
 function existsAbs(p) {
@@ -151,11 +151,9 @@ async function resolveSkin(db, userId, category, opts = {}) {
   // 3. base set fallback for an active supporter who has nothing equipped here
   const sup = await getSupporter(db, userId);
   if (isActiveSupporter(sup)) {
-    const { rows } = await db.query(
-      'SELECT * FROM cosmetic_catalog WHERE is_base = true AND category = $1 LIMIT 1', [category]
-    );
-    const p = catalogFile(rows[0], category, variant);
-    if (p) return { path: p, source: 'base', cosmetic: rows[0] };
+    const base = (await listActiveCatalog(db, category)).find((row) => row.is_base);
+    const p = catalogFile(base, category, variant);
+    if (p) return { path: p, source: 'base', cosmetic: base };
   }
 
   // 4. OPT-IN beta default (testers/) — only when env BETA_MODE=true. Off by default so an

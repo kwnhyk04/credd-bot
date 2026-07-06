@@ -18,6 +18,7 @@ const canvas = require('./casinoCanvas');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { assetPath, getAssetUrl, remoteAssetAvailable } = require('../utils/assets');
 const { getCachedCanvasUrl } = require('../utils/canvasCache');
+const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard');
 const { COLORS } = canvas;
 const { SLOT_FACE_INDEX } = require('./payoutTables');
 const { BACK_FILE, blackjackValue } = require('./cardDeck');
@@ -55,7 +56,10 @@ function galleryUrl(c, url) {
 function galleryOne(c, name) {
   galleryUrl(c, `attachment://${name}`);
 }
-function att(buf, name) { return new AttachmentBuilder(buf, { name }); }
+function att(buf, name) {
+  assertDiscordImageAttachmentsAllowed(`casino ${name} attachment fallback`);
+  return new AttachmentBuilder(buf, { name });
+}
 
 async function galleryFromCanvasCache(c, files, parts, build, name) {
   const cached = await getCachedCanvasUrl(

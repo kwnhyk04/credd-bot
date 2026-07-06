@@ -28,6 +28,7 @@ const {
   assetPath, loadAssetImage: loadAssetImageSource,
   remoteAssetAvailable, getAssetUrl,
 } = require('../../utils/assets');
+const { assertDiscordImageAttachmentsAllowed } = require('../../utils/egressGuard');
 
 // [egress] The attendance banner is one fixed image — pre-rendered by
 // scripts/build-casino-spin-assets.js and served from R2 when uploaded.
@@ -174,6 +175,7 @@ async function buildDailyPayload(result) {
   } else {
     const buf = await banner();
     if (buf) {
+      assertDiscordImageAttachmentsAllowed('daily banner attachment fallback');
       files.push(new AttachmentBuilder(buf, { name: 'attendance.png' }));
       container.addMediaGalleryComponents((g) =>
         g.addItems((item) => item.setURL('attachment://attendance.png')));

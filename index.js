@@ -15,7 +15,11 @@ const { startSeasonScheduler } = require('./src/schedulers/seasonScheduler');
 const pool = require('./src/db/pool');
 const { auditWeaponEmojis, reconcileEmojiIds } = require('./src/utils/emojis');
 const { recoverExpiredSessions } = require('./src/casino/sessionStore');
-const { sweepCanvasCache } = require('./src/utils/canvasCache');
+const { sweepCanvasCache, verifyCanvasCacheReady } = require('./src/utils/canvasCache');
+const {
+  discordImageAttachmentsAllowed,
+  productionEgressIssues,
+} = require('./src/utils/egressGuard');
 
 setupGlobalErrorHandlers();
 
@@ -46,7 +50,22 @@ const client = new Client({
 
 client.once('ready', async () => {
   console.log(`[credd] Logged in as ${client.user.tag}`);
-  if (!String(process.env.ASSET_BASE_URL || '').trim()) {
+  const egressIssues = productionEgressIssues();
+  if (egressIssues.length > 0) {
+    console.error('[credd] Refusing to start: production egress guard failed.');
+    for (const issue of egressIssues) console.error(`[credd] - ${issue}`);
+    process.exit(1);
+  }
+  if (!discordImageAttachmentsAllowed()) {
+    try {
+      await verifyCanvasCacheReady();
+      console.log('[credd] Production egress guard ready: assets/canvas renders use R2 URLs.');
+    } catch (err) {
+      console.error('[credd] Refusing to start: canvas_cache is not ready:', err.message);
+      console.error('[credd] Apply scripts/canvas-cache-schema.sql or set ALLOW_DISCORD_IMAGE_ATTACHMENTS=true intentionally.');
+      process.exit(1);
+    }
+  } else if (!String(process.env.ASSET_BASE_URL || '').trim()) {
     console.warn(
       '[credd] ASSET_BASE_URL is NOT set — static images will be re-uploaded to Discord '
       + 'on every command (billable egress). Set it to the R2 public bucket URL.'
@@ -83,6 +102,7 @@ client.once('ready', async () => {
 });
 
 client.on('messageCreate', async (message) => {
+  if (message.author?.bot || message.author?.id === client.user?.id) return;
   try {
     await handleMessage(message, { runMiddleware, isBanned });
   } catch (err) {
@@ -99,6 +119,7 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async (interaction) => {
+  if (interaction.user?.bot || interaction.user?.id === client.user?.id) return;
   try {
     // Slash commands → the Phase-11 slash path; buttons/components → the existing handler.
     if (interaction.isChatInputCommand()) await handleSlash(interaction);

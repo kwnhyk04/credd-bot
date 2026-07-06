@@ -41,6 +41,7 @@ const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const path = require('path');
 const { emojiForDisplay } = require('../utils/emojis');
 const { optimizeOpaqueAttachment } = require('../utils/imageOutput');
+const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard');
 const { getCachedCanvasUrl } = require('../utils/canvasCache');
 const { loadBattleSkin, renderBattleSkinPanel } = require('./battleLayoutRenderer');
 const { loadResultSkin, renderResultPanel } = require('./resultLayoutRenderer');
@@ -503,6 +504,7 @@ async function cachedBattleFrame(sim, snapIdx, { mode, mirror, icons, skin, batt
     imageOptions
   );
   if (cached) return { url: cached.url, files: [] };
+  assertDiscordImageAttachmentsAllowed('battle frame attachment fallback');
   const image = await optimizeOpaqueAttachment(render(), 'battle', imageOptions);
   return {
     url: `attachment://${image.name}`,
@@ -518,6 +520,7 @@ async function cachedBattleResultImage(buffer, sim, rewards, resultSkinPath) {
     imageOptions
   );
   if (cached) return { url: cached.url, files: [] };
+  assertDiscordImageAttachmentsAllowed('battle result attachment fallback');
   const image = await optimizeOpaqueAttachment(buffer, 'rewards', imageOptions);
   return {
     url: `attachment://${image.name}`,

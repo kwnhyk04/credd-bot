@@ -18,11 +18,13 @@ const isProdMode = process.argv.includes('--prod');
 const PROD_CA_PATH = path.join(ROOT, 'prod-ca-2021.crt');
 
 const REQUIRED_ENV = ['BOT_TOKEN', 'CLIENT_ID', 'DATABASE_URL', 'DEV_IDS'];
+const REQUIRED_R2_ENV = ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET'];
 const DANGEROUS_FLAGS = [
   'ALLOW_DESTRUCTIVE_DEV_COMMANDS',
   'ALLOW_HIGH_VALUE_DEV_COMMANDS',
   'ALLOW_SUPPORTER_DEV_COMMANDS',
   'ALLOW_LIVE_EVENT_DEV_COMMANDS',
+  'ALLOW_DISCORD_IMAGE_ATTACHMENTS',
   'BETA_MODE',
 ];
 
@@ -59,6 +61,7 @@ const REQUIRED_TABLES = [
   'equipped_skins',
   'supporters',
   'casino_logs',
+  'canvas_cache',
 ];
 
 const REQUIRED_COLUMNS = {
@@ -154,6 +157,7 @@ const REQUIRED_COLUMNS = {
   equipped_skins: ['discord_id', 'category', 'cosmetic_id', 'override_path'],
   supporters: ['discord_id'],
   casino_logs: ['discord_id', 'game', 'bet_amount', 'result', 'payout', 'balance_before', 'balance_after'],
+  canvas_cache: ['cache_key', 'object_key', 'url', 'last_used_at'],
 };
 
 const REQUIRED_INDEXES = [
@@ -166,6 +170,7 @@ const REQUIRED_INDEXES = [
   'idx_raid_logs_player_type_time_id',
   'idx_ranked_logs_player_time_id_desc',
   'idx_weekly_quests_user_week',
+  'canvas_cache_last_used_idx',
 ];
 
 const REQUIRED_FILES = [
@@ -282,6 +287,10 @@ function checkEnvironment() {
     else fail(`env ASSET_BASE_URL is not an https URL: ${base}`);
   } else {
     warn('env ASSET_BASE_URL is missing — every static image will be uploaded to Discord per command (billable egress)', true);
+  }
+  for (const key of REQUIRED_R2_ENV) {
+    if (hasEnv(key)) pass(`env ${key} is set (canvas cache can publish to R2)`);
+    else warn(`env ${key} is missing - rendered canvases cannot be cached and would fall back to Discord uploads`, true);
   }
 }
 

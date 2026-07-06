@@ -40,6 +40,7 @@ const {
 } = require('discord.js');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const pool = require('../db/pool');
+const guildConfig = require('../handlers/guildConfigCache');
 const { resolveBattle } = require('./battleEngine');
 const {
   buildPlayerFighter, buildBossFighter, computeBossStats, fetchAllBosses, fetchMobByName,
@@ -60,14 +61,25 @@ const {
 } = require('../utils/assets');
 const { getCachedCanvasUrl } = require('../utils/canvasCache');
 const { makeOptimizedAttachment } = require('../utils/imageOutput');
+const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard');
 const { bossFeatTitlesFor } = require('../config/titles');
 const {
   isGreaterBoss, bossRewards, rollBossChest, hpMultiplierForChest, pickWeightedBoss,
 } = require('../config/bosses');
 
 const RESPAWN_COOLDOWN = '15 minutes';   // §16: spawns every 15 min after dead/escaped
+const RESPAWN_COOLDOWN_MS = 15 * 60_000;
 const BOSS_DURATION = '2 hours';         // v4.1: was 1h (schema comment is stale)
 const TOP_N = 15;
+const BOSS_STATE_COLUMNS = `
+  guild_id, spawn_id, mob_id, boss_level, max_hp, current_hp,
+  scaled_atk, scaled_def, expires_at, status
+`;
+const MOB_BATTLE_COLUMNS = `
+  mob_id, name, mythology, mob_type, base_hp, hp_per_level, base_atk,
+  atk_per_level, base_def, def_per_level, base_crit, skill_key,
+  skill_name, skill_description, immunity_tags, special_flags
+`;
 // §16 participation rewards come from config/bosses (bossRewards) — normal vs Greater.
 
 // Spawn-header flavor line shown above an active boss's name (keyed by mythology).
@@ -425,6 +437,7 @@ async function buildBossMessage({ state, mobRow, attackers, attackerCount, isDev
   } else {
     const banner = imgPath ? await bossBanner(imgPath) : null;
     if (banner) {
+      assertDiscordImageAttachmentsAllowed('boss banner attachment fallback');
       files.push(new AttachmentBuilder(banner, { name: 'boss_banner.png' }));
       container.addMediaGalleryComponents((g) =>
         g.addItems((item) => item.setURL('attachment://boss_banner.png'))
@@ -523,11 +536,7 @@ async function buildBossMessage({ state, mobRow, attackers, attackerCount, isDev
 
 /* ── live-message management ────────────────────────────────────────────── */
 async function resolveAnnounceChannelId(guildId) {
-  const { rows } = await pool.query(
-    'SELECT boss_announcement_channel_id FROM server_config WHERE guild_id = $1',
-    [guildId]
-  );
-  return rows[0]?.boss_announcement_channel_id || null;
+  return guildConfig.getConfig(guildId).boss_announcement_channel_id || null;
 }
 
 /** Post a fresh boss message in the configured (or hinted) channel and repoint the Map. */
@@ -842,7 +851,7 @@ async function handleAttack(interaction) {
       return fail('You cannot attack the boss right now.');
     }
     // gate 3 — boss still active and not expired
-    const stRes = await pool.query('SELECT * FROM boss_state WHERE guild_id = $1', [guildId]);
+    const stRes = await pool.query(`SELECT ${BOSS_STATE_COLUMNS} FROM boss_state WHERE guild_id = $1`, [guildId]);
     const state = stRes.rows[0];
     if (!state || state.status !== 'active' || new Date(state.expires_at) <= new Date()) {
       return fail('There is no active boss right now — it has fallen or escaped. `crd boss` shows the latest status.');
@@ -872,7 +881,7 @@ async function handleAttack(interaction) {
       }
     }
     // gate 6 — no live battle: claim the active_battles slot (reaper covers crashes)
-    const mobRes = await pool.query('SELECT * FROM mob_roster WHERE mob_id = $1', [state.mob_id]);
+    const mobRes = await pool.query(`SELECT ${MOB_BATTLE_COLUMNS} FROM mob_roster WHERE mob_id = $1`, [state.mob_id]);
     const mobRow = mobRes.rows[0];
     if (!mobRow) return fail('Boss data is missing — try again shortly.');
     const claim = await pool.query(
@@ -1016,7 +1025,7 @@ async function handleLog(interaction) {
 
 /* ── scheduler entry — one guild per call ───────────────────────────────── */
 async function tickGuild(client, guildId) {
-  const stRes = await pool.query('SELECT * FROM boss_state WHERE guild_id = $1', [guildId]);
+  const stRes = await pool.query(`SELECT ${BOSS_STATE_COLUMNS} FROM boss_state WHERE guild_id = $1`, [guildId]);
   const state = stRes.rows[0] || null;
 
   if (state && state.status === 'active') {
@@ -1032,6 +1041,9 @@ async function tickGuild(client, guildId) {
   }
 
   // no row, or terminal state — the spawn UPSERT's WHERE enforces the 15-min rule
+  if (state && new Date(state.expires_at).getTime() + RESPAWN_COOLDOWN_MS > Date.now()) {
+    return;
+  }
   await spawnBoss(client, guildId);
 }
 

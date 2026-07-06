@@ -32,6 +32,7 @@ const {
   isRemoteSource,
   loadAssetImage: loadAssetImageSource,
 } = require('../utils/assets');
+const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard');
 const { getEmojiIcon } = require('./renderBagItems');
 const { TIER_ALIAS, TIER_ESSENCE_COLUMN } = require('../config/gachaRates');
 
@@ -249,6 +250,7 @@ async function addSummonHeader(container, { flipPath = null, headerEmoji = null,
         return [];
       }
       const name = `summonflip.${assetExtension(flipPath, 'gif')}`;
+      assertDiscordImageAttachmentsAllowed('summon animation attachment fallback');
       const file = new AttachmentBuilder(await loadCachedBuffer(flipPath), { name });
       container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(`attachment://${name}`)));
       return [file];

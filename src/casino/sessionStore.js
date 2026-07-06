@@ -5,6 +5,11 @@ const pool = require('../db/pool');
 const { logCasino } = require('./betGuard');
 
 const ACTIVE_STATUSES = ['active', 'resolving'];
+const SESSION_RECOVERY_COLUMNS = `
+  session_id, discord_id, game, status, bet_amount, balance_before,
+  balance_after_debit, payout, balance_after, channel_id, message_id,
+  metadata, expires_at, created_at, updated_at
+`;
 
 function mergeMetadata(base, patch) {
   return { ...(base || {}), ...(patch || {}) };
@@ -75,7 +80,7 @@ async function recoverExpiredForUserGame(discordId, game, reason = 'start_recove
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
-      `SELECT *
+      `SELECT ${SESSION_RECOVERY_COLUMNS}
          FROM active_casino_sessions
         WHERE discord_id = $1
           AND game = $2
@@ -104,7 +109,7 @@ async function recoverExpiredSession(sessionId, reason = 'button_recovery') {
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
-      `SELECT *
+      `SELECT ${SESSION_RECOVERY_COLUMNS}
          FROM active_casino_sessions
         WHERE session_id = $1
         FOR UPDATE`,
@@ -130,7 +135,7 @@ async function recoverExpiredSessions({ limit = 50, reason = 'sweep_recovery' } 
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
-      `SELECT *
+      `SELECT ${SESSION_RECOVERY_COLUMNS}
          FROM active_casino_sessions
         WHERE status IN ('active', 'resolving')
           AND expires_at <= NOW()
@@ -168,7 +173,7 @@ async function beginStatefulSession({
   try {
     await client.query('BEGIN');
     const existing = await client.query(
-      `SELECT *, expires_at <= NOW() AS is_expired
+      `SELECT ${SESSION_RECOVERY_COLUMNS}, expires_at <= NOW() AS is_expired
          FROM active_casino_sessions
         WHERE discord_id = $1
           AND game = $2
@@ -274,7 +279,7 @@ async function settleStatefulSession({ sessionId, discordId, game, payout, metad
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
-      `SELECT *
+      `SELECT ${SESSION_RECOVERY_COLUMNS}
          FROM active_casino_sessions
         WHERE session_id = $1
           AND discord_id = $2
