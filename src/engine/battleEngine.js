@@ -653,7 +653,11 @@ function resolveBattle(a, b, opts = {}) {
     // separate effects, not attack damage)
     if (S.flags.instakill_check) {
       S.flags.instakill_check = false;
-      if (mode !== 'duel' && !O.isBoss) {
+      if (mode === 'duel') {
+        shared.events.push('💀 Death Charm blocked: instant kill is disabled in duels.');
+      } else if (O.isBoss) {
+        shared.events.push('💀 Death Charm blocked: instant kill is disabled against bosses.');
+      } else {
         shared.events.push(`💀 Death Charm! ${O.name} is instantly slain!`);
         setHp(O, 0);
         if (checkDeaths('instakill')) return;

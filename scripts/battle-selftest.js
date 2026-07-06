@@ -536,9 +536,11 @@ section('4. Targeted scenarios');
   const sBoss = resolveBattle(mkK(), mob({ hp: 100000, mobType: 'boss' }),
     { seed: 1, rng: scripted([0.0, 0.99, 0.01, 0.5]) });
   check('instakill blocked vs boss', sBoss.outcome !== 'instakill' && sBoss.rounds.length > 1);
+  check('instakill logs boss block reason', hasEvent(allEvents(sBoss), 'disabled against bosses'));
   const sDuel = resolveBattle(mkK(), player({ name: 'Rival', hp: 100000 }),
     { mode: 'duel', seed: 1, rng: scripted([0.0, 0.99, 0.99, 0.01, 0.5, 0.5]) });
   check('instakill disabled in duels', sDuel.outcome !== 'instakill');
+  check('instakill logs duel block reason', hasEvent(allEvents(sDuel), 'disabled in duels'));
 }
 
 // — rupture / hemorrhage: land on mobs, hard-blocked vs all bosses —
