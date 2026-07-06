@@ -29,6 +29,8 @@ tmp/
 
 # Local documentation — not pushed
 docs/
+AGENTS.md
+AGENT.md
 
 # SQL scratch/backup dumps — deployment schema (and v4 rules schema) stay tracked
 *.sql

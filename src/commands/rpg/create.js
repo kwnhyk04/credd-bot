@@ -19,6 +19,7 @@ const { renderPortraitCard } = require('../../engine/renderPortraitCard');
 const { assetPath, isRemoteAssetsEnabled } = require('../../utils/assets');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 const { makeOptimizedAttachment } = require('../../utils/imageOutput');
+const { emoji } = require('../../utils/emojis');
 
 const BRAND = 0x9b59b6;
 const CLASS_CARD_RENDER_REV = 1;
@@ -268,6 +269,8 @@ async function handleConfirm(interaction, className, ownerId) {
     await client.query('COMMIT');
 
     const cls = CLASSES[className];
+    const beliefShardsEmoji = emoji('belief_shards');
+    const silverChestEmoji = emoji('silver_chest');
     const done = new ContainerBuilder()
       .setAccentColor(0xFFD700)
       .addTextDisplayComponents((td) => td.setContent(`## ${cls.emoji} Character Created — ${className}`))
@@ -276,7 +279,12 @@ async function handleConfirm(interaction, className, ownerId) {
         td.setContent(
           `Your journey begins, Believer.\n\n**Passive:** ${cls.passiveName}\n\n` +
           `**Starter Gear**\n-# ${STARTER_WEAPON_NAME} (Common) · ${STARTER_ARMOR_NAME} (Common) — both equipped\n\n` +
-          `**Starter Grant**\n-# ${GRANT_BELIEF_SHARDS.toLocaleString()} Belief Shards · ${GRANT_SILVER_CHESTS} Silver Chests`
+          `**Starter Grant**\n` +
+          `-# ${beliefShardsEmoji} ${GRANT_BELIEF_SHARDS.toLocaleString()} Belief Shards\n` +
+          `-# ${silverChestEmoji} ${GRANT_SILVER_CHESTS} Silver Chests\n\n` +
+          `**Helpful Tips**\n` +
+          `-# Use \`crd summon 10\` or \`/summon count:10\`\n` +
+          `-# Use \`crd open sc 10\` or \`/open type:sc amount:10\``
         )
       )
       .addSeparatorComponents(sep)
