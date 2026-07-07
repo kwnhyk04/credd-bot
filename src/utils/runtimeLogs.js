@@ -68,6 +68,10 @@ function safeMeta(meta = {}) {
     'entries', 'bufferEntries', 'imageEntries', 'diskHits', 'diskMisses',
     'throttleMs', 'poolKey', 'poolSize', 'candidateCount', 'count',
     'removed', 'events', 'attackers', 'limit',
+    'phase', 'rendered', 'renderMode', 'cacheStatus', 'skipReason',
+    'assetEntries', 'assetMb', 'assetMaxMb', 'canvasEntries', 'canvasMb',
+    'canvasMaxMb', 'battleStaticEntries', 'battleStaticMb', 'battleStaticMaxMb',
+    'profileEntries', 'queueActive', 'queueQueued', 'queueLimit',
   ];
   const out = {};
   for (const key of allowed) {

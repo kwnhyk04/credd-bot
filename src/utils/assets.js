@@ -14,7 +14,14 @@ const CACHE_MAX_ENTRIES = envPositiveInt(
   envPositiveInt('ASSET_CACHE_MAX_ENTRIES', 256, { max: 5000 }),
   { max: 5000 }
 );
-const CACHE_MAX_BYTES = Math.max(1024 * 1024, envNumber('ASSET_CACHE_MAX_MB', 128, { min: 1, max: 2048 }) * 1024 * 1024);
+const CACHE_MAX_BYTES = Math.max(
+  1024 * 1024,
+  envNumber(
+    'ASSET_MEMORY_CACHE_MAX_MB',
+    envNumber('ASSET_CACHE_MAX_MB', 128, { min: 1, max: 2048 }),
+    { min: 1, max: 2048 }
+  ) * 1024 * 1024
+);
 const CACHE_TTL_MS = Math.max(0, envNumber('ASSET_CACHE_TTL_MS', 0, { min: 0 }));
 
 const bufferCache = new Map();

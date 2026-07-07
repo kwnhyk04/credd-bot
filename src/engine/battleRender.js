@@ -43,7 +43,8 @@ const { emojiForDisplay } = require('../utils/emojis');
 const { optimizeOpaqueAttachment, attachmentFromOptimizedImage } = require('../utils/imageOutput');
 const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard');
 const { getCachedCanvasUrl } = require('../utils/canvasCache');
-const { performanceLog } = require('../utils/runtimeLogs');
+const { envBool, envNumber, performanceLog } = require('../utils/runtimeLogs');
+const { encodeOpaqueCanvas } = require('../utils/canvasEncode');
 const { loadBattleSkin, renderBattleSkinPanel } = require('./battleLayoutRenderer');
 const { loadResultSkin, renderResultPanel } = require('./resultLayoutRenderer');
 
@@ -61,6 +62,9 @@ const UPDATE_MS = 1800; // delay between embed edits (≥1500ms — rate-limit s
 
 const BATTLE_FRAME_RENDER_REV = 1;
 const BATTLE_RESULT_RENDER_REV = 1;
+const BATTLE_FRAME_MODES = new Set(['full', 'start_and_final', 'text_only']);
+const BATTLE_FRAME_COOLDOWN_MAX = 5000;
+const battleFrameCooldowns = new Map();
 
 const COLORS = {
   bg: '#1f2125', card: '#26282d', cardLine: '#36393f',
@@ -68,6 +72,57 @@ const COLORS = {
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function battleFrameRenderMode() {
+  const raw = String(process.env.BATTLE_FRAME_RENDER_MODE || 'start_and_final').trim().toLowerCase();
+  return BATTLE_FRAME_MODES.has(raw) ? raw : 'start_and_final';
+}
+
+function battleFrameRenderCooldownMs() {
+  return Math.floor(envNumber('BATTLE_FRAME_RENDER_COOLDOWN_MS', 30_000, { min: 0, max: 3_600_000 }));
+}
+
+function battleResultRenderEnabled() {
+  return envBool('BATTLE_RESULT_RENDER_ENABLED', true);
+}
+
+function battleFrameCooldownKey({ guildId, ownerId, mode }) {
+  return [guildId || 'dm', ownerId || 'unknown', mode || 'battle'].join(':');
+}
+
+function rememberBattleFrameCooldown(key) {
+  if (battleFrameCooldowns.has(key)) battleFrameCooldowns.delete(key);
+  battleFrameCooldowns.set(key, Date.now());
+  while (battleFrameCooldowns.size > BATTLE_FRAME_COOLDOWN_MAX) {
+    battleFrameCooldowns.delete(battleFrameCooldowns.keys().next().value);
+  }
+}
+
+function battlePhase(i, finalIndex) {
+  if (i <= 0) return 'start';
+  return i >= finalIndex ? 'final' : 'update';
+}
+
+function shouldRenderBattleFrame({ phase, guildId, ownerId, mode }) {
+  const renderMode = battleFrameRenderMode();
+  if (renderMode === 'text_only') {
+    return { render: false, renderMode, reason: 'render-mode-text-only' };
+  }
+  if (renderMode === 'full') {
+    return { render: true, renderMode, reason: 'render-mode-full' };
+  }
+  const key = battleFrameCooldownKey({ guildId, ownerId, mode });
+  const last = battleFrameCooldowns.get(key) || 0;
+  const cooldownMs = battleFrameRenderCooldownMs();
+  if (phase === 'final') {
+    return { render: false, renderMode, reason: 'final-battle-frame-disabled' };
+  }
+  if (cooldownMs > 0 && Date.now() - last < cooldownMs) {
+    return { render: false, renderMode, reason: 'frame-cooldown' };
+  }
+  rememberBattleFrameCooldown(key);
+  return { render: true, renderMode, reason: phase === 'start' ? 'battle-start' : 'battle-update' };
+}
 
 /* ----------------------------------------------------------------------- */
 /* CUSTOM-EMOJI ICONS: registry display name → CDN image, cached in-memory. */
@@ -334,7 +389,7 @@ function renderBattlePanel(sim, snapIdx, { mirror = false, icons = null, skin = 
   ctx.fillStyle = COLORS.bg; ctx.fillRect(0, 0, PANEL_W, H);
   drawCard(ctx, sim.a, s.a, PAD, { isEnemy: false, mirror: false, icons: icons && icons.a, cardH: cardAH });
   drawCard(ctx, sim.b, s.b, PAD * 2 + cardAH, { isEnemy: true, mirror, icons: icons && icons.b, cardH: cardBH });
-  return canvas.toBuffer('image/png');
+  return encodeOpaqueCanvas(canvas, { system: 'battle', imageType: 'battle_frame', command: mode });
 }
 
 /**
@@ -428,12 +483,19 @@ async function renderRewardsPanel(sim, r) {
     ctx.fillText(`LEVEL UP!  ${r.levelFrom} → ${r.levelTo}`, X, y);
   }
 
-  return canvas.toBuffer('image/png');
+  return encodeOpaqueCanvas(canvas, { system: 'battle', imageType: 'battle_result', command: sim.mode || 'raid' });
 }
 
 /* ----------------------------------------------------------------------- */
 /* EMBEDS + ANIMATION                                                       */
 /* ----------------------------------------------------------------------- */
+function battleStateText(sim, snapIdx) {
+  const s = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
+  const line = (fighter, state) =>
+    `**${fighter.name}** HP: ${Number(state.hp).toLocaleString()} / ${Number(state.maxHp).toLocaleString()}`;
+  return `${line(sim.a, s.a)}\n${line(sim.b, s.b)}`;
+}
+
 function battleEmbed(sim, snapIdx, { mode, includeImage = true, imageUrl = null }) {
   const s = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
   const over = snapIdx >= sim.snapshots.length - 1;
@@ -461,6 +523,9 @@ function battleEmbed(sim, snapIdx, { mode, includeImage = true, imageUrl = null 
     .setColor(color)
     .setTitle(title)
     .setDescription(`Turn ${s.round} ${over ? ' ‎ **\`Battle Over\`**' : ''}`);
+  if (!includeImage) {
+    e.setDescription(`${e.data.description || `Turn ${s.round}`}\n\n${battleStateText(sim, snapIdx)}`);
+  }
   if (includeImage && imageUrl) e.setImage(imageUrl);
   if (over && line) e.addFields({ name: '​', value: line });
   // raid result + rewards live in a SECOND embed below this one (runBattle) —
@@ -492,7 +557,9 @@ function battleResultCacheParts(sim, rewards, resultSkinPath) {
   };
 }
 
-async function cachedBattleFrame(sim, snapIdx, { mode, mirror, icons, skin, battleSkinPath, guildId }) {
+async function cachedBattleFrame(sim, snapIdx, {
+  mode, mirror, icons, skin, battleSkinPath, guildId, phase = 'update', ownerId = null,
+}) {
   const render = () => renderBattlePanel(sim, snapIdx, { mirror, icons, skin, mode });
   const imageOptions = { background: COLORS.bg, maxWidth: 1024 };
   const logContext = {
@@ -500,6 +567,8 @@ async function cachedBattleFrame(sim, snapIdx, { mode, mirror, icons, skin, batt
     command: mode,
     imageType: 'battle_frame',
     guildId,
+    phase,
+    userId: ownerId,
   };
   const cached = await getCachedCanvasUrl(
     ['battle-frame', BATTLE_FRAME_RENDER_REV, battleFrameCacheParts(sim, snapIdx, { mode, mirror, battleSkinPath })],
@@ -507,21 +576,44 @@ async function cachedBattleFrame(sim, snapIdx, { mode, mirror, icons, skin, batt
     imageOptions,
     { returnImageOnFailure: true, logContext }
   );
-  if (cached?.url) return { url: cached.url, files: [] };
+  if (cached?.url) {
+    const rendered = cached.cache === 'miss-uploaded';
+    performanceLog('battle frame render decision', {
+      ...logContext,
+      rendered,
+      reason: rendered ? 'cache-miss-uploaded' : 'cache-url',
+      cacheStatus: cached.cache || 'url',
+    });
+    return { url: cached.url, files: [], cacheStatus: cached.cache || 'url' };
+  }
   if (cached?.image) {
     const attachment = attachmentFromOptimizedImage(cached.image, 'battle', { ...logContext, reusedBuffer: true });
-    return { url: attachment.url, files: [attachment.file] };
+    const rendered = cached.cacheFailed === true;
+    performanceLog('battle frame render decision', {
+      ...logContext,
+      rendered,
+      reason: rendered ? 'cache-rendered-fallback-image' : 'cache-fallback-image',
+      cacheStatus: cached.cache || 'image',
+    });
+    return { url: attachment.url, files: [attachment.file], cacheStatus: cached.cache || 'image' };
   }
   assertDiscordImageAttachmentsAllowed('battle frame attachment fallback', logContext);
   const image = await optimizeOpaqueAttachment(render(), 'battle', imageOptions);
   performanceLog('image output bytes', { ...logContext, bytes: image.buffer.length });
+  performanceLog('battle frame render decision', {
+    ...logContext,
+    rendered: true,
+    reason: 'attachment-fallback-render',
+    cacheStatus: 'miss',
+  });
   return {
     url: `attachment://${image.name}`,
     files: [new AttachmentBuilder(image.buffer, { name: image.name })],
+    cacheStatus: 'miss',
   };
 }
 
-async function cachedBattleResultImage(buffer, sim, rewards, resultSkinPath, { guildId, mode } = {}) {
+async function cachedBattleResultImage(renderBuffer, sim, rewards, resultSkinPath, { guildId, mode } = {}) {
   const imageOptions = { background: COLORS.bg, maxWidth: 1024 };
   const logContext = {
     system: 'battle',
@@ -529,23 +621,68 @@ async function cachedBattleResultImage(buffer, sim, rewards, resultSkinPath, { g
     imageType: 'battle_result',
     guildId,
   };
+  const safeRenderBuffer = async () => {
+    const buffer = await renderBuffer();
+    if (!buffer) throw new Error('battle result renderer returned no buffer');
+    return buffer;
+  };
   const cached = await getCachedCanvasUrl(
     ['battle-result-panel', BATTLE_RESULT_RENDER_REV, battleResultCacheParts(sim, rewards, resultSkinPath)],
-    () => buffer,
+    safeRenderBuffer,
     imageOptions,
     { returnImageOnFailure: true, logContext }
   );
-  if (cached?.url) return { url: cached.url, files: [] };
+  if (cached?.url) {
+    const rendered = cached.cache === 'miss-uploaded';
+    performanceLog('battle result render decision', {
+      ...logContext,
+      phase: 'final',
+      rendered,
+      reason: rendered ? 'cache-miss-uploaded' : 'cache-url',
+      cacheStatus: cached.cache || 'url',
+    });
+    return { url: cached.url, files: [], cacheStatus: cached.cache || 'url' };
+  }
   if (cached?.image) {
     const attachment = attachmentFromOptimizedImage(cached.image, 'rewards', { ...logContext, reusedBuffer: true });
-    return { url: attachment.url, files: [attachment.file] };
+    const rendered = cached.cacheFailed === true;
+    performanceLog('battle result render decision', {
+      ...logContext,
+      phase: 'final',
+      rendered,
+      reason: rendered ? 'cache-rendered-fallback-image' : 'cache-fallback-image',
+      cacheStatus: cached.cache || 'image',
+    });
+    return { url: attachment.url, files: [attachment.file], cacheStatus: cached.cache || 'image' };
   }
   assertDiscordImageAttachmentsAllowed('battle result attachment fallback', logContext);
-  const image = await optimizeOpaqueAttachment(buffer, 'rewards', imageOptions);
+  let image;
+  try {
+    const buffer = await safeRenderBuffer();
+    image = await optimizeOpaqueAttachment(buffer, 'rewards', imageOptions);
+  } catch (err) {
+    console.warn('[battleRender] battle result attachment fallback:', err.message);
+    performanceLog('battle result render decision', {
+      ...logContext,
+      phase: 'final',
+      rendered: false,
+      reason: 'result-render-failed',
+      cacheStatus: 'failed',
+    });
+    return null;
+  }
   performanceLog('image output bytes', { ...logContext, bytes: image.buffer.length });
+  performanceLog('battle result render decision', {
+    ...logContext,
+    phase: 'final',
+    rendered: true,
+    reason: 'attachment-fallback-render',
+    cacheStatus: 'miss',
+  });
   return {
     url: `attachment://${image.name}`,
     files: [new AttachmentBuilder(image.buffer, { name: image.name })],
+    cacheStatus: 'miss',
   };
 }
 
@@ -637,10 +774,14 @@ function isDiscordErrorCode(err, code) {
  */
 async function runBattle(channel, {
   mode, sim, rewards = null, onMessage = null, notices = [], footer = null, header = null,
-  battleSkinPath = null, resultSkinPath = null,
+  battleSkinPath = null, resultSkinPath = null, ownerId = null,
 }) {
   const mirror = mode === 'duel';
-  const showResultPanel = mode === 'raid';
+  const resultImageEnabled = battleResultRenderEnabled();
+  const showRaidRewards = mode === 'raid';
+  const showResultPanel = showRaidRewards && resultImageEnabled;
+  const battleOwnerId = ownerId || sim.a.discordId || sim.a.userId || sim.a.id || sim.a.name || null;
+  const guildId = channel.guild?.id || null;
   // STRICT outcome: resultSkinPath is the victory OR defeated canvas already
   // chosen by the caller (resolveSkin variant) — never both. A null/invalid
   // result skin falls through to the generic rewards strip below.
@@ -650,67 +791,113 @@ async function runBattle(channel, {
     showResultPanel ? loadResultSkin(resultSkinPath) : Promise.resolve(null),
   ]);
 
-  // result frame — rendered once, attached as a second embed on final frames.
-  // An equipped result skin paints the full themed victory/defeated canvas with
-  // rewards centered in its panel; otherwise the generic 640px strip is used.
+  // Result panels are rendered lazily on the final frame so short battles do not
+  // hold an extra PNG/WebP buffer while the initial frame is waiting to edit.
   let resultEmbed = null;
-  let rewardsBuffer = null;
+  let renderRewardsBuffer = null;
   if (showResultPanel && resultSkin) {
-    rewardsBuffer = await renderResultPanel(sim, rewards, resultSkin, { loadIcon: getEmojiImage })
+    renderRewardsBuffer = () => renderResultPanel(sim, rewards, resultSkin, { loadIcon: getEmojiImage })
       .catch((err) => {
         console.warn('[battleRender] result skin panel:', err.message);
         return null;
       });
-  }
-  const defaultResultText = showResultPanel && !rewardsBuffer && rewards != null
-    ? battleResultText(sim, rewards)
-    : null;
-  const allowCustomRewardEmojis = channelAllowsExternalEmojis(channel);
-  const defaultRewardText = showResultPanel && !rewardsBuffer && rewards != null
-    ? rewardText(sim, rewards, { allowCustomEmojis: allowCustomRewardEmojis })
-    : null;
-  if (rewardsBuffer) {
     resultEmbed = new EmbedBuilder()
       .setColor(sim.winner === 'a' ? 0x43d675 : 0xf23f43);
   }
+  const fallbackResultText = showRaidRewards && rewards != null
+    ? battleResultText(sim, rewards)
+    : null;
+  const allowCustomRewardEmojis = channelAllowsExternalEmojis(channel);
+  const fallbackRewardText = showRaidRewards && rewards != null
+    ? rewardText(sim, rewards, { allowCustomEmojis: allowCustomRewardEmojis })
+    : null;
+  const defaultResultText = !renderRewardsBuffer ? fallbackResultText : null;
+  const defaultRewardText = !renderRewardsBuffer ? fallbackRewardText : null;
+  if (showRaidRewards && rewards != null && !resultImageEnabled) {
+    performanceLog('battle result render decision', {
+      system: 'battle',
+      command: mode,
+      imageType: 'battle_result',
+      guildId,
+      userId: battleOwnerId,
+      phase: 'final',
+      rendered: false,
+      renderMode: battleFrameRenderMode(),
+      reason: 'result-render-disabled',
+    });
+  }
 
   const noticeLine = notices.length ? notices.join('\n') : null;
+  const finalIndex = sim.snapshots.length - 1;
 
   const frame = async (i) => {
-    const over = i >= sim.snapshots.length - 1;
+    const over = i >= finalIndex;
+    const phase = battlePhase(i, finalIndex);
+    const frameDecision = shouldRenderBattleFrame({
+      phase,
+      guildId,
+      ownerId: battleOwnerId,
+      mode,
+    });
     // [egress] battle frames ship at 1024px wide (owner-approved) — layout renders
     // unchanged, only the encoded output shrinks (~55% fewer bytes on 1536px skins).
-    const battleImage = await cachedBattleFrame(sim, i, {
-      mode, mirror, icons, skin, battleSkinPath, guildId: channel.guild?.id,
-    });
-    const base = battleEmbed(sim, i, { mode, includeImage: true, imageUrl: battleImage.url });
+    let battleImage = { url: null, files: [], cacheStatus: 'skipped' };
+    if (frameDecision.render) {
+      battleImage = await cachedBattleFrame(sim, i, {
+        mode,
+        mirror,
+        icons,
+        skin,
+        battleSkinPath,
+        guildId,
+        phase,
+        ownerId: battleOwnerId,
+      });
+    } else {
+      performanceLog('battle frame render decision', {
+        system: 'battle',
+        command: mode,
+        imageType: 'battle_frame',
+        guildId,
+        userId: battleOwnerId,
+        phase,
+        rendered: false,
+        renderMode: frameDecision.renderMode,
+        reason: frameDecision.reason,
+        skipReason: frameDecision.reason,
+        cacheStatus: 'skipped',
+      });
+    }
+    const includeImage = Boolean(battleImage.url);
+    const base = battleEmbed(sim, i, { mode, includeImage, imageUrl: battleImage.url });
     // Phase 6: ranked threads its result into the embed — the tier matchup in the
     // HEADER (author, top), the outcome + rating move + Valor in the FOOTER (bottom).
     if (over && header) base.setAuthor({ name: header });
     if (over && footer) base.setFooter({ text: footer });
-    if (over && defaultResultText) {
-      base.addFields({ name: '\u200b', value: defaultResultText });
-    }
-    const showRewards = over && resultEmbed;
-    const showRewardText = over && defaultRewardText;
+    const showRewards = over && resultEmbed && renderRewardsBuffer;
     const rewardsImage = showRewards
-      ? await cachedBattleResultImage(rewardsBuffer, sim, rewards, resultSkinPath, {
-        guildId: channel.guild?.id,
+      ? await cachedBattleResultImage(renderRewardsBuffer, sim, rewards, resultSkinPath, {
+        guildId,
         mode,
       })
       : null;
     if (rewardsImage) resultEmbed.setImage(rewardsImage.url);
-    const rewardTextEmbed = showRewardText
+    const resultTextForFrame = over && (defaultResultText || (showRewards && !rewardsImage ? fallbackResultText : null));
+    const rewardTextForFrame = over && (defaultRewardText || (showRewards && !rewardsImage ? fallbackRewardText : null));
+    if (resultTextForFrame) {
+      base.addFields({ name: '\u200b', value: resultTextForFrame });
+    }
+    const rewardTextEmbed = rewardTextForFrame
       ? new EmbedBuilder()
         .setColor(sim.winner === 'a' ? 0x43d675 : 0xf23f43)
-        .setDescription(defaultRewardText)
+        .setDescription(rewardTextForFrame)
       : null;
     const files = [
       ...battleImage.files,
       ...(showRewards && rewardsImage ? rewardsImage.files : []),
     ];
     const embeds = [base];
-    if (showRewards) embeds.push(resultEmbed);
+    if (showRewards && rewardsImage) embeds.push(resultEmbed);
     if (rewardTextEmbed) embeds.push(rewardTextEmbed);
     return {
       content: over && noticeLine ? noticeLine : '',
@@ -725,7 +912,6 @@ async function runBattle(channel, {
   if (onMessage) {
     try { await onMessage(msg); } catch (err) { console.warn('[battleRender] onMessage:', err.message); }
   }
-  const finalIndex = sim.snapshots.length - 1;
   if (finalIndex > 0) {
     await sleep(UPDATE_MS * finalIndex);
     const finalPayload = await frame(finalIndex);

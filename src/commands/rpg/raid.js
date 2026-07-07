@@ -274,6 +274,7 @@ async function execute(message) {
           resultSkinPath,
           rewards,
           notices: rewards.questNotices,
+          ownerId: discordId,
           onMessage: (msg) => pool.query(
             'UPDATE active_battles SET message_id = $2, channel_id = $3 WHERE discord_id = $1',
             [discordId, msg.id, msg.channel.id]

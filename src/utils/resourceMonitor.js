@@ -5,6 +5,8 @@ const { getCanvasCacheStats } = require('./canvasCache');
 const { getImageWorkQueueStats } = require('./imageWorkQueue');
 const { getProfileImageCacheStats } = require('./profileImageCache');
 const { envBool, envPositiveInt, metaString } = require('./runtimeLogs');
+const { getBattleBaseCacheStats } = require('../engine/battleLayoutRenderer');
+const { getResultBaseCacheStats } = require('../engine/resultLayoutRenderer');
 
 let interval = null;
 let lastCpu = process.cpuUsage();
@@ -29,6 +31,10 @@ function resourceSnapshot() {
   const canvas = getCanvasCacheStats();
   const queue = getImageWorkQueueStats();
   const profile = getProfileImageCacheStats();
+  const battleBase = getBattleBaseCacheStats();
+  const resultBase = getResultBaseCacheStats();
+  const battleStaticBytes = Number(battleBase.bytes || 0) + Number(resultBase.bytes || 0);
+  const battleStaticMaxBytes = Number(battleBase.maxBytes || 0) + Number(resultBase.maxBytes || 0);
   return {
     rss: mb(mem.rss),
     heapUsed: mb(mem.heapUsed),
@@ -43,7 +49,20 @@ function resourceSnapshot() {
     imageEntries: assets.imageEntries,
     diskHits: assets.diskHits,
     diskMisses: assets.diskMisses,
-    cache: `canvas:${canvas.entries}/inflight:${canvas.inflight}/profile:${profile.entries}/queue:${queue.active}+${queue.queued}/${queue.limit}`,
+    assetEntries: assets.entries,
+    assetMb: mb(assets.bytes),
+    assetMaxMb: mb(assets.maxBytes),
+    canvasEntries: canvas.entries,
+    canvasMb: mb(canvas.bytes),
+    canvasMaxMb: mb(canvas.maxBytes),
+    battleStaticEntries: Number(battleBase.entries || 0) + Number(resultBase.entries || 0),
+    battleStaticMb: mb(battleStaticBytes),
+    battleStaticMaxMb: mb(battleStaticMaxBytes),
+    profileEntries: profile.entries,
+    queueActive: queue.active,
+    queueQueued: queue.queued,
+    queueLimit: queue.limit,
+    cache: `canvas:${canvas.entries}/inflight:${canvas.inflight}/profile:${profile.entries}/battleStatic:${Number(battleBase.entries || 0) + Number(resultBase.entries || 0)}/queue:${queue.active}+${queue.queued}/${queue.limit}`,
   };
 }
 

@@ -35,9 +35,11 @@ const { bandwidthLog, envNumber, performanceLog } = require('./runtimeLogs');
 const { withImageWorkSlot } = require('./imageWorkQueue');
 
 const MEMORY_MAX = 5000;
+const MEMORY_MAX_BYTES = Math.max(1024 * 1024, envNumber('CANVAS_MEMORY_CACHE_MAX_MB', 128, { min: 1, max: 2048 }) * 1024 * 1024);
 const memory = new Map(); // cacheKey → url (insertion-ordered; trimmed FIFO)
 const inflight = new Map(); // cacheKey → Promise<{url}|null>
 const lastTouched = new Map(); // cacheKey -> ms timestamp of last last_used_at write
+let memoryBytes = 0;
 let warnedDb = false;
 
 function enabled() {
@@ -49,12 +51,26 @@ function hashParts(parts) {
   return crypto.createHash('sha256').update(payload).digest('hex').slice(0, 40);
 }
 
+function estimateUrlBytes(url) {
+  return Math.max(1, String(url || '').length * 2 + 128);
+}
+
+function forgetMemory(key) {
+  const entry = memory.get(key);
+  if (!entry) return;
+  memory.delete(key);
+  memoryBytes = Math.max(0, memoryBytes - (typeof entry === 'string' ? estimateUrlBytes(entry) : entry.bytes));
+  lastTouched.delete(key);
+}
+
 function remember(key, url) {
-  memory.set(key, url);
-  while (memory.size > MEMORY_MAX) {
+  forgetMemory(key);
+  const entry = { url, bytes: estimateUrlBytes(url) };
+  memory.set(key, entry);
+  memoryBytes += entry.bytes;
+  while (memory.size > MEMORY_MAX || memoryBytes > MEMORY_MAX_BYTES) {
     const evicted = memory.keys().next().value;
-    memory.delete(evicted);
-    lastTouched.delete(evicted);
+    forgetMemory(evicted);
   }
 }
 
@@ -100,10 +116,13 @@ async function getCachedCanvasUrl(parts, renderPng, imageOptions = {}, cacheOpti
   const returnImageOnFailure = cacheOptions.returnImageOnFailure === true;
   const logContext = cacheOptions.logContext || {};
 
-  const cachedUrl = memory.get(key);
-  if (cachedUrl) {
+  const cachedEntry = memory.get(key);
+  if (cachedEntry) {
+    memory.delete(key);
+    memory.set(key, cachedEntry);
     touch(key, logContext);
-    return { url: cachedUrl };
+    performanceLog('canvas cache hit', { ...logContext, cache: 'memory-hit', name: key.slice(0, 12) });
+    return { url: typeof cachedEntry === 'string' ? cachedEntry : cachedEntry.url, cache: 'memory-hit' };
   }
   if (inflight.has(key)) return inflight.get(key);
 
@@ -115,7 +134,8 @@ async function getCachedCanvasUrl(parts, renderPng, imageOptions = {}, cacheOpti
       if (rows.length > 0) {
         remember(key, rows[0].url);
         touch(key, logContext);
-        return { url: rows[0].url };
+        performanceLog('canvas cache hit', { ...logContext, cache: 'db-hit', name: key.slice(0, 12) });
+        return { url: rows[0].url, cache: 'db-hit' };
       }
     } catch (err) {
       dbWarn(err);
@@ -147,7 +167,7 @@ async function getCachedCanvasUrl(parts, renderPng, imageOptions = {}, cacheOpti
             cache: 'r2-put-failed',
             bytes: image.buffer.length,
           });
-          return { image, cacheFailed: true };
+          return { image, cacheFailed: true, cache: 'r2-put-failed' };
         }
         return null;
       }
@@ -160,7 +180,9 @@ async function getCachedCanvasUrl(parts, renderPng, imageOptions = {}, cacheOpti
         [key, objectKey, url]
       );
       remember(key, url);
-      return { url };
+      image = null;
+      performanceLog('canvas cache miss', { ...logContext, cache: 'miss-uploaded', name: key.slice(0, 12) });
+      return { url, cache: 'miss-uploaded' };
     } catch (err) {
       console.warn('[canvasCache] miss path failed:', err.message);
       if (returnImageOnFailure && image) {
@@ -169,7 +191,7 @@ async function getCachedCanvasUrl(parts, renderPng, imageOptions = {}, cacheOpti
           cache: 'miss-path-failed',
           bytes: image.buffer.length,
         });
-        return { image, cacheFailed: true };
+        return { image, cacheFailed: true, cache: 'miss-path-failed' };
       }
       return null;
     }
@@ -201,8 +223,7 @@ async function sweepCanvasCache({ maxAgeDays = Number(process.env.CANVAS_CACHE_M
     for (const row of rows) {
       if (!(await r2.deleteObject(row.object_key))) continue;
       await pool.query('DELETE FROM canvas_cache WHERE cache_key = $1', [row.cache_key]);
-      memory.delete(row.cache_key);
-      lastTouched.delete(row.cache_key);
+      forgetMemory(row.cache_key);
       swept += 1;
     }
     if (swept > 0) console.log(`[canvasCache] swept ${swept} cold cache object(s).`);
@@ -226,6 +247,8 @@ function getCanvasCacheStats() {
     inflight: inflight.size,
     touches: lastTouched.size,
     maxEntries: MEMORY_MAX,
+    bytes: memoryBytes,
+    maxBytes: MEMORY_MAX_BYTES,
     enabled: enabled(),
   };
 }

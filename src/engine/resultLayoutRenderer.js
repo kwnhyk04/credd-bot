@@ -22,6 +22,8 @@ const {
   loadAssetImage: loadAssetImageSource,
   readAssetJson,
 } = require('../utils/assets');
+const { envNumber, envPositiveInt } = require('../utils/runtimeLogs');
+const { encodeOpaqueCanvas } = require('../utils/canvasEncode');
 
 const ROOT = path.join(__dirname, '..', '..');
 const FONT_FALLBACK = 'DejaVu Sans';
@@ -33,12 +35,13 @@ for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
   }
 }
 
-function positiveIntEnv(name, fallback) {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
-}
-
-const RESULT_BASE_CACHE_MAX_ENTRIES = positiveIntEnv('RESULT_BASE_CACHE_MAX_ENTRIES', 12);
+const RESULT_BASE_CACHE_MAX_ENTRIES = envPositiveInt(
+  'BATTLE_STATIC_LAYER_CACHE_MAX',
+  envPositiveInt('RESULT_BASE_CACHE_MAX_ENTRIES', 30, { max: 500 }),
+  { max: 500 }
+);
+const RESULT_BASE_CACHE_TTL_MS = Math.max(0, envNumber('BATTLE_STATIC_LAYER_CACHE_TTL_MS', 600_000, { min: 0, max: 86_400_000 }));
+const RESULT_BASE_CACHE_MAX_BYTES = Math.max(1024 * 1024, envNumber('BATTLE_RENDER_CACHE_MAX_MB', 96, { min: 1, max: 2048 }) * 1024 * 1024);
 const skinCache = new Map(); // skin path -> { signature, promise }
 const resultBaseCache = new Map(); // skin path -> { signature, canvas, bytes, lastUsed }
 let resultBaseCacheBytes = 0;
@@ -72,11 +75,17 @@ function estimateCanvasBytes(canvas) {
 }
 
 function trimResultBaseCache() {
-  while (resultBaseCache.size > RESULT_BASE_CACHE_MAX_ENTRIES) {
+  while (resultBaseCache.size > RESULT_BASE_CACHE_MAX_ENTRIES || resultBaseCacheBytes > RESULT_BASE_CACHE_MAX_BYTES) {
     const oldest = resultBaseCache.entries().next().value;
     if (!oldest) break;
     resultBaseCache.delete(oldest[0]);
     resultBaseCacheBytes -= oldest[1].bytes;
+  }
+}
+
+function trimSkinCache() {
+  while (skinCache.size > RESULT_BASE_CACHE_MAX_ENTRIES) {
+    skinCache.delete(skinCache.keys().next().value);
   }
 }
 
@@ -101,7 +110,7 @@ function cacheResultBase(key, signature, canvas) {
 function cachedResultBase(key, signature) {
   const entry = resultBaseCache.get(key);
   if (!entry) return null;
-  if (entry.signature !== signature) {
+  if (entry.signature !== signature || (RESULT_BASE_CACHE_TTL_MS && Date.now() - entry.lastUsed > RESULT_BASE_CACHE_TTL_MS)) {
     resultBaseCache.delete(key);
     resultBaseCacheBytes -= entry.bytes;
     return null;
@@ -122,6 +131,8 @@ function getResultBaseCacheStats() {
     entries: resultBaseCache.size,
     maxEntries: RESULT_BASE_CACHE_MAX_ENTRIES,
     bytes: resultBaseCacheBytes,
+    maxBytes: RESULT_BASE_CACHE_MAX_BYTES,
+    ttlMs: RESULT_BASE_CACHE_TTL_MS,
   };
 }
 
@@ -154,6 +165,7 @@ async function loadResultSkin(skinPath) {
   });
 
   skinCache.set(skinPath, { signature, promise });
+  trimSkinCache();
   return promise;
 }
 
@@ -241,7 +253,7 @@ async function renderResultPanel(sim, rewards, skin, { loadIcon } = {}) {
   // `rewards.orientation` ("horizontal" | "vertical") decides the arrangement
   // per canvas; sizes auto-scale to the panel.
   const entries = buildEntries(won, rewards);
-  if (!entries.length) return canvas.toBuffer('image/png');
+  if (!entries.length) return encodeOpaqueCanvas(canvas, { system: 'battle', imageType: 'battle_result' });
   const rw = layout.rewards || {};
   const cx = Number.isFinite(rw.center_x) ? rw.center_x : panel.x + panel.w / 2;
   const icons = await Promise.all(entries.map((e) => (loadIcon ? loadIcon(e.icon).catch(() => null) : Promise.resolve(null))));
@@ -342,7 +354,7 @@ async function renderResultPanel(sim, rewards, skin, { loadIcon } = {}) {
     if (levelUp) drawLevelUp(y, Math.round(rw.levelup_size || iconSize * 0.6));
   }
 
-  return canvas.toBuffer('image/png');
+  return encodeOpaqueCanvas(canvas, { system: 'battle', imageType: 'battle_result' });
 }
 
 module.exports = {

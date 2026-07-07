@@ -350,7 +350,7 @@ async function runWager(message, challenger, target, stake) {
       } catch (err) {
         console.warn('[wager] skin resolution:', err.message);
       }
-      await runBattle(challengeMsg.channel, { mode: 'duel', sim, notices: [stakeLine], battleSkinPath, resultSkinPath });
+      await runBattle(challengeMsg.channel, { mode: 'duel', sim, notices: [stakeLine], battleSkinPath, resultSkinPath, ownerId: challenger.id });
       } finally {
         await safeReleaseDuelLock(duelLock);
       }
@@ -555,7 +555,7 @@ async function execute(message) {
           console.warn('[duel] battle skin resolution:', err.message);
         }
         await runBattle(challengeMsg.channel, {
-          mode: 'duel', sim, notices, battleSkinPath, resultSkinPath,
+          mode: 'duel', sim, notices, battleSkinPath, resultSkinPath, ownerId: challenger.id,
         });
         } finally {
           await safeReleaseDuelLock(duelLock);

@@ -230,7 +230,7 @@ async function fight(message) {
     console.warn('[ranked] skin resolution:', err.message);
   }
   await runBattle(message.channel, {
-    mode: 'duel', sim, header, footer, battleSkinPath, resultSkinPath,
+    mode: 'duel', sim, header, footer, battleSkinPath, resultSkinPath, ownerId: me,
   });
   } finally {
     await releaseRankedFightLock(me, lockToken).catch((err) => {

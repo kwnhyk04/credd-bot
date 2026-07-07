@@ -838,7 +838,7 @@ async function devBattle(message, args, devId) {
       console.warn('[dev battle] skin resolution:', err.message);
     }
     await runBattle(message.channel, {
-      mode: 'raid', sim, battleSkinPath, resultSkinPath,
+      mode: 'raid', sim, battleSkinPath, resultSkinPath, ownerId: devId,
     });
   } catch (err) {
     console.error('[dev battle]', err);

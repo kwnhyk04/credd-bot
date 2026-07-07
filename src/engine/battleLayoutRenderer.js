@@ -16,6 +16,8 @@ const {
   loadAssetImage: loadAssetImageSource,
   readAssetJson,
 } = require('../utils/assets');
+const { envNumber, envPositiveInt } = require('../utils/runtimeLogs');
+const { encodeOpaqueCanvas } = require('../utils/canvasEncode');
 
 const ROOT = path.join(__dirname, '..', '..');
 const FONT_FALLBACK = 'DejaVu Sans';
@@ -27,12 +29,13 @@ for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
   }
 }
 
-function positiveIntEnv(name, fallback) {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
-}
-
-const BATTLE_BASE_CACHE_MAX_ENTRIES = positiveIntEnv('BATTLE_BASE_CACHE_MAX_ENTRIES', 12);
+const BATTLE_BASE_CACHE_MAX_ENTRIES = envPositiveInt(
+  'BATTLE_STATIC_LAYER_CACHE_MAX',
+  envPositiveInt('BATTLE_BASE_CACHE_MAX_ENTRIES', 30, { max: 500 }),
+  { max: 500 }
+);
+const BATTLE_BASE_CACHE_TTL_MS = Math.max(0, envNumber('BATTLE_STATIC_LAYER_CACHE_TTL_MS', 600_000, { min: 0, max: 86_400_000 }));
+const BATTLE_BASE_CACHE_MAX_BYTES = Math.max(1024 * 1024, envNumber('BATTLE_RENDER_CACHE_MAX_MB', 96, { min: 1, max: 2048 }) * 1024 * 1024);
 const skinCache = new Map(); // skin path -> { signature, promise }
 const battleBaseCache = new Map(); // skin path -> { signature, canvas, bytes, lastUsed }
 let battleBaseCacheBytes = 0;
@@ -73,11 +76,17 @@ function estimateCanvasBytes(canvas) {
 }
 
 function trimBattleBaseCache() {
-  while (battleBaseCache.size > BATTLE_BASE_CACHE_MAX_ENTRIES) {
+  while (battleBaseCache.size > BATTLE_BASE_CACHE_MAX_ENTRIES || battleBaseCacheBytes > BATTLE_BASE_CACHE_MAX_BYTES) {
     const oldest = battleBaseCache.entries().next().value;
     if (!oldest) break;
     battleBaseCache.delete(oldest[0]);
     battleBaseCacheBytes -= oldest[1].bytes;
+  }
+}
+
+function trimSkinCache() {
+  while (skinCache.size > BATTLE_BASE_CACHE_MAX_ENTRIES) {
+    skinCache.delete(skinCache.keys().next().value);
   }
 }
 
@@ -102,7 +111,7 @@ function cacheBattleBase(key, signature, canvas) {
 function cachedBattleBase(key, signature) {
   const entry = battleBaseCache.get(key);
   if (!entry) return null;
-  if (entry.signature !== signature) {
+  if (entry.signature !== signature || (BATTLE_BASE_CACHE_TTL_MS && Date.now() - entry.lastUsed > BATTLE_BASE_CACHE_TTL_MS)) {
     battleBaseCache.delete(key);
     battleBaseCacheBytes -= entry.bytes;
     return null;
@@ -123,6 +132,8 @@ function getBattleBaseCacheStats() {
     entries: battleBaseCache.size,
     maxEntries: BATTLE_BASE_CACHE_MAX_ENTRIES,
     bytes: battleBaseCacheBytes,
+    maxBytes: BATTLE_BASE_CACHE_MAX_BYTES,
+    ttlMs: BATTLE_BASE_CACHE_TTL_MS,
   };
 }
 
@@ -155,6 +166,7 @@ async function loadBattleSkin(skinPath) {
   });
 
   skinCache.set(skinPath, { signature, promise });
+  trimSkinCache();
   return promise;
 }
 
@@ -399,7 +411,7 @@ function renderBattleSkinPanel(sim, snapIdx, skin, { mode = sim.mode, icons = nu
     drawAction(ctx, state.actions.a, layout.actions.player);
     drawAction(ctx, state.actions.b, layout.actions.enemy);
   }
-  return canvas.toBuffer('image/png');
+  return encodeOpaqueCanvas(canvas, { system: 'battle', imageType: 'battle_frame', command: mode });
 }
 
 module.exports = {

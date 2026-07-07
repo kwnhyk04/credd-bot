@@ -62,6 +62,7 @@ const {
 const { getCachedCanvasUrl } = require('../utils/canvasCache');
 const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../utils/imageOutput');
 const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard');
+const { encodeOpaqueCanvas } = require('../utils/canvasEncode');
 const {
   envBool, envNumber, envPositiveInt, bandwidthLog, performanceLog,
 } = require('../utils/runtimeLogs');
@@ -330,7 +331,7 @@ function bossBanner(imgPath) {
         const scale = Math.min(BANNER_W / img.width, BANNER_H / img.height);
         const w = img.width * scale, h = img.height * scale;
         ctx.drawImage(img, (BANNER_W - w) / 2, (BANNER_H - h) / 2, w, h);
-        return canvas.toBuffer('image/png');
+        return encodeOpaqueCanvas(canvas, { system: 'boss', command: 'boss', imageType: 'boss_banner' });
       } catch (err) {
         console.warn('[boss] banner render failed:', err.message);
         return null;
@@ -459,7 +460,7 @@ function renderBossStatusCard(state, mobRow) {
     sx += kw + ctx.measureText(v).width + 34;
   }
 
-  return canvas.toBuffer('image/png');
+  return encodeOpaqueCanvas(canvas, { system: 'boss', command: 'boss', imageType: 'boss_status' });
 }
 
 function bossStatusText(state, mobRow) {
@@ -782,11 +783,25 @@ async function refreshLiveMessage(client, guildId, options = {}) {
     const channel = await client.channels.fetch(ref.channelId).catch(() => null);
     const msg = channel ? await channel.messages.fetch(ref.messageId).catch(() => null) : null;
     if (msg) {
-      const edited = await msg.edit(payload).catch(() => null);
+      const edited = await msg.edit({ ...payload, attachments: [] }).catch(() => null);
       if (edited) return;
     }
   }
   await postFreshLiveMessage(client, guildId, payload);
+}
+
+async function refreshLiveMessageTextOnly(client, guildId, { spawnId = null, reason = 'text-refresh' } = {}) {
+  const started = Date.now();
+  await refreshLiveMessage(client, guildId, { includeStatusImage: false });
+  bandwidthLog('boss text refresh updated', {
+    system: 'boss',
+    command: 'boss:attack',
+    imageType: 'boss_status',
+    guildId,
+    spawnId,
+    reason,
+    durationMs: Date.now() - started,
+  });
 }
 
 function scheduleBossLiveRefresh(client, guildId, { spawnId = null } = {}) {
@@ -799,7 +814,7 @@ function scheduleBossLiveRefresh(client, guildId, { spawnId = null } = {}) {
       spawnId,
       reason: 'disabled',
     });
-    refreshLiveMessage(client, guildId, { includeStatusImage: false }).catch((err) => {
+    refreshLiveMessageTextOnly(client, guildId, { spawnId, reason: 'image-refresh-disabled' }).catch((err) => {
       console.error(`[boss] text refresh failed (guild ${guildId}):`, err.message);
     });
     return;
@@ -970,7 +985,7 @@ async function expireBoss(client, guildId) {
  * boss_state makes the loser of the race see 0 flipped rows and roll back).
  * Returns the attacker count, or null when nothing was distributed.
  */
-async function distributeRewards(client, guildId, spawnId, { includeStatusImage = true } = {}) {
+async function distributeRewards(client, guildId, spawnId, { includeStatusImage = false } = {}) {
   const dbc = await pool.connect();
   let attackerIds = [];
   let reward = null;
@@ -1246,10 +1261,18 @@ async function handleAttack(interaction) {
 
       if (remaining <= 0) {
         await distributeRewards(interaction.client, guildId, state.spawn_id, {
-          includeStatusImage: bossImageRefreshEnabled(),
+          includeStatusImage: false,
         });
       } else {
-        scheduleBossLiveRefresh(interaction.client, guildId, { spawnId: state.spawn_id });
+        await refreshLiveMessageTextOnly(interaction.client, guildId, {
+          spawnId: state.spawn_id,
+          reason: 'attack-committed',
+        }).catch((err) => {
+          console.error(`[boss] immediate text refresh failed (guild ${guildId}):`, err.message);
+        });
+        if (bossImageRefreshEnabled()) {
+          scheduleBossLiveRefresh(interaction.client, guildId, { spawnId: state.spawn_id });
+        }
       }
 
       const survived = sim.outcome === 'boss_timeout';
