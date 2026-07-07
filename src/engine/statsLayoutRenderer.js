@@ -99,8 +99,9 @@ async function loadOptionalImage(source) {
 
 async function loadRenderImages(d, skinPath, options) {
   const localIcons = options.iconPaths || {};
-  const avatarPromise = options.avatarPath
-    ? loadOptionalImage(options.avatarPath)
+  const avatarPath = options.avatarPath || d.avatarPath;
+  const avatarPromise = avatarPath
+    ? loadOptionalImage(avatarPath)
     : loadRemoteImage(d.avatarUrl, d.fallbackAvatarUrl);
   const weaponPromise = localIcons.weapon
     ? loadOptionalImage(localIcons.weapon)
@@ -183,34 +184,38 @@ function drawProgress(ctx, style, ratio) {
 }
 
 function drawCover(ctx, img, box) {
-  const scale = Math.max(box.size / img.width, box.size / img.height);
+  const bw = box.w || box.width || box.size;
+  const bh = box.h || box.height || box.size;
+  const scale = Math.min(bw / img.width, bh / img.height);
   const w = img.width * scale;
   const h = img.height * scale;
-  ctx.drawImage(img, box.x + (box.size - w) / 2, box.y + (box.size - h) / 2, w, h);
+  ctx.drawImage(img, box.x + (bw - w) / 2, box.y + (bh - h) / 2, w, h);
 }
 
 function drawAvatar(ctx, img, style) {
+  const w = style.w || style.width || style.size;
+  const h = style.h || style.height || style.size;
   ctx.save();
   if (style.glow) {
     ctx.shadowColor = style.glow.color;
     ctx.globalAlpha = style.glow.alpha;
     ctx.shadowBlur = style.glow.blur;
-    roundRect(ctx, style.x, style.y, style.size, style.size, style.radius);
+    roundRect(ctx, style.x, style.y, w, h, style.radius);
     ctx.fillStyle = style.glow.color;
     ctx.fill();
     ctx.globalAlpha = 1;
   }
-  roundRect(ctx, style.x, style.y, style.size, style.size, style.radius);
+  roundRect(ctx, style.x, style.y, w, h, style.radius);
   ctx.clip();
   if (img) drawCover(ctx, img, style);
   else {
     ctx.fillStyle = 'rgba(20,22,28,0.92)';
-    ctx.fillRect(style.x, style.y, style.size, style.size);
+    ctx.fillRect(style.x, style.y, w, h);
   }
   ctx.restore();
 
   ctx.save();
-  roundRect(ctx, style.x, style.y, style.size, style.size, style.radius);
+  roundRect(ctx, style.x, style.y, w, h, style.radius);
   ctx.strokeStyle = style.outline;
   ctx.lineWidth = style.outline_width;
   ctx.stroke();
@@ -456,31 +461,41 @@ function relabelRankCols(record) {
  */
 function repositionStats(layout, skinPath) {
   const av = layout.avatar;
-  const leftCx = av.x + av.size / 2;
-  const leftTop = av.y + av.size + 30;
-  const colMax = Math.min(av.size + 170, layout.canvas.w - av.x - 20);
+  const headerCx = layout.canvas.w / 2;
+  const firstContentY = Math.min(
+    layout.class?.y || 620,
+    layout.stats_label?.y || 620,
+    layout.record_label?.y || 760
+  );
+  const avatarW = Math.round((av.size || 220) * 0.76);
+  const avatarH = Math.round((av.size || 220) * 1.12);
+  const avatarX = Math.max(layout.canvas.w - avatarW - 160, Math.round(layout.canvas.w * 0.72));
+  const avatarY = Math.max(firstContentY - 35, (layout.name?.y || 240) + 120);
   const rx = layout.name.x;
   const ry = layout.name.y;
-  const rcw = Math.max(160, layout.canvas.w - rx - 48);
+  const rcw = Math.max(160, avatarX - rx - 36);
   // Right-column field with an optional font-size bump (more spare space on stats → larger text).
   const R = (style, y, dSize = 0) => ({
     ...style, x: rx, y, anchor: 'left', max_width: rcw, align_to: undefined,
     size: ((style && style.size) || 16) + dSize,
   });
-  // p1 (Divine Radiance) & p3 (Aurora Constellation) skins have a themed top space — keep the
-  // supporter tier word at the art's original top position instead of moving it under the avatar.
-  const keepTopTop = /_p(1|3)\b/i.test(String(skinPath || ''));
-  const nameY = keepTopTop ? (layout.name?.y ?? leftTop + 34) : leftTop + 34;
+  const topLabelY = layout.top_label?.y || Math.max(70, Math.round((layout.name?.y || 220) * 0.62));
+  const nameY = Math.max(topLabelY + 56, Math.round((layout.name?.y || topLabelY + 90) * 0.88));
   const titleColor = (layout.tier_line && layout.tier_line.color) || '#67E7FF';
   return {
     ...layout,
-    top_label: keepTopTop
-      ? layout.top_label
-      : { ...layout.top_label, x: leftCx, y: leftTop, anchor: 'center', align_to: undefined, max_width: colMax },
-    name: { ...layout.name, x: leftCx, y: nameY, anchor: 'center', max_width: colMax },
-    // Equipped title, centered LOWER in the left panel (clear gap below the name).
+    avatar: {
+      ...layout.avatar,
+      x: avatarX,
+      y: avatarY,
+      w: avatarW,
+      h: avatarH,
+      radius: Math.min(layout.avatar?.radius || 18, 18),
+    },
+    top_label: { ...layout.top_label, x: headerCx, y: topLabelY, anchor: 'center', align_to: undefined, max_width: 620 },
+    name: { ...layout.name, x: headerCx, y: nameY, anchor: 'center', max_width: 760 },
     title: {
-      ...layout.name, x: leftCx, y: nameY + 64, anchor: 'center', max_width: colMax,
+      ...layout.name, x: headerCx, y: nameY + 38, anchor: 'center', max_width: 760,
       size: Math.max(13, Math.round(((layout.name && layout.name.size) || 40) * 0.42)),
       weight: 'normal', color: titleColor, align_to: undefined,
     },

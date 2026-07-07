@@ -11,6 +11,7 @@ const enhanceCmd = require('../commands/rpg/enhance');
 const sellCmd = require('../commands/rpg/sell');
 const bossSystem = require('../engine/bossSystem');
 const skinShop = require('../engine/skinShopViews');
+const avatarCmd = require('../commands/rpg/avatar');
 const leaderboardCmd = require('../commands/rpg/leaderboard');
 const titleCmd = require('../commands/rpg/title');
 const exchangeEssenceCmd = require('../commands/rpg/exchangeEssence');
@@ -64,6 +65,7 @@ async function handleInteraction(interaction) {
     // Supporter shop / collection — paginated pages + Preview button (owner-gated).
     if (namespace === 'sshop') { await skinShop.handleShopButton(interaction); return; }
     if (namespace === 'sprev') { await skinShop.handlePreviewButton(interaction); return; }
+    if (namespace === 'avat') { await avatarCmd.handleAvatarButton(interaction); return; }
     if (namespace === 'runes') { await runeCmd.handleRunesInteraction(interaction); return; }
     if (namespace === 'lb') { await leaderboardCmd.handleSelect(interaction); return; }
     if (namespace === 'title' && action === 'cat') { await titleCmd.handleSelect(interaction); return; }

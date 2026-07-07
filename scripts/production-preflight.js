@@ -26,6 +26,7 @@ const DANGEROUS_FLAGS = [
   'ALLOW_LIVE_EVENT_DEV_COMMANDS',
   'ALLOW_DISCORD_IMAGE_ATTACHMENTS',
   'BETA_MODE',
+  'AVATAR_DEV_UNLOCKS',
 ];
 
 const REQUIRED_TABLES = [
@@ -60,6 +61,9 @@ const REQUIRED_TABLES = [
   'user_cosmetics',
   'equipped_skins',
   'supporters',
+  'avatar_catalog',
+  'user_avatars',
+  'equipped_avatars',
   'casino_logs',
   'canvas_cache',
 ];
@@ -156,6 +160,9 @@ const REQUIRED_COLUMNS = {
   user_cosmetics: ['discord_id', 'cosmetic_id'],
   equipped_skins: ['discord_id', 'category', 'cosmetic_id', 'override_path'],
   supporters: ['discord_id'],
+  avatar_catalog: ['avatar_id', 'avatar_key', 'display_name', 'class_name', 'gender', 'style', 'token_cost', 'asset_path', 'is_active'],
+  user_avatars: ['discord_id', 'avatar_id', 'source', 'acquired_at'],
+  equipped_avatars: ['discord_id', 'avatar_id', 'updated_at'],
   casino_logs: ['discord_id', 'game', 'bet_amount', 'result', 'payout', 'balance_before', 'balance_after'],
   canvas_cache: ['cache_key', 'object_key', 'url', 'last_used_at'],
 };
@@ -170,6 +177,9 @@ const REQUIRED_INDEXES = [
   'idx_raid_logs_player_type_time_id',
   'idx_ranked_logs_player_time_id_desc',
   'idx_weekly_quests_user_week',
+  'idx_avatar_catalog_class_style_gender',
+  'idx_user_avatars_user',
+  'idx_equipped_avatars_avatar',
   'canvas_cache_last_used_idx',
 ];
 

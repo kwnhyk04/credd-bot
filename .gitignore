@@ -37,6 +37,8 @@ AGENT.md
 !scripts/production-consolidated-schema.sql
 !scripts/credd_schema_v4.sql
 !scripts/canvas-cache-schema.sql
+!scripts/avatar-system-schema.sql
+!scripts/avatar-dev-owner-grants.sql
 
 # OS / editor
 .DS_Store

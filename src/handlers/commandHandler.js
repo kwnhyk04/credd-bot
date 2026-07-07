@@ -39,6 +39,7 @@ const socketCmd = require('../commands/rpg/socket');
 const runeCmd = require('../commands/rpg/rune');
 const shopCmd = require('../commands/rpg/shop');
 const skinCmd = require('../commands/rpg/skin');
+const avatarCmd = require('../commands/rpg/avatar');
 const buyCmd = require('../commands/rpg/buy');
 const useCmd = require('../commands/rpg/use');
 const setCmd = require('../commands/rpg/set');
@@ -100,6 +101,8 @@ const IMPLEMENTED = {
   runes:    { mw: 'full', run: runeCmd.list },
   shop:     { mw: 'full', run: shopCmd.execute },
   skin:     { mw: 'full', run: skinCmd.execute },
+  avatars:  { mw: 'full', run: avatarCmd.collection },
+  avatar:   { mw: 'full', run: avatarCmd.execute },
   buy:      { mw: 'full', run: buyCmd.execute },
   use:      { mw: 'full', run: useCmd.execute },
   set:      { mw: 'full', run: setCmd.execute },
@@ -160,6 +163,8 @@ const COMMAND_MAP = {
   runes:     { requiresCharacter: true },  // crd runes
   shop:      { requiresCharacter: false }, // cosmetic store; supporter status is independent of character
   skin:      { requiresCharacter: false }, // cosmetic skin collection (open to all)
+  avatars:   { requiresCharacter: true },
+  avatar:    { requiresCharacter: true },
   buy:       { requiresCharacter: false }, // buy a skin by code
   use:       { requiresCharacter: false }, // equip a skin by code
   set:       { requiresCharacter: false }, // reset all skins to default templates

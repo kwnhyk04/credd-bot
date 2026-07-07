@@ -51,7 +51,8 @@ async function loadAssetImage(source) {
 /* ── Layout ─────────────────────────────────────────────────────────────── */
 const W = 600;
 const PAD = 22;
-const AVATAR = 96;
+const AVATAR_W = 104;
+const AVATAR_H = 146;
 const RADIUS = 12;
 
 /* ── Colors (near Discord dark, matching the bag/quest renders) ─────────── */
@@ -108,8 +109,14 @@ function fitText(ctx, text, maxW) {
   return `${t}…`;
 }
 
-/** Avatar fetch with graceful fallback to the default Discord avatar. */
-async function loadAvatar(avatarUrl, fallbackUrl) {
+/** Stats avatar fetch: prefer Credd avatar/class art, then fall back to Discord if needed. */
+async function loadAvatar(avatarPath, avatarUrl, fallbackUrl) {
+  if (avatarPath) {
+    try {
+      const img = await loadAssetImage(avatarPath);
+      if (img) return img;
+    } catch { /* try Discord fallback */ }
+  }
   for (const url of [avatarUrl, fallbackUrl]) {
     if (!url) continue;
     try {
@@ -118,6 +125,13 @@ async function loadAvatar(avatarUrl, fallbackUrl) {
     } catch { /* try next */ }
   }
   return null;
+}
+
+function drawCover(ctx, img, x, y, w, h) {
+  const scale = Math.min(w / img.width, h / img.height);
+  const dw = img.width * scale;
+  const dh = img.height * scale;
+  ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
 }
 
 /**
@@ -147,7 +161,7 @@ async function renderStatsImage(d) {
   // template as the bottom layer; otherwise fall back to the shared default template.
   const [template, avatar, weaponIcon, armorIcon, deityIcon, deity2Icon, deity3Icon, expIcon] = await Promise.all([
     d.skinPath ? loadAssetImage(d.skinPath).catch(() => null).then((img) => img || loadTemplate()) : loadTemplate(),
-    loadAvatar(d.avatarUrl, d.fallbackAvatarUrl),
+    loadAvatar(d.avatarPath, d.avatarUrl, d.fallbackAvatarUrl),
     d.weaponName ? getEmojiIcon(resolveName(d.weaponName) || '') : Promise.resolve(null),
     d.armorName ? getEmojiIcon(resolveName(d.armorName) || '') : Promise.resolve(null),
     d.deityName ? getEmojiIcon(resolveName(d.deityName) || '') : Promise.resolve(null),
@@ -157,7 +171,7 @@ async function renderStatsImage(d) {
   ]);
 
   // ── Measure the layout (600-wide design space) ──
-  const headerH = PAD + AVATAR + 14;
+  const headerH = 118;
   const bodyH = 264;            // class, combat-exp, weapon, armor, deity hdr+val+blessing, stats [v5 +armor]
   const recordsH = 110;         // "Combat Record" heading + boxed cells
   const footerH = 30;
@@ -198,38 +212,16 @@ async function renderStatsImage(d) {
   let y = PAD;
 
   /* ── HEADER ─────────────────────────────────────────────── */
-  // Avatar (squared, rounded) on the right.
-  const ax = W - PAD - AVATAR;
-  const ay = y;
-  ctx.save();
-  roundRectPath(ctx, ax, ay, AVATAR, AVATAR, 16);
-  ctx.clip();
-  if (avatar) {
-    ctx.drawImage(avatar, ax, ay, AVATAR, AVATAR);
-  } else {
-    ctx.fillStyle = BOX;
-    ctx.fillRect(ax, ay, AVATAR, AVATAR);
-  }
-  ctx.restore();
-  ctx.strokeStyle = ACCENT;
-  ctx.lineWidth = 2;
-  roundRectPath(ctx, ax, ay, AVATAR, AVATAR, 16);
-  ctx.stroke();
-
-  const leftW = ax - PAD - 16; // text column width (clears the avatar)
-
-  // [Initial-release stats] Believer level/title + believer-EXP bar are NOT shown on crd stats
-  // (those live on crd profile). The header carries only the display name + class/level.
-  // Name + equipped title CENTERED in the header (clear of the right-side avatar).
-  const centerMaxW = Math.max(140, 2 * (ax - W / 2 - 12));
+  // Name + equipped title centered in the top header.
+  const nameW = W - PAD * 2;
   ctx.textAlign = 'center';
   ctx.font = F(26, true);
   ctx.fillStyle = NAME_COLOR;
-  ctx.fillText(fitText(ctx, d.displayName, centerMaxW), W / 2, y + 34);
+  ctx.fillText(fitText(ctx, d.displayName, nameW), W / 2, y + 48);
   if (d.equippedTitle) {
     ctx.font = F(14, true);
     ctx.fillStyle = ACCENT;
-    ctx.fillText(fitText(ctx, d.equippedTitle, centerMaxW), W / 2, y + 58);
+    ctx.fillText(fitText(ctx, d.equippedTitle, nameW), W / 2, y + 74);
   }
   ctx.textAlign = 'left';
 
@@ -246,6 +238,23 @@ async function renderStatsImage(d) {
   }
   separator(y);
   y += 12;
+
+  const ax = W - PAD - AVATAR_W;
+  const ay = y + 10;
+  ctx.save();
+  roundRectPath(ctx, ax, ay, AVATAR_W, AVATAR_H, 14);
+  ctx.clip();
+  if (avatar) {
+    drawCover(ctx, avatar, ax, ay, AVATAR_W, AVATAR_H);
+  } else {
+    ctx.fillStyle = BOX;
+    ctx.fillRect(ax, ay, AVATAR_W, AVATAR_H);
+  }
+  ctx.restore();
+  ctx.strokeStyle = ACCENT;
+  ctx.lineWidth = 2;
+  roundRectPath(ctx, ax, ay, AVATAR_W, AVATAR_H, 14);
+  ctx.stroke();
 
   /* ── BODY ───────────────────────────────────────────────── */
   let by = y + 18;

@@ -29,6 +29,8 @@ const CATEGORIES = [
       { canonical: 'create', cmd: 'crd create character (cc)', desc: 'Choose your class' },
       { canonical: 'profile', cmd: 'crd profile [@user] (p)', desc: 'Identity + believer progress card' },
       { canonical: 'stats', cmd: 'crd stats [@user]', desc: 'Combat card — gear, deities, stats' },
+      { canonical: 'avatars', cmd: 'crd avatars', desc: 'Browse owned avatars for your class' },
+      { canonical: 'avatar', cmd: 'crd avatar shop / buy / equip', desc: 'Avatar shop and stats avatar' },
       { canonical: 'cred', cmd: 'crd cred (g)', desc: 'Check Credux balance' },
     ],
   },

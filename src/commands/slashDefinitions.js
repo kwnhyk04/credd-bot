@@ -40,6 +40,23 @@ def('profile', 'profile',
 def('stats', 'stats',
   new SlashCommandBuilder().setDescription('View your combat statistics'), noArgs);
 
+def('avatars', 'avatars',
+  new SlashCommandBuilder().setDescription('Browse your owned avatars for your current class'), noArgs);
+
+def('avatar', 'avatar',
+  new SlashCommandBuilder().setDescription('Avatar shop and equipment')
+    .addSubcommand((s) => s.setName('shop').setDescription('Browse avatars for your current class'))
+    .addSubcommand((s) => s.setName('buy').setDescription('Buy an avatar with supporter tokens')
+      .addStringOption((o) => o.setName('id').setDescription('Avatar id').setRequired(true)))
+    .addSubcommand((s) => s.setName('equip').setDescription('Equip an owned avatar')
+      .addStringOption((o) => o.setName('id').setDescription('Avatar id').setRequired(true)))
+    .addSubcommand((s) => s.setName('default').setDescription('Use your default class avatar')),
+  (i) => {
+    const sub = i.options.getSubcommand();
+    const id = sub === 'buy' || sub === 'equip' ? i.options.getString('id') : null;
+    return { args: id ? [sub, id] : [sub], mentions: [] };
+  });
+
 def('cred', 'cred',
   new SlashCommandBuilder().setDescription('Check your Credux balance'), noArgs);
 

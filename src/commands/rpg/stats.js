@@ -10,10 +10,11 @@ const { EXP_REQUIRED, MAX_COMBAT_LEVEL } = require('../../config/combatExp');
 const { BELIEVER_EXP_PER_LEVEL, believerTitle } = require('../../config/believerProgression');
 const { renderStatsImage } = require('../../engine/renderStats');
 const { resolveSkin, resolveProfileLabel } = require('../../engine/skinResolver');
+const { resolveStatsAvatar } = require('../../engine/avatarSystem');
 const { resolveProfileTarget } = require('../../utils/profileTarget');
 
 // Bump when renderStats output changes visually (busts every cached stats card).
-const STATS_RENDER_REV = 2;
+const STATS_RENDER_REV = 3;
 
 /**
  * `crd profile [@user]` / `crd stats [@user]` — full Canvas profile card.
@@ -197,6 +198,7 @@ async function execute(message) {
   const skin = await resolveSkin(pool, discordId, 'profile');
   data.skinPath = skin.path; // null → renderer keeps the default template
   data.topLabel = await resolveProfileLabel(pool, discordId);
+  data.avatarPath = await resolveStatsAvatar(pool, discordId, r.class);
 
   // [egress] Render-once cache — see profile.js; same pattern.
   const logContext = {
