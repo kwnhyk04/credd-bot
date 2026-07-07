@@ -109,13 +109,45 @@ function fitText(ctx, text, maxW) {
   return `${t}…`;
 }
 
-/** Stats avatar fetch: prefer Credd avatar/class art, then fall back to Discord if needed. */
+function imageSourceCandidates(source) {
+  if (!source) return [];
+  const s = String(source).replace(/\\/g, '/');
+  const match = /^(.*)\.(png|jpe?g|webp)$/i.exec(s);
+  if (!match) return [s];
+  const exts = [match[2].toLowerCase(), 'webp', 'png', 'jpg', 'jpeg'];
+  const bases = [match[1]];
+  const folderStyle = /^(.*\/(?:skins\/)?avatars\/(?:male|female))\/([^/]+)\/([^/]+)$/i.exec(match[1]);
+  if (folderStyle) {
+    const [, prefix, classFolder, fileStem] = folderStyle;
+    const styleOnly = /^(cyber|anime|webtoon)$/i.exec(fileStem);
+    const stemStyle = new RegExp(`^${classFolder}_(cyber|anime|webtoon)$`, 'i').exec(fileStem);
+    const style = (styleOnly?.[1] || stemStyle?.[1] || '').toLowerCase();
+    if (style) {
+      bases.push(`${prefix}/${classFolder}/${classFolder}_${style}`);
+      if (classFolder.toLowerCase() === 'archer') bases.push(`${prefix}/${classFolder}/acher_${style}`);
+    }
+  }
+  for (const base of [...bases]) {
+    const withoutSkins = base.replace(/\/skins\/avatars\//i, '/avatars/');
+    if (withoutSkins !== base) bases.push(withoutSkins);
+    if (!/\/skins\/avatars\//i.test(base)) {
+      const withSkins = base.replace(/\/avatars\//i, '/skins/avatars/');
+      if (withSkins !== base) bases.push(withSkins);
+    }
+  }
+  return [...new Set(bases.flatMap((base) => exts.map((ext) => `${base}.${ext}`)))];
+}
+
+/** Stats avatar fetch: prefer Credd avatar/class art; only use Discord when no game avatar exists. */
 async function loadAvatar(avatarPath, avatarUrl, fallbackUrl) {
   if (avatarPath) {
-    try {
-      const img = await loadAssetImage(avatarPath);
-      if (img) return img;
-    } catch { /* try Discord fallback */ }
+    for (const candidate of imageSourceCandidates(avatarPath)) {
+      try {
+        const img = await loadAssetImage(candidate);
+        if (img) return img;
+      } catch { /* try next asset candidate */ }
+    }
+    return null;
   }
   for (const url of [avatarUrl, fallbackUrl]) {
     if (!url) continue;
@@ -240,7 +272,7 @@ async function renderStatsImage(d) {
   y += 12;
 
   const ax = W - PAD - AVATAR_W;
-  const ay = y + 10;
+  const ay = y + 2;
   ctx.save();
   roundRectPath(ctx, ax, ay, AVATAR_W, AVATAR_H, 14);
   ctx.clip();
@@ -255,6 +287,8 @@ async function renderStatsImage(d) {
   ctx.lineWidth = 2;
   roundRectPath(ctx, ax, ay, AVATAR_W, AVATAR_H, 14);
   ctx.stroke();
+  const bodyRight = ax - 16;
+  const bodyW = bodyRight - PAD;
 
   /* ── BODY ───────────────────────────────────────────────── */
   let by = y + 18;
@@ -263,7 +297,7 @@ async function renderStatsImage(d) {
   // Class + combat level.
   ctx.font = F(16, true);
   ctx.fillStyle = NAME_COLOR;
-  ctx.fillText(`Character Class: ${d.className}, Lvl ${d.combatLevel}`, PAD, by);
+  ctx.fillText(fitText(ctx, `Character Class: ${d.className}, Lvl ${d.combatLevel}`, bodyW), PAD, by);
   by += LH;
 
   // Combat EXP — single text line with the combat-exp icon, no bar.
@@ -272,15 +306,30 @@ async function renderStatsImage(d) {
   ctx.font = F(13);
   ctx.fillStyle = SUB_COLOR;
   const needed = d.combatExpMax == null ? 'MAX' : Number(d.combatExpMax).toLocaleString();
-  ctx.fillText(`Combat EXP: ${Number(d.combatExp).toLocaleString()} / ${needed}`, cex, by);
+  ctx.fillText(fitText(ctx, `Combat EXP: ${Number(d.combatExp).toLocaleString()} / ${needed}`, bodyRight - cex), cex, by);
   by += LH + 8;
 
   // Inline "icon + text" segments on one row (icon optional). Returns the new x cursor.
   const ICON = 18;
-  function seg(icon, text, x, yy) {
-    if (icon) { ctx.drawImage(icon, x, yy - 15, ICON, ICON); x += ICON + 5; }
-    ctx.fillText(text, x, yy);
-    return x + ctx.measureText(text).width;
+  function segmentWidth(segments, size) {
+    ctx.font = F(size, true);
+    return segments.reduce((sum, item) => sum + (item.icon ? ICON + 5 : 0) + ctx.measureText(item.text).width, 0);
+  }
+  function drawSegments(segments, x, yy, maxW, baseSize = 15) {
+    let size = baseSize;
+    while (size > 9 && segmentWidth(segments, size) > maxW) size -= 1;
+    ctx.font = F(size, true);
+    let cx = x;
+    for (const item of segments) {
+      if (item.icon) {
+        const isz = Math.max(12, Math.round(ICON * (size / baseSize)));
+        ctx.drawImage(item.icon, cx, yy - isz + 3, isz, isz);
+        cx += isz + 5;
+      }
+      const text = fitText(ctx, item.text, Math.max(20, x + maxW - cx));
+      ctx.fillText(text, cx, yy);
+      cx += ctx.measureText(text).width;
+    }
   }
 
   // Equipments — weapon + armor on ONE horizontal line, each with its emoji icon.
@@ -292,9 +341,11 @@ async function renderStatsImage(d) {
   ctx.fillStyle = NAME_COLOR;
   const wTxt = d.weaponName ? `${d.weaponName}${d.weaponEnh > 0 ? ` +${d.weaponEnh}` : ''}` : 'None';
   const aTxt = d.armorName ? `${d.armorName}${d.armorEnh > 0 ? ` +${d.armorEnh}` : ''}` : 'None';
-  let ex = seg(d.weaponName ? weaponIcon : null, wTxt, PAD, by);
-  ex = seg(null, ',  ', ex, by);
-  seg(d.armorName ? armorIcon : null, aTxt, ex, by);
+  drawSegments([
+    { icon: d.weaponName ? weaponIcon : null, text: wTxt },
+    { icon: null, text: ',  ' },
+    { icon: d.armorName ? armorIcon : null, text: aTxt },
+  ], PAD, by, bodyW);
   by += LH + 12;   // blank space
 
   // Deities — slots 1/2/3 on ONE horizontal line, each with its emoji icon (2/3 omitted if null).
@@ -305,15 +356,16 @@ async function renderStatsImage(d) {
   ctx.font = F(15, true);
   if (d.deityName) {
     ctx.fillStyle = NAME_COLOR;
-    let dx = seg(deityIcon, `${d.deityName}${d.deityEnh > 0 ? ` +${d.deityEnh}` : ''}`, PAD, by);
-    if (d.deity2Name) { dx = seg(null, ',  ', dx, by); dx = seg(deity2Icon, d.deity2Name, dx, by); }
-    if (d.deity3Name) { dx = seg(null, ',  ', dx, by); seg(deity3Icon, d.deity3Name, dx, by); }
+    const deitySegments = [{ icon: deityIcon, text: `${d.deityName}${d.deityEnh > 0 ? ` +${d.deityEnh}` : ''}` }];
+    if (d.deity2Name) deitySegments.push({ icon: null, text: ',  ' }, { icon: deity2Icon, text: d.deity2Name });
+    if (d.deity3Name) deitySegments.push({ icon: null, text: ',  ' }, { icon: deity3Icon, text: d.deity3Name });
+    drawSegments(deitySegments, PAD, by, bodyW);
     by += LH;
     ctx.font = F(12);
     ctx.fillStyle = SUB_COLOR;
-    ctx.fillText(fitText(ctx, `Divine Blessing: ${d.blessingName || '—'}`, W - PAD * 2), PAD, by);
+    ctx.fillText(fitText(ctx, `Divine Blessing: ${d.blessingName || '—'}`, bodyW), PAD, by);
     by += LH - 4;
-    ctx.fillText(fitText(ctx, `Echo Blessing: ${d.echoBlessing || '—'}`, W - PAD * 2), PAD, by);
+    ctx.fillText(fitText(ctx, `Echo Blessing: ${d.echoBlessing || '—'}`, bodyW), PAD, by);
   } else {
     ctx.fillStyle = SUB_COLOR;
     ctx.fillText('None', PAD, by);
@@ -325,7 +377,7 @@ async function renderStatsImage(d) {
   ctx.fillStyle = DIM_COLOR;
   ctx.fillText('Character Stats:', PAD, by);
   by += LH;
-  drawStatLine(ctx, PAD, by, d);
+  drawStatLine(ctx, PAD, by, d, bodyW);
 
   y = headerH + 12 + bodyH;
 
@@ -428,25 +480,38 @@ function drawStatIcon(ctx, kind, cx, cy, s, color) {
 }
 
 /** "⚔ ATK n   ❤ HP n   🛡 DEF n   ✦ CRIT n%" with colored icons + labels. */
-function drawStatLine(ctx, x, y, d) {
+function drawStatLine(ctx, x, y, d, maxW = Infinity) {
   const items = [
     { kind: 'atk',  label: 'ATK',  value: String(d.atk), color: STAT.atk },
     { kind: 'hp',   label: 'HP',   value: String(d.hp),  color: STAT.hp },
     { kind: 'def',  label: 'DEF',  value: String(d.def), color: STAT.def },
     { kind: 'crit', label: 'CRIT', value: `${Number(d.crit).toFixed(1)}%`, color: STAT.crit },
   ];
-  const S = 13;
+  let size = 14;
+  let iconSize = 13;
+  const totalWidth = () => {
+    let w = 0;
+    for (const it of items) {
+      ctx.font = F(size, true);
+      w += iconSize + 7 + ctx.measureText(it.label).width + 6 + ctx.measureText(it.value).width + 20;
+    }
+    return w;
+  };
+  while (size > 8 && totalWidth() > maxW) {
+    size -= 1;
+    iconSize = Math.max(8, iconSize - 1);
+  }
   let cx = x;
   for (const it of items) {
-    drawStatIcon(ctx, it.kind, cx + S / 2, y - 5, S, it.color);
-    cx += S + 7;
-    ctx.font = F(14, true);
+    drawStatIcon(ctx, it.kind, cx + iconSize / 2, y - 5, iconSize, it.color);
+    cx += iconSize + 7;
+    ctx.font = F(size, true);
     ctx.fillStyle = it.color;
     ctx.fillText(it.label, cx, y);
     cx += ctx.measureText(it.label).width + 6;
     ctx.fillStyle = NAME_COLOR;
     ctx.fillText(it.value, cx, y);
-    cx += ctx.measureText(it.value).width + 20;
+    cx += ctx.measureText(it.value).width + Math.max(10, size + 6);
   }
 }
 

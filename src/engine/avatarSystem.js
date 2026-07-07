@@ -92,7 +92,7 @@ function seedRows() {
           gender,
           style,
           token_cost: STYLE_COST[style],
-          asset_path: `skins/avatars/${gender}/${cls.folder}/${style}.png`,
+          asset_path: `skins/avatars/${gender}/${cls.folder}/${cls.folder}_${style}.png`,
         });
       }
     }

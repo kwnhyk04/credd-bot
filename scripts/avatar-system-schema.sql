@@ -1,6 +1,6 @@
 -- Avatar system schema.
 -- Assets are R2-relative paths under skins/avatars/{gender}/{class}/...
--- Example: skins/avatars/male/swordsman/cyber_01.png
+-- Example: skins/avatars/male/swordsman/swordsman_cyber.png
 
 CREATE TABLE IF NOT EXISTS avatar_catalog (
   avatar_id BIGSERIAL PRIMARY KEY,
@@ -105,7 +105,7 @@ SELECT
   gender,
   style,
   token_cost,
-  'skins/avatars/' || gender || '/' || class_folder || '/' || style || '.png',
+  'skins/avatars/' || gender || '/' || class_folder || '/' || class_folder || '_' || style || '.png',
   TRUE,
   NOW()
 FROM seed

@@ -642,3 +642,110 @@ Actions completed:
 
 5. Updated `.gitignore`.
    - Added `!scripts/avatar-dev-owner-grants.sql` so the grant script is tracked despite the broad `*.sql` ignore rule.
+
+## Default Stats Avatar Fix
+
+Timestamp: 2026-07-07 21:25:17 +08:00
+
+Fixed the default stats renderer only. The shared skin layout renderer was restored to its committed behavior so founder/supporter skin layouts are not affected by this follow-up.
+
+Actions completed:
+
+1. Updated `src/commands/rpg/stats.js`.
+   - Bumped `STATS_RENDER_REV` from `3` to `4` so cached stats cards with the old Discord-avatar render are invalidated.
+
+2. Updated `src/engine/renderStats.js`.
+   - Default stats renderer now tries avatar asset candidates with `.png`, `.webp`, `.jpg`, and `.jpeg` extensions.
+   - If a game avatar path exists but the asset cannot be loaded, it no longer falls back to the Discord avatar.
+   - Avatar top is aligned with the default renderer's Character Class row.
+   - Default renderer text now measures against the avatar's left edge.
+   - Long class, combat EXP, equipment, deity, blessing, and stat text is shrunk or truncated before colliding with the avatar.
+
+Validation:
+
+1. Ran `node --check` on:
+   - `src/commands/rpg/stats.js`
+   - `src/engine/renderStats.js`
+   - `src/engine/statsLayoutRenderer.js`
+2. Rendered a local default stats smoke image with long text and a game avatar path.
+3. Ran `node scripts/help-selftest.js`.
+4. Ran `npm.cmd run selftest:full`.
+5. Ran `git diff --check`; only CRLF warnings were reported.
+
+## Avatar Asset Path and Combat Cooldown Fix
+
+Timestamp: 2026-07-07 21:30:28 +08:00
+
+Fixed the blank default stats avatar caused by the uploaded R2 avatar filenames not matching the seeded catalog path convention.
+
+Actions completed:
+
+1. Updated `src/engine/avatarSystem.js`.
+   - Runtime avatar catalog seeding now uses `skins/avatars/<gender>/<class>/<class>_<style>.png`.
+   - This matches the uploaded R2 folder structure such as `skins/avatars/female/mage/mage_webtoon.png` and `skins/avatars/male/archer/archer_cyber.png`.
+
+2. Updated `src/engine/renderStats.js`.
+   - Default stats avatar loading now tries the direct catalog path first.
+   - It also maps older catalog paths like `skins/avatars/female/mage/webtoon.png` to `skins/avatars/female/mage/mage_webtoon.png`.
+   - It accepts both `skins/avatars/...` and `avatars/...` prefixes for compatibility.
+   - It includes an archer typo fallback for uploaded files named like `acher_cyber.png`.
+   - Extension fallbacks remain available for `.webp`, `.png`, `.jpg`, and `.jpeg`.
+   - Founder/supporter skin layout files were not changed.
+
+3. Updated `src/commands/rpg/stats.js`.
+   - Bumped `STATS_RENDER_REV` from `4` to `6` so cached blank-avatar and pre-alignment stats renders are invalidated.
+   - Added stats-specific optimized image options for the canvas cache upload and attachment fallback path.
+
+4. Updated `scripts/avatar-system-schema.sql`.
+   - Seeded `avatar_catalog.asset_path` values now use the uploaded R2 filename convention.
+   - Updated schema comments to show the new path pattern.
+
+5. Updated `src/config/cooldowns.js`.
+   - `crd raid` / `crd r` cooldown is now 30 seconds.
+   - `crd ranked` / `crd rk` cooldown is now 30 seconds.
+   - Casino and default command cooldowns remain 10 seconds.
+
+Validation:
+
+1. Ran `node --check` on:
+   - `src/engine/avatarSystem.js`
+   - `src/engine/renderStats.js`
+   - `src/commands/rpg/stats.js`
+   - `src/config/cooldowns.js`
+2. Ran `npm.cmd run selftest:full`.
+   - Battle selftest: 137 passed, 0 failed.
+   - Help selftest: 160 passed, 0 failed.
+   - Casino selftest: 171 passed, 0 failed.
+3. Ran `git diff --check`; only CRLF normalization warnings were reported.
+4. Attempted a local render smoke test with a temporary `assets/avatars/...` file during path investigation.
+   - The sandbox blocked creating that temporary directory with `EPERM`, so no tracked asset files were added.
+
+## Stats Avatar Alignment and Compression Follow-up
+
+Timestamp: 2026-07-07 21:36:47 +08:00
+
+Completed the follow-up correction from the latest screenshot.
+
+Actions completed:
+
+1. Updated `src/engine/renderStats.js`.
+   - The default stats avatar frame now starts at the top of the Character Class text row instead of aligning to the text baseline.
+   - Avatar path candidates now match `skins/avatars/<gender>/<class>/<class>_<style>.png`.
+   - Kept compatibility for old rows using `skins/avatars/<gender>/<class>/<style>.png`.
+   - Kept extension fallback for `.webp`, `.png`, `.jpg`, and `.jpeg`.
+   - Added an archer-specific fallback for uploaded filenames that appear as `acher_<style>.png`.
+
+2. Updated `src/commands/rpg/stats.js`.
+   - `STATS_RENDER_REV` is now `6` to invalidate cached cards from the blank-avatar and previous-alignment renders.
+   - Stats canvas cache and attachment fallback now both pass the same optimized image settings:
+     - opaque output
+     - WebP allowed
+     - JPEG fallback quality 80
+     - minimum savings threshold 2%
+   - Deployment env still controls the aggressive encoder mode through `IMAGE_OUTPUT_FORMAT=webp`, `IMAGE_WEBP_QUALITY=65`, and `IMAGE_COMPRESSION_AGGRESSIVE=true`.
+
+3. Updated `src/engine/avatarSystem.js` and `scripts/avatar-system-schema.sql`.
+   - Seed paths now match the R2 breadcrumb: `skins/avatars/<gender>/<class>/<class>_<style>.png`.
+
+4. Updated `src/config/cooldowns.js`.
+   - `raid` and `ranked` remain set to 30 seconds.

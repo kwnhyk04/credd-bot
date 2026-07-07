@@ -14,7 +14,13 @@ const { resolveStatsAvatar } = require('../../engine/avatarSystem');
 const { resolveProfileTarget } = require('../../utils/profileTarget');
 
 // Bump when renderStats output changes visually (busts every cached stats card).
-const STATS_RENDER_REV = 3;
+const STATS_RENDER_REV = 6;
+const STATS_IMAGE_OPTIONS = Object.freeze({
+  quality: 80,
+  minSavings: 0.02,
+  preserveTransparency: false,
+  allowWebp: true,
+});
 
 /**
  * `crd profile [@user]` / `crd stats [@user]` — full Canvas profile card.
@@ -211,7 +217,7 @@ async function execute(message) {
   const cached = await getCachedCanvasUrl(
     ['stats', STATS_RENDER_REV, data],
     () => renderStatsImage(data),
-    {},
+    STATS_IMAGE_OPTIONS,
     { returnImageOnFailure: true, logContext }
   );
   if (cached?.url) {
@@ -225,7 +231,7 @@ async function execute(message) {
 
   const image = cached?.image
     ? attachmentFromOptimizedImage(cached.image, 'stats', { ...logContext, reusedBuffer: true })
-    : await makeOptimizedAttachment(await renderStatsImage(data), 'stats', { logContext });
+    : await makeOptimizedAttachment(await renderStatsImage(data), 'stats', { ...STATS_IMAGE_OPTIONS, logContext });
 
   // Image only — no embed/container wrapper (RenderTweaks Tweak 2).
   await message.reply({
