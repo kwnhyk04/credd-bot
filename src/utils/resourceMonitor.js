@@ -1,0 +1,72 @@
+'use strict';
+
+const { getAssetCacheStats } = require('./assets');
+const { getCanvasCacheStats } = require('./canvasCache');
+const { getImageWorkQueueStats } = require('./imageWorkQueue');
+const { getProfileImageCacheStats } = require('./profileImageCache');
+const { envBool, envPositiveInt, metaString } = require('./runtimeLogs');
+
+let interval = null;
+let lastCpu = process.cpuUsage();
+
+function mb(bytes) {
+  return Math.round((Number(bytes) || 0) / 1024 / 1024);
+}
+
+function resourceLogsEnabled() {
+  return envBool('RESOURCE_LOGS', false);
+}
+
+function intervalMs() {
+  return envPositiveInt('RESOURCE_LOG_INTERVAL_MS', 300_000, { max: 3_600_000 });
+}
+
+function resourceSnapshot() {
+  const mem = process.memoryUsage();
+  const cpu = process.cpuUsage(lastCpu);
+  lastCpu = process.cpuUsage();
+  const assets = getAssetCacheStats();
+  const canvas = getCanvasCacheStats();
+  const queue = getImageWorkQueueStats();
+  const profile = getProfileImageCacheStats();
+  return {
+    rss: mb(mem.rss),
+    heapUsed: mb(mem.heapUsed),
+    heapTotal: mb(mem.heapTotal),
+    external: mb(mem.external),
+    arrayBuffers: mb(mem.arrayBuffers),
+    uptimeSec: Math.round(process.uptime()),
+    userCpuMs: Math.round(cpu.user / 1000),
+    systemCpuMs: Math.round(cpu.system / 1000),
+    entries: assets.entries,
+    bufferEntries: assets.bufferEntries,
+    imageEntries: assets.imageEntries,
+    diskHits: assets.diskHits,
+    diskMisses: assets.diskMisses,
+    cache: `canvas:${canvas.entries}/inflight:${canvas.inflight}/profile:${profile.entries}/queue:${queue.active}+${queue.queued}/${queue.limit}`,
+  };
+}
+
+function logResourceSnapshot() {
+  console.log(`[resource]${metaString(resourceSnapshot())}`);
+}
+
+function startResourceMonitor() {
+  if (!resourceLogsEnabled() || interval) return null;
+  lastCpu = process.cpuUsage();
+  interval = setInterval(logResourceSnapshot, intervalMs());
+  console.log(`[resource] monitor started intervalMs=${intervalMs()}`);
+  return stopResourceMonitor;
+}
+
+function stopResourceMonitor() {
+  if (!interval) return;
+  clearInterval(interval);
+  interval = null;
+}
+
+module.exports = {
+  startResourceMonitor,
+  stopResourceMonitor,
+  resourceLogsEnabled,
+};

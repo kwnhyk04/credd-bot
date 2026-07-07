@@ -20,7 +20,7 @@ const pool = require('../../db/pool');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { resolveName } = require('../../utils/emojis');
 const { renderCenteredArt } = require('../../engine/renderSummon');
-const { makeOptimizedAttachment } = require('../../utils/imageOutput');
+const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../../utils/imageOutput');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 
 // Bump when renderPortraitCard visuals change (busts cached equipment cards).
@@ -136,7 +136,7 @@ function artworkPath(baseDir, name) {
 }
 
 /** Build the unified info payload from a normalized gear row (kind = weapon|armor). */
-async function buildInfoPayload(g, gearId, ownerId) {
+async function buildInfoPayload(g, gearId, ownerId, context = {}) {
   const hasPassive = g.passive_name && g.passive_name.toLowerCase() !== 'none';
 
   const statLines =
@@ -161,14 +161,25 @@ async function buildInfoPayload(g, gearId, ownerId) {
 
   const imagePath = artworkPath(WEAPONS_DIR, g.name);
   const renderArt = () => renderCenteredArt(imagePath);
+  const logContext = {
+    system: 'equipment',
+    command: 'equipment',
+    imageType: 'equipment_card',
+    guildId: context.guildId,
+    userId: context.userId,
+  };
   const cached = imagePath ? await getCachedCanvasUrl(
     ['equipment-art', EQUIPMENT_CARD_REV, imagePath || g.name],
-    renderArt
+    renderArt,
+    {},
+    { returnImageOnFailure: true, logContext }
   ) : null;
   const renderedArt = cached ? null : await renderArt();
-  const image = cached
+  const image = cached?.url
     ? { url: cached.url, file: null }
-    : (renderedArt ? await makeOptimizedAttachment(renderedArt, 'equipment_card') : null);
+    : cached?.image
+      ? attachmentFromOptimizedImage(cached.image, 'equipment_card', { ...logContext, reusedBuffer: true })
+      : (renderedArt ? await makeOptimizedAttachment(renderedArt, 'equipment_card', { logContext }) : null);
 
   const headerName = ownerId ? `<@${ownerId}>'s` : '';
   const sellValue = SELL_PRICES[g.tier] || 0;
@@ -281,7 +292,10 @@ async function info(message, rawId) {
     return;
   }
 
-  await reply(message, await buildInfoPayload(g, gearId, message.author.id));
+  await reply(message, await buildInfoPayload(g, gearId, message.author.id, {
+    guildId: message.guild?.id,
+    userId: message.author?.id,
+  }));
 }
 
 // ── dispatcher: crd equipment info <id> ─────────────────────────────────────

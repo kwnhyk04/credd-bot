@@ -23,7 +23,7 @@ const {
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { phtWeek } = require('../../config/ranked');
 const { renderQuestRowsImage } = require('../../engine/renderQuestRows');
-const { makeOptimizedAttachment } = require('../../utils/imageOutput');
+const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../../utils/imageOutput');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 
 // Bump when renderQuestRows visuals change (busts cached quest boards).
@@ -36,12 +36,22 @@ const QUEST_BOARD_REV = 1;
  * function of the quest rows + reward icon.
  */
 async function questBoardImage(quests, rewardIcon, name) {
+  const logContext = {
+    system: 'quests',
+    command: 'quests',
+    imageType: name,
+  };
   const cached = await getCachedCanvasUrl(
     ['quest-board', QUEST_BOARD_REV, rewardIcon, quests],
-    () => renderQuestRowsImage(quests, { rewardIcon })
+    () => renderQuestRowsImage(quests, { rewardIcon }),
+    {},
+    { returnImageOnFailure: true, logContext }
   );
-  if (cached) return { url: cached.url, file: null };
-  return makeOptimizedAttachment(await renderQuestRowsImage(quests, { rewardIcon }), name);
+  if (cached?.url) return { url: cached.url, file: null };
+  if (cached?.image) {
+    return attachmentFromOptimizedImage(cached.image, name, { ...logContext, reusedBuffer: true });
+  }
+  return makeOptimizedAttachment(await renderQuestRowsImage(quests, { rewardIcon }), name, { logContext });
 }
 
 const ACCENT = 0xf0b232;

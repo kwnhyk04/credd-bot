@@ -5,6 +5,7 @@ const { MessageContext } = require('../utils/commandContext');
 const { awardCommandBelieverExp } = require('../utils/awardBelieverExp');
 const guildConfig = require('./guildConfigCache');
 const ALIASES = require('../config/aliases');
+const { envBool } = require('../utils/runtimeLogs');
 
 const registerCmd = require('../commands/rpg/register');
 const createCmd = require('../commands/rpg/create');
@@ -44,6 +45,15 @@ const setCmd = require('../commands/rpg/set');
 const helpCmd = require('../commands/help');
 const adminCmd = require('../commands/admin');
 const disabledCasinoCmd = require('../commands/casino/disabled');
+const casinoEnabled = envBool('CASINO_ENABLED', false);
+const casinoCmds = casinoEnabled ? {
+  coin: require('../commands/casino/coin'),
+  dice: require('../commands/casino/dice'),
+  baccarat: require('../commands/casino/baccarat'),
+  blackjack: require('../commands/casino/blackjack'),
+  slot: require('../commands/casino/slot'),
+  crash: require('../commands/casino/crash'),
+} : null;
 
 // Implemented commands, keyed by CANONICAL command (first token). Shorthands route here via
 // config/aliases.js (expanded before lookup), so no direct alias keys live in this map.
@@ -95,12 +105,12 @@ const IMPLEMENTED = {
   set:      { mw: 'full', run: setCmd.execute },
 
   // ── Casino (Phase 10) — requiresCharacter:false (registration gate only) ──
-  coin:      { mw: 'full', run: disabledCasinoCmd.execute },
-  dice:      { mw: 'full', run: disabledCasinoCmd.execute },
-  baccarat:  { mw: 'full', run: disabledCasinoCmd.execute },
-  blackjack: { mw: 'full', run: disabledCasinoCmd.execute },
-  slot:      { mw: 'full', run: disabledCasinoCmd.execute },
-  crash:     { mw: 'full', run: disabledCasinoCmd.execute },
+  coin:      { mw: 'full', run: (casinoCmds?.coin || disabledCasinoCmd).execute },
+  dice:      { mw: 'full', run: (casinoCmds?.dice || disabledCasinoCmd).execute },
+  baccarat:  { mw: 'full', run: (casinoCmds?.baccarat || disabledCasinoCmd).execute },
+  blackjack: { mw: 'full', run: (casinoCmds?.blackjack || disabledCasinoCmd).execute },
+  slot:      { mw: 'full', run: (casinoCmds?.slot || disabledCasinoCmd).execute },
+  crash:     { mw: 'full', run: (casinoCmds?.crash || disabledCasinoCmd).execute },
 };
 
 // requiresCharacter source, keyed by canonical command. true → character middleware check runs.

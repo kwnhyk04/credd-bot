@@ -1,7 +1,7 @@
 'use strict';
 
 const { MediaGalleryBuilder, MessageFlags } = require('discord.js');
-const { makeOptimizedAttachment } = require('../../utils/imageOutput');
+const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../../utils/imageOutput');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 const pool = require('../../db/pool');
 const { assemblePlayerStats, accumulateRuneStats } = require('../../engine/statAssembly');
@@ -11,6 +11,11 @@ const { BELIEVER_EXP_PER_LEVEL, believerTitle } = require('../../config/believer
 const { renderProfileImage } = require('../../engine/renderProfile');
 const { resolveSkin, resolveProfileLabel } = require('../../engine/skinResolver');
 const { resolveProfileTarget } = require('../../utils/profileTarget');
+const {
+  signature: profileImageSignature,
+  getProfileImageCache,
+  setProfileImageCache,
+} = require('../../utils/profileImageCache');
 
 // Bump when renderProfile output changes visually (busts every cached profile card).
 const PROFILE_RENDER_REV = 1;
@@ -194,11 +199,31 @@ async function execute(message) {
   // [egress] Render-once cache: same profile state → same key → served from R2
   // by URL (zero upload). PROFILE_RENDER_REV must be bumped when renderProfile
   // visuals change so old cached images stop matching.
+  const logContext = {
+    system: 'profile',
+    command: 'profile',
+    imageType: 'profile',
+    guildId: message.guild?.id,
+    userId: discordId,
+  };
+  const memorySignature = profileImageSignature([PROFILE_RENDER_REV, data]);
+  const memoryUrl = getProfileImageCache(discordId, memorySignature, logContext);
+  if (memoryUrl) {
+    await message.reply({
+      components: [new MediaGalleryBuilder().addItems((item) => item.setURL(memoryUrl))],
+      flags: MessageFlags.IsComponentsV2,
+      allowedMentions: { repliedUser: false },
+    });
+    return;
+  }
   const cached = await getCachedCanvasUrl(
     ['profile', PROFILE_RENDER_REV, data],
-    () => renderProfileImage(data)
+    () => renderProfileImage(data),
+    {},
+    { returnImageOnFailure: true, logContext }
   );
-  if (cached) {
+  if (cached?.url) {
+    setProfileImageCache(discordId, memorySignature, cached.url);
     await message.reply({
       components: [new MediaGalleryBuilder().addItems((item) => item.setURL(cached.url))],
       flags: MessageFlags.IsComponentsV2,
@@ -207,7 +232,9 @@ async function execute(message) {
     return;
   }
 
-  const image = await makeOptimizedAttachment(await renderProfileImage(data), 'profile');
+  const image = cached?.image
+    ? attachmentFromOptimizedImage(cached.image, 'profile', { ...logContext, reusedBuffer: true })
+    : await makeOptimizedAttachment(await renderProfileImage(data), 'profile', { logContext });
 
   // Image only — no embed/container wrapper (RenderTweaks Tweak 2).
   await message.reply({

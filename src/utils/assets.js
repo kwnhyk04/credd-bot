@@ -2,11 +2,20 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const {
+  envBool, envNumber, envPositiveInt, bandwidthLog,
+} = require('./runtimeLogs');
 
 const ASSETS_ROOT = path.join(process.cwd(), 'assets');
-const CACHE_MAX_ENTRIES = Math.max(1, Number(process.env.ASSET_CACHE_MAX_ENTRIES || 256));
-const CACHE_MAX_BYTES = Math.max(1024 * 1024, Number(process.env.ASSET_CACHE_MAX_MB || 128) * 1024 * 1024);
-const CACHE_TTL_MS = Math.max(0, Number(process.env.ASSET_CACHE_TTL_MS || 0));
+const DISK_CACHE_ROOT = path.join(process.cwd(), '.cache', 'assets');
+const CACHE_MAX_ENTRIES = envPositiveInt(
+  'ASSET_MEMORY_CACHE_MAX',
+  envPositiveInt('ASSET_CACHE_MAX_ENTRIES', 256, { max: 5000 }),
+  { max: 5000 }
+);
+const CACHE_MAX_BYTES = Math.max(1024 * 1024, envNumber('ASSET_CACHE_MAX_MB', 128, { min: 1, max: 2048 }) * 1024 * 1024);
+const CACHE_TTL_MS = Math.max(0, envNumber('ASSET_CACHE_TTL_MS', 0, { min: 0 }));
 
 const bufferCache = new Map();
 const imageCache = new Map();
@@ -16,6 +25,9 @@ const cacheStats = {
   bufferMisses: 0,
   imageHits: 0,
   imageMisses: 0,
+  diskHits: 0,
+  diskMisses: 0,
+  downloadedBytes: 0,
   evictions: 0,
 };
 
@@ -94,6 +106,8 @@ function getAssetCacheStats() {
     maxEntries: CACHE_MAX_ENTRIES,
     maxBytes: CACHE_MAX_BYTES,
     ttlMs: CACHE_TTL_MS,
+    diskEnabled: diskCacheEnabled(),
+    diskRoot: DISK_CACHE_ROOT,
   };
 }
 
@@ -180,6 +194,51 @@ function assetExtension(source, fallback = 'bin') {
   return match ? match[1].toLowerCase() : fallback;
 }
 
+function diskCacheEnabled() {
+  return envBool('ASSET_DISK_CACHE_ENABLED', false);
+}
+
+function diskCacheIdentity(source) {
+  const raw = String(source || '');
+  try {
+    const url = new URL(raw);
+    return `${url.protocol}//${url.host}${url.pathname}\n${assetVersion()}`;
+  } catch {
+    return raw.replace(/[?#].*$/, '');
+  }
+}
+
+function diskCachePath(source) {
+  const id = diskCacheIdentity(source);
+  const hash = crypto.createHash('sha256').update(id).digest('hex');
+  const ext = assetExtension(String(source || '').replace(/[?#].*$/, ''), 'bin');
+  return path.join(DISK_CACHE_ROOT, `${hash}.${ext}`);
+}
+
+async function readDiskCache(source) {
+  if (!diskCacheEnabled()) return null;
+  const file = diskCachePath(source);
+  try {
+    const buffer = await fs.promises.readFile(file);
+    cacheStats.diskHits += 1;
+    return buffer;
+  } catch {
+    cacheStats.diskMisses += 1;
+    return null;
+  }
+}
+
+async function writeDiskCache(source, buffer) {
+  if (!diskCacheEnabled() || !Buffer.isBuffer(buffer)) return;
+  const file = diskCachePath(source);
+  try {
+    await fs.promises.mkdir(DISK_CACHE_ROOT, { recursive: true });
+    await fs.promises.writeFile(file, buffer);
+  } catch {
+    // Disk cache is opportunistic; memory cache and fetch fallback remain authoritative.
+  }
+}
+
 function assetSource(source) {
   if (!source) return source;
   if (isRemoteSource(source)) return source;
@@ -200,10 +259,20 @@ async function fetchAssetBuffer(source) {
   cacheStats.bufferMisses += 1;
 
   if (isRemoteSource(resolved)) {
+    const disk = await readDiskCache(resolved);
+    if (disk) return cacheSet(bufferCache, resolved, disk, disk.length);
     try {
       const res = await fetch(resolved);
       if (!res.ok) throw new Error(`Asset fetch failed ${res.status}: ${resolved}`);
       const buffer = Buffer.from(await res.arrayBuffer());
+      cacheStats.downloadedBytes += buffer.length;
+      bandwidthLog('remote asset downloaded', {
+        system: 'assets',
+        cache: 'remote',
+        name: assetFileName(resolved, 'asset'),
+        bytes: buffer.length,
+      });
+      await writeDiskCache(resolved, buffer);
       return cacheSet(bufferCache, resolved, buffer, buffer.length);
     } catch (err) {
       const rel = relativeAssetPath(resolved);

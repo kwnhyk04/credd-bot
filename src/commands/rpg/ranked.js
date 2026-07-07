@@ -18,6 +18,8 @@ const { buildPlayerFighter } = require('../../engine/statAssembly');
 const { runBattle } = require('../../engine/battleRender');
 const { resolveSkin } = require('../../engine/skinResolver');
 const { activeSeason } = require('../../engine/seasonEngine');
+const { performanceLog } = require('../../utils/runtimeLogs');
+const { pickRandomRow } = require('../../utils/selectionPools');
 const {
   bracketOf, bracketFloor, bracketIndex, matchRange, matchRangeWide,
   eloDelta, valorForResult, phtWeek, WEEKLY_MIN_GAMES,
@@ -100,6 +102,8 @@ async function fight(message) {
   const rating = self.pvp_rating;
   const season = await activeSeason(pool);
   const inSeason = !!season;
+  const matchmakingStarted = Date.now();
+  let candidateCount = 0;
 
   // Avoid an immediate rematch: the most recent opponent is excluded first, so a
   // thin bracket doesn't pit you against the same player twice in a row.
@@ -119,17 +123,23 @@ async function fight(message) {
     const res = await pool.query(
       `SELECT uc.discord_id, uc.pvp_rating
          FROM user_character uc JOIN users u ON u.discord_id = uc.discord_id
-        WHERE uc.pvp_rating BETWEEN $1 AND $2 AND uc.discord_id <> $3 ${extra}
-        ORDER BY random() LIMIT 1`,
+        WHERE uc.pvp_rating BETWEEN $1 AND $2 AND uc.discord_id <> $3 ${extra}`,
       params
     );
-    return res.rows[0] || null;
+    candidateCount += res.rows.length;
+    return pickRandomRow(res.rows);
   }
 
   // ±1 (no rematch) → ±2 (no rematch) → ±2 (allow rematch as last resort).
   let opp = await pickOpponent(1, true);
   if (!opp) opp = await pickOpponent(2, true);
   if (!opp) opp = await pickOpponent(2, false);
+  performanceLog('ranked matchmaking selection duration', {
+    system: 'ranked',
+    command: 'ranked',
+    durationMs: Date.now() - matchmakingStarted,
+    candidateCount,
+  });
   if (!opp) {
     return reply(message, '⚔️ No eligible opponent in your bracket range right now — try again later.');
   }

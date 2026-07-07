@@ -17,7 +17,7 @@
  */
 
 const {
-  ContainerBuilder, MediaGalleryBuilder, AttachmentBuilder,
+  ContainerBuilder, MediaGalleryBuilder,
   MessageFlags,
 } = require('discord.js');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
@@ -28,7 +28,7 @@ const {
   assetPath, loadAssetImage: loadAssetImageSource,
   remoteAssetAvailable, getAssetUrl,
 } = require('../../utils/assets');
-const { assertDiscordImageAttachmentsAllowed } = require('../../utils/egressGuard');
+const { makeOptimizedAttachment } = require('../../utils/imageOutput');
 
 // [egress] The attendance banner is one fixed image — pre-rendered by
 // scripts/build-casino-spin-assets.js and served from R2 when uploaded.
@@ -161,7 +161,7 @@ async function claimDaily(client, discordId, { bypass = false } = {}) {
 }
 
 /** CV2 reward card (§19 layout). */
-async function buildDailyPayload(result) {
+async function buildDailyPayload(result, logContext = {}) {
   const creduxIcon = emojiForDisplay('Credux Coin', '💰');
   const shardIcon = emojiForDisplay('Belief Shards', '🔮');
   const chestIcon = emojiForDisplay(result.chestLabel, '🎁');
@@ -175,10 +175,15 @@ async function buildDailyPayload(result) {
   } else {
     const buf = await banner();
     if (buf) {
-      assertDiscordImageAttachmentsAllowed('daily banner attachment fallback');
-      files.push(new AttachmentBuilder(buf, { name: 'attendance.png' }));
+      const image = await makeOptimizedAttachment(buf, 'attendance', {
+        logContext: {
+          ...logContext,
+          imageType: 'daily_banner',
+        },
+      });
+      files.push(image.file);
       container.addMediaGalleryComponents((g) =>
-        g.addItems((item) => item.setURL('attachment://attendance.png')));
+        g.addItems((item) => item.setURL(image.url)));
     }
   }
   container
@@ -220,7 +225,12 @@ async function execute(message) {
       content: `⏳ You already claimed today (Day ${result.monthly}). Come back after midnight PHT.`,
     });
   }
-  return reply(message, await buildDailyPayload(result));
+  return reply(message, await buildDailyPayload(result, {
+    system: 'daily',
+    command: 'daily',
+    guildId: message.guild?.id,
+    userId: discordId,
+  }));
 }
 
 module.exports = { execute, claimDaily, dailyReward, buildDailyPayload, banner };

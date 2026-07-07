@@ -17,6 +17,8 @@ const {
   bagEmoji, runeEmojiName, runeEmoji, rollRuneValue, runeDescription,
 } = require('../../config/runes');
 const { assetPath } = require('../../utils/assets');
+const { performanceLog } = require('../../utils/runtimeLogs');
+const { getSelectionPool, pickRandomRow } = require('../../utils/selectionPools');
 
 // Relic gacha config (Master §6): which relic feeds how many deity rolls.
 //   sr   → 1 Sacred Relic  → 10 deity rolls (pity applies)
@@ -28,6 +30,53 @@ const RELICS = {
 
 function reply(message, content) {
   return message.reply({ content, allowedMentions: { repliedUser: false } });
+}
+
+async function randomWeaponForTier(client, tier) {
+  const rows = await getSelectionPool(
+    ['weapon_roster', 'available', tier],
+    async () => {
+      const res = await client.query(
+        `SELECT weapon_roster_id, name, type FROM weapon_roster
+          WHERE tier = $1 AND is_available = TRUE`,
+        [tier]
+      );
+      return res.rows;
+    },
+    { system: 'open', command: 'open', poolKey: `weapon:${tier}` }
+  );
+  return pickRandomRow(rows);
+}
+
+async function randomArmorForTier(client, tier, type) {
+  const rows = await getSelectionPool(
+    ['armor_roster', 'available', tier, type],
+    async () => {
+      const res = await client.query(
+        `SELECT armor_roster_id, name, type FROM armor_roster
+          WHERE tier = $1 AND type = $2 AND is_available = TRUE`,
+        [tier, type]
+      );
+      return res.rows;
+    },
+    { system: 'open', command: 'open', poolKey: `armor:${tier}:${type}` }
+  );
+  return pickRandomRow(rows);
+}
+
+async function randomRuneForTier(client, tier) {
+  const rows = await getSelectionPool(
+    ['rune_roster', tier],
+    async () => {
+      const res = await client.query(
+        'SELECT rune_id, name, effect_key, tier, value FROM rune_roster WHERE tier = $1',
+        [tier]
+      );
+      return res.rows;
+    },
+    { system: 'open', command: 'open_rune_bag', poolKey: `rune:${tier}` }
+  );
+  return pickRandomRow(rows);
 }
 
 /**
@@ -63,24 +112,28 @@ async function openChestsTxn(discordId, alias, amount) {
     }
 
     const drops = [];
+    let selectionMs = 0;
     for (let i = 0; i < amount; i++) {
       const tier = rollTier(alias);
       // [v5] each drop is a weapon OR an armor (GEAR_SPLIT). Same chest, same tier odds.
       const gearClass = rollGearClass();
 
       if (gearClass === 'weapon') {
-        const wr = await client.query(
-          `SELECT weapon_roster_id, name, type FROM weapon_roster
-            WHERE tier = $1 AND is_available = TRUE
-            ORDER BY RANDOM() LIMIT 1`,
-          [tier]
-        );
-        if (wr.rows.length === 0) {
+        const selectStarted = Date.now();
+        const weapon = await randomWeaponForTier(client, tier);
+        selectionMs += Date.now() - selectStarted;
+        if (!weapon) {
+          performanceLog('open selection duration', {
+            system: 'open',
+            command: 'open',
+            durationMs: selectionMs,
+            count: amount,
+          });
           await client.query('ROLLBACK');
           console.error(`[open] no available weapon for tier ${tier}`);
           return { ok: false, reason: 'no_weapon_pool' };
         }
-        const { weapon_roster_id, name, type } = wr.rows[0];
+        const { weapon_roster_id, name, type } = weapon;
         const s = rollWeaponStats(tier, type); // ATK + CRIT only (v5)
         const gearId = await generateUniqueGearId(client);
         const sockets = buildSocketArray(rollNativeSocketCount(tier)); // §2.2 native sockets
@@ -98,18 +151,21 @@ async function openChestsTxn(discordId, alias, amount) {
       } else {
         // armor: roll type 1/3 each, pick an available roster row of that tier+type
         const armorType = rollArmorType();
-        const ar = await client.query(
-          `SELECT armor_roster_id, name, type FROM armor_roster
-            WHERE tier = $1 AND type = $2 AND is_available = TRUE
-            ORDER BY RANDOM() LIMIT 1`,
-          [tier, armorType]
-        );
-        if (ar.rows.length === 0) {
+        const selectStarted = Date.now();
+        const armor = await randomArmorForTier(client, tier, armorType);
+        selectionMs += Date.now() - selectStarted;
+        if (!armor) {
+          performanceLog('open selection duration', {
+            system: 'open',
+            command: 'open',
+            durationMs: selectionMs,
+            count: amount,
+          });
           await client.query('ROLLBACK');
           console.error(`[open] no available armor for tier ${tier} type ${armorType}`);
           return { ok: false, reason: 'no_armor_pool' };
         }
-        const { armor_roster_id, name, type } = ar.rows[0];
+        const { armor_roster_id, name, type } = armor;
         const s = rollArmorStats(tier, type); // HP + DEF only (v5 §C.1)
         const gearId = await generateUniqueGearId(client);
         const sockets = buildSocketArray(rollNativeSocketCount(tier)); // §2.2 native sockets
@@ -125,6 +181,12 @@ async function openChestsTxn(discordId, alias, amount) {
         drops.push({ gearClass: 'armor', name, type, tier, ...s, id: gearId, socketCount: sockets.length });
       }
     }
+    performanceLog('open selection duration', {
+      system: 'open',
+      command: 'open',
+      durationMs: selectionMs,
+      count: amount,
+    });
 
     const remaining = previous - amount;
     await client.query(
@@ -369,14 +431,22 @@ async function openRuneBagsTxn(discordId, bagKey, amount) {
     const runePool = poolRes.rows[0].rune_pool;
 
     const drops = [];
+    let selectionMs = 0;
     for (let i = 0; i < amount; i++) {
       const tier = rollRuneTier(runePool);
-      const rr = await client.query(
-        'SELECT rune_id, name, effect_key, tier, value FROM rune_roster WHERE tier = $1 ORDER BY RANDOM() LIMIT 1',
-        [tier]
-      );
-      if (rr.rows.length === 0) { await client.query('ROLLBACK'); return { ok: false, reason: 'no_rune_pool' }; }
-      const rune = rr.rows[0];
+      const selectStarted = Date.now();
+      const rune = await randomRuneForTier(client, tier);
+      selectionMs += Date.now() - selectStarted;
+      if (!rune) {
+        performanceLog('open selection duration', {
+          system: 'open',
+          command: 'open_rune_bag',
+          durationMs: selectionMs,
+          count: amount,
+        });
+        await client.query('ROLLBACK');
+        return { ok: false, reason: 'no_rune_pool' };
+      }
       const rolledValue = rollRuneValue(rune.effect_key, rune.tier) ?? Number(rune.value);
       const runeUid = await generateUniqueRuneUid(client);
       await client.query(
@@ -386,6 +456,12 @@ async function openRuneBagsTxn(discordId, bagKey, amount) {
       );
       drops.push({ id: runeUid, name: rune.name, tier: rune.tier, effect_key: rune.effect_key, value: rolledValue });
     }
+    performanceLog('open selection duration', {
+      system: 'open',
+      command: 'open_rune_bag',
+      durationMs: selectionMs,
+      count: amount,
+    });
 
     const remaining = previous - amount;
     await client.query(`UPDATE users_bag SET ${col} = ${col} - $2 WHERE discord_id = $1`, [discordId, amount]);

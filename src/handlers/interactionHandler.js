@@ -16,6 +16,13 @@ const titleCmd = require('../commands/rpg/title');
 const exchangeEssenceCmd = require('../commands/rpg/exchangeEssence');
 const questsCmd = require('../commands/economy/quests');
 const autoRaidCmd = require('../commands/rpg/autoRaid');
+const { envBool } = require('../utils/runtimeLogs');
+
+const casinoEnabled = envBool('CASINO_ENABLED', false);
+const casinoButtons = casinoEnabled ? {
+  blackjack: require('../commands/casino/blackjack'),
+  crash: require('../commands/casino/crash'),
+} : null;
 
 const COLLECTOR_OWNED_BUTTONS = new Set([
   'battle_log',
@@ -94,11 +101,19 @@ async function handleInteraction(interaction) {
     }
 
     if (namespace === 'bj') {
+      if (casinoButtons) {
+        await casinoButtons.blackjack.handleButton(interaction, action, parts[2]);
+        return;
+      }
       await interaction.reply({ content: 'Casino commands are currently disabled.', flags: MessageFlags.Ephemeral }).catch(() => {});
       return;
     }
 
     if (namespace === 'crash') {
+      if (casinoButtons) {
+        await casinoButtons.crash.handleButton(interaction, action, parts[2]);
+        return;
+      }
       await interaction.reply({ content: 'Casino commands are currently disabled.', flags: MessageFlags.Ephemeral }).catch(() => {});
       return;
     }

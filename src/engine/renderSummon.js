@@ -239,7 +239,9 @@ async function renderSummonGrid(results) {
  * @param {{ flipPath?: string|null, headerEmoji?: string|null, title: string, separateMedia?: boolean }} o
  * @returns {Promise<Array>} files to attach (empty unless a local gif was used)
  */
-async function addSummonHeader(container, { flipPath = null, headerEmoji = null, title, separateMedia = false }) {
+async function addSummonHeader(container, {
+  flipPath = null, headerEmoji = null, title, separateMedia = false, logContext = {},
+}) {
   const isImage = typeof flipPath === 'string' && /\.(gif|webp|png|jpe?g)$/i.test(flipPath);
   if (isImage) {
     try {
@@ -250,8 +252,13 @@ async function addSummonHeader(container, { flipPath = null, headerEmoji = null,
         return [];
       }
       const name = `summonflip.${assetExtension(flipPath, 'gif')}`;
-      assertDiscordImageAttachmentsAllowed('summon animation attachment fallback');
-      const file = new AttachmentBuilder(await loadCachedBuffer(flipPath), { name });
+      const buffer = await loadCachedBuffer(flipPath);
+      assertDiscordImageAttachmentsAllowed('summon animation attachment fallback', {
+        ...logContext,
+        imageType: 'summon_animation',
+        bytes: buffer.length,
+      });
+      const file = new AttachmentBuilder(buffer, { name });
       container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(`attachment://${name}`)));
       return [file];
     } catch (err) {
@@ -264,7 +271,7 @@ async function addSummonHeader(container, { flipPath = null, headerEmoji = null,
   return [];
 }
 
-async function buildFlipMessage(flipPath = null) {
+async function buildFlipMessage(flipPath = null, logContext = {}) {
   // Summon suspense EMBED (CV2): one header line — emoji + title together (or the
   // skin gif directly under the header). MUST be Components-V2 (not legacy
   // `content`): the result phase edits this into a CV2 container and Discord
@@ -274,6 +281,7 @@ async function buildFlipMessage(flipPath = null) {
     flipPath,
     title: 'Invocation in progress...',
     separateMedia: true,
+    logContext,
   });
   return {
     components: [container],
@@ -309,6 +317,7 @@ async function buildResultMessage(results, balances, opts = {}) {
     flipPath: opts.flipPath,
     headerEmoji: opts.headerEmoji,
     title: `Invocation Complete\n*${FLAVOR[results.length] ?? FLAVOR[10]}*`,
+    logContext: opts.logContext || {},
   });
   container
     .addSeparatorComponents(sep)

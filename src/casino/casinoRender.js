@@ -19,6 +19,7 @@ const { smallDivider: sep } = require('../utils/componentsV2');
 const { assetPath, getAssetUrl, remoteAssetAvailable } = require('../utils/assets');
 const { getCachedCanvasUrl } = require('../utils/canvasCache');
 const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard');
+const { attachmentFromOptimizedImage } = require('../utils/imageOutput');
 const { COLORS } = canvas;
 const { SLOT_FACE_INDEX } = require('./payoutTables');
 const { BACK_FILE, blackjackValue } = require('./cardDeck');
@@ -57,17 +58,41 @@ function galleryOne(c, name) {
   galleryUrl(c, `attachment://${name}`);
 }
 function att(buf, name) {
-  assertDiscordImageAttachmentsAllowed(`casino ${name} attachment fallback`);
+  assertDiscordImageAttachmentsAllowed(`casino ${name} attachment fallback`, {
+    system: 'casino',
+    command: 'casino',
+    imageType: name,
+    bytes: buf.length,
+  });
   return new AttachmentBuilder(buf, { name });
+}
+function attachmentBaseName(name) {
+  return name.replace(/\.[^.]+$/, '');
 }
 
 async function galleryFromCanvasCache(c, files, parts, build, name) {
+  const logContext = {
+    system: 'casino',
+    command: 'casino',
+    imageType: name,
+  };
   const cached = await getCachedCanvasUrl(
     ['casino-canvas', CASINO_CANVAS_RENDER_REV, parts],
-    build
+    build,
+    {},
+    { returnImageOnFailure: true, logContext }
   );
-  if (cached) {
+  if (cached?.url) {
     galleryUrl(c, cached.url);
+    return;
+  }
+  if (cached?.image) {
+    const attachment = attachmentFromOptimizedImage(cached.image, attachmentBaseName(name), {
+      ...logContext,
+      reusedBuffer: true,
+    });
+    files.push(attachment.file);
+    galleryUrl(c, attachment.url);
     return;
   }
   files.push(att(await build(), name));

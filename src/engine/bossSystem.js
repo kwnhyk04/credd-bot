@@ -60,8 +60,11 @@ const {
   readAssetText,
 } = require('../utils/assets');
 const { getCachedCanvasUrl } = require('../utils/canvasCache');
-const { makeOptimizedAttachment } = require('../utils/imageOutput');
+const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../utils/imageOutput');
 const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard');
+const {
+  envBool, envNumber, envPositiveInt, bandwidthLog, performanceLog,
+} = require('../utils/runtimeLogs');
 const { bossFeatTitlesFor } = require('../config/titles');
 const {
   isGreaterBoss, bossRewards, rollBossChest, hpMultiplierForChest, pickWeightedBoss,
@@ -96,7 +99,9 @@ const BOSS_ASSET_DIR = localAssetPath('monsters/boss');
 /* ── in-memory state ────────────────────────────────────────────────────── */
 const liveMessages = new Map();  // guildId → { channelId, messageId }
 const logCache = new Map();      // `${spawnId}:${discordId}` → sim
+const logCacheOrder = new Map(); // spawnId → Map<discordId, timestamp>
 const currentSpawn = new Map();  // guildId → spawnId (for logCache purging)
+const pendingBossRefreshes = new Map(); // guildId -> { timer, spawnId }
 // [v4.6] Greater Boss chest rolled ONCE at spawn, keyed by spawn_id — the single source of
 // truth shared by the announcement and the defeat payout (they can never disagree). In-memory
 // only (no schema change); a restart loses it and chestForSpawn re-rolls for that spawn.
@@ -107,15 +112,143 @@ const greaterChests = new Map(); // spawnId → { column, qty, label }
 // rules, which is fine for testing.
 const devSpawns = new Set();
 
+function bossImageRefreshEnabled() {
+  return envBool('BOSS_IMAGE_REFRESH_ENABLED', true);
+}
+
+function bossImageRefreshDebounceMs() {
+  return envNumber('BOSS_IMAGE_REFRESH_DEBOUNCE_MS', 15_000, { min: 1_000, max: 300_000 });
+}
+
+function bossLogCacheMaxAttackers() {
+  return envPositiveInt('BOSS_LOG_CACHE_MAX_ATTACKERS', 50, { max: 500 });
+}
+
+function bossLogCacheMaxEventsPerAttacker() {
+  return envPositiveInt('BOSS_LOG_CACHE_MAX_EVENTS_PER_ATTACKER', 20, { max: 500 });
+}
+
+function clearPendingBossRefresh(guildId, reason = 'cleared') {
+  const pending = pendingBossRefreshes.get(guildId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingBossRefreshes.delete(guildId);
+  bandwidthLog('boss image refresh skipped', {
+    system: 'boss',
+    command: 'boss:attack',
+    imageType: 'boss_status',
+    guildId,
+    spawnId: pending.spawnId,
+    reason,
+  });
+}
+
 function rememberSpawn(guildId, spawnId) {
   const old = currentSpawn.get(guildId);
   if (old && old !== spawnId) {
-    for (const key of logCache.keys()) {
-      if (key.startsWith(`${old}:`)) logCache.delete(key);
-    }
-    greaterChests.delete(old);
+    clearPendingBossRefresh(guildId, 'spawn-replaced');
+    purgeBossRuntimeForSpawn(old, 'spawn-replaced');
   }
   currentSpawn.set(guildId, spawnId);
+}
+
+function bossLogKey(spawnId, discordId) {
+  return `${spawnId}:${discordId}`;
+}
+
+function compactBossSim(sim) {
+  const limit = bossLogCacheMaxEventsPerAttacker();
+  const rounds = Array.isArray(sim?.rounds) ? sim.rounds : [];
+  const totalEvents = rounds.reduce((sum, round) => sum + (round.events?.length || 0), 0);
+  if (totalEvents <= limit) return sim;
+
+  let remaining = limit;
+  const compacted = [];
+  for (let i = rounds.length - 1; i >= 0 && remaining > 0; i--) {
+    const round = rounds[i];
+    const events = Array.isArray(round.events) ? round.events : [];
+    const kept = events.slice(Math.max(0, events.length - remaining));
+    if (kept.length > 0) {
+      compacted.unshift({ ...round, events: kept });
+      remaining -= kept.length;
+    }
+  }
+  const dropped = totalEvents - compacted.reduce((sum, round) => sum + round.events.length, 0);
+  if (dropped > 0 && compacted.length > 0) {
+    compacted[0] = {
+      ...compacted[0],
+      events: [`-# Earlier boss log events compacted (${dropped} hidden).`, ...compacted[0].events],
+    };
+  }
+  performanceLog('boss log compacted', {
+    system: 'boss',
+    command: 'boss:attack',
+    events: totalEvents,
+    limit,
+    removed: dropped,
+  });
+  return { ...sim, rounds: compacted, snapshots: [] };
+}
+
+function rememberBossLog(spawnId, discordId, sim) {
+  const maxAttackers = bossLogCacheMaxAttackers();
+  let order = logCacheOrder.get(spawnId);
+  if (!order) {
+    order = new Map();
+    logCacheOrder.set(spawnId, order);
+  }
+
+  if (order.has(discordId)) order.delete(discordId);
+  while (order.size >= maxAttackers) {
+    const evictedUser = order.keys().next().value;
+    order.delete(evictedUser);
+    logCache.delete(bossLogKey(spawnId, evictedUser));
+    performanceLog('boss log attacker evicted', {
+      system: 'boss',
+      command: 'boss:attack',
+      spawnId,
+      userId: evictedUser,
+      attackers: order.size,
+      limit: maxAttackers,
+    });
+  }
+
+  order.set(discordId, Date.now());
+  logCache.set(bossLogKey(spawnId, discordId), compactBossSim(sim));
+}
+
+function purgeBossRuntimeForSpawn(spawnId, reason = 'cleared') {
+  if (!spawnId) return;
+  let removed = 0;
+  const order = logCacheOrder.get(spawnId);
+  if (order) {
+    for (const discordId of order.keys()) {
+      if (logCache.delete(bossLogKey(spawnId, discordId))) removed += 1;
+    }
+    logCacheOrder.delete(spawnId);
+  } else {
+    for (const key of logCache.keys()) {
+      if (key.startsWith(`${spawnId}:`)) {
+        logCache.delete(key);
+        removed += 1;
+      }
+    }
+  }
+  greaterChests.delete(spawnId);
+  devSpawns.delete(spawnId);
+  performanceLog('boss runtime cache cleared', {
+    system: 'boss',
+    command: 'boss',
+    spawnId,
+    reason,
+    removed,
+  });
+}
+
+function purgeBossRuntimeForGuild(guildId, reason = 'cleared') {
+  const spawnId = currentSpawn.get(guildId);
+  if (spawnId) purgeBossRuntimeForSpawn(spawnId, reason);
+  currentSpawn.delete(guildId);
 }
 
 /**
@@ -329,6 +462,31 @@ function renderBossStatusCard(state, mobRow) {
   return canvas.toBuffer('image/png');
 }
 
+function bossStatusText(state, mobRow) {
+  const cur = Number(state.current_hp);
+  const max = Number(state.max_hp);
+  const pct = max > 0 ? Math.max(0, Math.min(100, (cur / max) * 100)) : 0;
+  const passive = mobRow.skill_name && mobRow.skill_name !== '—'
+    ? `Passive: ${mobRow.skill_name} - ${mobRow.skill_description}`
+    : `Passive: ${mobRow.skill_description || 'Basic attacks only.'}`;
+  return [
+    `**HP:** ${cur.toLocaleString()} / ${max.toLocaleString()} (${pct.toFixed(1)}%)`,
+    `**ATK:** ${Number(state.scaled_atk).toLocaleString()}  **DEF:** ${Number(state.scaled_def).toLocaleString()}  **CRIT:** ${Number(mobRow.base_crit).toFixed(1)}%`,
+    `-# ${passive}`,
+  ].join('\n');
+}
+
+function renderBossStatusCardWithLog(state, mobRow, logContext) {
+  const started = Date.now();
+  const buffer = renderBossStatusCard(state, mobRow);
+  performanceLog('boss render duration', {
+    ...logContext,
+    durationMs: Date.now() - started,
+    bytes: buffer.length,
+  });
+  return buffer;
+}
+
 function bossStatusCacheParts(state, mobRow) {
   return {
     spawnId: state.spawn_id,
@@ -347,13 +505,28 @@ function bossStatusCacheParts(state, mobRow) {
 }
 
 async function bossStatusImage(state, mobRow) {
+  const logContext = {
+    system: 'boss',
+    command: 'boss',
+    imageType: 'boss_status',
+    guildId: state.guild_id,
+    spawnId: state.spawn_id,
+  };
   const cached = await getCachedCanvasUrl(
     ['boss-status-card', BOSS_STATUS_RENDER_REV, bossStatusCacheParts(state, mobRow)],
-    () => renderBossStatusCard(state, mobRow)
+    () => renderBossStatusCardWithLog(state, mobRow, logContext),
+    {},
+    { returnImageOnFailure: true, logContext }
   );
-  return cached
-    ? { url: cached.url, file: null }
-    : makeOptimizedAttachment(renderBossStatusCard(state, mobRow), 'boss_status');
+  if (cached?.url) return { url: cached.url, file: null };
+  if (cached?.image) {
+    return attachmentFromOptimizedImage(cached.image, 'boss_status', { ...logContext, reusedBuffer: true });
+  }
+  return makeOptimizedAttachment(
+    renderBossStatusCardWithLog(state, mobRow, logContext),
+    'boss_status',
+    { logContext }
+  );
 }
 
 /** Fetch everything the message needs in one place. Null when no boss_state row. */
@@ -403,7 +576,8 @@ async function fetchBossView(guildId) {
  * separator → lore → separator → rewards → separator → Top 15 → separator →
  * footer + buttons.
  */
-async function buildBossMessage({ state, mobRow, attackers, attackerCount, isDev = false }) {
+async function buildBossMessage(view, { includeStatusImage = true } = {}) {
+  const { state, mobRow, attackers, attackerCount, isDev = false } = view;
   const { status } = state;
 
   const greater = isGreaterBoss(mobRow.name);
@@ -437,7 +611,13 @@ async function buildBossMessage({ state, mobRow, attackers, attackerCount, isDev
   } else {
     const banner = imgPath ? await bossBanner(imgPath) : null;
     if (banner) {
-      assertDiscordImageAttachmentsAllowed('boss banner attachment fallback');
+      assertDiscordImageAttachmentsAllowed('boss banner attachment fallback', {
+        system: 'boss',
+        command: 'boss',
+        imageType: 'boss_banner',
+        guildId: state.guild_id,
+        bytes: banner.length,
+      });
       files.push(new AttachmentBuilder(banner, { name: 'boss_banner.png' }));
       container.addMediaGalleryComponents((g) =>
         g.addItems((item) => item.setURL('attachment://boss_banner.png'))
@@ -446,14 +626,26 @@ async function buildBossMessage({ state, mobRow, attackers, attackerCount, isDev
   }
 
   container.addSeparatorComponents(sep);
-  try {
-    const card = await bossStatusImage(state, mobRow);
-    if (card.file) files.push(card.file);
-    container.addMediaGalleryComponents((g) =>
-      g.addItems((item) => item.setURL(card.url))
-    );
-  } catch (err) {
-    console.warn('[boss] status card render failed:', err.message);
+  if (includeStatusImage) {
+    try {
+      const card = await bossStatusImage(state, mobRow);
+      if (card.file) files.push(card.file);
+      container.addMediaGalleryComponents((g) =>
+        g.addItems((item) => item.setURL(card.url))
+      );
+    } catch (err) {
+      console.warn('[boss] status card render failed:', err.message);
+    }
+  } else {
+    bandwidthLog('boss image refresh skipped', {
+      system: 'boss',
+      command: 'boss',
+      imageType: 'boss_status',
+      guildId: state.guild_id,
+      spawnId: state.spawn_id,
+      reason: 'image-refresh-disabled',
+    });
+    container.addTextDisplayComponents((td) => td.setContent(bossStatusText(state, mobRow)));
   }
 
   // lore — plain text wraps to the embed width on its own
@@ -566,8 +758,10 @@ function repointLiveMessage(guildId, msg) {
  * channel. Already-deleted / missing-message (Unknown Message) is swallowed.
  */
 async function deleteLiveMessage(client, guildId) {
+  clearPendingBossRefresh(guildId, 'live-message-deleted');
   const ref = liveMessages.get(guildId);
   liveMessages.delete(guildId);
+  purgeBossRuntimeForGuild(guildId, 'live-message-deleted');
   if (!ref) return;
   const channel = await client.channels.fetch(ref.channelId).catch(() => null);
   const msg = channel ? await channel.messages.fetch(ref.messageId).catch(() => null) : null;
@@ -578,11 +772,11 @@ async function deleteLiveMessage(client, guildId) {
  * Re-render the tracked message from fresh DB state; ANY edit/fetch failure
  * (deleted message, restart-empty Map) → fresh message + repoint.
  */
-async function refreshLiveMessage(client, guildId) {
+async function refreshLiveMessage(client, guildId, options = {}) {
   const view = await fetchBossView(guildId);
   if (!view) return;
   rememberSpawn(guildId, view.state.spawn_id);
-  const payload = await buildBossMessage(view);
+  const payload = await buildBossMessage(view, options);
   const ref = liveMessages.get(guildId);
   if (ref) {
     const channel = await client.channels.fetch(ref.channelId).catch(() => null);
@@ -593,6 +787,77 @@ async function refreshLiveMessage(client, guildId) {
     }
   }
   await postFreshLiveMessage(client, guildId, payload);
+}
+
+function scheduleBossLiveRefresh(client, guildId, { spawnId = null } = {}) {
+  if (!bossImageRefreshEnabled()) {
+    bandwidthLog('boss image refresh skipped', {
+      system: 'boss',
+      command: 'boss:attack',
+      imageType: 'boss_status',
+      guildId,
+      spawnId,
+      reason: 'disabled',
+    });
+    refreshLiveMessage(client, guildId, { includeStatusImage: false }).catch((err) => {
+      console.error(`[boss] text refresh failed (guild ${guildId}):`, err.message);
+    });
+    return;
+  }
+
+  const existing = pendingBossRefreshes.get(guildId);
+  if (existing) {
+    existing.spawnId = spawnId || existing.spawnId;
+    bandwidthLog('boss image refresh coalesced', {
+      system: 'boss',
+      command: 'boss:attack',
+      imageType: 'boss_status',
+      guildId,
+      spawnId: existing.spawnId,
+      debounceMs: bossImageRefreshDebounceMs(),
+    });
+    return;
+  }
+
+  const debounceMs = bossImageRefreshDebounceMs();
+  bandwidthLog('boss image refresh scheduled', {
+    system: 'boss',
+    command: 'boss:attack',
+    imageType: 'boss_status',
+    guildId,
+    spawnId,
+    debounceMs,
+  });
+
+  const timer = setTimeout(async () => {
+    const pending = pendingBossRefreshes.get(guildId);
+    pendingBossRefreshes.delete(guildId);
+    if (pending?.spawnId && currentSpawn.get(guildId) && currentSpawn.get(guildId) !== pending.spawnId) {
+      bandwidthLog('boss image refresh skipped', {
+        system: 'boss',
+        command: 'boss:attack',
+        imageType: 'boss_status',
+        guildId,
+        spawnId: pending.spawnId,
+        reason: 'stale-spawn',
+      });
+      return;
+    }
+    const started = Date.now();
+    await refreshLiveMessage(client, guildId).catch((err) => {
+      console.error(`[boss] debounced refresh failed (guild ${guildId}):`, err.message);
+    });
+    bandwidthLog('boss image refresh rendered', {
+      system: 'boss',
+      command: 'boss:attack',
+      imageType: 'boss_status',
+      guildId,
+      spawnId: pending?.spawnId,
+      durationMs: Date.now() - started,
+    });
+  }, debounceMs);
+
+  pendingBossRefreshes.set(guildId, { timer, spawnId });
 }
 
 /* ── spawn / escape (scheduler paths) ───────────────────────────────────── */
@@ -691,7 +956,9 @@ async function expireBoss(client, guildId) {
     [guildId]
   );
   if (res.rows.length === 0) return false;
+  clearPendingBossRefresh(guildId, 'expired');
   await deleteLiveMessage(client, guildId).catch(() => {});
+  purgeBossRuntimeForSpawn(res.rows[0].spawn_id, 'expired');
   return true;
 }
 
@@ -703,7 +970,7 @@ async function expireBoss(client, guildId) {
  * boss_state makes the loser of the race see 0 flipped rows and roll back).
  * Returns the attacker count, or null when nothing was distributed.
  */
-async function distributeRewards(client, guildId, spawnId) {
+async function distributeRewards(client, guildId, spawnId, { includeStatusImage = true } = {}) {
   const dbc = await pool.connect();
   let attackerIds = [];
   let reward = null;
@@ -811,7 +1078,8 @@ async function distributeRewards(client, guildId, spawnId) {
   }
 
   // post-commit presentation (failures here never affect the payouts)
-  await refreshLiveMessage(client, guildId).catch(() => {});
+  clearPendingBossRefresh(guildId, 'dead');
+  await refreshLiveMessage(client, guildId, { includeStatusImage }).catch(() => {});
   const view = await fetchBossView(guildId).catch(() => null);
   if (view) {
     const channelId = liveMessages.get(guildId)?.channelId || await resolveAnnounceChannelId(guildId);
@@ -830,6 +1098,8 @@ async function distributeRewards(client, guildId, spawnId) {
       }).catch(() => {});
     }
   }
+  purgeBossRuntimeForSpawn(spawnId, 'dead');
+  currentSpawn.delete(guildId);
   return attackerIds.length;
 }
 
@@ -837,6 +1107,7 @@ async function distributeRewards(client, guildId, spawnId) {
 async function handleAttack(interaction) {
   const guildId = interaction.guildId;
   const discordId = interaction.user.id;
+  const started = Date.now();
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const fail = (msg) => interaction.editReply({ content: msg }).catch(() => {});
 
@@ -970,13 +1241,15 @@ async function handleAttack(interaction) {
         dbc.release();
       }
 
-      logCache.set(`${state.spawn_id}:${discordId}`, sim);
+      rememberBossLog(state.spawn_id, discordId, sim);
       rememberSpawn(guildId, state.spawn_id);
 
       if (remaining <= 0) {
-        await distributeRewards(interaction.client, guildId, state.spawn_id);
+        await distributeRewards(interaction.client, guildId, state.spawn_id, {
+          includeStatusImage: bossImageRefreshEnabled(),
+        });
       } else {
-        await refreshLiveMessage(interaction.client, guildId);
+        scheduleBossLiveRefresh(interaction.client, guildId, { spawnId: state.spawn_id });
       }
 
       const survived = sim.outcome === 'boss_timeout';
@@ -992,6 +1265,14 @@ async function handleAttack(interaction) {
   } catch (err) {
     console.error('[boss] attack error:', err);
     await fail('Something went wrong with your attack — nothing was consumed.');
+  } finally {
+    performanceLog('boss attack total duration', {
+      system: 'boss',
+      command: 'boss:attack',
+      guildId,
+      userId: discordId,
+      durationMs: Date.now() - started,
+    });
   }
 }
 

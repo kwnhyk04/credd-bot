@@ -34,10 +34,29 @@ const {
 } = require('../config/gachaRates');
 const { grantTitles, grantTitle } = require('../utils/titleGrant');
 const { believerTitlesFor, COLLECTION_PANTHEON_KEEPER, MYTHOLOGY_COLLECTION } = require('../config/titles');
+const { performanceLog } = require('../utils/runtimeLogs');
+const { getSelectionPool, pickRandomRow } = require('../utils/selectionPools');
 
 // Whitelisted essence columns — interpolated into SQL only from this constant
 // map keyed by our own tier strings (never raw user input).
 const ESSENCE_COLUMNS = ['epic_essence', 'mythic_essence', 'legendary_essence', 'supreme_essence'];
+
+async function randomDeityForTier(client, tier) {
+  const rows = await getSelectionPool(
+    ['deity_roster', 'available', tier],
+    async () => {
+      const res = await client.query(
+        `SELECT deity_id, name, mythology, tier, base_hp, base_atk, base_def, blessing_name
+           FROM deity_roster
+          WHERE tier = $1 AND is_available = TRUE`,
+        [tier]
+      );
+      return res.rows;
+    },
+    { system: 'summon', command: 'summon', poolKey: `deity:${tier}` }
+  );
+  return pickRandomRow(rows);
+}
 
 /**
  * @param {import('pg').PoolClient} client  caller's in-transaction client
@@ -114,6 +133,7 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
   // ── Roll loop ────────────────────────────────────────────────────────────
   const pulls = [];
   let pendingActiveId = null; // first new deity, if the player has none active
+  let selectionMs = 0;
 
   for (let i = 0; i < count; i++) {
     // Step 1 — tier (relic-forced tiers bypass the roll AND leave pity as-is).
@@ -127,17 +147,12 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
     }
 
     // Step 2 — specific available deity in that tier.
-    const deityRes = await client.query(
-      `SELECT deity_id, name, mythology, tier, base_hp, base_atk, base_def, blessing_name
-         FROM deity_roster
-        WHERE tier = $1 AND is_available = TRUE
-        ORDER BY RANDOM() LIMIT 1`,
-      [tier]
-    );
-    if (deityRes.rows.length === 0) {
+    const selectStarted = Date.now();
+    const d = await randomDeityForTier(client, tier);
+    selectionMs += Date.now() - selectStarted;
+    if (!d) {
       throw new Error(`runSummon: no available deity for tier ${tier}`);
     }
-    const d = deityRes.rows[0];
 
     const isDupe = ownedSet.has(d.deity_id);
     const essenceGained = isDupe ? ESSENCE_PER_DUPLICATE[tier] : 0;
@@ -258,6 +273,12 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
   // ── Summary for the embed ────────────────────────────────────────────────
   const summary = { Epic: 0, Mythic: 0, Legendary: 0, Supreme: 0 };
   for (const p of pulls) summary[p.tier] += 1;
+  performanceLog('summon selection duration', {
+    system: 'summon',
+    command: forceTier ? 'open_relic' : 'summon',
+    durationMs: selectionMs,
+    count,
+  });
 
   return {
     pulls,

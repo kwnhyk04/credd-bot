@@ -216,8 +216,15 @@ async function buildPreview(db, viewerId, { page = 0, idx = 0, ctx = 'shop', var
     if (isRemoteSource(abs)) {
       container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(abs)));
     } else {
-      assertDiscordImageAttachmentsAllowed('skin preview attachment fallback');
-      files.push(new AttachmentBuilder(await attachmentSource(abs), { name }));
+      const buffer = await attachmentSource(abs);
+      assertDiscordImageAttachmentsAllowed('skin preview attachment fallback', {
+        system: 'skin',
+        command: 'skin',
+        imageType: 'skin_preview',
+        userId: viewerId,
+        bytes: buffer.length,
+      });
+      files.push(new AttachmentBuilder(buffer, { name }));
       container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(`attachment://${name}`)));
     }
   } else {

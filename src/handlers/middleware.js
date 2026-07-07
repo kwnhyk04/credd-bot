@@ -3,11 +3,46 @@
 const pool = require('../db/pool');
 const { cooldownMs } = require('../config/cooldowns');
 const guildConfig = require('./guildConfigCache');
+const { envNumber, performanceLog } = require('../utils/runtimeLogs');
 
 // In-memory cooldown store: "discord_id:commandKey" → timestamp of last use.
 // Compound key gives each command its own independent window (per-user, across guilds).
 // Window length is per-command; config currently resolves commands to 10s windows.
 const cooldowns = new Map();
+const activityWrites = new Map(); // `${guildId}:${discordId}` -> ms timestamp of last DB write
+
+function activityWriteThrottleMs() {
+  return Math.floor(envNumber('USER_ACTIVITY_WRITE_THROTTLE_MS', 60_000, { min: 0, max: 3_600_000 }));
+}
+
+function trimActivityWrites(now, throttleMs) {
+  if (activityWrites.size <= 10_000) return;
+  const staleBefore = now - Math.max(throttleMs * 2, 300_000);
+  for (const [key, last] of activityWrites) {
+    if (last < staleBefore) activityWrites.delete(key);
+  }
+}
+
+function shouldWriteActivity(discordId, guildId, commandKey) {
+  const throttleMs = activityWriteThrottleMs();
+  if (throttleMs <= 0) return true;
+  const now = Date.now();
+  const key = `${guildId}:${discordId}`;
+  const last = activityWrites.get(key) || 0;
+  if (now - last < throttleMs) {
+    performanceLog('user activity write throttled', {
+      system: 'middleware',
+      command: commandKey,
+      guildId,
+      userId: discordId,
+      throttleMs,
+    });
+    return false;
+  }
+  activityWrites.set(key, now);
+  trimActivityWrites(now, throttleMs);
+  return true;
+}
 
 /**
  * Lightweight ban check by discord id. Returns true if the user IS banned.
@@ -107,8 +142,8 @@ async function runMiddleware(ctx, { requiresCharacter = false, commandKey = '' }
   }
   cooldowns.set(cooldownKey, now);
 
-  // ── 5. UPSERT user_guild_activity ─────────────────────────────────────────
-  if (guildId) {
+  // ── 6. UPSERT user_guild_activity ─────────────────────────────────────────
+  if (guildId && shouldWriteActivity(discordId, guildId, commandKey)) {
     pool.query(
       `INSERT INTO user_guild_activity (discord_id, guild_id, last_active)
        VALUES ($1, $2, NOW())

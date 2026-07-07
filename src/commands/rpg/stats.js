@@ -1,7 +1,7 @@
 'use strict';
 
 const { MediaGalleryBuilder, MessageFlags } = require('discord.js');
-const { makeOptimizedAttachment } = require('../../utils/imageOutput');
+const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../../utils/imageOutput');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 const pool = require('../../db/pool');
 const { assemblePlayerStats, accumulateRuneStats } = require('../../engine/statAssembly');
@@ -199,11 +199,20 @@ async function execute(message) {
   data.topLabel = await resolveProfileLabel(pool, discordId);
 
   // [egress] Render-once cache — see profile.js; same pattern.
+  const logContext = {
+    system: 'stats',
+    command: 'stats',
+    imageType: 'stats',
+    guildId: message.guild?.id,
+    userId: discordId,
+  };
   const cached = await getCachedCanvasUrl(
     ['stats', STATS_RENDER_REV, data],
-    () => renderStatsImage(data)
+    () => renderStatsImage(data),
+    {},
+    { returnImageOnFailure: true, logContext }
   );
-  if (cached) {
+  if (cached?.url) {
     await message.reply({
       components: [new MediaGalleryBuilder().addItems((item) => item.setURL(cached.url))],
       flags: MessageFlags.IsComponentsV2,
@@ -212,7 +221,9 @@ async function execute(message) {
     return;
   }
 
-  const image = await makeOptimizedAttachment(await renderStatsImage(data), 'stats');
+  const image = cached?.image
+    ? attachmentFromOptimizedImage(cached.image, 'stats', { ...logContext, reusedBuffer: true })
+    : await makeOptimizedAttachment(await renderStatsImage(data), 'stats', { logContext });
 
   // Image only — no embed/container wrapper (RenderTweaks Tweak 2).
   await message.reply({

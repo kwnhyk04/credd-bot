@@ -14,9 +14,10 @@ const { startBossScheduler } = require('./src/schedulers/bossScheduler');
 const { startSeasonScheduler } = require('./src/schedulers/seasonScheduler');
 const pool = require('./src/db/pool');
 const { auditWeaponEmojis, reconcileEmojiIds } = require('./src/utils/emojis');
-const { recoverExpiredSessions } = require('./src/casino/sessionStore');
 const { sweepCanvasCache, verifyCanvasCacheReady } = require('./src/utils/canvasCache');
 const { syncSlashCommandsOnStart } = require('./src/utils/slashCommandSync');
+const { envBool } = require('./src/utils/runtimeLogs');
+const { startResourceMonitor } = require('./src/utils/resourceMonitor');
 const {
   discordImageAttachmentsAllowed,
   productionEgressIssues,
@@ -28,6 +29,11 @@ const CASINO_SWEEP_MS = 60_000;
 const CANVAS_CACHE_SWEEP_MS = 6 * 3600_000;
 let casinoSweepInterval = null;
 let canvasCacheSweepInterval = null;
+let stopResourceMonitor = null;
+
+function casinoEnabled() {
+  return envBool('CASINO_ENABLED', false);
+}
 
 const client = new Client({
   intents: [
@@ -91,20 +97,27 @@ client.once('ready', async () => {
   // Emoji diagnostics (warn-only, never blocks startup).
   auditWeaponEmojis(pool);
   reconcileEmojiIds(client);
-  // Pre-pad the fixed casino assets so the first spin isn't slow (background, non-blocking).
-  require('./src/casino/casinoRender').prewarm();
-  // Casino recovery sweep: refund expired stateful sessions (blackjack/crash) whose players
-  // never came back — once at startup, then every 60s. A sweep failure must never crash the bot.
-  recoverExpiredSessions({ reason: 'startup_recovery' })
-    .catch((err) => console.error('[casinoSweep] startup sweep failed:', err.message));
-  casinoSweepInterval = setInterval(() => {
-    recoverExpiredSessions()
-      .catch((err) => console.error('[casinoSweep] sweep failed:', err.message));
-  }, CASINO_SWEEP_MS);
+  // Casino startup work is opt-in while public casino commands are disabled by default.
+  if (casinoEnabled()) {
+    console.log('[casino] Casino enabled; prewarm and recovery sweep active.');
+    require('./src/casino/casinoRender').prewarm();
+    const { recoverExpiredSessions } = require('./src/casino/sessionStore');
+    // Casino recovery sweep: refund expired stateful sessions (blackjack/crash) whose players
+    // never came back — once at startup, then every 60s. A sweep failure must never crash the bot.
+    recoverExpiredSessions({ reason: 'startup_recovery' })
+      .catch((err) => console.error('[casinoSweep] startup sweep failed:', err.message));
+    casinoSweepInterval = setInterval(() => {
+      recoverExpiredSessions()
+        .catch((err) => console.error('[casinoSweep] sweep failed:', err.message));
+    }, CASINO_SWEEP_MS);
+  } else {
+    console.log('[casino] Casino disabled; prewarm and recovery sweep skipped.');
+  }
   // Canvas-cache eviction (no-op unless R2 write creds are configured).
   canvasCacheSweepInterval = setInterval(() => {
     sweepCanvasCache().catch((err) => console.error('[canvasCache] sweep failed:', err.message));
   }, CANVAS_CACHE_SWEEP_MS);
+  stopResourceMonitor = startResourceMonitor();
 });
 
 client.on('messageCreate', async (message) => {
@@ -144,6 +157,7 @@ async function shutdown(signal) {
   console.log(`[credd] ${signal} received — shutting down.`);
   if (casinoSweepInterval) clearInterval(casinoSweepInterval);
   if (canvasCacheSweepInterval) clearInterval(canvasCacheSweepInterval);
+  if (stopResourceMonitor) stopResourceMonitor();
   try { client.destroy(); } catch (err) { console.error('[credd] client.destroy failed:', err.message); }
   try { await pool.end(); } catch (err) { console.error('[credd] pool.end failed:', err.message); }
   process.exit(0);

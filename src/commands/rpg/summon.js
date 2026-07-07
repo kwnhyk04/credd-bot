@@ -111,16 +111,22 @@ async function execute(message, { args }) {
   }
 
   let sent = null;
+  const logContext = {
+    system: 'summon',
+    command: 'summon',
+    guildId: message.guild?.id,
+    userId: discordId,
+  };
   try {
     if (haveFlip) {
-      sent = await reply(message, await buildFlipMessage(flipPath));
+      sent = await reply(message, await buildFlipMessage(flipPath, logContext));
       await sleep(flipMs); // flip plays per-skin duration (default 4s; founder_summon = 7s)
       // Keep the flip emoji / skin gif in the result header (pass flipPath);
       // attachments: [] clears the old upload — a remote R2 gif re-uses its URL.
-      await sent.edit({ ...(await buildResultMessage(results, balances, { flipPath })), attachments: [] });
+      await sent.edit({ ...(await buildResultMessage(results, balances, { flipPath, logContext })), attachments: [] });
     } else {
       // card_flip.gif not on disk — skip the suspense phase.
-      await reply(message, await buildResultMessage(results, balances, { flipPath }));
+      await reply(message, await buildResultMessage(results, balances, { flipPath, logContext }));
     }
   } catch (err) {
     // Display-only failure: the pulls are committed — always tell the player.

@@ -18,7 +18,7 @@ const { generateUniqueGearId } = require('../../utils/weaponId');
 const { renderPortraitCard } = require('../../engine/renderPortraitCard');
 const { assetPath, isRemoteAssetsEnabled } = require('../../utils/assets');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
-const { makeOptimizedAttachment } = require('../../utils/imageOutput');
+const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../../utils/imageOutput');
 const { emoji } = require('../../utils/emojis');
 
 const BRAND = 0x9b59b6;
@@ -90,13 +90,23 @@ async function classPreviewPayload(className, userId) {
         { body: cls.passiveLine.replace(/\*\*/g, '') },
       ],
     };
+    const logContext = {
+      system: 'create',
+      command: 'create',
+      imageType: 'class_preview',
+      userId,
+    };
     const cached = await getCachedCanvasUrl(
       ['class-preview-card', CLASS_CARD_RENDER_REV, cardInput],
-      () => renderPortraitCard(cardInput)
+      () => renderPortraitCard(cardInput),
+      {},
+      { returnImageOnFailure: true, logContext }
     );
-    image = cached
+    image = cached?.url
       ? { url: cached.url, file: null }
-      : await makeOptimizedAttachment(await renderPortraitCard(cardInput), `class_${className.toLowerCase()}`);
+      : cached?.image
+        ? attachmentFromOptimizedImage(cached.image, `class_${className.toLowerCase()}`, { ...logContext, reusedBuffer: true })
+        : await makeOptimizedAttachment(await renderPortraitCard(cardInput), `class_${className.toLowerCase()}`, { logContext });
   } catch (err) {
     console.error('[create] class card render failed:', err.message);
   }

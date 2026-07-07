@@ -40,9 +40,10 @@ const {
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const path = require('path');
 const { emojiForDisplay } = require('../utils/emojis');
-const { optimizeOpaqueAttachment } = require('../utils/imageOutput');
+const { optimizeOpaqueAttachment, attachmentFromOptimizedImage } = require('../utils/imageOutput');
 const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard');
 const { getCachedCanvasUrl } = require('../utils/canvasCache');
+const { performanceLog } = require('../utils/runtimeLogs');
 const { loadBattleSkin, renderBattleSkinPanel } = require('./battleLayoutRenderer');
 const { loadResultSkin, renderResultPanel } = require('./resultLayoutRenderer');
 
@@ -491,33 +492,57 @@ function battleResultCacheParts(sim, rewards, resultSkinPath) {
   };
 }
 
-async function cachedBattleFrame(sim, snapIdx, { mode, mirror, icons, skin, battleSkinPath }) {
+async function cachedBattleFrame(sim, snapIdx, { mode, mirror, icons, skin, battleSkinPath, guildId }) {
   const render = () => renderBattlePanel(sim, snapIdx, { mirror, icons, skin, mode });
   const imageOptions = { background: COLORS.bg, maxWidth: 1024 };
+  const logContext = {
+    system: 'battle',
+    command: mode,
+    imageType: 'battle_frame',
+    guildId,
+  };
   const cached = await getCachedCanvasUrl(
     ['battle-frame', BATTLE_FRAME_RENDER_REV, battleFrameCacheParts(sim, snapIdx, { mode, mirror, battleSkinPath })],
     render,
-    imageOptions
+    imageOptions,
+    { returnImageOnFailure: true, logContext }
   );
-  if (cached) return { url: cached.url, files: [] };
-  assertDiscordImageAttachmentsAllowed('battle frame attachment fallback');
+  if (cached?.url) return { url: cached.url, files: [] };
+  if (cached?.image) {
+    const attachment = attachmentFromOptimizedImage(cached.image, 'battle', { ...logContext, reusedBuffer: true });
+    return { url: attachment.url, files: [attachment.file] };
+  }
+  assertDiscordImageAttachmentsAllowed('battle frame attachment fallback', logContext);
   const image = await optimizeOpaqueAttachment(render(), 'battle', imageOptions);
+  performanceLog('image output bytes', { ...logContext, bytes: image.buffer.length });
   return {
     url: `attachment://${image.name}`,
     files: [new AttachmentBuilder(image.buffer, { name: image.name })],
   };
 }
 
-async function cachedBattleResultImage(buffer, sim, rewards, resultSkinPath) {
+async function cachedBattleResultImage(buffer, sim, rewards, resultSkinPath, { guildId, mode } = {}) {
   const imageOptions = { background: COLORS.bg, maxWidth: 1024 };
+  const logContext = {
+    system: 'battle',
+    command: mode,
+    imageType: 'battle_result',
+    guildId,
+  };
   const cached = await getCachedCanvasUrl(
     ['battle-result-panel', BATTLE_RESULT_RENDER_REV, battleResultCacheParts(sim, rewards, resultSkinPath)],
     () => buffer,
-    imageOptions
+    imageOptions,
+    { returnImageOnFailure: true, logContext }
   );
-  if (cached) return { url: cached.url, files: [] };
-  assertDiscordImageAttachmentsAllowed('battle result attachment fallback');
+  if (cached?.url) return { url: cached.url, files: [] };
+  if (cached?.image) {
+    const attachment = attachmentFromOptimizedImage(cached.image, 'rewards', { ...logContext, reusedBuffer: true });
+    return { url: attachment.url, files: [attachment.file] };
+  }
+  assertDiscordImageAttachmentsAllowed('battle result attachment fallback', logContext);
   const image = await optimizeOpaqueAttachment(buffer, 'rewards', imageOptions);
+  performanceLog('image output bytes', { ...logContext, bytes: image.buffer.length });
   return {
     url: `attachment://${image.name}`,
     files: [new AttachmentBuilder(image.buffer, { name: image.name })],
@@ -655,7 +680,9 @@ async function runBattle(channel, {
     const over = i >= sim.snapshots.length - 1;
     // [egress] battle frames ship at 1024px wide (owner-approved) — layout renders
     // unchanged, only the encoded output shrinks (~55% fewer bytes on 1536px skins).
-    const battleImage = await cachedBattleFrame(sim, i, { mode, mirror, icons, skin, battleSkinPath });
+    const battleImage = await cachedBattleFrame(sim, i, {
+      mode, mirror, icons, skin, battleSkinPath, guildId: channel.guild?.id,
+    });
     const base = battleEmbed(sim, i, { mode, includeImage: true, imageUrl: battleImage.url });
     // Phase 6: ranked threads its result into the embed — the tier matchup in the
     // HEADER (author, top), the outcome + rating move + Valor in the FOOTER (bottom).
@@ -667,7 +694,10 @@ async function runBattle(channel, {
     const showRewards = over && resultEmbed;
     const showRewardText = over && defaultRewardText;
     const rewardsImage = showRewards
-      ? await cachedBattleResultImage(rewardsBuffer, sim, rewards, resultSkinPath)
+      ? await cachedBattleResultImage(rewardsBuffer, sim, rewards, resultSkinPath, {
+        guildId: channel.guild?.id,
+        mode,
+      })
       : null;
     if (rewardsImage) resultEmbed.setImage(rewardsImage.url);
     const rewardTextEmbed = showRewardText

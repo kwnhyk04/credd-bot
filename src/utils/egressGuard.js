@@ -2,10 +2,7 @@
 
 const r2 = require('./r2Client');
 const { isRemoteAssetsEnabled } = require('./assets');
-
-function envTrue(name) {
-  return String(process.env[name] || '').trim().toLowerCase() === 'true';
-}
+const { envTrue, bandwidthLog, criticalEgressWarn } = require('./runtimeLogs');
 
 function isManagedRuntime() {
   return process.env.NODE_ENV === 'production'
@@ -34,10 +31,25 @@ function productionEgressIssues() {
   return issues;
 }
 
-function assertDiscordImageAttachmentsAllowed(context = 'image attachment fallback') {
-  if (discordImageAttachmentsAllowed()) return;
+function attachmentMeta(context, details = {}) {
+  const base = typeof context === 'string' ? { system: context } : { ...context };
+  return { ...base, ...details };
+}
+
+function logAttachmentFallbackAttempt(context = 'image attachment fallback', details = {}, { blocked = false } = {}) {
+  const meta = attachmentMeta(context, details);
+  if (blocked) criticalEgressWarn('attachment fallback blocked', meta);
+  else bandwidthLog('attachment fallback attempted', meta);
+}
+
+function assertDiscordImageAttachmentsAllowed(context = 'image attachment fallback', details = {}) {
+  if (discordImageAttachmentsAllowed()) {
+    logAttachmentFallbackAttempt(context, details);
+    return;
+  }
+  logAttachmentFallbackAttempt(context, details, { blocked: true });
   throw new Error(
-    `${context} blocked: Discord image attachments are disabled in production. `
+    `${typeof context === 'string' ? context : 'image attachment fallback'} blocked: Discord image attachments are disabled in production. `
     + 'Fix ASSET_BASE_URL/R2/canvas_cache or set ALLOW_DISCORD_IMAGE_ATTACHMENTS=true intentionally.'
   );
 }
@@ -46,5 +58,6 @@ module.exports = {
   isManagedRuntime,
   discordImageAttachmentsAllowed,
   productionEgressIssues,
+  logAttachmentFallbackAttempt,
   assertDiscordImageAttachmentsAllowed,
 };

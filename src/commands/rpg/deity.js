@@ -15,7 +15,7 @@ const pool = require('../../db/pool');
 const { TIER_ALIAS, TIER_COLOR, TIER_ESSENCE_COLUMN } = require('../../config/gachaRates');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay, emoji } = require('../../utils/emojis');
-const { makeOptimizedAttachment } = require('../../utils/imageOutput');
+const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../../utils/imageOutput');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 
 // Bump when renderPortraitCard / the deities-grid visuals change (busts cached cards).
@@ -271,13 +271,26 @@ async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, o
   let file = null;
   try {
     const renderArt = () => renderCenteredArt(portraitPath);
+    const logContext = {
+      system: 'deity',
+      command: 'deity',
+      imageType: 'deity_card',
+      userId: ownerId,
+    };
     const cached = portraitPath
-      ? await getCachedCanvasUrl(['deity-art', DEITY_RENDER_REV, portraitPath], renderArt)
+      ? await getCachedCanvasUrl(
+        ['deity-art', DEITY_RENDER_REV, portraitPath],
+        renderArt,
+        {},
+        { returnImageOnFailure: true, logContext }
+      )
       : null;
     const renderedArt = cached ? null : (portraitPath ? await renderArt() : null);
-    file = cached
+    file = cached?.url
       ? { url: cached.url, file: null }
-      : (renderedArt ? await makeOptimizedAttachment(renderedArt, 'deity_card') : null);
+      : cached?.image
+        ? attachmentFromOptimizedImage(cached.image, 'deity_card', { ...logContext, reusedBuffer: true })
+        : (renderedArt ? await makeOptimizedAttachment(renderedArt, 'deity_card', { logContext }) : null);
   } catch (err) {
     console.error('[deity] art render failed:', err.message);
   }
@@ -936,13 +949,27 @@ async function deities(message) {
     slot2: slotUnlocked(2, believerLevel),
     slot3: slotUnlocked(3, believerLevel),
   };
+  const logContext = {
+    system: 'deity',
+    command: 'deities',
+    imageType: 'deities',
+    guildId: message.guild?.id,
+    userId: message.author?.id,
+  };
   const gridCached = await getCachedCanvasUrl(
     ['deities-collection', DEITY_RENDER_REV, slots, unlockState],
-    async () => canvas.toBuffer('image/png')
+    async () => canvas.toBuffer('image/png'),
+    { preserveTransparency: true },
+    { returnImageOnFailure: true, logContext }
   );
-  const attachment = gridCached
+  const attachment = gridCached?.url
     ? { url: gridCached.url, file: null }
-    : await makeOptimizedAttachment(canvas.toBuffer('image/png'), 'deities');
+    : gridCached?.image
+      ? attachmentFromOptimizedImage(gridCached.image, 'deities', { ...logContext, reusedBuffer: true })
+      : await makeOptimizedAttachment(canvas.toBuffer('image/png'), 'deities', {
+        logContext,
+        preserveTransparency: true,
+      });
 
   // Build resonance info
   const deityInfos = slots.map((s, idx) =>
