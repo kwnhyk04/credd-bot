@@ -72,10 +72,11 @@ function safeMeta(meta = {}) {
     'assetEntries', 'assetMb', 'assetMaxMb', 'canvasEntries', 'canvasMb',
     'canvasMaxMb', 'battleStaticEntries', 'battleStaticMb', 'battleStaticMaxMb',
     'profileEntries', 'queueActive', 'queueQueued', 'queueLimit',
-    'avatarSource', 'assetKey', 'loadStatus', 'quality', 'envName',
+    'avatarSource', 'avatarKey', 'assetKey', 'loadStatus', 'quality', 'envName',
     'preservedImage', 'multiplier', 'baseHp', 'baseAtk', 'baseDef', 'baseCrit',
     'finalHp', 'finalAtk', 'finalDef', 'finalCrit',
     'source', 'thumbnailVariant',
+    'skinSource', 'skinCategory', 'cosmeticKey',
   ];
   const out = {};
   for (const key of allowed) {

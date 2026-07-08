@@ -9,10 +9,11 @@ const { computeResonanceMods } = require('../../config/blessings');
 const { EXP_REQUIRED, MAX_COMBAT_LEVEL } = require('../../config/combatExp');
 const { BELIEVER_EXP_PER_LEVEL, believerTitle } = require('../../config/believerProgression');
 const { renderStatsImage } = require('../../engine/renderStats');
-const { resolveSkin, resolveProfileLabel } = require('../../engine/skinResolver');
+const { resolveStatsSkin, resolveProfileLabel } = require('../../engine/skinResolver');
 const { resolveDefaultClassAvatarPath, resolveStatsAvatar } = require('../../engine/avatarSystem');
 const { resolveProfileTarget } = require('../../utils/profileTarget');
-const { envNumber } = require('../../utils/runtimeLogs');
+const { envNumber, performanceLog } = require('../../utils/runtimeLogs');
+const { safeAssetKey } = require('../../engine/avatarImageLoader');
 
 // Bump when renderStats output changes visually (busts every cached stats card).
 const STATS_RENDER_REV = 8;
@@ -211,9 +212,16 @@ async function execute(message) {
     userId: discordId,
   };
 
-  const skin = await resolveSkin(pool, discordId, 'profile');
+  const skin = await resolveStatsSkin(pool, discordId);
   data.skinPath = skin.path; // null → renderer keeps the default template
   data.topLabel = await resolveProfileLabel(pool, discordId);
+  performanceLog('stats skin selected', {
+    ...logContext,
+    skinCategory: 'stats',
+    skinSource: skin.source,
+    cosmeticKey: skin.cosmetic?.cosmetic_key,
+    assetKey: safeAssetKey(skin.path),
+  });
   data.avatarPath = await resolveStatsAvatar(pool, discordId, r.class, logContext);
   data.avatarFallbackPath = resolveDefaultClassAvatarPath(r.class);
 

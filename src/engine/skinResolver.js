@@ -173,6 +173,32 @@ async function resolveSkin(db, userId, category, opts = {}) {
 }
 
 /**
+ * Stats cards share the equipped profile skin image by default, but never the
+ * profile layout. The stats renderer loads the colocated `.stats.layout.json`.
+ * An explicit `stats` slot can still override this for future/manual use.
+ */
+async function resolveStatsSkin(db, userId) {
+  const equipped = await getEquipped(db, userId);
+  const eq = equipped.stats;
+
+  if (eq && eq.override_path) {
+    const p = resolveOverride(eq.override_path, 'stats', 'victory');
+    if (p) return { path: p, source: 'override', cosmetic: null };
+  }
+
+  if (eq && eq.cosmetic_id != null) {
+    const cat = await getCatalogById(db, eq.cosmetic_id);
+    const p = catalogFile(cat, 'stats', 'victory');
+    if (p) return { path: p, source: cat && cat.is_base ? 'base' : 'equipped', cosmetic: cat };
+  }
+
+  const profile = await resolveSkin(db, userId, 'profile');
+  return profile.path
+    ? { ...profile, source: `profile-${profile.source}` }
+    : profile;
+}
+
+/**
  * §6 profile top-label: the word drawn in the profile's top space.
  *   - dev accounts → "Founder 000"
  *   - founders     → "Founder NNN" (zero-padded founder_number)
@@ -205,6 +231,7 @@ async function resolveProfileLabel(db, userId) {
 
 module.exports = {
   resolveSkin,
+  resolveStatsSkin,
   resolveProfileLabel,
   resolveSummonAnimation,
   summonOverrideRelativePath,

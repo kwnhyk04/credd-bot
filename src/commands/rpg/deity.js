@@ -87,6 +87,12 @@ function reply(message, payload) {
   });
 }
 
+function displayNameFor(message, userId) {
+  const member = message.guild?.members?.cache?.get(String(userId)) || null;
+  const user = member?.user || (message.author?.id === String(userId) ? message.author : null);
+  return member?.displayName || user?.globalName || user?.username || null;
+}
+
 async function mythologyPages() {
   if (mythologyPageCache) return mythologyPageCache;
   const mythRes = await pool.query(
@@ -261,7 +267,13 @@ async function info(message, name) {
     }
   }
 
-  await reply(message, await buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, ownerId: message.author.id }));
+  await reply(message, await buildDeityInfoPayload(d, {
+    alias,
+    mythologyLabel,
+    portraitPath,
+    ownerId: message.author.id,
+    ownerDisplayName: displayNameFor(message, message.author.id),
+  }));
 }
 
 const AI_DISCLAIMER = '-# Images are AI-generated interpretations and may not be accurate; used for in-game illustration only.';
@@ -344,11 +356,11 @@ async function firstAvailablePublicImage(paths, logContext = {}) {
  * Deity-info payload: portrait card (art LEFT, name/mythology/blessing/stats RIGHT)
  * then lore + AI disclaimer + enhance hint as text. Mirrors the weapon-info card.
  */
-async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, ownerId }) {
+async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, ownerId, ownerDisplayName = null }) {
   const btype = DIVINE_BLESSING_DEITIES.has(d.name) ? 'Divine' : 'Echo';
   const deityInfoHasLore = typeof d.lore === 'string' && d.lore.trim().length > 0;
   const deityInfoLoreBlock = deityInfoHasLore ? `*${d.lore.trim()}*` : 'No lore recorded yet.';
-  const deityInfoHeaderName = ownerId ? `<@${ownerId}>'s` : '';
+  const deityInfoHeaderName = ownerDisplayName ? `${ownerDisplayName}'s` : '';
   const deityInfoThumbnailUrl = await firstAvailablePublicImage(portraitPath, {
     system: 'deity',
     command: 'deity',
@@ -369,6 +381,7 @@ async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, o
     .setTitle(`${deityInfoHeaderName} ${d.name}`.trim())
     .setDescription([
       INFO_DIVIDER,
+      ...(ownerId ? [`**Owner**\n<@${ownerId}>`] : []),
       `**Mythology**\n${mythologyLabel}`,
       `**Tier**\n${alias}`,
       `**Enhancement**\n+${Math.max(0, (Number(d.enhancement) || 1) - 1)}`,

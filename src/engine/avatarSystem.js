@@ -378,27 +378,37 @@ async function resolveStatsAvatar(pool, userId, className, logContext = {}) {
   const fallback = defaultClassAvatar(canonical);
   try {
     const res = await pool.query(
-      `SELECT ac.asset_path, ac.avatar_key, ac.class_name, ac.gender, ac.style
+      `SELECT ac.avatar_id, ac.asset_path, ac.avatar_key, ac.class_name, ac.gender, ac.style,
+              (ua.avatar_id IS NOT NULL) AS owned
          FROM equipped_avatars ea
          JOIN avatar_catalog ac ON ac.avatar_id = ea.avatar_id
+         LEFT JOIN user_avatars ua
+           ON ua.discord_id = ea.discord_id
+          AND ua.avatar_id = ea.avatar_id
         WHERE ea.discord_id = $1
           AND ac.is_active = TRUE
           AND lower(ac.class_name) = lower($2)`,
       [userId, canonical]
     );
-    const selected = res.rows[0] || fallback;
-    const avatarSource = res.rows[0] ? 'equipped-avatar' : 'class-fallback';
-    performanceLog('avatar source selected', {
+    const equipped = res.rows[0] || null;
+    const canUseEquipped = equipped && (isAvatarDevAccount(userId) || equipped.owned);
+    const selected = canUseEquipped ? equipped : fallback;
+    const avatarSource = canUseEquipped ? 'equipped-avatar' : 'class-fallback';
+    const fallbackReason = equipped && !canUseEquipped ? 'equipped-avatar-not-owned' : null;
+    performanceLog('stats avatar source', {
       ...logContext,
       avatarSource,
+      avatarKey: selected.avatar_key,
       assetKey: safeAssetKey(canonicalAvatarAssetPath(selected) || selected.asset_path),
+      reason: fallbackReason,
     });
     return resolveCanonicalAvatarImagePath(selected);
   } catch (err) {
     if (!isMissingAvatarTable(err)) throw err;
-    performanceLog('avatar source selected', {
+    performanceLog('stats avatar source', {
       ...logContext,
       avatarSource: 'class-fallback',
+      avatarKey: fallback.avatar_key,
       assetKey: safeAssetKey(fallback.asset_path),
       reason: 'avatar-tables-missing',
     });

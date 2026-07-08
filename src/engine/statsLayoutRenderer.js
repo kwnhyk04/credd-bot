@@ -528,8 +528,7 @@ function repositionStats(layout, skinPath) {
 async function renderStatsLayoutImage(d, options = {}) {
   const skinPath = options.skinPath || d.skinPath;
   const configPath = options.layoutPath || layoutPathFor(skinPath);
-  const rawLayout = await loadLayout(configPath);
-  const layout = repositionStats(rawLayout, skinPath);
+  const layout = await loadLayout(configPath);
   const images = await loadRenderImages(d, skinPath, options);
   if (!images.skin) throw new Error(`Skin image unavailable: ${skinPath}`);
   const view = buildView(d);
@@ -546,7 +545,7 @@ async function renderStatsLayoutImage(d, options = {}) {
     'weapon_label', 'deity_label', 'blessing',
     'stats_label', 'record_label', 'quote',
   ]) {
-    if (key === 'top_label' && !rawLayout.top_label.enabled) continue;
+    if (key === 'top_label' && !layout.top_label.enabled) continue;
     await drawText(ctx, key, view[key], layout, view, images);
   }
   // Equipments are one combined row, with separate icons for weapon and armor.

@@ -86,6 +86,12 @@ function reply(message, payload) {
   return message.reply({ ...payload, allowedMentions: { repliedUser: false, parse: [] } });
 }
 
+function displayNameFor(message, userId) {
+  const member = message.guild?.members?.cache?.get(String(userId)) || null;
+  const user = member?.user || (message.author?.id === String(userId) ? message.author : null);
+  return member?.displayName || user?.globalName || user?.username || null;
+}
+
 function publicAssetSource(url) {
   try {
     const host = new URL(String(url)).hostname.toLowerCase();
@@ -162,10 +168,13 @@ async function thumbnailUrlFor(name, logContext = {}) {
 
 function statBlock(g) {
   if (g.kind === 'weapon') {
-    return [
+    const lines = [
       `Attack: ${Number(g.curr_atk || 0).toLocaleString()}`,
       `Critical Rate: ${Number(g.crit || 0).toFixed(1)}%`,
-    ].join('\n');
+    ];
+    const bonus = Number(g.bonus_dmg_pct || 0);
+    if (bonus > 0) lines.push(`Bonus: +${bonus}% DMG`);
+    return lines.join('\n');
   }
   return [
     `HP: ${Number(g.curr_hp || 0).toLocaleString()}`,
@@ -185,10 +194,10 @@ function formatRuneSlots(sockets) {
   return runeLines.join('\n');
 }
 
-async function buildInfoPayload(g, gearId, ownerId) {
+async function buildInfoPayload(g, gearId, ownerId, ownerDisplayName = null) {
   const hasPassive = g.passive_name && g.passive_name.toLowerCase() !== 'none';
   const sockets = await socketSlots(g);
-  const headerName = ownerId ? `<@${ownerId}>'s` : '';
+  const headerName = ownerDisplayName ? `${ownerDisplayName}'s` : '';
   const sellValue = SELL_PRICES[g.tier] || 0;
   const loreBlock = typeof g.lore === 'string' && g.lore.trim().length > 0
     ? `*${g.lore.trim()}*`
@@ -216,7 +225,8 @@ async function buildInfoPayload(g, gearId, ownerId) {
       INFO_DIVIDER,
       `**Lore**\n${loreBlock}\n\n${AI_DISCLAIMER}`,
       INFO_DIVIDER,
-      `**Details**\n${g.kind === 'weapon' ? '⚔️' : '🛡️'} ID: \`${gearId}\`\n` +
+      `**Details**\n${ownerId ? `Owner: <@${ownerId}>\n` : ''}` +
+        `${g.kind === 'weapon' ? '⚔️' : '🛡️'} ID: \`${gearId}\`\n` +
         `💰 Sell Value: ${sellValue.toLocaleString()} Credux`,
       INFO_DIVIDER,
       `**Help**\n💡 \`crd enhance ${gearId}\` ・ \`crd equip ${gearId}\``,
@@ -272,7 +282,12 @@ async function info(message, rawId) {
     return;
   }
 
-  await reply(message, await buildInfoPayload(g, gearId, message.author.id));
+  await reply(message, await buildInfoPayload(
+    g,
+    gearId,
+    message.author.id,
+    displayNameFor(message, message.author.id)
+  ));
 }
 
 async function execute(message, { args }) {

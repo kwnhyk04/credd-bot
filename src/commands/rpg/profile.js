@@ -11,7 +11,8 @@ const { BELIEVER_EXP_PER_LEVEL, believerTitle } = require('../../config/believer
 const { renderProfileImage } = require('../../engine/renderProfile');
 const { resolveSkin, resolveProfileLabel } = require('../../engine/skinResolver');
 const { resolveProfileTarget } = require('../../utils/profileTarget');
-const { envNumber } = require('../../utils/runtimeLogs');
+const { envNumber, performanceLog } = require('../../utils/runtimeLogs');
+const { safeAssetKey } = require('../../engine/avatarImageLoader');
 const {
   signature: profileImageSignature,
   getProfileImageCache,
@@ -207,6 +208,13 @@ async function execute(message) {
   const skin = await resolveSkin(pool, discordId, 'profile');
   data.skinPath = skin.path; // null → renderer keeps the default template
   data.topLabel = await resolveProfileLabel(pool, discordId);
+  performanceLog('profile skin selected', {
+    ...logContext,
+    skinCategory: 'profile',
+    skinSource: skin.source,
+    cosmeticKey: skin.cosmetic?.cosmetic_key,
+    assetKey: safeAssetKey(skin.path),
+  });
 
   // [egress] Render-once cache: same profile state → same key → served from R2
   // by URL (zero upload). PROFILE_RENDER_REV must be bumped when renderProfile

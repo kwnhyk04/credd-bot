@@ -103,6 +103,7 @@ const BASE_ROWS = [
 // auto-equip a whole set via override_path. victory/defeated fall back across naming variants.
 const SET_FILES = {
   profile: ['profile.png', 'founder_profile.png'],
+  stats: ['profile.png', 'founder_profile.png'],
   battle: ['battle.png', 'founder_battle.png'],
   victory: ['victory.png', 'green_victory.png', 'founder_victory.png'],
   defeated: ['defeated.png', 'founder_defeated.png'],
