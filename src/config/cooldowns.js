@@ -5,7 +5,8 @@
  * every non-default value; everything else uses DEFAULT_COOLDOWN_MS. Keyed by the CANONICAL
  * command key (middleware resolves aliases via COOLDOWN_KEY_ALIASES before looking up here).
  *
- *   raid/ranked     → 30s (combat pacing)
+ *   raid            → 20s (combat pacing)
+ *   ranked          → 30s (combat pacing)
  *   all casino      → 10s (coin, dice, baccarat, blackjack, slot, crash — anti-spam)
  *   everything else → 10s
  *
@@ -14,10 +15,11 @@
 
 const DEFAULT_COOLDOWN_MS = 10_000;
 const LONG_COOLDOWN_MS = 10_000;
+const RAID_COOLDOWN_MS = 20_000;
 const COMBAT_COOLDOWN_MS = 30_000;
 
 const PER_COMMAND_MS = {
-  raid: COMBAT_COOLDOWN_MS,
+  raid: RAID_COOLDOWN_MS,
   ranked: COMBAT_COOLDOWN_MS,
   // Casino (canonical keys — aliases ct/dr/bac/bj/sm map to these upstream).
   coin: LONG_COOLDOWN_MS,
@@ -33,4 +35,11 @@ function cooldownMs(commandKey) {
   return PER_COMMAND_MS[commandKey] ?? DEFAULT_COOLDOWN_MS;
 }
 
-module.exports = { cooldownMs, DEFAULT_COOLDOWN_MS, LONG_COOLDOWN_MS, COMBAT_COOLDOWN_MS, PER_COMMAND_MS };
+module.exports = {
+  cooldownMs,
+  DEFAULT_COOLDOWN_MS,
+  LONG_COOLDOWN_MS,
+  RAID_COOLDOWN_MS,
+  COMBAT_COOLDOWN_MS,
+  PER_COMMAND_MS,
+};
