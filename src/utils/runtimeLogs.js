@@ -73,7 +73,9 @@ function safeMeta(meta = {}) {
     'canvasMaxMb', 'battleStaticEntries', 'battleStaticMb', 'battleStaticMaxMb',
     'profileEntries', 'queueActive', 'queueQueued', 'queueLimit',
     'avatarSource', 'assetKey', 'loadStatus', 'quality', 'envName',
-    'preservedImage',
+    'preservedImage', 'multiplier', 'baseHp', 'baseAtk', 'baseDef', 'baseCrit',
+    'finalHp', 'finalAtk', 'finalDef', 'finalCrit',
+    'source', 'thumbnailVariant',
   ];
   const out = {};
   for (const key of allowed) {

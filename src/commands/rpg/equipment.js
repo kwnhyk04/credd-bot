@@ -9,13 +9,12 @@
  */
 
 const { EmbedBuilder } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
 const pool = require('../../db/pool');
 const { resolveName } = require('../../utils/emojis');
 const { runeEmojiName, runeEmoji } = require('../../config/runes');
 const { SELL_PRICES } = require('../../config/sellPrices');
-const { assetPath, isRemoteAssetsEnabled } = require('../../utils/assets');
+const { assetPath, isRemoteAssetsEnabled, remoteAssetAvailable, relativeAssetPath } = require('../../utils/assets');
+const { bandwidthLog } = require('../../utils/runtimeLogs');
 
 const SOCKET_LANES = {
   weapon: { native: 'offense', opposite: 'defense' },
@@ -80,45 +79,98 @@ const TIER_COLOR = {
   Supreme: 0xe74c3c,
 };
 
-const WEAPONS_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'weapons');
+const INFO_DIVIDER = '━━━━━━━━━━━━━━━━━━━━';
+const THUMBNAIL_EXTENSIONS = ['webp', 'png', 'jpg'];
 
 function reply(message, payload) {
   return message.reply({ ...payload, allowedMentions: { repliedUser: false, parse: [] } });
 }
 
-function artworkPath(baseDir, name) {
+function publicAssetSource(url) {
+  try {
+    const host = new URL(String(url)).hostname.toLowerCase();
+    return host.includes('r2.dev') || host.includes('cloudflarestorage.com')
+      ? 'r2-url'
+      : 'cloudflare-url';
+  } catch {
+    return 'cloudflare-url';
+  }
+}
+
+function uniqueCandidates(candidates) {
+  const seen = new Set();
+  return candidates.filter((candidate) => {
+    if (!candidate?.url || seen.has(candidate.url)) return false;
+    seen.add(candidate.url);
+    return true;
+  });
+}
+
+function thumbnailCandidatesFor(name) {
+  if (!isRemoteAssetsEnabled()) return null;
   const derived = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
   const slugs = [resolveName(name), derived].filter(Boolean);
-  if (isRemoteAssetsEnabled()) {
-    return slugs.flatMap((slug) => ['png', 'jpg'].map((ext) => assetPath(`weapons/${slug}.${ext}`)));
-  }
+  const candidates = [];
   for (const slug of slugs) {
-    for (const ext of ['png', 'jpg']) {
-      const p = path.join(baseDir, `${slug}.${ext}`);
-      if (fs.existsSync(p)) return p;
+    for (const ext of THUMBNAIL_EXTENSIONS) {
+      candidates.push(
+        { url: assetPath(`weapons/thumbnails/${slug}.${ext}`), thumbnailVariant: true },
+        { url: assetPath(`weapons/thumbs/${slug}.${ext}`), thumbnailVariant: true },
+        { url: assetPath(`weapons/${slug}_thumb.${ext}`), thumbnailVariant: true },
+        { url: assetPath(`weapons/${slug}_thumbnail.${ext}`), thumbnailVariant: true },
+      );
+    }
+    for (const ext of ['webp', 'png', 'jpg']) {
+      candidates.push({ url: assetPath(`weapons/${slug}.${ext}`), thumbnailVariant: false });
     }
   }
+  return uniqueCandidates(candidates);
+}
+
+async function thumbnailUrlFor(name, logContext = {}) {
+  if (!isRemoteAssetsEnabled()) {
+    bandwidthLog('equipment thumbnail source', {
+      ...logContext,
+      source: 'missing',
+      thumbnailVariant: false,
+      reason: 'remote-assets-disabled',
+    });
+    return null;
+  }
+  const list = thumbnailCandidatesFor(name);
+  for (const candidate of list) {
+    if (await remoteAssetAvailable(relativeAssetPath(candidate.url))) {
+      bandwidthLog('equipment thumbnail source', {
+        ...logContext,
+        source: publicAssetSource(candidate.url),
+        thumbnailVariant: candidate.thumbnailVariant,
+      });
+      return candidate.url;
+    }
+  }
+  bandwidthLog('equipment thumbnail source', {
+    ...logContext,
+    source: 'missing',
+    thumbnailVariant: false,
+    reason: 'no-public-image',
+  });
   return null;
 }
 
-function thumbnailUrlFor(name) {
-  if (!isRemoteAssetsEnabled()) return null;
-  const candidates = artworkPath(WEAPONS_DIR, name);
-  return Array.isArray(candidates) ? candidates[0] || null : candidates;
-}
-
 function statBlock(g) {
-  const defensive = [];
-  const offensive = [];
-  if (g.curr_hp != null) defensive.push(`HP: ${Number(g.curr_hp).toLocaleString()}`);
-  if (g.curr_def != null) defensive.push(`Defense: ${Number(g.curr_def).toLocaleString()}`);
-  if (g.curr_atk != null) offensive.push(`Attack: ${Number(g.curr_atk).toLocaleString()}`);
-  if (g.crit != null && Number(g.crit) > 0) offensive.push(`Critical Rate: ${Number(g.crit).toFixed(1)}%`);
-  if (g.bonus_dmg_pct != null && Number(g.bonus_dmg_pct) > 0) offensive.push(`Bonus Damage: ${Number(g.bonus_dmg_pct)}%`);
-  return [defensive.join('\n'), offensive.join('\n')].filter(Boolean).join('\n\n') || 'No stats.';
+  if (g.kind === 'weapon') {
+    return [
+      `Attack: ${Number(g.curr_atk || 0).toLocaleString()}`,
+      `Critical Rate: ${Number(g.crit || 0).toFixed(1)}%`,
+    ].join('\n');
+  }
+  return [
+    `HP: ${Number(g.curr_hp || 0).toLocaleString()}`,
+    `Defense: ${Number(g.curr_def || 0).toLocaleString()}`,
+  ].join('\n');
 }
 
 function formatRuneSlots(sockets) {
@@ -141,32 +193,35 @@ async function buildInfoPayload(g, gearId, ownerId) {
   const loreBlock = typeof g.lore === 'string' && g.lore.trim().length > 0
     ? `*${g.lore.trim()}*`
     : 'No lore recorded yet.';
+  const enhancement = Math.max(0, (Number(g.enhancement) || 1) - 1);
+  const passiveName = hasPassive ? g.passive_name : 'None';
+  const passiveDescription = hasPassive ? (g.passive_description || 'No passive.') : 'No passive.';
+  const thumbnailUrl = await thumbnailUrlFor(g.name, {
+    system: 'equipment',
+    command: 'equipment',
+    imageType: 'equipment_thumbnail',
+    userId: ownerId,
+  });
 
   const embed = new EmbedBuilder()
     .setColor(TIER_COLOR[g.tier] ?? TIER_COLOR.Common)
     .setTitle(`${headerName} ${g.name}`.trim())
     .setDescription([
-      `**Tier:** ${g.tier}`,
-      `**Type:** ${g.type || (g.kind === 'weapon' ? 'Weapon' : 'Armor')}`,
-      `**Enhancement:** +${Math.max(0, (Number(g.enhancement) || 1) - 1)}`,
-    ].join('\n'))
-    .addFields(
-      { name: 'Stats', value: statBlock(g) },
-      {
-        name: hasPassive ? `Passive - ${g.passive_name}` : 'Passive',
-        value: hasPassive ? (g.passive_description || 'No passive.') : 'No passive.',
-      },
-      { name: 'Rune Slots', value: formatRuneSlots(sockets) },
-      { name: 'Lore', value: `${loreBlock}\n\n${AI_DISCLAIMER}` },
-      {
-        name: 'Details',
-        value: `${g.kind === 'weapon' ? '⚔️' : '🛡️'} **ID:** \`${gearId}\`\n` +
-          `💰 **Sell Value:** ${sellValue.toLocaleString()} Credux\n` +
-          `-# 💡 \`crd enhance ${gearId}\` ・ \`crd equip ${gearId}\``,
-      },
-    );
+      INFO_DIVIDER,
+      `**Tier**\n${g.tier}`,
+      `**Enhancement**\n+${enhancement}`,
+      `**Stats**\n${statBlock(g)}`,
+      `**Passive - ${passiveName}**\n${passiveDescription}`,
+      `**Rune Slots**\n${formatRuneSlots(sockets)}`,
+      INFO_DIVIDER,
+      `**Lore**\n${loreBlock}\n\n${AI_DISCLAIMER}`,
+      INFO_DIVIDER,
+      `**Details**\n${g.kind === 'weapon' ? '⚔️' : '🛡️'} ID: \`${gearId}\`\n` +
+        `💰 Sell Value: ${sellValue.toLocaleString()} Credux`,
+      INFO_DIVIDER,
+      `**Help**\n💡 \`crd enhance ${gearId}\` ・ \`crd equip ${gearId}\``,
+    ].join('\n\n'));
 
-  const thumbnailUrl = thumbnailUrlFor(g.name);
   if (thumbnailUrl) embed.setThumbnail(thumbnailUrl);
   return { embeds: [embed] };
 }

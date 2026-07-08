@@ -61,7 +61,7 @@ const {
 } = require('../utils/assets');
 const { getCachedCanvasUrl } = require('../utils/canvasCache');
 const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../utils/imageOutput');
-const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard');
+const { discordImageAttachmentsAllowed } = require('../utils/egressGuard');
 const { encodeOpaqueCanvas } = require('../utils/canvasEncode');
 const {
   envBool, envNumber, envPositiveInt, bandwidthLog, performanceLog,
@@ -110,6 +110,7 @@ const logCacheOrder = new Map(); // spawnId → Map<discordId, timestamp>
 const currentSpawn = new Map();  // guildId → spawnId (for logCache purging)
 const pendingBossRefreshes = new Map(); // guildId -> { timer, spawnId }
 const nonOfficialRedirects = new Map(); // guildId -> ms of last redirect notice
+const lastBossStatusUrls = new Map(); // guildId -> { spawnId, url }
 // [v4.6] Greater Boss chest rolled ONCE at spawn, keyed by spawn_id — the single source of
 // truth shared by the announcement and the defeat payout (they can never disagree). In-memory
 // only (no schema change); a restart loses it and chestForSpawn re-rolls for that spawn.
@@ -140,6 +141,10 @@ function bossStatMultiplier() {
   return envNumber('BOSS_STAT_MULTIPLIER', 10, { min: 1, max: 100 });
 }
 
+function bossImageMaxWidth() {
+  return Math.floor(envNumber('BOSS_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 }));
+}
+
 function bossDailyAttackLimit() {
   return envPositiveInt('BOSS_DAILY_ATTACK_LIMIT', 3, { max: 100 });
 }
@@ -151,7 +156,12 @@ function scaledBossStats(stats) {
     hp: Math.floor(Number(stats.hp || 0) * mult),
     atk: Math.floor(Number(stats.atk || 0) * mult),
     def: Math.floor(Number(stats.def || 0) * mult),
+    crit: Number(stats.crit || 0) * mult,
   };
+}
+
+function scaledBossCrit(mobRow) {
+  return Number(mobRow?.base_crit || 0) * bossStatMultiplier();
 }
 
 function clearPendingBossRefresh(guildId, reason = 'cleared') {
@@ -262,6 +272,9 @@ function purgeBossRuntimeForSpawn(spawnId, reason = 'cleared') {
   }
   greaterChests.delete(spawnId);
   devSpawns.delete(spawnId);
+  for (const [guildId, record] of lastBossStatusUrls.entries()) {
+    if (record.spawnId === spawnId) lastBossStatusUrls.delete(guildId);
+  }
   performanceLog('boss runtime cache cleared', {
     system: 'boss',
     command: 'boss',
@@ -473,7 +486,7 @@ function renderBossStatusCard(state, mobRow) {
   const stats = [
     ['ATK', Number(state.scaled_atk).toLocaleString()],
     ['DEF', Number(state.scaled_def).toLocaleString()],
-    ['CRIT', `${Number(mobRow.base_crit).toFixed(1)}%`],
+    ['CRIT', `${scaledBossCrit(mobRow).toFixed(1)}%`],
   ];
   let sx = L;
   for (const [k, v] of stats) {
@@ -497,7 +510,7 @@ function bossStatusText(state, mobRow) {
     : `Passive: ${mobRow.skill_description || 'Basic attacks only.'}`;
   return [
     `**HP:** ${cur.toLocaleString()} / ${max.toLocaleString()} (${pct.toFixed(1)}%)`,
-    `**ATK:** ${Number(state.scaled_atk).toLocaleString()}  **DEF:** ${Number(state.scaled_def).toLocaleString()}  **CRIT:** ${Number(mobRow.base_crit).toFixed(1)}%`,
+    `**ATK:** ${Number(state.scaled_atk).toLocaleString()}  **DEF:** ${Number(state.scaled_def).toLocaleString()}  **CRIT:** ${scaledBossCrit(mobRow).toFixed(1)}%`,
     `-# ${passive}`,
   ].join('\n');
 }
@@ -524,7 +537,7 @@ function bossStatusCacheParts(state, mobRow) {
     scaledAtk: Number(state.scaled_atk),
     scaledDef: Number(state.scaled_def),
     name: mobRow.name,
-    crit: Number(mobRow.base_crit),
+    crit: scaledBossCrit(mobRow),
     skillName: mobRow.skill_name || '',
     skillDescription: mobRow.skill_description || '',
   };
@@ -538,21 +551,62 @@ async function bossStatusImage(state, mobRow) {
     guildId: state.guild_id,
     spawnId: state.spawn_id,
   };
+  const imageOptions = {
+    maxWidth: bossImageMaxWidth(),
+    logContext,
+  };
   const cached = await getCachedCanvasUrl(
     ['boss-status-card', BOSS_STATUS_RENDER_REV, bossStatusCacheParts(state, mobRow)],
     () => renderBossStatusCardWithLog(state, mobRow, logContext),
-    {},
+    imageOptions,
     { returnImageOnFailure: true, logContext }
   );
-  if (cached?.url) return { url: cached.url, file: null };
-  if (cached?.image) {
-    return attachmentFromOptimizedImage(cached.image, 'boss_status', { ...logContext, reusedBuffer: true });
+  if (cached?.url) {
+    lastBossStatusUrls.set(state.guild_id, { spawnId: state.spawn_id, url: cached.url });
+    return { url: cached.url, file: null };
   }
-  return makeOptimizedAttachment(
-    renderBossStatusCardWithLog(state, mobRow, logContext),
-    'boss_status',
-    { logContext }
-  );
+  const last = lastBossStatusUrls.get(state.guild_id);
+  if (cached?.image) {
+    console.warn(`[boss] boss image r2 upload failed (guild=${state.guild_id}, spawn=${state.spawn_id}, cache=${cached.cache || 'unknown'}).`);
+    if (last?.url && last.spawnId === state.spawn_id) {
+      performanceLog('reused last boss image URL', {
+        ...logContext,
+        cacheStatus: cached.cache || 'image-fallback',
+        reason: 'r2-upload-failed',
+      });
+      return { url: last.url, file: null, reusedLastUrl: true };
+    }
+    if (discordImageAttachmentsAllowed()) {
+      return attachmentFromOptimizedImage(cached.image, 'boss_status', { ...logContext, reusedBuffer: true });
+    }
+    performanceLog('boss image skipped, text-only fallback used', {
+      ...logContext,
+      cacheStatus: cached.cache || 'image-fallback',
+      reason: 'attachments-blocked',
+    });
+    return null;
+  }
+  if (last?.url && last.spawnId === state.spawn_id) {
+    performanceLog('reused last boss image URL', {
+      ...logContext,
+      cacheStatus: 'missing',
+      reason: 'cache-unavailable',
+    });
+    return { url: last.url, file: null, reusedLastUrl: true };
+  }
+  if (discordImageAttachmentsAllowed()) {
+    return makeOptimizedAttachment(
+      renderBossStatusCardWithLog(state, mobRow, logContext),
+      'boss_status',
+      imageOptions
+    );
+  }
+  performanceLog('boss image skipped, text-only fallback used', {
+    ...logContext,
+    cacheStatus: 'missing',
+    reason: 'no-public-url',
+  });
+  return null;
 }
 
 /** Fetch everything the message needs in one place. Null when no boss_state row. */
@@ -636,8 +690,9 @@ async function buildBossMessage(view, { includeStatusImage = true } = {}) {
     );
   } else {
     const banner = imgPath ? await bossBanner(imgPath) : null;
-    if (banner) {
+    if (banner && discordImageAttachmentsAllowed()) {
       const card = await makeOptimizedAttachment(banner, 'boss_banner', {
+        maxWidth: bossImageMaxWidth(),
         logContext: {
           system: 'boss',
           command: 'boss',
@@ -646,17 +701,19 @@ async function buildBossMessage(view, { includeStatusImage = true } = {}) {
           bytes: banner.length,
         },
       });
-      assertDiscordImageAttachmentsAllowed('boss banner attachment fallback', {
-        system: 'boss',
-        command: 'boss',
-        imageType: 'boss_banner',
-        guildId: state.guild_id,
-        bytes: card.buffer.length,
-      });
       files.push(card.file);
       container.addMediaGalleryComponents((g) =>
         g.addItems((item) => item.setURL(card.url))
       );
+    } else if (banner) {
+      performanceLog('boss banner skipped, text-only fallback used', {
+        system: 'boss',
+        command: 'boss',
+        imageType: 'boss_banner',
+        guildId: state.guild_id,
+        spawnId: state.spawn_id,
+        reason: 'attachments-blocked',
+      });
     }
   }
 
@@ -664,12 +721,25 @@ async function buildBossMessage(view, { includeStatusImage = true } = {}) {
   if (includeStatusImage) {
     try {
       const card = await bossStatusImage(state, mobRow);
-      if (card.file) files.push(card.file);
-      container.addMediaGalleryComponents((g) =>
-        g.addItems((item) => item.setURL(card.url))
-      );
+      if (card?.url) {
+        if (card.file) files.push(card.file);
+        container.addMediaGalleryComponents((g) =>
+          g.addItems((item) => item.setURL(card.url))
+        );
+      } else {
+        container.addTextDisplayComponents((td) => td.setContent(bossStatusText(state, mobRow)));
+      }
     } catch (err) {
       console.warn('[boss] status card render failed:', err.message);
+      performanceLog('boss image skipped, text-only fallback used', {
+        system: 'boss',
+        command: 'boss',
+        imageType: 'boss_status',
+        guildId: state.guild_id,
+        spawnId: state.spawn_id,
+        reason: 'render-failed',
+      });
+      container.addTextDisplayComponents((td) => td.setContent(bossStatusText(state, mobRow)));
     }
   } else {
     bandwidthLog('boss image refresh skipped', {
@@ -976,7 +1046,8 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
   // §16: boss level = round(avg) + random(1–10) — NO [1,55] clamp (bosses are
   // exempt; that clamp governs raid mobs only). Defensive floor at 1.
   const level = Math.max(1, Math.round(Number(avg)) + 1 + Math.floor(Math.random() * 10));
-  const stats = scaledBossStats(computeBossStats(row, level));
+  const baseStats = computeBossStats(row, level);
+  const stats = scaledBossStats(baseStats);
   // [RenderTweaks] Greater Bosses: HP multiplier is tied to the chest rolled at spawn —
   // Golden chest (rare 20%) → 3× HP, Treasure chest → 2× HP. Roll the chest ONCE here so the
   // HP and the payout/announcement share the same outcome; the same object is stashed in
@@ -984,6 +1055,21 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
   // Bosses have no stored total-HP column, so the multiplier applies to the scaled result.
   const spawnChest = greater ? rollBossChest(row.name, Math.random) : null;
   const maxHp = greater ? stats.hp * hpMultiplierForChest(spawnChest) : stats.hp;
+  performanceLog('boss stats scaled', {
+    system: 'boss',
+    command: 'boss',
+    imageType: 'boss_status',
+    guildId,
+    multiplier: bossStatMultiplier(),
+    baseHp: Number(baseStats.hp),
+    baseAtk: Number(baseStats.atk),
+    baseDef: Number(baseStats.def),
+    baseCrit: Number(baseStats.crit),
+    finalHp: Number(maxHp),
+    finalAtk: Number(stats.atk),
+    finalDef: Number(stats.def),
+    finalCrit: Number(stats.crit),
+  });
 
   const ins = await pool.query(
     `INSERT INTO boss_state
@@ -1253,7 +1339,7 @@ async function handleAttack(interaction) {
       }
       state.current_hp = fresh.rows[0].current_hp;
 
-      const boss = buildBossFighter(mobRow, state);
+      const boss = { ...buildBossFighter(mobRow, state), crit: scaledBossCrit(mobRow) };
       const sim = resolveBattle(fighter, boss, { mode: 'boss', seed: Date.now() >>> 0 });
       const net = Math.max(0, Math.floor(sim.totals.netDamage));
 

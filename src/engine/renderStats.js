@@ -28,6 +28,7 @@ const { hasStatsLayout, renderStatsLayoutImage } = require('./statsLayoutRendere
 const { resolveName } = require('../utils/emojis');
 const { assetPath, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
 const { loadAvatarAsset } = require('./avatarImageLoader');
+const { performanceLog } = require('../utils/runtimeLogs');
 
 /* ── Background template ([v4.6]) ───────────────────────────────────────────
  * The profile card is drawn on top of a template image. TEMPLATE_FILE is a single
@@ -139,21 +140,17 @@ function imageSourceCandidates(source) {
   return [...new Set(bases.flatMap((base) => exts.map((ext) => `${base}.${ext}`)))];
 }
 
-/** Stats avatar fetch: prefer Credd avatar/class art; only use Discord when no game avatar exists. */
-async function loadAvatar(avatarPath, avatarFallbackPath, avatarUrl, fallbackUrl, logContext = {}) {
+/** Stats avatar fetch: character avatar/class art only; renderer draws a placeholder if unavailable. */
+async function loadAvatar(avatarPath, avatarFallbackPath, logContext = {}) {
   const gameAvatar = await loadAvatarAsset(loadAssetImage, [
     avatarPath ? { path: avatarPath, avatarSource: 'equipped-avatar' } : null,
     avatarFallbackPath ? { path: avatarFallbackPath, avatarSource: 'class-fallback' } : null,
   ], logContext);
   if (gameAvatar) return gameAvatar;
-
-  for (const url of [avatarUrl, fallbackUrl]) {
-    if (!url) continue;
-    try {
-      const res = await fetch(url);
-      if (res.ok) return await loadImage(Buffer.from(await res.arrayBuffer()));
-    } catch { /* try next */ }
-  }
+  performanceLog('stats avatar placeholder used', {
+    ...logContext,
+    reason: 'character-avatar-unavailable',
+  });
   return null;
 }
 
@@ -191,7 +188,7 @@ async function renderStatsImage(d) {
   // template as the bottom layer; otherwise fall back to the shared default template.
   const [template, avatar, weaponIcon, armorIcon, deityIcon, deity2Icon, deity3Icon, expIcon] = await Promise.all([
     d.skinPath ? loadAssetImage(d.skinPath).catch(() => null).then((img) => img || loadTemplate()) : loadTemplate(),
-    loadAvatar(d.avatarPath, d.avatarFallbackPath, d.avatarUrl, d.fallbackAvatarUrl, {
+    loadAvatar(d.avatarPath, d.avatarFallbackPath, {
       system: 'stats',
       command: 'stats',
       imageType: 'stats_avatar',

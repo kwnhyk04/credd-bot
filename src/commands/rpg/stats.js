@@ -12,11 +12,13 @@ const { renderStatsImage } = require('../../engine/renderStats');
 const { resolveSkin, resolveProfileLabel } = require('../../engine/skinResolver');
 const { resolveDefaultClassAvatarPath, resolveStatsAvatar } = require('../../engine/avatarSystem');
 const { resolveProfileTarget } = require('../../utils/profileTarget');
+const { envNumber } = require('../../utils/runtimeLogs');
 
 // Bump when renderStats output changes visually (busts every cached stats card).
-const STATS_RENDER_REV = 7;
+const STATS_RENDER_REV = 8;
 const STATS_IMAGE_OPTIONS = Object.freeze({
-  quality: 80,
+  quality: 50,
+  maxWidth: Math.floor(envNumber('STATS_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 })),
   minSavings: 0.02,
   preserveTransparency: false,
   allowWebp: true,

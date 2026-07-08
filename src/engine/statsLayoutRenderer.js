@@ -13,6 +13,7 @@ const { getEmojiIcon } = require('./renderBagItems');
 const { loadAvatarAsset } = require('./avatarImageLoader');
 const { resolveName } = require('../utils/emojis');
 const { formatIntegerEnUS: fmt } = require('../utils/textFormat');
+const { performanceLog } = require('../utils/runtimeLogs');
 const {
   assetSource,
   assetExistsSync,
@@ -82,17 +83,6 @@ function textStartX(ctx, text, style, reserved = 0) {
   return style.x;
 }
 
-async function loadRemoteImage(primary, fallback) {
-  for (const url of [primary, fallback]) {
-    if (!url) continue;
-    try {
-      const response = await fetch(url);
-      if (response.ok) return await loadImage(Buffer.from(await response.arrayBuffer()));
-    } catch { /* try the fallback */ }
-  }
-  return null;
-}
-
 async function loadOptionalImage(source) {
   if (!source) return null;
   try { return await loadAssetImageSource(loadImage, source); } catch { return null; }
@@ -110,7 +100,18 @@ async function loadRenderImages(d, skinPath, options) {
     command: 'stats',
     imageType: 'stats_avatar',
     userId: d.discordId,
-  }).then((img) => img || loadRemoteImage(d.avatarUrl, d.fallbackAvatarUrl));
+  }).then((img) => {
+    if (!img) {
+      performanceLog('stats avatar placeholder used', {
+        system: 'stats',
+        command: 'stats',
+        imageType: 'stats_avatar',
+        userId: d.discordId,
+        reason: 'character-avatar-unavailable',
+      });
+    }
+    return img;
+  });
   const weaponPromise = localIcons.weapon
     ? loadOptionalImage(localIcons.weapon)
     : (d.weaponName ? getEmojiIcon(resolveName(d.weaponName) || '') : Promise.resolve(null));

@@ -6,7 +6,6 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  AttachmentBuilder,
   MessageFlags,
   ComponentType,
 } = require('discord.js');
@@ -21,8 +20,15 @@ const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 
 // Bump when renderPortraitCard / the deities-grid visuals change (busts cached cards).
 const DEITY_RENDER_REV = 3;
-const { assetPath, isRemoteAssetsEnabled, loadAssetImage: loadAssetImageSource } = require('../../utils/assets');
-const { RARITY_SYMBOLS, renderCenteredArt } = require('../../engine/renderSummon');
+const {
+  assetPath,
+  isRemoteAssetsEnabled,
+  loadAssetImage: loadAssetImageSource,
+  remoteAssetAvailable,
+  relativeAssetPath,
+} = require('../../utils/assets');
+const { bandwidthLog } = require('../../utils/runtimeLogs');
+const { RARITY_SYMBOLS } = require('../../engine/renderSummon');
 const { computeDeityStats, nextDeityAttempt, MAX_ENHANCEMENT } = require('../../engine/deityEnhancement');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const {
@@ -48,6 +54,8 @@ const MYTHOLOGY_LABEL = { PH: 'Philippine Mythology', Norse: 'Norse Mythology', 
 const MYTHOLOGY_DIR = { PH: 'philippine', Norse: 'norse', Greek: 'greek' };
 
 const DEITIES_DIR = path.resolve(__dirname, '..', '..', '..', 'assets', 'deities');
+const INFO_DIVIDER = '━━━━━━━━━━━━━━━━━━━━';
+const THUMBNAIL_EXTENSIONS = ['webp', 'png', 'jpg'];
 let mythologyPageCache = null;
 
 async function loadAssetImage(source) {
@@ -245,7 +253,7 @@ async function info(message, name) {
   const dir = MYTHOLOGY_DIR[d.mythology] ?? d.mythology?.toLowerCase();
   let portraitPath = null;
   if (isRemoteAssetsEnabled()) {
-    portraitPath = ['png', 'jpg'].map((ext) => safeDeityImagePath(dir, `${slug}.${ext}`)).filter(Boolean);
+    portraitPath = deityThumbnailCandidates(dir, slug);
   } else {
     for (const ext of ['png', 'jpg']) {
       const p = safeDeityImagePath(dir, `${slug}.${ext}`);
@@ -258,6 +266,80 @@ async function info(message, name) {
 
 const AI_DISCLAIMER = '-# Images are AI-generated interpretations and may not be accurate; used for in-game illustration only.';
 
+function publicAssetSource(url) {
+  try {
+    const host = new URL(String(url)).hostname.toLowerCase();
+    return host.includes('r2.dev') || host.includes('cloudflarestorage.com')
+      ? 'r2-url'
+      : 'cloudflare-url';
+  } catch {
+    return 'cloudflare-url';
+  }
+}
+
+function uniqueCandidates(candidates) {
+  const seen = new Set();
+  return candidates.filter((candidate) => {
+    if (!candidate?.url || seen.has(candidate.url)) return false;
+    seen.add(candidate.url);
+    return true;
+  });
+}
+
+function deityThumbnailCandidates(dir, slug) {
+  const candidates = [];
+  for (const ext of THUMBNAIL_EXTENSIONS) {
+    candidates.push(
+      { url: safeDeityImagePath(dir, `thumbnails/${slug}.${ext}`), thumbnailVariant: true },
+      { url: safeDeityImagePath(dir, `thumbs/${slug}.${ext}`), thumbnailVariant: true },
+      { url: safeDeityImagePath(dir, `${slug}_thumb.${ext}`), thumbnailVariant: true },
+      { url: safeDeityImagePath(dir, `${slug}_thumbnail.${ext}`), thumbnailVariant: true },
+    );
+  }
+  for (const ext of ['webp', 'png', 'jpg']) {
+    candidates.push({ url: safeDeityImagePath(dir, `${slug}.${ext}`), thumbnailVariant: false });
+  }
+  return uniqueCandidates(candidates);
+}
+
+function normalizeThumbnailCandidate(candidate) {
+  if (!candidate) return null;
+  if (typeof candidate === 'string') return { url: candidate, thumbnailVariant: false };
+  return candidate;
+}
+
+async function firstAvailablePublicImage(paths, logContext = {}) {
+  if (!isRemoteAssetsEnabled()) {
+    bandwidthLog('deity thumbnail source', {
+      ...logContext,
+      source: 'missing',
+      thumbnailVariant: false,
+      reason: 'remote-assets-disabled',
+    });
+    return null;
+  }
+  const list = Array.isArray(paths) ? paths : [paths].filter(Boolean);
+  for (const rawCandidate of list) {
+    const candidate = normalizeThumbnailCandidate(rawCandidate);
+    if (!candidate?.url) continue;
+    if (await remoteAssetAvailable(relativeAssetPath(candidate.url))) {
+      bandwidthLog('deity thumbnail source', {
+        ...logContext,
+        source: publicAssetSource(candidate.url),
+        thumbnailVariant: candidate.thumbnailVariant,
+      });
+      return candidate.url;
+    }
+  }
+  bandwidthLog('deity thumbnail source', {
+    ...logContext,
+    source: 'missing',
+    thumbnailVariant: false,
+    reason: 'no-public-image',
+  });
+  return null;
+}
+
 /**
  * Deity-info payload: portrait card (art LEFT, name/mythology/blessing/stats RIGHT)
  * then lore + AI disclaimer + enhance hint as text. Mirrors the weapon-info card.
@@ -267,7 +349,12 @@ async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, o
   const deityInfoHasLore = typeof d.lore === 'string' && d.lore.trim().length > 0;
   const deityInfoLoreBlock = deityInfoHasLore ? `*${d.lore.trim()}*` : 'No lore recorded yet.';
   const deityInfoHeaderName = ownerId ? `<@${ownerId}>'s` : '';
-  const deityInfoThumbnailUrl = Array.isArray(portraitPath) ? portraitPath[0] : (isRemoteAssetsEnabled() ? portraitPath : null);
+  const deityInfoThumbnailUrl = await firstAvailablePublicImage(portraitPath, {
+    system: 'deity',
+    command: 'deity',
+    imageType: 'deity_thumbnail',
+    userId: ownerId,
+  });
   const deityInfoDefensiveStats = [];
   const deityInfoOffensiveStats = [];
   if (d.curr_hp != null) deityInfoDefensiveStats.push(`HP: ${Number(d.curr_hp).toLocaleString()}`);
@@ -277,82 +364,23 @@ async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, o
     deityInfoDefensiveStats.join('\n'),
     deityInfoOffensiveStats.join('\n'),
   ].filter(Boolean).join('\n\n') || 'No stats.';
-  const deityInfoEmbed = new EmbedBuilder()
+  const separatorEmbed = new EmbedBuilder()
     .setColor(TIER_COLOR[d.tier] ?? BRAND)
     .setTitle(`${deityInfoHeaderName} ${d.name}`.trim())
-    .setDescription(`**${mythologyLabel}** (${alias})\n**Enhancement:** +${Math.max(0, (Number(d.enhancement) || 1) - 1)}`)
-    .addFields(
-      { name: `${btype} Blessing - ${d.blessing_name}`, value: d.blessing_description || 'No blessing description.' },
-      { name: 'Stats', value: deityInfoStats },
-      { name: 'Lore', value: `${deityInfoLoreBlock}\n\n${AI_DISCLAIMER}` },
-      { name: 'Next', value: `-# 💡 \`crd deity enhance ${d.name.toLowerCase()}\`` },
-    );
-  if (deityInfoThumbnailUrl) deityInfoEmbed.setThumbnail(deityInfoThumbnailUrl);
-  return { embeds: [deityInfoEmbed] };
-
-  // Image-ONLY art (no name/rarity/stats drawn on the canvas — same approach as
-  // equipment info): the portrait is centered raw, all details live as embed text
-  // below. Render-once cache → repeat views served from R2 by URL (zero upload).
-  // Missing/failed portrait → no image; the embed continues text-only.
-  let file = null;
-  try {
-    const renderArt = () => renderCenteredArt(portraitPath);
-    const logContext = {
-      system: 'deity',
-      command: 'deity',
-      imageType: 'deity_card',
-      userId: ownerId,
-    };
-    const cached = portraitPath
-      ? await getCachedCanvasUrl(
-        ['deity-art', DEITY_RENDER_REV, portraitPath],
-        renderArt,
-        {},
-        { returnImageOnFailure: true, logContext }
-      )
-      : null;
-    const renderedArt = cached ? null : (portraitPath ? await renderArt() : null);
-    file = cached?.url
-      ? { url: cached.url, file: null }
-      : cached?.image
-        ? attachmentFromOptimizedImage(cached.image, 'deity_card', { ...logContext, reusedBuffer: true })
-        : (renderedArt ? await makeOptimizedAttachment(renderedArt, 'deity_card', { logContext }) : null);
-  } catch (err) {
-    console.error('[deity] art render failed:', err.message);
-  }
-
-  const hasLore = typeof d.lore === 'string' && d.lore.trim().length > 0;
-  const loreBlock = hasLore ? `*${d.lore.trim()}*` : '-# No lore recorded yet.';
-  const headerName = ownerId ? `<@${ownerId}>'s` : '';
-
-  const container = new ContainerBuilder().setAccentColor(TIER_COLOR[d.tier] ?? BRAND);
-  container.addTextDisplayComponents((td) => td.setContent(`## ${headerName} ${d.name}`));
-  container.addSeparatorComponents(sep);
-  if (file) {
-    container
-      .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(file.url)))
-      .addSeparatorComponents(sep);
-  }
-  container
-    .addTextDisplayComponents((td) =>
-      td.setContent(
-        '-# ' + mythologyLabel + ' (' + alias + ')\n\n' +
-        '**' + btype + ' Blessing - ' + d.blessing_name + '**\n' + d.blessing_description + '\n\n' +
-        '**Enhancement:** +' + (d.enhancement - 1) + '\n' +
-        '**Stats**\nATK ' + d.curr_atk + '\nHP ' + d.curr_hp + '\nDEF ' + d.curr_def
-      )
-    )
-    .addSeparatorComponents(sep);
-  container
-    .addTextDisplayComponents((td) => td.setContent(`${loreBlock}\n\n${AI_DISCLAIMER}`))
-    .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) => td.setContent(`-# 💡 \`crd deity enhance ${d.name.toLowerCase()}\``));
-
-  return {
-    components: [container],
-    files: file && file.file ? [file.file] : [],
-    flags: MessageFlags.IsComponentsV2,
-  };
+    .setDescription([
+      INFO_DIVIDER,
+      `**Mythology**\n${mythologyLabel}`,
+      `**Tier**\n${alias}`,
+      `**Enhancement**\n+${Math.max(0, (Number(d.enhancement) || 1) - 1)}`,
+      `**${btype} Blessing - ${d.blessing_name}**\n${d.blessing_description || 'No blessing description.'}`,
+      `**Stats**\n${deityInfoStats}`,
+      INFO_DIVIDER,
+      `**Lore**\n${deityInfoLoreBlock}\n\n${AI_DISCLAIMER}`,
+      INFO_DIVIDER,
+      `**Help**\n💡 \`crd deity enhance ${d.name.toLowerCase()}\``,
+    ].join('\n\n'));
+  if (deityInfoThumbnailUrl) separatorEmbed.setThumbnail(deityInfoThumbnailUrl);
+  return { embeds: [separatorEmbed] };
 }
 
 // ── crd deity enhance <name> (forge — Part E template, essence currency) ───

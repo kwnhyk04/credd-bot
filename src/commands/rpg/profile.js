@@ -10,8 +10,8 @@ const { EXP_REQUIRED, MAX_COMBAT_LEVEL } = require('../../config/combatExp');
 const { BELIEVER_EXP_PER_LEVEL, believerTitle } = require('../../config/believerProgression');
 const { renderProfileImage } = require('../../engine/renderProfile');
 const { resolveSkin, resolveProfileLabel } = require('../../engine/skinResolver');
-const { resolveDefaultClassAvatarPath, resolveStatsAvatar } = require('../../engine/avatarSystem');
 const { resolveProfileTarget } = require('../../utils/profileTarget');
+const { envNumber } = require('../../utils/runtimeLogs');
 const {
   signature: profileImageSignature,
   getProfileImageCache,
@@ -19,7 +19,10 @@ const {
 } = require('../../utils/profileImageCache');
 
 // Bump when renderProfile output changes visually (busts every cached profile card).
-const PROFILE_RENDER_REV = 2;
+const PROFILE_RENDER_REV = 3;
+const PROFILE_IMAGE_OPTIONS = Object.freeze({
+  maxWidth: Math.floor(envNumber('PROFILE_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 })),
+});
 
 /**
  * `crd profile [@user]` / `crd stats [@user]` — full Canvas profile card.
@@ -204,8 +207,6 @@ async function execute(message) {
   const skin = await resolveSkin(pool, discordId, 'profile');
   data.skinPath = skin.path; // null → renderer keeps the default template
   data.topLabel = await resolveProfileLabel(pool, discordId);
-  data.avatarPath = await resolveStatsAvatar(pool, discordId, r.class, logContext);
-  data.avatarFallbackPath = resolveDefaultClassAvatarPath(r.class);
 
   // [egress] Render-once cache: same profile state → same key → served from R2
   // by URL (zero upload). PROFILE_RENDER_REV must be bumped when renderProfile
@@ -223,7 +224,7 @@ async function execute(message) {
   const cached = await getCachedCanvasUrl(
     ['profile', PROFILE_RENDER_REV, data],
     () => renderProfileImage(data),
-    {},
+    PROFILE_IMAGE_OPTIONS,
     { returnImageOnFailure: true, logContext }
   );
   if (cached?.url) {
@@ -238,7 +239,7 @@ async function execute(message) {
 
   const image = cached?.image
     ? attachmentFromOptimizedImage(cached.image, 'profile', { ...logContext, reusedBuffer: true })
-    : await makeOptimizedAttachment(await renderProfileImage(data), 'profile', { logContext });
+    : await makeOptimizedAttachment(await renderProfileImage(data), 'profile', { ...PROFILE_IMAGE_OPTIONS, logContext });
 
   // Image only — no embed/container wrapper (RenderTweaks Tweak 2).
   await message.reply({
