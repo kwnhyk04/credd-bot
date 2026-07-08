@@ -19,7 +19,7 @@ const {
 } = require('../../utils/profileImageCache');
 
 // Bump when renderProfile output changes visually (busts every cached profile card).
-const PROFILE_RENDER_REV = 1;
+const PROFILE_RENDER_REV = 2;
 
 /**
  * `crd profile [@user]` / `crd stats [@user]` — full Canvas profile card.

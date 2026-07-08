@@ -16,7 +16,7 @@ function avatarImageSourceCandidates(source) {
 
   const exts = [match[2].toLowerCase(), 'webp', 'png', 'jpg', 'jpeg'];
   const bases = [match[1]];
-  const folderStyle = /^(.*\/(?:skins\/)?avatars\/(?:male|female))\/([^/]+)\/([^/]+)$/i.exec(match[1]);
+  const folderStyle = /^(.*(?:^|\/)(?:skins\/)?avatars\/(?:male|female))\/([^/]+)\/([^/]+)$/i.exec(match[1]);
   if (folderStyle) {
     const [, prefix, classFolder, fileStem] = folderStyle;
     const styleOnly = /^(cyber|anime|webtoon)$/i.exec(fileStem);
@@ -29,10 +29,10 @@ function avatarImageSourceCandidates(source) {
   }
 
   for (const base of [...bases]) {
-    const withoutSkins = base.replace(/\/skins\/avatars\//i, '/avatars/');
+    const withoutSkins = base.replace(/(^|\/)skins\/avatars\//i, '$1avatars/');
     if (withoutSkins !== base) bases.push(withoutSkins);
-    if (!/\/skins\/avatars\//i.test(base)) {
-      const withSkins = base.replace(/\/avatars\//i, '/skins/avatars/');
+    if (!/(^|\/)skins\/avatars\//i.test(base)) {
+      const withSkins = base.replace(/(^|\/)avatars\//i, '$1skins/avatars/');
       if (withSkins !== base) bases.push(withSkins);
     }
   }

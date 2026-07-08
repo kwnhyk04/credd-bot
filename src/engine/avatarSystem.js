@@ -71,6 +71,20 @@ function resolveAvatarImagePath(row) {
   return rel ? assetPath(rel) : null;
 }
 
+function canonicalAvatarAssetPath(row) {
+  if (!row || row.is_default) return null;
+  const gender = String(row.gender || '').trim().toLowerCase();
+  const style = String(row.style || '').trim().toLowerCase();
+  const folder = classFolder(row.class_name);
+  if (!gender || !style || !folder || gender === 'class' || style === 'default') return null;
+  return `skins/avatars/${gender}/${folder}/${folder}_${style}.png`;
+}
+
+function resolveCanonicalAvatarImagePath(row) {
+  const rel = canonicalAvatarAssetPath(row);
+  return rel ? assetPath(rel) : resolveAvatarImagePath(row);
+}
+
 function resolveDefaultClassAvatarPath(className) {
   return resolveAvatarImagePath(defaultClassAvatar(className));
 }
@@ -364,7 +378,7 @@ async function resolveStatsAvatar(pool, userId, className, logContext = {}) {
   const fallback = defaultClassAvatar(canonical);
   try {
     const res = await pool.query(
-      `SELECT ac.asset_path, ac.avatar_key
+      `SELECT ac.asset_path, ac.avatar_key, ac.class_name, ac.gender, ac.style
          FROM equipped_avatars ea
          JOIN avatar_catalog ac ON ac.avatar_id = ea.avatar_id
         WHERE ea.discord_id = $1
@@ -377,9 +391,9 @@ async function resolveStatsAvatar(pool, userId, className, logContext = {}) {
     performanceLog('avatar source selected', {
       ...logContext,
       avatarSource,
-      assetKey: safeAssetKey(selected.asset_path),
+      assetKey: safeAssetKey(canonicalAvatarAssetPath(selected) || selected.asset_path),
     });
-    return resolveAvatarImagePath(selected);
+    return resolveCanonicalAvatarImagePath(selected);
   } catch (err) {
     if (!isMissingAvatarTable(err)) throw err;
     performanceLog('avatar source selected', {

@@ -93,6 +93,7 @@ function raidImageMaxWidth() {
 function battleImageOptions(mode) {
   return {
     background: COLORS.bg,
+    quality: mode === 'raid' ? 50 : undefined,
     maxWidth: mode === 'raid' ? raidImageMaxWidth() : 1024,
   };
 }
@@ -126,12 +127,12 @@ function shouldRenderBattleFrame({ phase, guildId, ownerId, mode }) {
     rememberBattleFrameCooldown(battleFrameCooldownKey({ guildId, ownerId, mode }));
     return { render: true, renderMode, reason: 'battle-start' };
   }
+  if (phase === 'final') {
+    return { render: true, renderMode, reason: 'battle-final' };
+  }
   const key = battleFrameCooldownKey({ guildId, ownerId, mode });
   const last = battleFrameCooldowns.get(key) || 0;
   const cooldownMs = battleFrameRenderCooldownMs();
-  if (phase === 'final') {
-    return { render: false, renderMode, reason: 'final-battle-frame-disabled' };
-  }
   if (cooldownMs > 0 && Date.now() - last < cooldownMs) {
     return { render: false, renderMode, reason: 'frame-cooldown' };
   }
@@ -540,7 +541,7 @@ function battleEmbed(sim, snapIdx, {
     .setColor(color)
     .setTitle(title)
     .setDescription(`Turn ${s.round} ${over ? ' ‎ **\`Battle Over\`**' : ''}`);
-  if (!includeImage || includeStateText) {
+  if (includeStateText || (!includeImage && mode !== 'raid')) {
     e.setDescription(`${e.data.description || `Turn ${s.round}`}\n\n${battleStateText(sim, snapIdx)}`);
   }
   if (includeImage && imageUrl) e.setImage(imageUrl);
@@ -846,8 +847,6 @@ async function runBattle(channel, {
 
   const noticeLine = notices.length ? notices.join('\n') : null;
   const finalIndex = sim.snapshots.length - 1;
-  let lastBattleImageUrl = null;
-  let lastBattleImageWasAttachment = false;
 
   const frame = async (i) => {
     const over = i >= finalIndex;
@@ -858,8 +857,8 @@ async function runBattle(channel, {
       ownerId: battleOwnerId,
       mode,
     });
-    // [egress] battle frames ship at 1024px wide (owner-approved) — layout renders
-    // unchanged, only the encoded output shrinks (~55% fewer bytes on 1536px skins).
+    // [egress] raid battle frames keep their rendered dimensions; compression
+    // settings reduce encoded bytes without changing the visible layout.
     let battleImage = { url: null, files: [], cacheStatus: 'skipped' };
     if (frameDecision.render) {
       battleImage = await cachedBattleFrame(sim, i, {
@@ -872,10 +871,6 @@ async function runBattle(channel, {
         phase,
         ownerId: battleOwnerId,
       });
-      if (battleImage.url) {
-        lastBattleImageUrl = battleImage.url;
-        lastBattleImageWasAttachment = String(battleImage.url).startsWith('attachment://');
-      }
     } else {
       performanceLog('battle frame render decision', {
         system: 'battle',
@@ -890,49 +885,12 @@ async function runBattle(channel, {
         skipReason: frameDecision.reason,
         cacheStatus: 'skipped',
       });
-      if (over && lastBattleImageUrl) {
-        battleImage = {
-          url: lastBattleImageUrl,
-          files: [],
-          cacheStatus: 'preserved',
-          preserved: true,
-          preservedAttachment: lastBattleImageWasAttachment,
-        };
-        performanceLog('battle frame image preserved', {
-          system: 'battle',
-          command: mode,
-          imageType: 'battle_frame',
-          guildId,
-          userId: battleOwnerId,
-          phase,
-          rendered: false,
-          renderMode: frameDecision.renderMode,
-          reason: 'final-image-preserved',
-          preservedImage: true,
-          cacheStatus: 'preserved',
-        });
-      } else if (over) {
-        performanceLog('battle frame image skipped', {
-          system: 'battle',
-          command: mode,
-          imageType: 'battle_frame',
-          guildId,
-          userId: battleOwnerId,
-          phase,
-          rendered: false,
-          renderMode: frameDecision.renderMode,
-          reason: 'no-previous-image',
-          preservedImage: false,
-          cacheStatus: 'skipped',
-        });
-      }
     }
     const includeImage = Boolean(battleImage.url);
     const base = battleEmbed(sim, i, {
       mode,
       includeImage,
       imageUrl: battleImage.url,
-      includeStateText: battleImage.preserved === true,
     });
     // Phase 6: ranked threads its result into the embed — the tier matchup in the
     // HEADER (author, top), the outcome + rating move + Valor in the FOOTER (bottom).
@@ -981,11 +939,9 @@ async function runBattle(channel, {
       content: over && noticeLine ? noticeLine : '',
       embeds,
       files,
+      attachments: [],
       components: over ? [buttons()] : [],
     };
-    if (!(battleImage.preserved && battleImage.preservedAttachment)) {
-      payload.attachments = []; // drop stale attachment panels unless the final embed reuses one.
-    }
     return payload;
   };
 

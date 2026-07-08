@@ -14,7 +14,7 @@ const { resolveDefaultClassAvatarPath, resolveStatsAvatar } = require('../../eng
 const { resolveProfileTarget } = require('../../utils/profileTarget');
 
 // Bump when renderStats output changes visually (busts every cached stats card).
-const STATS_RENDER_REV = 6;
+const STATS_RENDER_REV = 7;
 const STATS_IMAGE_OPTIONS = Object.freeze({
   quality: 80,
   minSavings: 0.02,

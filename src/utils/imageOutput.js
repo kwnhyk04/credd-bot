@@ -25,8 +25,11 @@ function specificWebpQualityEnv(imageType, command) {
 }
 
 function webpQuality(logContext = {}) {
-  const fallback = envBoundedInt('IMAGE_WEBP_QUALITY', 65, 1, 100);
   const envName = specificWebpQualityEnv(logContext.imageType || logContext.command, logContext.command);
+  if (envName && envName.startsWith('RAID_')) {
+    return { quality: envBoundedInt(envName, 50, 1, 100), envName };
+  }
+  const fallback = envBoundedInt('IMAGE_WEBP_QUALITY', 65, 1, 100);
   if (!envName) return { quality: fallback, envName: 'IMAGE_WEBP_QUALITY' };
   return { quality: envBoundedInt(envName, fallback, 1, 100), envName };
 }
