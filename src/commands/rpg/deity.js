@@ -1,6 +1,7 @@
 'use strict';
 
 const {
+  EmbedBuilder,
   ContainerBuilder,
   ActionRowBuilder,
   ButtonBuilder,
@@ -263,6 +264,31 @@ const AI_DISCLAIMER = '-# Images are AI-generated interpretations and may not be
  */
 async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, ownerId }) {
   const btype = DIVINE_BLESSING_DEITIES.has(d.name) ? 'Divine' : 'Echo';
+  const deityInfoHasLore = typeof d.lore === 'string' && d.lore.trim().length > 0;
+  const deityInfoLoreBlock = deityInfoHasLore ? `*${d.lore.trim()}*` : 'No lore recorded yet.';
+  const deityInfoHeaderName = ownerId ? `<@${ownerId}>'s` : '';
+  const deityInfoThumbnailUrl = Array.isArray(portraitPath) ? portraitPath[0] : (isRemoteAssetsEnabled() ? portraitPath : null);
+  const deityInfoDefensiveStats = [];
+  const deityInfoOffensiveStats = [];
+  if (d.curr_hp != null) deityInfoDefensiveStats.push(`HP: ${Number(d.curr_hp).toLocaleString()}`);
+  if (d.curr_def != null) deityInfoDefensiveStats.push(`Defense: ${Number(d.curr_def).toLocaleString()}`);
+  if (d.curr_atk != null) deityInfoOffensiveStats.push(`Attack: ${Number(d.curr_atk).toLocaleString()}`);
+  const deityInfoStats = [
+    deityInfoDefensiveStats.join('\n'),
+    deityInfoOffensiveStats.join('\n'),
+  ].filter(Boolean).join('\n\n') || 'No stats.';
+  const deityInfoEmbed = new EmbedBuilder()
+    .setColor(TIER_COLOR[d.tier] ?? BRAND)
+    .setTitle(`${deityInfoHeaderName} ${d.name}`.trim())
+    .setDescription(`**${mythologyLabel}** (${alias})\n**Enhancement:** +${Math.max(0, (Number(d.enhancement) || 1) - 1)}`)
+    .addFields(
+      { name: `${btype} Blessing - ${d.blessing_name}`, value: d.blessing_description || 'No blessing description.' },
+      { name: 'Stats', value: deityInfoStats },
+      { name: 'Lore', value: `${deityInfoLoreBlock}\n\n${AI_DISCLAIMER}` },
+      { name: 'Next', value: `-# 💡 \`crd deity enhance ${d.name.toLowerCase()}\`` },
+    );
+  if (deityInfoThumbnailUrl) deityInfoEmbed.setThumbnail(deityInfoThumbnailUrl);
+  return { embeds: [deityInfoEmbed] };
 
   // Image-ONLY art (no name/rarity/stats drawn on the canvas — same approach as
   // equipment info): the portrait is centered raw, all details live as embed text

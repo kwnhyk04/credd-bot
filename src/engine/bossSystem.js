@@ -36,7 +36,7 @@ const fs = require('fs');
 const path = require('path');
 const {
   ContainerBuilder, ButtonBuilder, ButtonStyle,
-  AttachmentBuilder, MessageFlags,
+  MessageFlags,
 } = require('discord.js');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const pool = require('../db/pool');
@@ -70,10 +70,16 @@ const { bossFeatTitlesFor } = require('../config/titles');
 const {
   isGreaterBoss, bossRewards, rollBossChest, hpMultiplierForChest, pickWeightedBoss,
 } = require('../config/bosses');
+const {
+  bossRedirectMessage,
+  isOfficialGuild,
+  supportMarkdownLink,
+} = require('../config/officialSupport');
 
-const RESPAWN_COOLDOWN = '15 minutes';   // §16: spawns every 15 min after dead/escaped
+const RESPAWN_COOLDOWN = '15 minutes';   // spawns every 15 min after defeat
 const RESPAWN_COOLDOWN_MS = 15 * 60_000;
-const BOSS_DURATION = '2 hours';         // v4.1: was 1h (schema comment is stale)
+const ACTIVE_BOSS_EXPIRES_AT_SQL = "NOW() + INTERVAL '100 years'";
+const NON_OFFICIAL_REDIRECT_COOLDOWN_MS = 6 * 60 * 60_000;
 const TOP_N = 15;
 const BOSS_STATE_COLUMNS = `
   guild_id, spawn_id, mob_id, boss_level, max_hp, current_hp,
@@ -103,6 +109,7 @@ const logCache = new Map();      // `${spawnId}:${discordId}` → sim
 const logCacheOrder = new Map(); // spawnId → Map<discordId, timestamp>
 const currentSpawn = new Map();  // guildId → spawnId (for logCache purging)
 const pendingBossRefreshes = new Map(); // guildId -> { timer, spawnId }
+const nonOfficialRedirects = new Map(); // guildId -> ms of last redirect notice
 // [v4.6] Greater Boss chest rolled ONCE at spawn, keyed by spawn_id — the single source of
 // truth shared by the announcement and the defeat payout (they can never disagree). In-memory
 // only (no schema change); a restart loses it and chestForSpawn re-rolls for that spawn.
@@ -127,6 +134,24 @@ function bossLogCacheMaxAttackers() {
 
 function bossLogCacheMaxEventsPerAttacker() {
   return envPositiveInt('BOSS_LOG_CACHE_MAX_EVENTS_PER_ATTACKER', 20, { max: 500 });
+}
+
+function bossStatMultiplier() {
+  return envNumber('BOSS_STAT_MULTIPLIER', 10, { min: 1, max: 100 });
+}
+
+function bossDailyAttackLimit() {
+  return envPositiveInt('BOSS_DAILY_ATTACK_LIMIT', 3, { max: 100 });
+}
+
+function scaledBossStats(stats) {
+  const mult = bossStatMultiplier();
+  return {
+    ...stats,
+    hp: Math.floor(Number(stats.hp || 0) * mult),
+    atk: Math.floor(Number(stats.atk || 0) * mult),
+    def: Math.floor(Number(stats.def || 0) * mult),
+  };
 }
 
 function clearPendingBossRefresh(guildId, reason = 'cleared') {
@@ -592,7 +617,7 @@ async function buildBossMessage(view, { includeStatusImage = true } = {}) {
   } else {
     header = `## ${mobRow.name}`;
     if (status === 'dead') header += '\n-# 💀 Slain by the united server — rewards distributed!';
-    else if (status === 'escaped') header += '\n-# 🌫️ Escaped — no rewards this time.';
+    else if (status === 'escaped') header += '\n-# No rewards were distributed.';
   }
 
   const accent = status === 'active' ? 0xf0b232 : status === 'dead' ? 0x43d675 : 0x95a5a6;
@@ -612,16 +637,25 @@ async function buildBossMessage(view, { includeStatusImage = true } = {}) {
   } else {
     const banner = imgPath ? await bossBanner(imgPath) : null;
     if (banner) {
+      const card = await makeOptimizedAttachment(banner, 'boss_banner', {
+        logContext: {
+          system: 'boss',
+          command: 'boss',
+          imageType: 'boss_banner',
+          guildId: state.guild_id,
+          bytes: banner.length,
+        },
+      });
       assertDiscordImageAttachmentsAllowed('boss banner attachment fallback', {
         system: 'boss',
         command: 'boss',
         imageType: 'boss_banner',
         guildId: state.guild_id,
-        bytes: banner.length,
+        bytes: card.buffer.length,
       });
-      files.push(new AttachmentBuilder(banner, { name: 'boss_banner.png' }));
+      files.push(card.file);
       container.addMediaGalleryComponents((g) =>
-        g.addItems((item) => item.setURL('attachment://boss_banner.png'))
+        g.addItems((item) => item.setURL(card.url))
       );
     }
   }
@@ -690,17 +724,15 @@ async function buildBossMessage(view, { includeStatusImage = true } = {}) {
       (lbRows.length > 0 ? lbRows.join('\n') : '-# No challengers yet — be the first!')
     ));
 
-  // footer (Discord relative timestamp self-counts — no edits needed) + buttons
-  const expUnix = Math.floor(new Date(state.expires_at).getTime() / 1000);
   let footerText;
   if (status === 'active') {
     footerText = isDev
-      ? `-# Disappears <t:${expUnix}:R> ・ 🧪 test boss — unlimited attacks until restart`
-      : `-# Disappears <t:${expUnix}:R> ・ ⚔️ one boss attack per player per day (global)`;
+      ? '-# The boss remains until defeated. 🧪 Test boss — unlimited attacks until restart.'
+      : `-# The boss remains until defeated. ⚔️ ${bossDailyAttackLimit()} boss attacks per player per day, max one per spawn.`;
   } else if (status === 'dead') {
     footerText = `-# Rewards distributed to all ${attackerCount} challenger${attackerCount === 1 ? '' : 's'}.`;
   } else {
-    footerText = `-# Escaped <t:${expUnix}:R> — no rewards. Next spawn ~15 min after.`;
+    footerText = '-# No rewards were distributed.';
   }
   container
     .addSeparatorComponents(sep)
@@ -730,6 +762,26 @@ async function buildBossMessage(view, { includeStatusImage = true } = {}) {
 /* ── live-message management ────────────────────────────────────────────── */
 async function resolveAnnounceChannelId(guildId) {
   return guildConfig.getConfig(guildId).boss_announcement_channel_id || null;
+}
+
+async function postOfficialRedirect(client, guildId, channelIdHint = null, { force = false } = {}) {
+  const now = Date.now();
+  const last = nonOfficialRedirects.get(guildId) || 0;
+  if (!force && now - last < NON_OFFICIAL_REDIRECT_COOLDOWN_MS) return null;
+
+  const channelId = channelIdHint || await resolveAnnounceChannelId(guildId);
+  if (!channelId) return null;
+  const channel = await client.channels.fetch(channelId).catch(() => null);
+  if (!channel) return null;
+  const msg = await channel.send({
+    content: bossRedirectMessage(),
+    allowedMentions: { parse: [] },
+  }).catch((err) => {
+    console.error(`[boss] official redirect failed (guild ${guildId}):`, err.message);
+    return null;
+  });
+  if (msg) nonOfficialRedirects.set(guildId, now);
+  return msg;
 }
 
 /** Post a fresh boss message in the configured (or hinted) channel and repoint the Map. */
@@ -890,6 +942,11 @@ function scheduleBossLiveRefresh(client, guildId, { spawnId = null } = {}) {
  * by that name exists.
  */
 async function spawnBoss(client, guildId, { force = false, channelId = null, bossName = null } = {}) {
+  if (!isOfficialGuild(guildId)) {
+    await postOfficialRedirect(client, guildId, channelId, { force });
+    return false;
+  }
+
   const announceChannelId = channelId || await resolveAnnounceChannelId(guildId);
   if (!announceChannelId) return false; // nowhere to announce — skip guild
 
@@ -919,7 +976,7 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
   // §16: boss level = round(avg) + random(1–10) — NO [1,55] clamp (bosses are
   // exempt; that clamp governs raid mobs only). Defensive floor at 1.
   const level = Math.max(1, Math.round(Number(avg)) + 1 + Math.floor(Math.random() * 10));
-  const stats = computeBossStats(row, level);
+  const stats = scaledBossStats(computeBossStats(row, level));
   // [RenderTweaks] Greater Bosses: HP multiplier is tied to the chest rolled at spawn —
   // Golden chest (rare 20%) → 3× HP, Treasure chest → 2× HP. Roll the chest ONCE here so the
   // HP and the payout/announcement share the same outcome; the same object is stashed in
@@ -933,13 +990,13 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
        (guild_id, spawn_id, mob_id, boss_level, max_hp, current_hp,
         scaled_atk, scaled_def, spawn_at, expires_at, status)
      VALUES ($1, gen_random_uuid(), $2, $3, $4, $4, $5, $6,
-             NOW(), NOW() + INTERVAL '${BOSS_DURATION}', 'active')
+             NOW(), ${ACTIVE_BOSS_EXPIRES_AT_SQL}, 'active')
      ON CONFLICT (guild_id) DO UPDATE SET
        spawn_id = gen_random_uuid(), mob_id = EXCLUDED.mob_id,
        boss_level = EXCLUDED.boss_level, max_hp = EXCLUDED.max_hp,
        current_hp = EXCLUDED.current_hp, scaled_atk = EXCLUDED.scaled_atk,
        scaled_def = EXCLUDED.scaled_def, spawn_at = NOW(),
-       expires_at = NOW() + INTERVAL '${BOSS_DURATION}', status = 'active'
+       expires_at = ${ACTIVE_BOSS_EXPIRES_AT_SQL}, status = 'active'
      WHERE boss_state.status <> 'active'
        AND ($7 OR boss_state.expires_at <= NOW() - INTERVAL '${RESPAWN_COOLDOWN}')
      RETURNING spawn_id`,
@@ -961,20 +1018,11 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
   return true;
 }
 
-/** Flip an overdue active boss to 'escaped' (atomic). [Jun-2026 §8] The countdown message is
- *  DELETED at 0s rather than left as an expired "Next spawn" card. */
+/** Bosses no longer expire; retained as a no-op for older dev/scheduler callers. */
 async function expireBoss(client, guildId) {
-  const res = await pool.query(
-    `UPDATE boss_state SET status = 'escaped'
-      WHERE guild_id = $1 AND status = 'active' AND expires_at <= NOW()
-      RETURNING spawn_id`,
-    [guildId]
-  );
-  if (res.rows.length === 0) return false;
-  clearPendingBossRefresh(guildId, 'expired');
-  await deleteLiveMessage(client, guildId).catch(() => {});
-  purgeBossRuntimeForSpawn(res.rows[0].spawn_id, 'expired');
-  return true;
+  void client;
+  void guildId;
+  return false;
 }
 
 /* ── defeat distribution (§16 participation-only, exactly-once) ─────────── */
@@ -1127,6 +1175,9 @@ async function handleAttack(interaction) {
   const fail = (msg) => interaction.editReply({ content: msg }).catch(() => {});
 
   try {
+    if (!isOfficialGuild(guildId)) {
+      return fail(`Monster bosses are currently hosted in the official support server: ${supportMarkdownLink()}.`);
+    }
     // gate 1 — registered + character
     const fighter = await buildPlayerFighter(pool, discordId);
     if (!fighter) {
@@ -1136,26 +1187,29 @@ async function handleAttack(interaction) {
     if (await isBanned(discordId)) {
       return fail('You cannot attack the boss right now.');
     }
-    // gate 3 — boss still active and not expired
+    // gate 3 — boss still active
     const stRes = await pool.query(`SELECT ${BOSS_STATE_COLUMNS} FROM boss_state WHERE guild_id = $1`, [guildId]);
     const state = stRes.rows[0];
-    if (!state || state.status !== 'active' || new Date(state.expires_at) <= new Date()) {
-      return fail('There is no active boss right now — it has fallen or escaped. `crd boss` shows the latest status.');
+    if (!state || state.status !== 'active') {
+      return fail('There is no active boss right now — it has fallen. `crd boss` shows the latest status.');
     }
     // dev-spawned test boss (crd dev spawnboss): the daily lock and the
     // once-per-spawn rule are BYPASSED so testers can attack repeatedly;
     // damage accumulates on their boss_attack_log row instead
     const isDev = devSpawns.has(state.spawn_id);
     if (!isDev) {
-      // gate 4 — global daily lock (one boss attack per day, PHT clock — DB-4)
+      // gate 4 — global daily limit (PHT clock)
+      const dailyLimit = bossDailyAttackLimit();
       const dl = await pool.query(
-        `SELECT 1 FROM users
+        `SELECT COUNT(*)::int AS used
+           FROM boss_attack_log
           WHERE discord_id = $1
-            AND last_boss_attack_date >= (NOW() AT TIME ZONE 'Asia/Manila')::date`,
+            AND last_daily_reset = (NOW() AT TIME ZONE 'Asia/Manila')::date`,
         [discordId]
       );
-      if (dl.rows.length > 0) {
-        return fail('You already attacked a boss today — your attack resets at midnight PHT.');
+      const usedToday = Number(dl.rows[0]?.used || 0);
+      if (usedToday >= dailyLimit) {
+        return fail(`You already used all ${dailyLimit} boss attacks today — your attacks reset at midnight PHT.`);
       }
       // gate 5 — not already attacked THIS spawn
       const al = await pool.query(
@@ -1329,6 +1383,11 @@ async function handleLog(interaction) {
 
 /* ── scheduler entry — one guild per call ───────────────────────────────── */
 async function tickGuild(client, guildId) {
+  if (!isOfficialGuild(guildId)) {
+    await postOfficialRedirect(client, guildId);
+    return;
+  }
+
   const stRes = await pool.query(`SELECT ${BOSS_STATE_COLUMNS} FROM boss_state WHERE guild_id = $1`, [guildId]);
   const state = stRes.rows[0] || null;
 
@@ -1337,9 +1396,6 @@ async function tickGuild(client, guildId) {
       // crash-recovery safety net: distribution didn't finish — re-run it
       await distributeRewards(client, guildId, state.spawn_id);
       return;
-    }
-    if (new Date(state.expires_at) <= new Date()) {
-      await expireBoss(client, guildId);
     }
     return;
   }

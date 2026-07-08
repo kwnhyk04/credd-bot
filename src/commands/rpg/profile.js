@@ -10,6 +10,7 @@ const { EXP_REQUIRED, MAX_COMBAT_LEVEL } = require('../../config/combatExp');
 const { BELIEVER_EXP_PER_LEVEL, believerTitle } = require('../../config/believerProgression');
 const { renderProfileImage } = require('../../engine/renderProfile');
 const { resolveSkin, resolveProfileLabel } = require('../../engine/skinResolver');
+const { resolveDefaultClassAvatarPath, resolveStatsAvatar } = require('../../engine/avatarSystem');
 const { resolveProfileTarget } = require('../../utils/profileTarget');
 const {
   signature: profileImageSignature,
@@ -192,13 +193,6 @@ async function execute(message) {
   };
 
   // [Supporter-stage §6] Resolve the equipped/override/base profile skin + top-label word.
-  const skin = await resolveSkin(pool, discordId, 'profile');
-  data.skinPath = skin.path; // null → renderer keeps the default template
-  data.topLabel = await resolveProfileLabel(pool, discordId);
-
-  // [egress] Render-once cache: same profile state → same key → served from R2
-  // by URL (zero upload). PROFILE_RENDER_REV must be bumped when renderProfile
-  // visuals change so old cached images stop matching.
   const logContext = {
     system: 'profile',
     command: 'profile',
@@ -206,6 +200,16 @@ async function execute(message) {
     guildId: message.guild?.id,
     userId: discordId,
   };
+
+  const skin = await resolveSkin(pool, discordId, 'profile');
+  data.skinPath = skin.path; // null → renderer keeps the default template
+  data.topLabel = await resolveProfileLabel(pool, discordId);
+  data.avatarPath = await resolveStatsAvatar(pool, discordId, r.class, logContext);
+  data.avatarFallbackPath = resolveDefaultClassAvatarPath(r.class);
+
+  // [egress] Render-once cache: same profile state → same key → served from R2
+  // by URL (zero upload). PROFILE_RENDER_REV must be bumped when renderProfile
+  // visuals change so old cached images stop matching.
   const memorySignature = profileImageSignature([PROFILE_RENDER_REV, data]);
   const memoryUrl = getProfileImageCache(discordId, memorySignature, logContext);
   if (memoryUrl) {

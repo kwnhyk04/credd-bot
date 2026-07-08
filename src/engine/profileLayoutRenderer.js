@@ -9,6 +9,7 @@
 const path = require('path');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const { getEmojiIcon } = require('./renderBagItems');
+const { loadAvatarAsset } = require('./avatarImageLoader');
 const { resolveName } = require('../utils/emojis');
 const { formatIntegerEnUS: fmt } = require('../utils/textFormat');
 const {
@@ -98,9 +99,17 @@ async function loadOptionalImage(source) {
 
 async function loadRenderImages(d, skinPath, options) {
   const localIcons = options.iconPaths || {};
-  const avatarPromise = options.avatarPath
-    ? loadOptionalImage(options.avatarPath)
-    : loadRemoteImage(d.avatarUrl, d.fallbackAvatarUrl);
+  const avatarPath = options.avatarPath || d.avatarPath;
+  const avatarFallbackPath = options.avatarFallbackPath || d.avatarFallbackPath;
+  const avatarPromise = loadAvatarAsset(loadOptionalImage, [
+    avatarPath ? { path: avatarPath, avatarSource: 'equipped-avatar' } : null,
+    avatarFallbackPath ? { path: avatarFallbackPath, avatarSource: 'class-fallback' } : null,
+  ], {
+    system: 'profile',
+    command: 'profile',
+    imageType: 'profile_avatar',
+    userId: d.discordId,
+  }).then((img) => img || loadRemoteImage(d.avatarUrl, d.fallbackAvatarUrl));
   const weaponPromise = localIcons.weapon
     ? loadOptionalImage(localIcons.weapon)
     : (d.weaponName ? getEmojiIcon(resolveName(d.weaponName) || '') : Promise.resolve(null));

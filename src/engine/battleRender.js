@@ -60,8 +60,8 @@ for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
 
 const UPDATE_MS = 1800; // delay between embed edits (≥1500ms — rate-limit safety)
 
-const BATTLE_FRAME_RENDER_REV = 1;
-const BATTLE_RESULT_RENDER_REV = 1;
+const BATTLE_FRAME_RENDER_REV = 2;
+const BATTLE_RESULT_RENDER_REV = 2;
 const BATTLE_FRAME_MODES = new Set(['full', 'start_and_final', 'text_only']);
 const BATTLE_FRAME_COOLDOWN_MAX = 5000;
 const battleFrameCooldowns = new Map();
@@ -84,6 +84,17 @@ function battleFrameRenderCooldownMs() {
 
 function battleResultRenderEnabled() {
   return envBool('BATTLE_RESULT_RENDER_ENABLED', true);
+}
+
+function raidImageMaxWidth() {
+  return Math.floor(envNumber('RAID_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 }));
+}
+
+function battleImageOptions(mode) {
+  return {
+    background: COLORS.bg,
+    maxWidth: mode === 'raid' ? raidImageMaxWidth() : 1024,
+  };
 }
 
 function battleFrameCooldownKey({ guildId, ownerId, mode }) {
@@ -110,6 +121,10 @@ function shouldRenderBattleFrame({ phase, guildId, ownerId, mode }) {
   }
   if (renderMode === 'full') {
     return { render: true, renderMode, reason: 'render-mode-full' };
+  }
+  if (phase === 'start') {
+    rememberBattleFrameCooldown(battleFrameCooldownKey({ guildId, ownerId, mode }));
+    return { render: true, renderMode, reason: 'battle-start' };
   }
   const key = battleFrameCooldownKey({ guildId, ownerId, mode });
   const last = battleFrameCooldowns.get(key) || 0;
@@ -496,7 +511,9 @@ function battleStateText(sim, snapIdx) {
   return `${line(sim.a, s.a)}\n${line(sim.b, s.b)}`;
 }
 
-function battleEmbed(sim, snapIdx, { mode, includeImage = true, imageUrl = null }) {
+function battleEmbed(sim, snapIdx, {
+  mode, includeImage = true, imageUrl = null, includeStateText = false,
+}) {
   const s = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
   const over = snapIdx >= sim.snapshots.length - 1;
   const playerWon = sim.winner === 'a';
@@ -523,7 +540,7 @@ function battleEmbed(sim, snapIdx, { mode, includeImage = true, imageUrl = null 
     .setColor(color)
     .setTitle(title)
     .setDescription(`Turn ${s.round} ${over ? ' ‎ **\`Battle Over\`**' : ''}`);
-  if (!includeImage) {
+  if (!includeImage || includeStateText) {
     e.setDescription(`${e.data.description || `Turn ${s.round}`}\n\n${battleStateText(sim, snapIdx)}`);
   }
   if (includeImage && imageUrl) e.setImage(imageUrl);
@@ -561,7 +578,7 @@ async function cachedBattleFrame(sim, snapIdx, {
   mode, mirror, icons, skin, battleSkinPath, guildId, phase = 'update', ownerId = null,
 }) {
   const render = () => renderBattlePanel(sim, snapIdx, { mirror, icons, skin, mode });
-  const imageOptions = { background: COLORS.bg, maxWidth: 1024 };
+  const imageOptions = battleImageOptions(mode);
   const logContext = {
     system: 'battle',
     command: mode,
@@ -614,7 +631,7 @@ async function cachedBattleFrame(sim, snapIdx, {
 }
 
 async function cachedBattleResultImage(renderBuffer, sim, rewards, resultSkinPath, { guildId, mode } = {}) {
-  const imageOptions = { background: COLORS.bg, maxWidth: 1024 };
+  const imageOptions = battleImageOptions(mode);
   const logContext = {
     system: 'battle',
     command: mode,
@@ -829,6 +846,8 @@ async function runBattle(channel, {
 
   const noticeLine = notices.length ? notices.join('\n') : null;
   const finalIndex = sim.snapshots.length - 1;
+  let lastBattleImageUrl = null;
+  let lastBattleImageWasAttachment = false;
 
   const frame = async (i) => {
     const over = i >= finalIndex;
@@ -853,6 +872,10 @@ async function runBattle(channel, {
         phase,
         ownerId: battleOwnerId,
       });
+      if (battleImage.url) {
+        lastBattleImageUrl = battleImage.url;
+        lastBattleImageWasAttachment = String(battleImage.url).startsWith('attachment://');
+      }
     } else {
       performanceLog('battle frame render decision', {
         system: 'battle',
@@ -867,9 +890,50 @@ async function runBattle(channel, {
         skipReason: frameDecision.reason,
         cacheStatus: 'skipped',
       });
+      if (over && lastBattleImageUrl) {
+        battleImage = {
+          url: lastBattleImageUrl,
+          files: [],
+          cacheStatus: 'preserved',
+          preserved: true,
+          preservedAttachment: lastBattleImageWasAttachment,
+        };
+        performanceLog('battle frame image preserved', {
+          system: 'battle',
+          command: mode,
+          imageType: 'battle_frame',
+          guildId,
+          userId: battleOwnerId,
+          phase,
+          rendered: false,
+          renderMode: frameDecision.renderMode,
+          reason: 'final-image-preserved',
+          preservedImage: true,
+          cacheStatus: 'preserved',
+        });
+      } else if (over) {
+        performanceLog('battle frame image skipped', {
+          system: 'battle',
+          command: mode,
+          imageType: 'battle_frame',
+          guildId,
+          userId: battleOwnerId,
+          phase,
+          rendered: false,
+          renderMode: frameDecision.renderMode,
+          reason: 'no-previous-image',
+          preservedImage: false,
+          cacheStatus: 'skipped',
+        });
+      }
     }
     const includeImage = Boolean(battleImage.url);
-    const base = battleEmbed(sim, i, { mode, includeImage, imageUrl: battleImage.url });
+    const base = battleEmbed(sim, i, {
+      mode,
+      includeImage,
+      imageUrl: battleImage.url,
+      includeStateText: battleImage.preserved === true,
+    });
     // Phase 6: ranked threads its result into the embed — the tier matchup in the
     // HEADER (author, top), the outcome + rating move + Valor in the FOOTER (bottom).
     if (over && header) base.setAuthor({ name: header });
@@ -882,6 +946,20 @@ async function runBattle(channel, {
       })
       : null;
     if (rewardsImage) resultEmbed.setImage(rewardsImage.url);
+    if (rewardsImage) {
+      performanceLog('battle frame image replaced', {
+        system: 'battle',
+        command: mode,
+        imageType: 'battle_result',
+        guildId,
+        userId: battleOwnerId,
+        phase,
+        rendered: false,
+        reason: 'final-image-replaced-by-result',
+        preservedImage: false,
+        cacheStatus: rewardsImage.cacheStatus || 'result',
+      });
+    }
     const resultTextForFrame = over && (defaultResultText || (showRewards && !rewardsImage ? fallbackResultText : null));
     const rewardTextForFrame = over && (defaultRewardText || (showRewards && !rewardsImage ? fallbackRewardText : null));
     if (resultTextForFrame) {
@@ -899,13 +977,16 @@ async function runBattle(channel, {
     const embeds = [base];
     if (showRewards && rewardsImage) embeds.push(resultEmbed);
     if (rewardTextEmbed) embeds.push(rewardTextEmbed);
-    return {
+    const payload = {
       content: over && noticeLine ? noticeLine : '',
       embeds,
       files,
-      attachments: [], // required to drop the previous panel image on edit
       components: over ? [buttons()] : [],
     };
+    if (!(battleImage.preserved && battleImage.preservedAttachment)) {
+      payload.attachments = []; // drop stale attachment panels unless the final embed reuses one.
+    }
+    return payload;
   };
 
   let msg = await channel.send({ ...(await frame(0)), attachments: undefined });

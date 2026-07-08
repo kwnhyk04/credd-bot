@@ -22,7 +22,7 @@ const {
 } = require('../../engine/statAssembly');
 const { runBattle } = require('../../engine/battleRender');
 const { resolveSkin } = require('../../engine/skinResolver');
-const { spawnBoss, expireBoss, refreshLiveMessage } = require('../../engine/bossSystem');
+const { spawnBoss, refreshLiveMessage } = require('../../engine/bossSystem');
 const questsCmd = require('../economy/quests');
 const dailyCmd = require('../economy/daily');
 const ent = require('../../engine/supporterEntitlements');
@@ -904,8 +904,7 @@ async function setBossHp(message, args, devId) {
 
 // ── crd dev spawnboss [bossname] (also: crd dev spawn boss [bossname]) ──────
 // Force-spawn the server boss, bypassing the 15-min respawn cooldown (smoke
-// test). NEVER replaces a live boss — kill it (setbosshp + attack) first. An
-// expired-but-unflipped boss is settled to 'escaped' before the spawn attempt.
+// test). NEVER replaces a live boss — kill it (setbosshp + attack) first.
 // An optional boss name forces that specific boss (e.g. test a Greater boss).
 async function devSpawnBoss(message, args, devId, bossNameArgStart = 1) {
   const guildId = message.guild.id;
@@ -932,12 +931,11 @@ async function devSpawnBoss(message, args, devId, bossNameArgStart = 1) {
       canonicalName = found.rows[0].name;
     }
 
-    await expireBoss(message.client, guildId).catch(() => {}); // settle overdue escape first
     const active = await pool.query(
       `SELECT 1 FROM boss_state WHERE guild_id = $1 AND status = 'active'`, [guildId]
     );
     if (active.rows.length > 0) {
-      return reply(message, 'A boss is already active — kill it (`crd dev setbosshp` + attack) or wait for it to escape.');
+      return reply(message, 'A boss is already active — kill it (`crd dev setbosshp` + attack) before spawning another.');
     }
     // announce in the invoking channel when server_config has no boss/bot channel
     const ok = await spawnBoss(message.client, guildId, {
@@ -945,12 +943,12 @@ async function devSpawnBoss(message, args, devId, bossNameArgStart = 1) {
     });
     if (!ok) {
       return reply(message,
-        'Spawn failed — no registered player has been active in this server yet (server average level is needed).');
+        'Spawn failed — boss spawns are official-support-server-only, or no registered player has been active in this server yet (server average level is needed).');
     }
     await logDev(pool, devId, 'spawn_boss', devId,
       `forced ${canonicalName ? `${canonicalName} ` : ''}boss spawn in guild ${guildId}`);
     return reply(message,
-      `✅ ${canonicalName || 'Boss'} spawned (15-min cooldown bypassed).`);
+      `✅ ${canonicalName || 'Boss'} spawned.`);
   } catch (err) {
     console.error('[dev spawnboss]', err.message);
     return reply(message, 'Failed — nothing changed.');

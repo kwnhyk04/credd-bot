@@ -1,46 +1,27 @@
 'use strict';
 
 /**
- * `crd equipment info <id>` (alias `crd eq info`; `crd weapon info` = deprecated alias)
- * — UNIFIED Canvas info card for BOTH weapons and armor ([v5] Blueprint 1.4).
+ * `crd equipment info <id>` (alias `crd eq info`; `crd weapon info` = deprecated alias).
  *
- * Looks up the id in user_weapons then user_armors and renders the matching card.
- * Shared layout (tier color, type icon, enhancement, passive, lore, art); the ONLY
- * branch is the stat line: weapon → ATK · CRIT, armor → HP · DEF · type. Miss in
- * both tables → "You don't own equipment with that ID."
+ * Looks up the id in user_weapons then user_armors and displays a native
+ * OwO-style info embed: text on the left, item art as a Discord thumbnail on
+ * the right. This intentionally avoids canvas/card rendering for normal info.
  */
 
-const {
-  ContainerBuilder,
-  MessageFlags,
-} = require('discord.js');
+const { EmbedBuilder } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const pool = require('../../db/pool');
-const { smallDivider: sep } = require('../../utils/componentsV2');
 const { resolveName } = require('../../utils/emojis');
-const { renderCenteredArt } = require('../../engine/renderSummon');
-const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../../utils/imageOutput');
-const { getCachedCanvasUrl } = require('../../utils/canvasCache');
-
-// Bump when renderPortraitCard visuals change (busts cached equipment cards).
-const EQUIPMENT_CARD_REV = 2;
 const { runeEmojiName, runeEmoji } = require('../../config/runes');
 const { SELL_PRICES } = require('../../config/sellPrices');
 const { assetPath, isRemoteAssetsEnabled } = require('../../utils/assets');
 
-// Lane of each socket array by gear kind (Naming Conv §5).
 const SOCKET_LANES = {
   weapon: { native: 'offense', opposite: 'defense' },
   armor: { native: 'defense', opposite: 'offense' },
 };
 
-/**
- * Build the ordered socket-slot list for the card panel. Global slot numbering:
- * native 1..N then opposite N+1..N+M. Each entry: { imagePath, value, lane } —
- * filled slots resolve the rune art (assets/items/runes/<key>_rune.png) + value.
- * Returns [] when the gear has no sockets.
- */
 async function socketSlots(g) {
   const native = Array.isArray(g.native_sockets) ? g.native_sockets : [];
   const opposite = [];
@@ -98,13 +79,6 @@ const TIER_COLOR = {
   Legendary: 0xffd700,
   Supreme: 0xe74c3c,
 };
-const TIER_HEX = {
-  Common: '#95a5a6',
-  Rare: '#3498db',
-  Mythic: '#9b59b6',
-  Legendary: '#FFD700',
-  Supreme: '#e74c3c',
-};
 
 const WEAPONS_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'weapons');
 
@@ -112,11 +86,6 @@ function reply(message, payload) {
   return message.reply({ ...payload, allowedMentions: { repliedUser: false, parse: [] } });
 }
 
-/**
- * Artwork path for a gear display name within a base dir. Filenames equal the
- * registry emoji names (incl. their typos), so resolve through the registry first,
- * then fall back to the name-derived slug. null = no art (renderer text-only).
- */
 function artworkPath(baseDir, name) {
   const derived = name
     .toLowerCase()
@@ -135,96 +104,24 @@ function artworkPath(baseDir, name) {
   return null;
 }
 
-/** Build the unified info payload from a normalized gear row (kind = weapon|armor). */
-async function buildInfoPayload(g, gearId, ownerId, context = {}) {
-  const hasPassive = g.passive_name && g.passive_name.toLowerCase() !== 'none';
-
-  const statLines =
-    g.kind === 'weapon'
-      ? [`ATK   ${g.curr_atk}`]
-      : [`HP    ${g.curr_hp}`, `DEF   ${g.curr_def}`];
-  if (g.kind === 'weapon') {
-    if (Number(g.crit) > 0)
-      statLines.push(`CRIT  ${Number(g.crit).toFixed(1)}%`);
-    if (g.bonus_dmg_pct)
-      statLines.push(`Bonus +${Number(g.bonus_dmg_pct)}% DMG`);
-  }
-
-  const sections = [
-    { heading: 'Stats', body: statLines.join('\n') },
-    hasPassive
-      ? { heading: `Passive — ${g.passive_name}`, body: g.passive_description }
-      : { heading: 'Passive', body: 'No passive.', dim: true },
-  ];
-  // [v5 Phase 2] Sockets render as a boxed panel under the text (renderPortraitCard).
-  const sockets = await socketSlots(g);
-
-  const imagePath = artworkPath(WEAPONS_DIR, g.name);
-  const renderArt = () => renderCenteredArt(imagePath);
-  const logContext = {
-    system: 'equipment',
-    command: 'equipment',
-    imageType: 'equipment_card',
-    guildId: context.guildId,
-    userId: context.userId,
-  };
-  const cached = imagePath ? await getCachedCanvasUrl(
-    ['equipment-art', EQUIPMENT_CARD_REV, imagePath || g.name],
-    renderArt,
-    {},
-    { returnImageOnFailure: true, logContext }
-  ) : null;
-  const renderedArt = cached ? null : await renderArt();
-  const image = cached?.url
-    ? { url: cached.url, file: null }
-    : cached?.image
-      ? attachmentFromOptimizedImage(cached.image, 'equipment_card', { ...logContext, reusedBuffer: true })
-      : (renderedArt ? await makeOptimizedAttachment(renderedArt, 'equipment_card', { logContext }) : null);
-
-  const headerName = ownerId ? `<@${ownerId}>'s` : '';
-  const sellValue = SELL_PRICES[g.tier] || 0;
-  const sellDisplay = sellValue.toLocaleString();
-
-  const container = new ContainerBuilder()
-    .setAccentColor(TIER_COLOR[g.tier] ?? TIER_COLOR.Common);
-  container.addTextDisplayComponents((td) => td.setContent(`## ${headerName} ${g.name}`));
-  container.addSeparatorComponents(sep);
-  if (image) {
-    container
-      .addMediaGalleryComponents((gal) =>
-        gal.addItems((item) => item.setURL(image.url)),
-      )
-      .addSeparatorComponents(sep);
-  }
-  container
-    .addTextDisplayComponents((td) => td.setContent(formatEquipmentDetails(g, statLines, sections, sockets)))
-    .addSeparatorComponents(sep);
-
-  const hasLore = typeof g.lore === 'string' && g.lore.trim().length > 0;
-  const loreBlock = hasLore ? `*${g.lore.trim()}*` : '-# No lore recorded yet.';
-  container
-    .addTextDisplayComponents((td) =>
-      td.setContent(`${loreBlock}\n\n${AI_DISCLAIMER}`),
-    )
-    .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) =>
-      td.setContent(`${g.kind === 'weapon' ? '⚔️' : '🛡️'} **ID:** \`${gearId}\`\n💰 **Sell Value:** ${sellDisplay} Credux`),
-    )
-    .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) =>
-      td.setContent(
-        `-# 💡 \`crd enhance ${gearId}\` ・ \`crd equip ${gearId}\``,
-      ),
-    );
-
-  return {
-    components: [container],
-    files: image?.file ? [image.file] : [],
-    flags: MessageFlags.IsComponentsV2,
-  };
+function thumbnailUrlFor(name) {
+  if (!isRemoteAssetsEnabled()) return null;
+  const candidates = artworkPath(WEAPONS_DIR, name);
+  return Array.isArray(candidates) ? candidates[0] || null : candidates;
 }
 
-function formatEquipmentDetails(g, statLines, sections, sockets) {
+function statBlock(g) {
+  const defensive = [];
+  const offensive = [];
+  if (g.curr_hp != null) defensive.push(`HP: ${Number(g.curr_hp).toLocaleString()}`);
+  if (g.curr_def != null) defensive.push(`Defense: ${Number(g.curr_def).toLocaleString()}`);
+  if (g.curr_atk != null) offensive.push(`Attack: ${Number(g.curr_atk).toLocaleString()}`);
+  if (g.crit != null && Number(g.crit) > 0) offensive.push(`Critical Rate: ${Number(g.crit).toFixed(1)}%`);
+  if (g.bonus_dmg_pct != null && Number(g.bonus_dmg_pct) > 0) offensive.push(`Bonus Damage: ${Number(g.bonus_dmg_pct)}%`);
+  return [defensive.join('\n'), offensive.join('\n')].filter(Boolean).join('\n\n') || 'No stats.';
+}
+
+function formatRuneSlots(sockets) {
   const runeLines = [];
   const total = Math.max(2, sockets.length);
   for (let i = 0; i < total; i++) {
@@ -233,17 +130,47 @@ function formatEquipmentDetails(g, statLines, sections, sockets) {
       ? ('Rune slot ' + (i + 1) + ': ' + (slot.emoji || '') + ' ' + slot.label).trim()
       : 'Rune slot ' + (i + 1) + ': empty');
   }
-  const passive = sections[1];
-  return [
-    '**Tier:** ' + g.tier,
-    '**Enhancement:** +' + (g.enhancement - 1),
-    '**Stats**\n' + statLines.join('\n'),
-    '**' + passive.heading + '**\n' + passive.body,
-    '**Rune slots**\n' + runeLines.join('\n'),
-  ].join('\n\n');
+  return runeLines.join('\n');
 }
 
-/** Fetch a gear row by id (weapon first, then armor), normalized for the card. */
+async function buildInfoPayload(g, gearId, ownerId) {
+  const hasPassive = g.passive_name && g.passive_name.toLowerCase() !== 'none';
+  const sockets = await socketSlots(g);
+  const headerName = ownerId ? `<@${ownerId}>'s` : '';
+  const sellValue = SELL_PRICES[g.tier] || 0;
+  const loreBlock = typeof g.lore === 'string' && g.lore.trim().length > 0
+    ? `*${g.lore.trim()}*`
+    : 'No lore recorded yet.';
+
+  const embed = new EmbedBuilder()
+    .setColor(TIER_COLOR[g.tier] ?? TIER_COLOR.Common)
+    .setTitle(`${headerName} ${g.name}`.trim())
+    .setDescription([
+      `**Tier:** ${g.tier}`,
+      `**Type:** ${g.type || (g.kind === 'weapon' ? 'Weapon' : 'Armor')}`,
+      `**Enhancement:** +${Math.max(0, (Number(g.enhancement) || 1) - 1)}`,
+    ].join('\n'))
+    .addFields(
+      { name: 'Stats', value: statBlock(g) },
+      {
+        name: hasPassive ? `Passive - ${g.passive_name}` : 'Passive',
+        value: hasPassive ? (g.passive_description || 'No passive.') : 'No passive.',
+      },
+      { name: 'Rune Slots', value: formatRuneSlots(sockets) },
+      { name: 'Lore', value: `${loreBlock}\n\n${AI_DISCLAIMER}` },
+      {
+        name: 'Details',
+        value: `${g.kind === 'weapon' ? '⚔️' : '🛡️'} **ID:** \`${gearId}\`\n` +
+          `💰 **Sell Value:** ${sellValue.toLocaleString()} Credux\n` +
+          `-# 💡 \`crd enhance ${gearId}\` ・ \`crd equip ${gearId}\``,
+      },
+    );
+
+  const thumbnailUrl = thumbnailUrlFor(g.name);
+  if (thumbnailUrl) embed.setThumbnail(thumbnailUrl);
+  return { embeds: [embed] };
+}
+
 async function fetchGear(discordId, gearId) {
   const { rows } = await pool.query(
     `SELECT kind, discord_id, curr_atk, crit, enhancement, bonus_dmg_pct,
@@ -274,11 +201,9 @@ async function fetchGear(discordId, gearId) {
     [gearId, discordId],
   );
   if (rows.length > 0) return rows[0];
-
   return null;
 }
 
-// ── crd equipment info <id> ─────────────────────────────────────────────────
 async function info(message, rawId) {
   const gearId = (rawId || '').trim().toLowerCase();
   if (!gearId) {
@@ -292,13 +217,9 @@ async function info(message, rawId) {
     return;
   }
 
-  await reply(message, await buildInfoPayload(g, gearId, message.author.id, {
-    guildId: message.guild?.id,
-    userId: message.author?.id,
-  }));
+  await reply(message, await buildInfoPayload(g, gearId, message.author.id));
 }
 
-// ── dispatcher: crd equipment info <id> ─────────────────────────────────────
 async function execute(message, { args }) {
   const sub = (args[0] || '').toLowerCase();
   if (sub === 'info') return info(message, (args[1] || '').trim());

@@ -13,8 +13,22 @@ function requestedFormat() {
   return raw === 'webp' ? 'webp' : 'auto';
 }
 
-function webpQuality() {
-  return envBoundedInt('IMAGE_WEBP_QUALITY', 65, 1, 100);
+function specificWebpQualityEnv(imageType, command) {
+  const type = String(imageType || '').toLowerCase();
+  const cmd = String(command || '').toLowerCase();
+  if (cmd === 'raid' && type === 'battle_frame') return 'RAID_BATTLE_FRAME_WEBP_QUALITY';
+  if (cmd === 'raid' && type === 'battle_result') return 'RAID_BATTLE_RESULT_WEBP_QUALITY';
+  if (type === 'profile') return 'PROFILE_IMAGE_WEBP_QUALITY';
+  if (type === 'stats') return 'STATS_IMAGE_WEBP_QUALITY';
+  if (type === 'boss_status' || type === 'boss_banner' || type.startsWith('boss')) return 'BOSS_IMAGE_WEBP_QUALITY';
+  return null;
+}
+
+function webpQuality(logContext = {}) {
+  const fallback = envBoundedInt('IMAGE_WEBP_QUALITY', 65, 1, 100);
+  const envName = specificWebpQualityEnv(logContext.imageType || logContext.command, logContext.command);
+  if (!envName) return { quality: fallback, envName: 'IMAGE_WEBP_QUALITY' };
+  return { quality: envBoundedInt(envName, fallback, 1, 100), envName };
 }
 
 function aggressiveCompression() {
@@ -79,22 +93,25 @@ async function optimizeImageBuffer(input, baseName, {
 
   if (requestedFormat() === 'webp' && allowWebp) {
     try {
+      const webp = webpQuality(logContext);
       let pipe = resize(sharp(input));
       if (!preserveTransparency) pipe = pipe.flatten({ background });
-      const webp = await pipe
+      const webpBuffer = await pipe
         .webp({
-          quality: webpQuality(),
+          quality: webp.quality,
           effort: aggressive ? 6 : 4,
           smartSubsample: true,
         })
         .toBuffer();
-      const result = imageResult(webp, baseName, 'webp', true);
+      const result = imageResult(webpBuffer, baseName, 'webp', true);
       performanceLog('image optimized', {
         ...logContext,
         imageType: logContext.imageType || baseName,
         originalBytes,
-        optimizedBytes: webp.length,
+        optimizedBytes: webpBuffer.length,
         format: 'webp',
+        quality: webp.quality,
+        envName: webp.envName,
         durationMs: Date.now() - started,
       });
       return result;

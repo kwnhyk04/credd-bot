@@ -72,6 +72,8 @@ function safeMeta(meta = {}) {
     'assetEntries', 'assetMb', 'assetMaxMb', 'canvasEntries', 'canvasMb',
     'canvasMaxMb', 'battleStaticEntries', 'battleStaticMb', 'battleStaticMaxMb',
     'profileEntries', 'queueActive', 'queueQueued', 'queueLimit',
+    'avatarSource', 'assetKey', 'loadStatus', 'quality', 'envName',
+    'preservedImage',
   ];
   const out = {};
   for (const key of allowed) {

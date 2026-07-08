@@ -14,6 +14,7 @@
 const { EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const pool = require('../db/pool');
 const guildConfig = require('../handlers/guildConfigCache');
+const { bossOfficialOnlyMessage } = require('../config/officialSupport');
 
 const ACCENT = 0xf0b232;
 const PREFIX_RE = /^[a-zA-Z0-9]{1,5}$/;
@@ -78,6 +79,10 @@ async function setBotChannel(ctx, args) {
   return setChannel(ctx, args, 'bot_channel_id', 'Bot channel');
 }
 
+async function bossLimitedSetting(ctx) {
+  return err(ctx, bossOfficialOnlyMessage());
+}
+
 async function stats(ctx) {
   const { rows } = await pool.query(
     `SELECT COUNT(*)::int AS total,
@@ -112,8 +117,8 @@ async function execute(ctx, { args } = {}) {
   switch (sub) {
     case 'setprefix':                return setPrefix(ctx, args);
     case 'setbotchannel':            return setBotChannel(ctx, args);
-    case 'setannouncementchannel':   return setChannel(ctx, args, 'announcement_channel_id', 'Announcement channel');
-    case 'setbosschannel':           return setChannel(ctx, args, 'boss_announcement_channel_id', 'Boss channel');
+    case 'setannouncementchannel':   return bossLimitedSetting(ctx);
+    case 'setbosschannel':           return bossLimitedSetting(ctx);
     case 'stats':                    return stats(ctx);
     default:
       return err(ctx, 'Admin commands: `setprefix`, `setbotchannel [#channel|off]`, `setannouncementchannel`, `setbosschannel`, `stats`.');

@@ -11,7 +11,8 @@ const { CLASSES, CLASS_NAMES } = require('../config/classes');
 const { DEV_ACCOUNT_IDS } = require('../config/cosmetics');
 const { assetPath } = require('../utils/assets');
 const { smallDivider: sep } = require('../utils/componentsV2');
-const { envBool } = require('../utils/runtimeLogs');
+const { envBool, performanceLog } = require('../utils/runtimeLogs');
+const { safeAssetKey } = require('./avatarImageLoader');
 const { iconToken, iconShop } = require('./skinEmojis');
 
 const BRAND = 0x9b59b6;
@@ -67,6 +68,10 @@ function resolveAvatarImagePath(row) {
   if (!row) return null;
   const rel = String(row.asset_path || '').replace(/^\/+/, '');
   return rel ? assetPath(rel) : null;
+}
+
+function resolveDefaultClassAvatarPath(className) {
+  return resolveAvatarImagePath(defaultClassAvatar(className));
 }
 
 function withPricing(row) {
@@ -353,12 +358,12 @@ async function clearEquippedAvatar(db, userId) {
   await db.query('DELETE FROM equipped_avatars WHERE discord_id = $1', [userId]);
 }
 
-async function resolveStatsAvatar(pool, userId, className) {
+async function resolveStatsAvatar(pool, userId, className, logContext = {}) {
   const canonical = normalizeClass(className) || className;
   const fallback = defaultClassAvatar(canonical);
   try {
     const res = await pool.query(
-      `SELECT ac.asset_path
+      `SELECT ac.asset_path, ac.avatar_key
          FROM equipped_avatars ea
          JOIN avatar_catalog ac ON ac.avatar_id = ea.avatar_id
         WHERE ea.discord_id = $1
@@ -366,9 +371,22 @@ async function resolveStatsAvatar(pool, userId, className) {
           AND lower(ac.class_name) = lower($2)`,
       [userId, canonical]
     );
-    return resolveAvatarImagePath(res.rows[0] || fallback);
+    const selected = res.rows[0] || fallback;
+    const avatarSource = res.rows[0] ? 'equipped-avatar' : 'class-fallback';
+    performanceLog('avatar source selected', {
+      ...logContext,
+      avatarSource,
+      assetKey: safeAssetKey(selected.asset_path),
+    });
+    return resolveAvatarImagePath(selected);
   } catch (err) {
     if (!isMissingAvatarTable(err)) throw err;
+    performanceLog('avatar source selected', {
+      ...logContext,
+      avatarSource: 'class-fallback',
+      assetKey: safeAssetKey(fallback.asset_path),
+      reason: 'avatar-tables-missing',
+    });
     return resolveAvatarImagePath(fallback);
   }
 }
@@ -385,5 +403,7 @@ module.exports = {
   getCharacter,
   isAvatarDevAccount,
   ownsAvatar,
+  resolveAvatarImagePath,
+  resolveDefaultClassAvatarPath,
   resolveStatsAvatar,
 };

@@ -27,6 +27,7 @@ const { getEmojiIcon, FONT_FAMILY } = require('./renderBagItems');
 const { hasStatsLayout, renderStatsLayoutImage } = require('./statsLayoutRenderer');
 const { resolveName } = require('../utils/emojis');
 const { assetPath, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
+const { loadAvatarAsset } = require('./avatarImageLoader');
 
 /* ── Background template ([v4.6]) ───────────────────────────────────────────
  * The profile card is drawn on top of a template image. TEMPLATE_FILE is a single
@@ -139,16 +140,13 @@ function imageSourceCandidates(source) {
 }
 
 /** Stats avatar fetch: prefer Credd avatar/class art; only use Discord when no game avatar exists. */
-async function loadAvatar(avatarPath, avatarUrl, fallbackUrl) {
-  if (avatarPath) {
-    for (const candidate of imageSourceCandidates(avatarPath)) {
-      try {
-        const img = await loadAssetImage(candidate);
-        if (img) return img;
-      } catch { /* try next asset candidate */ }
-    }
-    return null;
-  }
+async function loadAvatar(avatarPath, avatarFallbackPath, avatarUrl, fallbackUrl, logContext = {}) {
+  const gameAvatar = await loadAvatarAsset(loadAssetImage, [
+    avatarPath ? { path: avatarPath, avatarSource: 'equipped-avatar' } : null,
+    avatarFallbackPath ? { path: avatarFallbackPath, avatarSource: 'class-fallback' } : null,
+  ], logContext);
+  if (gameAvatar) return gameAvatar;
+
   for (const url of [avatarUrl, fallbackUrl]) {
     if (!url) continue;
     try {
@@ -193,7 +191,12 @@ async function renderStatsImage(d) {
   // template as the bottom layer; otherwise fall back to the shared default template.
   const [template, avatar, weaponIcon, armorIcon, deityIcon, deity2Icon, deity3Icon, expIcon] = await Promise.all([
     d.skinPath ? loadAssetImage(d.skinPath).catch(() => null).then((img) => img || loadTemplate()) : loadTemplate(),
-    loadAvatar(d.avatarPath, d.avatarUrl, d.fallbackAvatarUrl),
+    loadAvatar(d.avatarPath, d.avatarFallbackPath, d.avatarUrl, d.fallbackAvatarUrl, {
+      system: 'stats',
+      command: 'stats',
+      imageType: 'stats_avatar',
+      userId: d.discordId,
+    }),
     d.weaponName ? getEmojiIcon(resolveName(d.weaponName) || '') : Promise.resolve(null),
     d.armorName ? getEmojiIcon(resolveName(d.armorName) || '') : Promise.resolve(null),
     d.deityName ? getEmojiIcon(resolveName(d.deityName) || '') : Promise.resolve(null),

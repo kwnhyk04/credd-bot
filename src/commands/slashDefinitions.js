@@ -176,9 +176,9 @@ def('admin', 'admin',
       .addStringOption((o) => o.setName('prefix').setDescription('1–5 letters/numbers').setRequired(true)))
     .addSubcommand((s) => s.setName('setbotchannel').setDescription('Restrict bot commands to a channel')
       .addChannelOption((o) => o.setName('channel').setDescription('Channel').setRequired(true)))
-    .addSubcommand((s) => s.setName('setannouncementchannel').setDescription('Set the announcement channel')
+    .addSubcommand((s) => s.setName('setannouncementchannel').setDescription('Official support server only for now')
       .addChannelOption((o) => o.setName('channel').setDescription('Channel').setRequired(true)))
-    .addSubcommand((s) => s.setName('setbosschannel').setDescription('Set the boss spawn channel')
+    .addSubcommand((s) => s.setName('setbosschannel').setDescription('Official support server only for now')
       .addChannelOption((o) => o.setName('channel').setDescription('Channel').setRequired(true)))
     .addSubcommand((s) => s.setName('stats').setDescription('Server activity summary')),
   (i) => {

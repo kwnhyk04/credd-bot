@@ -27,6 +27,7 @@ const { getEmojiIcon, FONT_FAMILY } = require('./renderBagItems');
 const { hasProfileLayout, renderProfileLayoutImage } = require('./profileLayoutRenderer');
 const { resolveName } = require('../utils/emojis');
 const { assetPath, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
+const { loadAvatarAsset } = require('./avatarImageLoader');
 
 /* ── Background template ([v4.6]) ───────────────────────────────────────────
  * The profile card is drawn on top of a template image. TEMPLATE_FILE is a single
@@ -125,7 +126,13 @@ function drawProgress(ctx, x, y, w, h, ratio, fill) {
 }
 
 /** Avatar fetch with graceful fallback to the default Discord avatar. */
-async function loadAvatar(avatarUrl, fallbackUrl) {
+async function loadAvatar(avatarPath, avatarFallbackPath, avatarUrl, fallbackUrl, logContext = {}) {
+  const gameAvatar = await loadAvatarAsset(loadAssetImage, [
+    avatarPath ? { path: avatarPath, avatarSource: 'equipped-avatar' } : null,
+    avatarFallbackPath ? { path: avatarFallbackPath, avatarSource: 'class-fallback' } : null,
+  ], logContext);
+  if (gameAvatar) return gameAvatar;
+
   for (const url of [avatarUrl, fallbackUrl]) {
     if (!url) continue;
     try {
@@ -163,7 +170,12 @@ async function renderProfileImage(d) {
   // template as the bottom layer; otherwise fall back to the shared default template.
   const [template, avatar, weaponIcon, armorIcon, deityIcon, expIcon] = await Promise.all([
     d.skinPath ? loadAssetImage(d.skinPath).catch(() => null).then((img) => img || loadTemplate()) : loadTemplate(),
-    loadAvatar(d.avatarUrl, d.fallbackAvatarUrl),
+    loadAvatar(d.avatarPath, d.avatarFallbackPath, d.avatarUrl, d.fallbackAvatarUrl, {
+      system: 'profile',
+      command: 'profile',
+      imageType: 'profile_avatar',
+      userId: d.discordId,
+    }),
     d.weaponName ? getEmojiIcon(resolveName(d.weaponName) || '') : Promise.resolve(null),
     d.armorName ? getEmojiIcon(resolveName(d.armorName) || '') : Promise.resolve(null),
     d.deityName ? getEmojiIcon(resolveName(d.deityName) || '') : Promise.resolve(null),

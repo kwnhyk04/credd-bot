@@ -10,7 +10,7 @@ const { EXP_REQUIRED, MAX_COMBAT_LEVEL } = require('../../config/combatExp');
 const { BELIEVER_EXP_PER_LEVEL, believerTitle } = require('../../config/believerProgression');
 const { renderStatsImage } = require('../../engine/renderStats');
 const { resolveSkin, resolveProfileLabel } = require('../../engine/skinResolver');
-const { resolveStatsAvatar } = require('../../engine/avatarSystem');
+const { resolveDefaultClassAvatarPath, resolveStatsAvatar } = require('../../engine/avatarSystem');
 const { resolveProfileTarget } = require('../../utils/profileTarget');
 
 // Bump when renderStats output changes visually (busts every cached stats card).
@@ -201,12 +201,6 @@ async function execute(message) {
   };
 
   // [Supporter-stage §6] Resolve the equipped/override/base profile skin + top-label word.
-  const skin = await resolveSkin(pool, discordId, 'profile');
-  data.skinPath = skin.path; // null → renderer keeps the default template
-  data.topLabel = await resolveProfileLabel(pool, discordId);
-  data.avatarPath = await resolveStatsAvatar(pool, discordId, r.class);
-
-  // [egress] Render-once cache — see profile.js; same pattern.
   const logContext = {
     system: 'stats',
     command: 'stats',
@@ -214,6 +208,14 @@ async function execute(message) {
     guildId: message.guild?.id,
     userId: discordId,
   };
+
+  const skin = await resolveSkin(pool, discordId, 'profile');
+  data.skinPath = skin.path; // null → renderer keeps the default template
+  data.topLabel = await resolveProfileLabel(pool, discordId);
+  data.avatarPath = await resolveStatsAvatar(pool, discordId, r.class, logContext);
+  data.avatarFallbackPath = resolveDefaultClassAvatarPath(r.class);
+
+  // [egress] Render-once cache — see profile.js; same pattern.
   const cached = await getCachedCanvasUrl(
     ['stats', STATS_RENDER_REV, data],
     () => renderStatsImage(data),

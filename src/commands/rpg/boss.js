@@ -14,6 +14,7 @@
 const {
   fetchBossView, buildBossMessage, repointLiveMessage,
 } = require('../../engine/bossSystem');
+const { bossRedirectMessage, isOfficialGuild } = require('../../config/officialSupport');
 
 const RESPAWN_COOLDOWN_MS = 15 * 60 * 1000;
 
@@ -23,6 +24,10 @@ function reply(message, content) {
 
 async function execute(message) {
   try {
+    if (!isOfficialGuild(message.guild.id)) {
+      return reply(message, bossRedirectMessage());
+    }
+
     const view = await fetchBossView(message.guild.id);
     if (!view) {
       return reply(
@@ -34,7 +39,7 @@ async function execute(message) {
 
     const { state } = view;
     const now = Date.now();
-    if (state.status === 'active' && new Date(state.expires_at).getTime() > now) {
+    if (state.status === 'active') {
       const sent = await message.channel.send(await buildBossMessage(view));
       repointLiveMessage(message.guild.id, sent);
       if (message.isSlash) {
@@ -46,7 +51,7 @@ async function execute(message) {
     // terminal (or expired-pending-tick) — show when the next spawn lands
     const endedAt = new Date(state.expires_at).getTime();
     const eligibleAt = Math.floor((endedAt + RESPAWN_COOLDOWN_MS) / 1000);
-    const word = state.status === 'dead' ? 'was slain' : 'escaped';
+    const word = state.status === 'dead' ? 'was slain' : 'ended';
     const when = eligibleAt * 1000 > now
       ? `<t:${eligibleAt}:R>`
       : 'on the next scheduler check (within a minute)';

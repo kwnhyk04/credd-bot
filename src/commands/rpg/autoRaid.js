@@ -86,6 +86,16 @@ function fmtDuration(sec) {
   return `${m}m`;
 }
 
+function fmtDurationWords(sec) {
+  const totalMinutes = Math.max(1, Math.ceil(Number(sec || 0) / 60));
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  const parts = [];
+  if (h > 0) parts.push(`${h} hour${h === 1 ? '' : 's'}`);
+  if (m > 0) parts.push(`${m} minute${m === 1 ? '' : 's'}`);
+  return parts.join(' ') || '1 minute';
+}
+
 function rewardLines(rw) {
   const credux = emojiForDisplay('Credux Coin', '💰');
   const shard = emojiForDisplay('Belief Shards', '🔮');
@@ -142,13 +152,14 @@ function buildStartPayload(ownerId, character) {
 /** Progress card — run active, not yet complete. */
 function buildProgressPayload(ownerId, endsEpoch, level) {
   const rw = computeRewards(level);
+  const remainingSec = Math.max(0, Number(endsEpoch) - Math.floor(Date.now() / 1000));
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
     .addTextDisplayComponents((td) => td.setContent('## ⚔️ Auto Raid — In Progress'))
     .addTextDisplayComponents((td) => td.setContent(`-# User: <@${ownerId}>`))
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(
-      `Your character is raiding… Return <t:${endsEpoch}:R> (<t:${endsEpoch}:f>) and run \`crd auto raid\` to claim your rewards.`,
+      `Your character is raiding… Return after ${fmtDurationWords(remainingSec)} and run \`crd auto raid\` to claim your rewards.`,
     ))
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent('-# Expected rewards on completion:'))
@@ -165,6 +176,8 @@ function buildClaimPayload(ownerId, level) {
     .setAccentColor(ACCENT)
     .addTextDisplayComponents((td) => td.setContent('## ⚔️ Auto Raid — Complete!'))
     .addTextDisplayComponents((td) => td.setContent(`-# User: <@${ownerId}>`))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent('Raid done. Run `crd auto raid` to claim your rewards.'))
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent('Your raiders have returned victorious. Claim your spoils:'))
     .addTextDisplayComponents((td) => td.setContent(rewardLines(rw)))
@@ -296,8 +309,9 @@ async function handleClaim(interaction, ownerId) {
     const row = rowRes.rows[0];
     if (!row.done) {
       await client.query('ROLLBACK');
+      const remainingSec = Math.max(0, Number(row.ends_epoch) - Math.floor(Date.now() / 1000));
       await interaction.followUp({
-        content: `⏳ Not finished yet — claimable <t:${Number(row.ends_epoch)}:R>.`,
+        content: `⏳ Not finished yet — return after ${fmtDurationWords(remainingSec)}.`,
         flags: MessageFlags.Ephemeral,
       });
       return;
