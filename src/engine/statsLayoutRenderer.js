@@ -525,10 +525,76 @@ function repositionStats(layout, skinPath) {
   };
 }
 
+function reflowStatsText(layout) {
+  const av = layout.avatar || {};
+  const avatarW = av.w || av.width || av.size || 220;
+  const avatarH = av.h || av.height || av.size || avatarW;
+  const leftCx = (av.x || 0) + avatarW / 2;
+  const leftTop = (av.y || 0) + avatarH + 30;
+  const colMax = Math.min(avatarW + 140, layout.canvas.w - (av.x || 0) - 20);
+  const rx = layout.name.x;
+  const ry = layout.name.y;
+  const rcw = Math.max(160, layout.canvas.w - rx - 48);
+  const titleColor = (layout.tier_line && layout.tier_line.color) || '#67E7FF';
+  const nameSize = layout.name?.size || 32;
+  const R = (style, y) => ({
+    ...style,
+    x: rx,
+    y,
+    anchor: 'left',
+    max_width: rcw,
+    align_to: undefined,
+  });
+
+  return {
+    ...layout,
+    top_label: {
+      ...layout.top_label,
+      x: leftCx,
+      y: leftTop,
+      anchor: 'center',
+      align_to: undefined,
+      max_width: colMax,
+    },
+    name: {
+      ...layout.name,
+      x: leftCx,
+      y: leftTop + 36,
+      anchor: 'center',
+      max_width: colMax,
+    },
+    title: {
+      ...layout.name,
+      x: leftCx,
+      y: leftTop + 70,
+      anchor: 'center',
+      max_width: colMax,
+      size: Math.max(13, Math.round(nameSize * 0.42)),
+      weight: 'normal',
+      color: titleColor,
+      align_to: undefined,
+    },
+    class: R(layout.class, ry),
+    combat_exp: R(layout.combat_exp, ry + 32),
+    weapon_label: R(layout.weapon_label, ry + 70),
+    weapon_value: R(layout.weapon_value, ry + 96),
+    deity_label: R(layout.deity_label, ry + 134),
+    deity_value: {
+      ...layout.deity_value,
+      x: rx,
+      y: layout.deity_value?.stats_y ?? ry + 162,
+      anchor: 'left',
+      max_width: rcw,
+    },
+    blessing: R(layout.blessing, layout.blessing?.stats_y ?? ry + 192),
+  };
+}
+
 async function renderStatsLayoutImage(d, options = {}) {
   const skinPath = options.skinPath || d.skinPath;
   const configPath = options.layoutPath || layoutPathFor(skinPath);
-  const layout = await loadLayout(configPath);
+  const rawLayout = await loadLayout(configPath);
+  const layout = reflowStatsText(rawLayout);
   const images = await loadRenderImages(d, skinPath, options);
   if (!images.skin) throw new Error(`Skin image unavailable: ${skinPath}`);
   const view = buildView(d);
@@ -545,7 +611,7 @@ async function renderStatsLayoutImage(d, options = {}) {
     'weapon_label', 'deity_label', 'blessing',
     'stats_label', 'record_label', 'quote',
   ]) {
-    if (key === 'top_label' && !layout.top_label.enabled) continue;
+    if (key === 'top_label' && !rawLayout.top_label.enabled) continue;
     await drawText(ctx, key, view[key], layout, view, images);
   }
   // Equipments are one combined row, with separate icons for weapon and armor.
