@@ -749,3 +749,153 @@ Actions completed:
 
 4. Updated `src/config/cooldowns.js`.
    - `raid` and `ranked` remain set to 30 seconds.
+
+## Skin and Avatar Ownership Audit Add-on
+
+Timestamp: 2026-07-08 16:35:03 +08:00
+
+Completed the add-on review and default-only collection correction for skin/avatar ownership behavior.
+
+Actions completed:
+
+1. Updated `src/engine/supporterEntitlements.js`.
+   - Added non-production gating for developer unlock-all skin behavior.
+   - Added a collection-specific ownership resolver so `crd skin collection` uses explicit `user_cosmetics` ownership rows, plus non-prod developer unlocks, instead of treating every dynamic entitlement as visible collection ownership.
+
+2. Updated `src/engine/avatarSystem.js`.
+   - Tightened avatar developer unlock-all gating so Railway production cannot enable unlock-all behavior just because `NODE_ENV` is unset.
+
+3. Updated `src/engine/skinShopViews.js`.
+   - `crd skin collection` now displays the synthetic Default row plus owned skins from `user_cosmetics`.
+   - Unowned non-default skins are no longer shown in collection mode.
+   - Shop mode remains unchanged and still shows purchasable skins with ownership markers.
+
+4. Updated `src/commands/rpg/skin.js`.
+   - Corrected the command comment to describe default-plus-owned collection behavior.
+
+5. SQL backfill prepared for manual review only.
+   - Backfills missing `user_cosmetics` rows from `equipped_skins`.
+   - Does not insert avatars into `user_cosmetics`.
+   - Does not touch `user_avatars`.
+   - Does not delete or modify `equipped_skins`.
+   - Uses `source = 'grant'` because the actual production schema constrains `user_cosmetics.source` to `base`, `shop`, `founder`, or `grant`; longer values such as `legacy_equipped_backfill` would violate the current check constraint.
+
+6. Current untracked changes at the time of this handoff entry:
+   - None reported by `git status --short` before edits started.
+   - After this add-on, modified files are expected to be `Handoff.md`, `src/commands/rpg/skin.js`, `src/engine/avatarSystem.js`, `src/engine/skinShopViews.js`, and `src/engine/supporterEntitlements.js`.
+
+## Unrecorded Change Audit and Final Ownership Commit
+
+Timestamp: 2026-07-08 16:39:25 +08:00
+
+Reviewed recent commits and the current working tree after the user reported unrecorded work from the prior night. This entry records the previously missing production optimization/boss lifecycle batch and the current ownership add-on before committing all changes.
+
+Previously committed but not fully recorded:
+
+1. Commit `b1b7ae1` - `Optimize embeds, raid images, and boss lifecycle`.
+   - Updated equipment/deity info to use native embed thumbnails instead of normal info canvas/card attachments.
+   - Added cleaner equipment/deity stats grouping with defensive stats first, then offensive stats.
+   - Added shared avatar image loading and candidate fallback support for stats/profile portrait slots.
+   - Added class fallback avatar behavior for `crd stats` and `crd profile`.
+   - Preserved the previous battle canvas image when final battle frame rendering is skipped.
+   - Added raid-specific WebP quality controls for battle frame and battle result images.
+   - Set raid image max-width default to disabled (`RAID_IMAGE_MAX_WIDTH=0`) so raid canvases keep original dimensions.
+   - Added profile/stats/boss image quality env controls.
+   - Routed local boss banner fallback through optimized attachment handling.
+   - Updated auto raid progress/done wording to avoid stale Discord relative timestamps.
+   - Changed boss lifecycle so active bosses remain until defeated.
+   - Limited normal boss spawning and `crd boss` behavior to the official support server.
+   - Added non-official guild boss redirect messaging.
+   - Added boss stat multiplier and daily attack limit env controls.
+   - Disabled `setannouncementchannel` and `setbosschannel` behavior while keeping command names/help entries visible.
+   - Added `src/config/officialSupport.js`.
+   - Added `src/engine/avatarImageLoader.js`.
+
+2. Files included in commit `b1b7ae1`.
+   - `.env.example`
+   - `src/commands/admin.js`
+   - `src/commands/help.js`
+   - `src/commands/rpg/autoRaid.js`
+   - `src/commands/rpg/boss.js`
+   - `src/commands/rpg/deity.js`
+   - `src/commands/rpg/dev.js`
+   - `src/commands/rpg/equipment.js`
+   - `src/commands/rpg/profile.js`
+   - `src/commands/rpg/stats.js`
+   - `src/commands/slashDefinitions.js`
+   - `src/config/officialSupport.js`
+   - `src/engine/avatarImageLoader.js`
+   - `src/engine/avatarSystem.js`
+   - `src/engine/battleRender.js`
+   - `src/engine/bossSystem.js`
+   - `src/engine/profileLayoutRenderer.js`
+   - `src/engine/renderProfile.js`
+   - `src/engine/renderStats.js`
+   - `src/engine/statsLayoutRenderer.js`
+   - `src/schedulers/bossScheduler.js`
+   - `src/utils/imageOutput.js`
+   - `src/utils/runtimeLogs.js`
+
+Current uncommitted add-on changes to be committed next:
+
+1. `src/engine/supporterEntitlements.js`
+   - Added production-safe skin developer unlock gating.
+   - Added `collectionOwnedIdsResolved()` so collection display uses explicit `user_cosmetics` ownership rows, with non-prod developer unlocks only.
+
+2. `src/engine/avatarSystem.js`
+   - Tightened avatar developer unlock gating so Railway production cannot unlock all avatars when `NODE_ENV` is unset.
+
+3. `src/engine/skinShopViews.js`
+   - `crd skin collection` now displays Default plus owned skins only.
+   - Unowned non-default skins no longer appear in collection mode.
+
+4. `src/commands/rpg/skin.js`
+   - Updated the command comment to match default-plus-owned collection behavior.
+
+5. `Handoff.md`
+   - Added the ownership add-on entry and this unrecorded-change audit entry.
+
+Manual SQL prepared but not run:
+
+```sql
+BEGIN;
+
+INSERT INTO user_cosmetics (discord_id, cosmetic_id, source, acquired_at)
+SELECT DISTINCT
+       es.discord_id,
+       es.cosmetic_id,
+       'grant' AS source,
+       COALESCE(es.updated_at, NOW()) AS acquired_at
+  FROM equipped_skins es
+  JOIN cosmetic_catalog cc
+    ON cc.cosmetic_id = es.cosmetic_id
+ WHERE es.cosmetic_id IS NOT NULL
+   AND cc.category = es.category
+ON CONFLICT (discord_id, cosmetic_id) DO NOTHING;
+
+COMMIT;
+```
+
+SQL notes:
+
+1. `equipped_skins.discord_id` maps to `user_cosmetics.discord_id`.
+2. `equipped_skins.cosmetic_id` maps to `user_cosmetics.cosmetic_id`.
+3. `source` is set to `grant` because the current production schema only allows `base`, `shop`, `founder`, or `grant`.
+4. `equipped_skins.updated_at` maps to `user_cosmetics.acquired_at`, with `NOW()` fallback.
+5. The script does not insert avatars into `user_cosmetics`.
+6. The script does not touch `user_avatars`.
+7. The script does not delete or modify `equipped_skins`.
+8. `ON CONFLICT (discord_id, cosmetic_id) DO NOTHING` prevents duplicate ownership rows.
+
+Validation before final commit:
+
+1. Ran `node --check` on:
+   - `src/engine/supporterEntitlements.js`
+   - `src/engine/skinShopViews.js`
+   - `src/commands/rpg/skin.js`
+   - `src/engine/avatarSystem.js`
+2. Ran `npm.cmd run selftest:full`.
+   - Battle selftest: 137 passed, 0 failed.
+   - Help selftest: 160 passed, 0 failed.
+   - Casino selftest: 171 passed, 0 failed.
+3. Ran `git diff --check`; only CRLF normalization warnings were reported.

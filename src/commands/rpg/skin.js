@@ -2,8 +2,8 @@
 
 /**
  * skin.js — `crd skin collection` (Supporter-stage addendum2 §5). Open to EVERYONE
- * (supporter or not): paginated, deity-collection-style view of all skins by category,
- * with 🔒 for unowned, ✅/「Equipped」 markers, emoji icons, and the token balance.
+ * (supporter or not): paginated, deity-collection-style view of default + owned
+ * skins by category, with ✅ markers, emoji icons, and the token balance.
  * Shares the renderer with the shop (ctx 'coll'). `crd skin list` is an alias.
  */
 

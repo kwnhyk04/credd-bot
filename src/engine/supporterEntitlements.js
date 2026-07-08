@@ -21,6 +21,7 @@ const pool = require('../db/pool');
 const {
   CATEGORIES, MONTHLY_TOKENS, ETERNAL_ONE_TIME_TOKENS, TIER_RANK, DEV_ACCOUNT_IDS,
 } = require('../config/cosmetics');
+const { envBool } = require('../utils/runtimeLogs');
 const { grantTokensTx, grantTokensOnceTx } = require('./supporterTokens');
 
 let supporterSchemaCache = null;
@@ -147,9 +148,17 @@ async function grantCosmeticTx(client, userId, cosmeticId, source) {
   );
 }
 
-// ── §4 (addendum2): dev accounts own every active catalog skin ────────────────
+function skinDevUnlocksEnabled() {
+  const railwayEnv = String(process.env.RAILWAY_ENVIRONMENT_NAME || process.env.RAILWAY_ENVIRONMENT || '').toLowerCase();
+  const railwayNonProd = railwayEnv && !['production', 'prod'].includes(railwayEnv);
+  const nodeNonProd = process.env.NODE_ENV !== 'production';
+  const nonProd = railwayEnv ? railwayNonProd : (nodeNonProd || envBool('BETA_MODE', false));
+  return nonProd && envBool('SKIN_DEV_UNLOCKS', true);
+}
+
+// ── §4 (addendum2): dev accounts own every active catalog skin in non-prod ────
 function isDevAccount(userId) {
-  return DEV_ACCOUNT_IDS.includes(String(userId));
+  return skinDevUnlocksEnabled() && DEV_ACCOUNT_IDS.includes(String(userId));
 }
 
 /**
@@ -186,6 +195,15 @@ async function ownedIdsResolved(db, userId) {
     else if (r.is_base && active) owned.add(r.cosmetic_id);
   }
   return owned;
+}
+async function collectionOwnedIdsResolved(db, userId) {
+  if (isDevAccount(userId)) {
+    const { rows } = await db.query(
+      'SELECT cosmetic_id FROM cosmetic_catalog WHERE is_active = true'
+    );
+    return new Set(rows.map((r) => r.cosmetic_id));
+  }
+  return userOwnedIds(db, userId);
 }
 async function ownsResolved(db, userId, cosmeticId) {
   if (isDevAccount(userId)) return true;
@@ -402,7 +420,7 @@ module.exports = {
   getSupporter, isActiveSupporter, effectiveTier,
   listActiveCatalog, getCatalogByKey, getCatalogById, getCatalogByCode,
   userOwnedIds, userOwns, grantCosmeticTx,
-  isDevAccount, ownedIdsResolved, ownsResolved, isShopCatalog, resolveCatalogRef,
+  isDevAccount, ownedIdsResolved, collectionOwnedIdsResolved, ownsResolved, isShopCatalog, resolveCatalogRef,
   getEquipped, equipCosmeticTx, setOverrideTx, clearAllEquipped,
   grantBaseSetTx, applySubscribe, applyMonthlyTokens,
 };

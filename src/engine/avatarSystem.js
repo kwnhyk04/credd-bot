@@ -32,8 +32,9 @@ function isMissingAvatarTable(err) {
 function avatarDevUnlocksEnabled() {
   const railwayEnv = String(process.env.RAILWAY_ENVIRONMENT_NAME || process.env.RAILWAY_ENVIRONMENT || '').toLowerCase();
   const railwayNonProd = railwayEnv && !['production', 'prod'].includes(railwayEnv);
-  const fallback = process.env.NODE_ENV !== 'production' || railwayNonProd || envBool('BETA_MODE', false);
-  return envBool('AVATAR_DEV_UNLOCKS', fallback);
+  const nodeNonProd = process.env.NODE_ENV !== 'production';
+  const nonProd = railwayEnv ? railwayNonProd : (nodeNonProd || envBool('BETA_MODE', false));
+  return nonProd && envBool('AVATAR_DEV_UNLOCKS', true);
 }
 
 function isAvatarDevAccount(userId) {

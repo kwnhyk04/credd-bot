@@ -68,11 +68,13 @@ function sortCollection(skins) {
 async function gather(db, viewerId, page, ctx = 'shop') {
   const category = PAGES[clampPage(page)];
   let skins = await ent.listActiveCatalog(db, category);
+  const owned = ctx === 'coll'
+    ? await ent.collectionOwnedIdsResolved(db, viewerId)
+    : await ent.ownedIdsResolved(db, viewerId);
   // Shop/dev contexts only list purchasable store skins (+ free base); the collection shows
-  // everything owned, including scope-owned tester defaults, per-tester customs, and founder set.
+  // only explicit owned rows (plus non-prod dev unlocks); the synthetic Default row is added below.
   if (ctx !== 'coll') skins = skins.filter((s) => s.is_base || ent.isShopCatalog(s));
-  else skins = sortCollection(skins);
-  const owned = await ent.ownedIdsResolved(db, viewerId);
+  else skins = sortCollection(skins.filter((s) => owned.has(s.cosmetic_id)));
   const equipped = await ent.getEquipped(db, viewerId);
   const sup = await ent.getSupporter(db, viewerId);
   return {
