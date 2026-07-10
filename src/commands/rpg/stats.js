@@ -6,6 +6,7 @@ const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 const pool = require('../../db/pool');
 const { assemblePlayerStats, accumulateRuneStats } = require('../../engine/statAssembly');
 const { computeResonanceMods } = require('../../config/blessings');
+const { computeSigilStats } = require('../../config/ascension');
 const { EXP_REQUIRED, MAX_COMBAT_LEVEL } = require('../../config/combatExp');
 const { BELIEVER_EXP_PER_LEVEL, believerTitle } = require('../../config/believerProgression');
 const { renderStatsImage } = require('../../engine/renderStats');
@@ -14,9 +15,18 @@ const { resolveDefaultClassAvatarPath, resolveStatsAvatar } = require('../../eng
 const { resolveProfileTarget } = require('../../utils/profileTarget');
 const { envNumber, performanceLog } = require('../../utils/runtimeLogs');
 const { safeAssetKey } = require('../../engine/avatarImageLoader');
+const {
+  isRemoteAssetsEnabled, isRemoteSource, remoteAssetAvailable, relativeAssetPath,
+  assetPath, assetExistsSync,
+} = require('../../utils/assets');
+const { getSupporter, effectiveTier } = require('../../engine/supporterEntitlements');
+const { SUPPORTER_BADGE_DIR, SUPPORTER_BADGE_FILE } = require('../../config/cosmetics');
 
 // Bump when renderStats output changes visually (busts every cached stats card).
-const STATS_RENDER_REV = 8;
+// 9: §1.3 — busts cards cached while an equipped avatar's art was missing on R2.
+// 10: §2.5 — supporter badge below the Title.
+// 11: badge enlarged (SUPPORTER_BADGE_HEIGHT 30 → 52) + name clamp to panel.
+const STATS_RENDER_REV = 11;
 const STATS_IMAGE_OPTIONS = Object.freeze({
   quality: 50,
   maxWidth: Math.floor(envNumber('STATS_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 })),
@@ -52,12 +62,14 @@ async function execute(message) {
             ar.name  AS armor_name, ar.type AS armor_type,
             ua.enhancement AS armor_enh, ua.curr_hp AS a_hp, ua.curr_def AS a_def,
             ua.native_sockets AS a_native,
-            dr.name  AS deity_name, dr.blessing_name, ud.enhancement AS deity_enh,
-            ud.curr_atk AS d_atk, ud.curr_hp AS d_hp, ud.curr_def AS d_def,
+            dr.name  AS deity_name, dr.blessing_name, ud.sigils AS d1_sigils, ud.ascended AS d1_ascended,
+            dr.base_atk AS d1_batk, dr.base_hp AS d1_bhp, dr.base_def AS d1_bdef,
             dr.mythology AS d1_myth,
-            d2r.name AS deity2_name, ud2.curr_atk AS d2_atk, ud2.curr_hp AS d2_hp, ud2.curr_def AS d2_def,
+            d2r.name AS deity2_name, ud2.sigils AS d2_sigils,
+            d2r.base_atk AS d2_batk, d2r.base_hp AS d2_bhp, d2r.base_def AS d2_bdef,
             d2r.mythology AS d2_myth,
-            d3r.name AS deity3_name, ud3.curr_atk AS d3_atk, ud3.curr_hp AS d3_hp, ud3.curr_def AS d3_def,
+            d3r.name AS deity3_name, ud3.sigils AS d3_sigils,
+            d3r.base_atk AS d3_batk, d3r.base_hp AS d3_bhp, d3r.base_def AS d3_bdef,
             d3r.mythology AS d3_myth,
             d2r.blessing_name AS deity2_blessing, d3r.blessing_name AS deity3_blessing,
             tcq.display AS equipped_title
@@ -131,11 +143,16 @@ async function execute(message) {
   const armor = r.a_hp != null
     ? { curr_hp: r.a_hp, curr_def: r.a_def }
     : null;
-  const deity = r.d_atk != null
-    ? { curr_atk: r.d_atk, curr_hp: r.d_hp, curr_def: r.d_def }
+  // [Ascension §3.5] Deity stats computed at read time: base × (0.50 + 0.05 × sigils).
+  const deity = r.deity_name != null
+    ? computeSigilStats({ base_atk: r.d1_batk, base_hp: r.d1_bhp, base_def: r.d1_bdef }, r.d1_sigils)
     : null;
-  const slot2 = r.d2_atk != null ? { curr_atk: r.d2_atk, curr_hp: r.d2_hp, curr_def: r.d2_def } : null;
-  const slot3 = r.d3_atk != null ? { curr_atk: r.d3_atk, curr_hp: r.d3_hp, curr_def: r.d3_def } : null;
+  const slot2 = r.deity2_name != null
+    ? computeSigilStats({ base_atk: r.d2_batk, base_hp: r.d2_bhp, base_def: r.d2_bdef }, r.d2_sigils)
+    : null;
+  const slot3 = r.deity3_name != null
+    ? computeSigilStats({ base_atk: r.d3_batk, base_hp: r.d3_bhp, base_def: r.d3_bdef }, r.d3_sigils)
+    : null;
   const deityInfos = [
     r.deity_name ? { name: r.deity_name, mythology: r.d1_myth } : null,
     r.deity2_name ? { name: r.deity2_name, mythology: r.d2_myth } : null,
@@ -150,7 +167,8 @@ async function execute(message) {
   // enhancement column: 1 = +0; display level is enhancement − 1.
   const weaponEnh = r.weapon_name ? Math.max(0, (r.weapon_enh || 1) - 1) : 0;
   const armorEnh  = r.armor_name  ? Math.max(0, (r.armor_enh  || 1) - 1) : 0;
-  const deityEnh  = r.deity_name  ? Math.max(0, (r.deity_enh  || 1) - 1) : 0;
+  // [Ascension] Deity "+n" now shows the Sigil count (0–10).
+  const deityEnh  = r.deity_name  ? Math.max(0, Number(r.d1_sigils) || 0) : 0;
 
   const combatAtCap = r.combat_level >= MAX_COMBAT_LEVEL;
 
@@ -224,6 +242,35 @@ async function execute(message) {
   });
   data.avatarPath = await resolveStatsAvatar(pool, discordId, r.class, logContext);
   data.avatarFallbackPath = resolveDefaultClassAvatarPath(r.class);
+  // [§1.3] Cache-poisoning guard: the canvas cache assumes the render is a pure
+  // function of its inputs, but the avatar layer also depends on whether the art
+  // is fetchable AT RENDER TIME. If the equipped avatar's file is missing, null
+  // the path so the fallback render is keyed AS a fallback — once the art is
+  // uploaded, remoteAssetAvailable flips (10-min TTL re-check) → new cache key →
+  // fresh render. Uses the existing cached HEAD probe (no per-render egress).
+  if (data.avatarPath && isRemoteAssetsEnabled() && isRemoteSource(data.avatarPath)
+      && !(await remoteAssetAvailable(relativeAssetPath(data.avatarPath)))) {
+    performanceLog('stats avatar art missing — keyed as fallback', {
+      ...logContext,
+      assetKey: safeAssetKey(data.avatarPath),
+    });
+    data.avatarPath = null;
+  }
+
+  // [§2.5] Supporter badge: active subscribers only (effectiveTier → null when
+  // lapsed; eternal is permanent). Resolved to a fetchable path HERE so the
+  // badge identity (tier + availability) is part of the canvas cache key via
+  // `data`; missing art (not uploaded yet) → null → renderer skips the layer.
+  data.supporterBadgePath = null;
+  const supporterTier = effectiveTier(await getSupporter(pool, discordId));
+  if (supporterTier && SUPPORTER_BADGE_FILE[supporterTier]) {
+    const badgeRel = `${SUPPORTER_BADGE_DIR}/${SUPPORTER_BADGE_FILE[supporterTier]}.png`;
+    if (isRemoteAssetsEnabled()) {
+      if (await remoteAssetAvailable(badgeRel)) data.supporterBadgePath = assetPath(badgeRel);
+    } else if (assetExistsSync(assetPath(badgeRel))) {
+      data.supporterBadgePath = assetPath(badgeRel);
+    }
+  }
 
   // [egress] Render-once cache — see profile.js; same pattern.
   const cached = await getCachedCanvasUrl(

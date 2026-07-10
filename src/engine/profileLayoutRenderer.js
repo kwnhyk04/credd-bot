@@ -11,6 +11,7 @@ const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const { getEmojiIcon } = require('./renderBagItems');
 const { resolveName } = require('../utils/emojis');
 const { formatIntegerEnUS: fmt } = require('../utils/textFormat');
+const { SUPPORTER_BADGE_HEIGHT } = require('../config/cosmetics');
 const {
   assetSource,
   assetExistsSync,
@@ -109,10 +110,12 @@ async function loadRenderImages(d, skinPath, options) {
     ? loadOptionalImage(localIcons.combatExp)
     : getEmojiIcon('combat_exp');
 
-  const [skin, avatar, weapon, deity, combatExp] = await Promise.all([
+  const [skin, avatar, weapon, deity, combatExp, supporterBadge] = await Promise.all([
     loadOptionalImage(skinPath), avatarPromise, weaponPromise, deityPromise, combatExpPromise,
+    // [§2.5] supporter badge — path only set when tier active AND art exists.
+    loadOptionalImage(d.supporterBadgePath),
   ]);
-  return { skin, avatar, weapon, deity, combatExp };
+  return { skin, avatar, weapon, deity, combatExp, supporterBadge };
 }
 
 function iconFor(style, layout, images) {
@@ -328,10 +331,10 @@ function relabelRankCols(record) {
  */
 async function drawCenteredTitle(ctx, layout, view, images) {
   const title = view.title;
-  if (!title || !layout.name) return;
+  if (!title || !layout.name) return null;
   if (layout.title) {
     await drawText(ctx, 'title', title, layout, view, images);
-    return;
+    return { x: layout.title.x ?? layout.canvas?.w / 2, y: layout.title.y ?? 0 };
   }
   const ns = layout.name;
   const nameText = ns.uppercase ? String(view.name).toUpperCase() : String(view.name);
@@ -351,6 +354,7 @@ async function drawCenteredTitle(ctx, layout, view, images) {
     x: centerX, y: titleY, anchor: 'center', max_width: ns.max_width || 600,
   };
   await drawText(ctx, '__title', title, { __title: style, name: layout.name }, view, images);
+  return { x: centerX, y: titleY };
 }
 
 async function renderProfileLayoutImage(d, options = {}) {
@@ -376,7 +380,14 @@ async function renderProfileLayoutImage(d, options = {}) {
     if (key === 'top_label' && !layout.top_label.enabled) continue;
     await drawText(ctx, key, view[key], layout, view, images);
   }
-  await drawCenteredTitle(ctx, layout, view, images);
+  const titlePos = await drawCenteredTitle(ctx, layout, view, images);
+  // [§2.5] Supporter badge below the Title, centered on the title's x; scaled
+  // to SUPPORTER_BADGE_HEIGHT. Skipped when no badge resolved or no title pos.
+  if (images.supporterBadge && titlePos) {
+    const bh = SUPPORTER_BADGE_HEIGHT;
+    const bw = Math.round(images.supporterBadge.width * (bh / images.supporterBadge.height));
+    ctx.drawImage(images.supporterBadge, Math.round(titlePos.x - bw / 2), Math.round(titlePos.y + 8), bw, bh);
+  }
   drawRecord(ctx, relabelRankCols(layout.record), view.record);
   return canvas.toBuffer('image/png');
 }

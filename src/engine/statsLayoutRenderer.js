@@ -14,6 +14,7 @@ const { loadAvatarAsset } = require('./avatarImageLoader');
 const { resolveName } = require('../utils/emojis');
 const { formatIntegerEnUS: fmt } = require('../utils/textFormat');
 const { performanceLog } = require('../utils/runtimeLogs');
+const { SUPPORTER_BADGE_HEIGHT } = require('../config/cosmetics');
 const {
   assetSource,
   assetExistsSync,
@@ -127,10 +128,12 @@ async function loadRenderImages(d, skinPath, options) {
     ? loadOptionalImage(localIcons.combatExp)
     : getEmojiIcon('combat_exp');
 
-  const [skin, avatar, weapon, armor, deity, deity2, deity3, combatExp] = await Promise.all([
+  const [skin, avatar, weapon, armor, deity, deity2, deity3, combatExp, supporterBadge] = await Promise.all([
     loadOptionalImage(skinPath), avatarPromise, weaponPromise, armorPromise, deityPromise, deity2Promise, deity3Promise, combatExpPromise,
+    // [§2.5] supporter badge — path only set when tier active AND art exists.
+    loadOptionalImage(d.supporterBadgePath),
   ]);
-  return { skin, avatar, weapon, armor, deity, deity2, deity3, combatExp };
+  return { skin, avatar, weapon, armor, deity, deity2, deity3, combatExp, supporterBadge };
 }
 
 function iconFor(style, layout, images) {
@@ -531,7 +534,19 @@ function reflowStatsText(layout) {
   const avatarH = av.h || av.height || av.size || avatarW;
   const leftCx = (av.x || 0) + avatarW / 2;
   const leftTop = (av.y || 0) + avatarH + 30;
-  const colMax = Math.min(avatarW + 140, layout.canvas.w - (av.x || 0) - 20);
+  // [Name-overflow fix] The header block (top_label / name / title) is centered
+  // on leftCx UNDER the avatar. The old `avatarW + 140` allowed the centered
+  // text to extend ~70px past the avatar's left edge → colliding with the skin's
+  // panel border. Clamp symmetrically around leftCx: at most a small overhang
+  // past the avatar box each side, and never within `edge` of a canvas edge, so
+  // long names shrink-to-fit inside the panel for every skin.
+  const edge = 26;
+  const overhang = 22;
+  const colMax = Math.max(120, Math.min(
+    avatarW + overhang * 2,
+    (leftCx - edge) * 2,
+    (layout.canvas.w - edge - leftCx) * 2,
+  ));
   const rx = layout.name.x;
   const ry = layout.name.y;
   const rcw = Math.max(160, layout.canvas.w - rx - 48);
@@ -613,6 +628,15 @@ async function renderStatsLayoutImage(d, options = {}) {
   ]) {
     if (key === 'top_label' && !rawLayout.top_label.enabled) continue;
     await drawText(ctx, key, view[key], layout, view, images);
+  }
+  // [§2.5] Supporter badge below the Title element, centered on its x; scaled
+  // to SUPPORTER_BADGE_HEIGHT. Skipped when no badge resolved.
+  if (images.supporterBadge && layout.title) {
+    const bh = SUPPORTER_BADGE_HEIGHT;
+    const bw = Math.round(images.supporterBadge.width * (bh / images.supporterBadge.height));
+    const bx = Math.round((layout.title.x ?? layout.canvas.w / 2) - bw / 2);
+    const by = Math.round((layout.title.y ?? 0) + 8);
+    ctx.drawImage(images.supporterBadge, bx, by, bw, bh);
   }
   // Equipments are one combined row, with separate icons for weapon and armor.
   drawEquipmentRow(ctx, layout, view, images);

@@ -23,6 +23,7 @@
 const { CLASSES } = require('../config/classes');
 const { ELITE_SPAWN_CHANCE } = require('../config/raidLoot');
 const { ECHO_BLESSING_KEY_MAP, DIVINE_BLESSING_DEITIES, computeResonanceMods } = require('../config/blessings');
+const { computeSigilStats } = require('../config/ascension');
 
 const MOB_LEVEL_MIN = 1;
 const MOB_LEVEL_MAX = 55;
@@ -210,13 +211,16 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
             am.curr_hp  AS a_hp, am.curr_def AS a_def,
             am.native_sockets AS a_native, am.opposite_sockets AS a_opposite,
             ar.name     AS armor_name, ar.passive_key AS armor_passive_key,
-            ud.curr_atk AS d_atk, ud.curr_hp AS d_hp, ud.curr_def AS d_def,
+            ud.sigils   AS d1_sigils, ud.ascended AS d1_ascended,
+            dr.base_atk AS d1_batk, dr.base_hp AS d1_bhp, dr.base_def AS d1_bdef,
             dr.name     AS deity_name, dr.blessing_key, dr.mythology AS d1_myth,
-            ud2.curr_atk AS d2_atk, ud2.curr_hp AS d2_hp, ud2.curr_def AS d2_def,
+            ud2.sigils  AS d2_sigils,
+            dr2.base_atk AS d2_batk, dr2.base_hp AS d2_bhp, dr2.base_def AS d2_bdef,
             dr2.name     AS deity2_name, dr2.blessing_key AS blessing_key_2, dr2.mythology AS d2_myth,
-            ud3.curr_atk AS d3_atk, ud3.curr_hp AS d3_hp, ud3.curr_def AS d3_def,
+            ud3.sigils  AS d3_sigils,
+            dr3.base_atk AS d3_batk, dr3.base_hp AS d3_bhp, dr3.base_def AS d3_bdef,
             dr3.name     AS deity3_name, dr3.blessing_key AS blessing_key_3, dr3.mythology AS d3_myth,
-            ude.user_deity_id AS echo_udid,
+            ude.user_deity_id AS echo_udid, ude.ascended AS echo_ascended,
             dre.name     AS echo_deity_name, dre.blessing_key AS echo_blessing_key
        FROM user_character uc
        JOIN users u            ON u.discord_id = uc.discord_id
@@ -244,13 +248,18 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
   const armor = r.a_hp != null
     ? { curr_hp: r.a_hp, curr_def: r.a_def }
     : null;
-  const deity = r.d_atk != null
-    ? { curr_atk: r.d_atk, curr_hp: r.d_hp, curr_def: r.d_def }
+  // [Ascension §3.5] Deity stats computed at read time: base × (0.50 + 0.05 × sigils).
+  const deity = r.deity_name != null
+    ? computeSigilStats({ base_atk: r.d1_batk, base_hp: r.d1_bhp, base_def: r.d1_bdef }, r.d1_sigils)
     : null;
 
   // [v5 Phase 3] Pantheon slots 2/3 + resonance
-  const slot2 = r.d2_atk != null ? { curr_atk: r.d2_atk, curr_hp: r.d2_hp, curr_def: r.d2_def } : null;
-  const slot3 = r.d3_atk != null ? { curr_atk: r.d3_atk, curr_hp: r.d3_hp, curr_def: r.d3_def } : null;
+  const slot2 = r.deity2_name != null
+    ? computeSigilStats({ base_atk: r.d2_batk, base_hp: r.d2_bhp, base_def: r.d2_bdef }, r.d2_sigils)
+    : null;
+  const slot3 = r.deity3_name != null
+    ? computeSigilStats({ base_atk: r.d3_batk, base_hp: r.d3_bhp, base_def: r.d3_bdef }, r.d3_sigils)
+    : null;
   const deityInfos = [
     r.deity_name ? { name: r.deity_name, mythology: r.d1_myth } : null,
     r.deity2_name ? { name: r.deity2_name, mythology: r.d2_myth } : null,
@@ -261,9 +270,11 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
     ? { slot2, slot3, resonance }
     : null;
 
-  // Slot 1 blessing: divine key if divine deity, echo key if echo deity
+  // Slot 1 blessing: divine key if divine deity, echo key if echo deity.
+  // [Ascension §3.6] A blessing fires ONLY if that deity is Ascended —
+  // un-ascended deities contribute stats only (blessing dormant).
   let slot1BlessingKey = 'none';
-  if (r.deity_name && r.blessing_key) {
+  if (r.deity_name && r.blessing_key && r.d1_ascended) {
     if (DIVINE_BLESSING_DEITIES.has(r.deity_name)) {
       slot1BlessingKey = r.blessing_key;
     } else {
@@ -271,9 +282,9 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
     }
   }
 
-  // Echo blessing from slot 2/3 (chosen via crd deity echo)
+  // Echo blessing from slot 2/3 (chosen via crd deity echo) — same Ascension gate.
   let echoBlessingKey = 'none';
-  if (r.echo_deity_name) {
+  if (r.echo_deity_name && r.echo_ascended) {
     echoBlessingKey = ECHO_BLESSING_KEY_MAP[r.echo_deity_name] || 'none';
   }
 

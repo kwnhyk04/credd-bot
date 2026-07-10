@@ -377,6 +377,60 @@ async function applySubscribe(userId, tier, opts = {}) {
 
     await grantBaseSetTx(client, userId);
 
+    // [Patch 2 §2.2] Founder avatar: real user_avatars ownership for every
+    // founder_<class> avatar_catalog row (per-class rows; granting all five
+    // survives any future class change). Idempotent; 0 rows if the catalog
+    // rows aren't seeded yet (patch2-avatar-rows.sql). Founder SKINS need no
+    // rows — ownedIdsResolved grants the founder_* cosmetic scope virtually.
+    if (isFounder) {
+      await client.query(
+        `INSERT INTO user_avatars (discord_id, avatar_id, source, acquired_at)
+         SELECT $1, avatar_id, 'grant', NOW()
+           FROM avatar_catalog
+          WHERE style = 'founder' AND is_active = TRUE
+         ON CONFLICT (discord_id, avatar_id) DO NOTHING`,
+        [userId]
+      );
+
+      // [Founder fix] Grant scope covers the founder_* cosmetic set virtually,
+      // but a founder must also SEE their founder skins — equip the founder
+      // profile/battle/battle_result/summon skins so the founder set renders
+      // (replacing the base/class-default that create.js left equipped).
+      const founderSkins = await client.query(
+        `SELECT cosmetic_id, category FROM cosmetic_catalog
+          WHERE cosmetic_key LIKE 'founder\\_%' AND is_active = true`
+      );
+      for (const row of founderSkins.rows) {
+        await equipCosmeticTx(client, userId, row.category, row.cosmetic_id);
+      }
+
+      // Equip the founder AVATAR matching the player's current class (class-keyed
+      // rows). Inlined upsert to avoid an avatarSystem ↔ supporterEntitlements
+      // require cycle; mirrors avatarSystem.equipAvatarTx exactly.
+      const charRes = await client.query(
+        'SELECT class FROM user_character WHERE discord_id = $1', [userId]
+      );
+      const className = charRes.rows[0]?.class;
+      if (className) {
+        const av = await client.query(
+          `SELECT avatar_id FROM avatar_catalog
+            WHERE style = 'founder' AND is_active = TRUE
+              AND lower(class_name) = lower($1)
+            LIMIT 1`,
+          [className]
+        );
+        if (av.rows[0]) {
+          await client.query(
+            `INSERT INTO equipped_avatars (discord_id, avatar_id, updated_at)
+             VALUES ($1, $2, NOW())
+             ON CONFLICT (discord_id)
+             DO UPDATE SET avatar_id = EXCLUDED.avatar_id, updated_at = NOW()`,
+            [userId, av.rows[0].avatar_id]
+          );
+        }
+      }
+    }
+
     if (opts.grantStipend !== false) {
       const stipendRef = opts.stripeSubscriptionId ?? null;
       if (appTier === 'eternal') {

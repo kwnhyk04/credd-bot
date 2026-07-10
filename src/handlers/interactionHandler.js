@@ -17,6 +17,7 @@ const titleCmd = require('../commands/rpg/title');
 const exchangeEssenceCmd = require('../commands/rpg/exchangeEssence');
 const questsCmd = require('../commands/economy/quests');
 const autoRaidCmd = require('../commands/rpg/autoRaid');
+const glossaryCmd = require('../commands/rpg/glossary');
 const { envBool } = require('../utils/runtimeLogs');
 
 const casinoEnabled = envBool('CASINO_ENABLED', false);
@@ -41,7 +42,7 @@ const COLLECTOR_OWNED_BUTTONS = new Set([
  *   weapons:<prev|next>:<uid>:<page>
  *   runes:<filter|prev|next>:<uid>:<page>:<lane>
  *   deities:<prev|next>:<uid>:<page>
- *   denhance:<attempt|cancel>:<userDeityId>:<uid>
+ *   dsigil:act:<userDeityId>:<uid>
  *   enhance:attempt:<weaponId>:<uid>
  *   enhance:cancel:<weaponId>:<uid>
  *   sell:confirm:<mode>:<arg>:<uid>
@@ -71,6 +72,8 @@ async function handleInteraction(interaction) {
     if (namespace === 'title' && action === 'cat') { await titleCmd.handleSelect(interaction); return; }
     if (namespace === 'essx' && action === 'tier') { await exchangeEssenceCmd.handleSelect(interaction); return; }
     if (namespace === 'quest' && action === 'scope') { await questsCmd.handleScopeSelect(interaction); return; }
+    // Glossary (§4): category select AND prev/next buttons share the namespace.
+    if (namespace === 'gloss') { await glossaryCmd.handleInteraction(interaction); return; }
     if (!isButton) return; // everything below this point is button-only
     if (namespace === 'araid') {
       if (action === 'start') { await autoRaidCmd.handleStart(interaction, parts[2]); return; }
@@ -140,17 +143,12 @@ async function handleInteraction(interaction) {
       return;
     }
 
-    if (namespace === 'denhance') {
+    if (namespace === 'dsigil' && action === 'act') {
+      // [Ascension §3.7] Unlock Sigil / Ascend button on the deity info embed.
       const userDeityId = parts[2];
       const ownerId = parts[3];
-      if (action === 'attempt') {
-        await deityCmd.handleEnhanceAttempt(interaction, userDeityId, ownerId);
-        return;
-      }
-      if (action === 'cancel') {
-        await deityCmd.handleEnhanceCancel(interaction, userDeityId, ownerId);
-        return;
-      }
+      await deityCmd.handleSigilButton(interaction, userDeityId, ownerId);
+      return;
     }
 
     if (namespace === 'enhance') {

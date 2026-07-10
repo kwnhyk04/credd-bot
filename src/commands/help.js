@@ -60,7 +60,8 @@ const CATEGORIES = [
       { canonical: 'deity', cmd: 'crd deity collection (dc)', desc: 'Browse your collection' },
       { canonical: 'deity', cmd: 'crd deity info [name] (di)', desc: 'Deity info card' },
       { canonical: 'deity', cmd: 'crd deity equip [name] [slot] (de)', desc: 'Equip a deity (3 slots)' },
-      { canonical: 'deity', cmd: 'crd deity enhance [name] (deh)', desc: 'Enhance a deity' },
+      { canonical: 'deity', cmd: 'crd deity enhance [name] (deh)', desc: 'Ascend a deity at 10/10 Sigils' },
+      { canonical: 'glossary', cmd: 'crd glossary', desc: 'Codex: deities, weapons, armors, runes', prefixOnly: true },
     ],
   },
   {

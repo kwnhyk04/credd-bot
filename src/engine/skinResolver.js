@@ -40,6 +40,14 @@ function existsAbs(p) {
 }
 
 function skinAsset(relPath) {
+  // [Patch 2 §2.1] Class battle bases live at the asset ROOT (classes/…), not
+  // under skins/ — resolve them without the skins/ prefix.
+  const normalized = String(relPath || '').replace(/\\/g, '/');
+  if (normalized.startsWith('classes/')) {
+    if (isRemoteAssetsEnabled()) return assetPath(normalized);
+    const absRoot = assetPath(normalized);
+    return existsAbs(absRoot) ? absRoot : null;
+  }
   const abs = skinFilePath(relPath);
   if (!abs) return null;
   if (existsAbs(abs)) return isRemoteAssetsEnabled() ? assetPath(`skins/${String(relPath).replace(/\\/g, '/')}`) : abs;

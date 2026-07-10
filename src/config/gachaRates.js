@@ -8,14 +8,15 @@ const { BELIEVER_EXP_PER_LEVEL } = require('./believerProgression');
  * [REVISED]" + "Deity Gacha Pity".
  */
 
-// ── Tier roll weights (Master §4 / [Jun-2026 patch §5]) ────────────────────
-// Epic 64.5% · Mythic 30% · Legendary 5% · Supreme 0.5% — must sum to 1.0.
-// (Was 69/25/5/1; the patch shifts weight from Epic→Mythic and halves Supreme.)
+// ── Tier roll weights (Ascension Patch §3.2) ───────────────────────────────
+// Epic 64.5% · Mythic 34.4% · Legendary 1% · Supreme 0.1% — must sum to 1.0.
+// (Was 64.5/30/5/0.5; the Ascension patch shifts Legendary/Supreme weight to
+// Mythic — deity power now comes from Sigils, not raw pull luck.)
 const TIER_WEIGHTS = [
   ['Epic', 0.645],
-  ['Mythic', 0.30],
-  ['Legendary', 0.05],
-  ['Supreme', 0.005],
+  ['Mythic', 0.344],
+  ['Legendary', 0.01],
+  ['Supreme', 0.001],
 ];
 
 // ── Pity (Master §4 "Deity Gacha Pity" + §35.0) ────────────────────────────
@@ -69,7 +70,7 @@ const REP_DAILY_CAP = 1500;        // reputation EXP per day (PHT)
  * should clear pity (natural Leg/Supreme, or the 500-forced Legendary).
  *
  * Per-roll rule (Master §4):
- *   1. Natural weighted roll (69/25/5/1).
+ *   1. Natural weighted roll (TIER_WEIGHTS).
  *   2. Natural Legendary/Supreme  → keep it, pity → 0 (reset).
  *   3. Else (Epic/Mythic)         → pity += 1; if it reaches 500, force
  *      Legendary and reset to 0; otherwise keep the natural tier + new pity.

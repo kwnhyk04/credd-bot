@@ -27,7 +27,8 @@ const SHOP_QUOTE = '-# *"Valor is the only coin the war-gods honor."*';
 const SHOP = [
   { id: 1, key: 'sacred_relic',  name: 'Sacred Relic',  emojiName: 'sacred_relic',  price: 800,  cap: 10, column: 'sacred_relics' },
   { id: 2, key: 'supreme_chest', name: 'Supreme Chest', emojiName: 'supreme_chest', price: 6000, cap: 1,  column: 'supreme_chest' },
-  { id: 3, key: 'supreme_relic', name: 'Supreme Relic', emojiName: 'supreme_relic', price: 9000, cap: 1,  column: 'supreme_relics' },
+  // [Ascension §3.8] 9,000 → 15,000 (Supreme pull rate dropped to 0.1%).
+  { id: 3, key: 'supreme_relic', name: 'Supreme Relic', emojiName: 'supreme_relic', price: 15000, cap: 1,  column: 'supreme_relics' },
 ];
 
 function reply(message, content) {

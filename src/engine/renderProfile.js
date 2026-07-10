@@ -27,6 +27,7 @@ const { getEmojiIcon, FONT_FAMILY } = require('./renderBagItems');
 const { hasProfileLayout, renderProfileLayoutImage } = require('./profileLayoutRenderer');
 const { resolveName } = require('../utils/emojis');
 const { assetPath, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
+const { SUPPORTER_BADGE_HEIGHT } = require('../config/cosmetics');
 
 /* ── Background template ([v4.6]) ───────────────────────────────────────────
  * The profile card is drawn on top of a template image. TEMPLATE_FILE is a single
@@ -161,13 +162,15 @@ async function renderProfileImage(d) {
   // Pre-fetch images (frame + avatar + weapon/deity/combat-exp icons) before laying out.
   // [Supporter-stage §6] When a profile skin resolves (d.skinPath), it replaces the default
   // template as the bottom layer; otherwise fall back to the shared default template.
-  const [template, avatar, weaponIcon, armorIcon, deityIcon, expIcon] = await Promise.all([
+  const [template, avatar, weaponIcon, armorIcon, deityIcon, expIcon, supporterBadge] = await Promise.all([
     d.skinPath ? loadAssetImage(d.skinPath).catch(() => null).then((img) => img || loadTemplate()) : loadTemplate(),
     loadAvatar(d.avatarUrl, d.fallbackAvatarUrl),
     d.weaponName ? getEmojiIcon(resolveName(d.weaponName) || '') : Promise.resolve(null),
     d.armorName ? getEmojiIcon(resolveName(d.armorName) || '') : Promise.resolve(null),
     d.deityName ? getEmojiIcon(resolveName(d.deityName) || '') : Promise.resolve(null),
     getEmojiIcon('combat_exp'),
+    // [§2.5] supporter badge — path only set when tier is active AND art exists.
+    d.supporterBadgePath ? loadAssetImage(d.supporterBadgePath).catch(() => null) : Promise.resolve(null),
   ]);
 
   // ── Measure the layout (600-wide design space) ──
@@ -234,6 +237,14 @@ async function renderProfileImage(d) {
     ctx.font = F(15, true);
     ctx.fillStyle = ACCENT;
     ctx.fillText(fitText(ctx, d.equippedTitle, W - PAD * 2), W / 2, headerH - 14);
+  }
+  // [§2.5] Supporter badge below the Title (below the name when no title),
+  // scaled to SUPPORTER_BADGE_HEIGHT; layer skipped when no badge resolved.
+  if (supporterBadge) {
+    const bh = SUPPORTER_BADGE_HEIGHT;
+    const bw = Math.round(supporterBadge.width * (bh / supporterBadge.height));
+    const by = d.equippedTitle ? headerH - 8 : headerH - 34;
+    ctx.drawImage(supporterBadge, Math.round(W / 2 - bw / 2), by, bw, bh);
   }
   ctx.textAlign = 'left';
 

@@ -773,6 +773,128 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
   check(`${N}-battle fuzz invariants`, ok, detail);
 }
 
+// — [§1.4] boss daily/per-spawn attack cap (pure predicate; both guards read it) —
+{
+  section('§1.4 boss attack cap');
+  const { MAX_BOSS_ATTACKS_PER_DAY, bossAttackDecision } =
+    require(path.join(ROOT, 'src', 'config', 'bosses'));
+  const limit = MAX_BOSS_ATTACKS_PER_DAY;
+  check('cap constant is 2', limit === 2, `limit=${limit}`);
+
+  // Two attacks on the SAME spawn succeed, the third is blocked.
+  const d1 = bossAttackDecision({ usedToday: 0, spawnAttacks: 0, limit }); // 1st
+  const d2 = bossAttackDecision({ usedToday: 1, spawnAttacks: 1, limit }); // 2nd (same spawn)
+  const d3 = bossAttackDecision({ usedToday: 2, spawnAttacks: 2, limit }); // 3rd
+  check('1st attack allowed', d1.allowed === true);
+  check('2nd attack allowed (same spawn)', d2.allowed === true);
+  check('3rd attack blocked by daily cap', d3.allowed === false && d3.reason === 'daily');
+
+  // Per-spawn cap independently blocks a 3rd hit even if the daily count looks low
+  // (defensive — e.g. a stale/edge count): full spawn allowance already spent.
+  const dSpawn = bossAttackDecision({ usedToday: 0, spawnAttacks: 2, limit });
+  check('per-spawn cap blocks over-cap spawn', dSpawn.allowed === false && dSpawn.reason === 'spawn');
+
+  // Next day: usedToday resets to 0 and it is a fresh spawn → attacks allowed again.
+  const dNextDay = bossAttackDecision({ usedToday: 0, spawnAttacks: 0, limit });
+  check('next day resets → allowed again', dNextDay.allowed === true);
+}
+
+// — [Ascension §3] Sigils, Ascension costs, gacha rates —
+{
+  section('Ascension §3 — sigils, costs, rates');
+  const {
+    MAX_SIGILS, SIGIL_ESSENCE_COST, ASCENSION_COST,
+    sigilMultiplier, computeSigilStats, nextSigilCost, ascensionCost,
+  } = require(path.join(ROOT, 'src', 'config', 'ascension'));
+  const { TIER_WEIGHTS } = require(path.join(ROOT, 'src', 'config', 'gachaRates'));
+
+  // §3.2 — rates 64.5 / 34.4 / 1 / 0.1, summing to exactly 100%.
+  const w = Object.fromEntries(TIER_WEIGHTS);
+  check('rates: Epic 64.5%', w.Epic === 0.645);
+  check('rates: Mythic 34.4%', w.Mythic === 0.344);
+  check('rates: Legendary 1%', w.Legendary === 0.01);
+  check('rates: Supreme 0.1%', w.Supreme === 0.001);
+  const sum = TIER_WEIGHTS.reduce((s, [, p]) => s + p, 0);
+  check('rates sum to 1.0', Math.abs(sum - 1) < 1e-9, `sum=${sum}`);
+
+  // §3.4 — multiplier: 0 sigils = 50%, each +5%, 10/10 = 100%.
+  check('sigil multiplier 0 → 0.50', sigilMultiplier(0) === 0.50);
+  check('sigil multiplier 4 → 0.70', Math.abs(sigilMultiplier(4) - 0.70) < 1e-9);
+  check('sigil multiplier 10 → 1.00', sigilMultiplier(10) === 1.00);
+  check('sigil multiplier clamps >10', sigilMultiplier(99) === 1.00);
+  const base = { base_atk: 333, base_hp: 1001, base_def: 87 };
+  const at0 = computeSigilStats(base, 0);
+  check('stats at 0 sigils = floor(base × 0.5)',
+    at0.curr_atk === 166 && at0.curr_hp === 500 && at0.curr_def === 43, JSON.stringify(at0));
+  const at10 = computeSigilStats(base, 10);
+  check('stats at 10 sigils = base',
+    at10.curr_atk === 333 && at10.curr_hp === 1001 && at10.curr_def === 87, JSON.stringify(at10));
+
+  // §3.4 — sigil cost bands + column totals (Epic 100 · Mythic 83 · Legendary 60 · Supreme 30).
+  const totals = { Epic: 100, Mythic: 83, Legendary: 60, Supreme: 30 };
+  for (const [tier, want] of Object.entries(totals)) {
+    const got = Object.values(SIGIL_ESSENCE_COST[tier]).reduce((s, v) => s + v, 0);
+    check(`sigil total ${tier} = ${want}`, got === want, `got ${got}`);
+  }
+  check('band Epic: sigil 1 costs 5', nextSigilCost('Epic', 0).essence === 5);
+  check('band Epic: sigil 4 costs 10', nextSigilCost('Epic', 3).essence === 10);
+  check('band Epic: sigil 8 costs 15', nextSigilCost('Epic', 7).essence === 15);
+  check('no next sigil at 10/10', nextSigilCost('Epic', MAX_SIGILS) === null);
+
+  // §3.4 — ascension costs + grand totals (150 / 123 / 90 / 45 essence).
+  const asc = { Epic: [50, 100000], Mythic: [40, 250000], Legendary: [30, 500000], Supreme: [15, 1000000] };
+  for (const [tier, [ess, cx]] of Object.entries(asc)) {
+    const c = ascensionCost(tier);
+    check(`ascension ${tier} = ${ess} essence + ${cx.toLocaleString()} Credux`,
+      c.essence === ess && c.credux === cx, JSON.stringify(c));
+    const grand = Object.values(SIGIL_ESSENCE_COST[tier]).reduce((s, v) => s + v, 0) + c.essence;
+    check(`grand total essence ${tier}`, grand === totals[tier] + ess, `got ${grand}`);
+  }
+  check('ASCENSION_COST covers all four tiers', Object.keys(ASCENSION_COST).length === 4);
+
+  // §3.5/§3.6 — computed deity stats flow through assemblePlayerStats flat-added;
+  // side slots contribute 50% of the SIGIL-SCALED stats.
+  const deity = computeSigilStats(base, 6); // ×0.80
+  const solo = assemblePlayerStats('Knight', 10, null, null, deity, null, null);
+  const bare = assemblePlayerStats('Knight', 10, null, null, null, null, null);
+  check('slot-1 deity adds sigil-scaled stats flat',
+    solo.atk === bare.atk + deity.curr_atk && solo.hp === bare.hp + deity.curr_hp
+    && solo.def === bare.def + deity.curr_def);
+  const withSide = assemblePlayerStats('Knight', 10, null, null, null, null,
+    { slot2: deity, slot3: null, resonance: { atkPct: 0, hpPct: 0, defPct: 0, critPts: 0 } });
+  check('side slot adds 50% of sigil-scaled stats',
+    withSide.atk === bare.atk + Math.floor(deity.curr_atk * 0.5)
+    && withSide.hp === bare.hp + Math.floor(deity.curr_hp * 0.5)
+    && withSide.def === bare.def + Math.floor(deity.curr_def * 0.5));
+
+  // §3.6 — blessing gating: buildPlayerFighter only forwards blessing keys when
+  // ascended (DB path). Static guard: the source must gate on the ascended flag.
+  const saSrc = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'statAssembly.js'), 'utf8');
+  check('slot-1 blessing gated on ascended', /r\.blessing_key && r\.d1_ascended/.test(saSrc));
+  check('echo blessing gated on ascended', /r\.echo_deity_name && r\.echo_ascended/.test(saSrc));
+}
+
+// — [Ascension §4] glossary routing (static — command + interaction wiring) —
+{
+  section('Ascension §4 — glossary routing');
+  const glossSrc = fs.readFileSync(path.join(ROOT, 'src', 'commands', 'rpg', 'glossary.js'), 'utf8');
+  for (const cat of ['deities', 'weapons', 'armors', 'runes']) {
+    check(`glossary category '${cat}' defined`, new RegExp(`${cat}:`).test(glossSrc));
+  }
+  check('glossary queries is_available only', /is_available = TRUE/.test(glossSrc));
+  check('glossary exports execute + handleInteraction',
+    /module\.exports = \{ execute, handleInteraction \}/.test(glossSrc));
+
+  const cmdSrc = fs.readFileSync(path.join(ROOT, 'src', 'handlers', 'commandHandler.js'), 'utf8');
+  check('crd glossary routed (IMPLEMENTED)', /glossary: \{ mw: 'full', run: glossaryCmd\.execute \}/.test(cmdSrc));
+  check('glossary in COMMAND_MAP', /glossary:\s+\{ requiresCharacter: false \}/.test(cmdSrc));
+
+  const intSrc = fs.readFileSync(path.join(ROOT, 'src', 'handlers', 'interactionHandler.js'), 'utf8');
+  check('gloss namespace routed for select + buttons',
+    /namespace === 'gloss'.*glossaryCmd\.handleInteraction/.test(intSrc));
+  check('dsigil namespace routed', /namespace === 'dsigil'/.test(intSrc));
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 console.log(`\n${'═'.repeat(50)}`);
 console.log(`SELFTEST: ${passed} passed, ${failed} failed`);

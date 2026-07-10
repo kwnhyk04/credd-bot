@@ -311,6 +311,31 @@ async function readAssetJson(source) {
   return JSON.parse(await readAssetText(source));
 }
 
+// Some AI-generated PNGs embed a C2PA/content-credentials chunk (caBX) before
+// IDAT that @napi-rs/canvas cannot decode — it throws "Invalid SVG image". When
+// a decode fails, strip metadata via a one-shot sharp re-encode and retry. This
+// operates on the ALREADY-FETCHED bytes (no extra egress) and only on the
+// decode-failure path (identical output for images that already decode); the
+// decoded result is cached in imageCache, so it runs at most once per asset.
+async function loadImageOrSanitize(loadImageFn, input) {
+  try {
+    return await loadImageFn(input);
+  } catch (err) {
+    try {
+      const sharp = require('sharp');
+      const clean = await sharp(input).png().toBuffer();
+      const image = await loadImageFn(clean);
+      bandwidthLog('asset image sanitized (metadata stripped)', {
+        system: 'assets', cache: 'sanitize',
+        name: assetFileName(typeof input === 'string' ? input : 'buffer', 'asset'),
+      });
+      return image;
+    } catch {
+      throw err; // surface the original decode error
+    }
+  }
+}
+
 async function loadAssetImage(loadImageFn, source) {
   const resolved = assetSource(source);
   const cached = cacheGet(imageCache, resolved, 'imageHits');
@@ -319,15 +344,15 @@ async function loadAssetImage(loadImageFn, source) {
 
   try {
     const image = isRemoteSource(resolved)
-      ? await loadImageFn(await fetchAssetBuffer(resolved))
-      : await loadImageFn(resolved);
+      ? await loadImageOrSanitize(loadImageFn, await fetchAssetBuffer(resolved))
+      : await loadImageOrSanitize(loadImageFn, resolved);
     return cacheSet(imageCache, resolved, image, estimateImageBytes(image));
   } catch (err) {
     if (isRemoteSource(resolved)) {
       const rel = relativeAssetPath(resolved);
       const fallback = rel ? localAssetPath(rel) : null;
       if (fallback && fs.existsSync(fallback)) {
-        const image = await loadImageFn(fallback);
+        const image = await loadImageOrSanitize(loadImageFn, fallback);
         return cacheSet(imageCache, resolved, image, estimateImageBytes(image));
       }
     }

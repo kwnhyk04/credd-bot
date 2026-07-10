@@ -57,10 +57,18 @@ const PRICE_OVERRIDES = {
   // Summon (Rune Glow stays at 3)
   e_aurora_ribbon_s2: 6, e_eternal_supernova_s3: 6, e_stardust_constellation_s4: 6,
 };
-// Monthly stipend by tier; eternal is a ONE-TIME grant at founder purchase (= 6 × the
-// 3-month window). Flag in the prompt: switch eternal to 6/month over 3 months if preferred.
-const MONTHLY_TOKENS = { believer: 1, chosen: 3 };
-const ETERNAL_ONE_TIME_TOKENS = 18;
+// Monthly stipend by tier; eternal is a ONE-TIME grant at founder purchase.
+// [Patch 2 §2.3] believer 2/mo, chosen 4/mo, eternal 20 one-time (was 1/3/18).
+const MONTHLY_TOKENS = { believer: 2, chosen: 4 };
+const ETERNAL_ONE_TIME_TOKENS = 20;
+
+// [Patch 2 §2.5] Supporter badge drawn below the Title on profile/stats cards.
+// Height in px; width scales proportionally. Assets live at
+// skins/supporters/badge/<file>.png (verified upload layout); the eternal tier
+// uses the founder badge art.
+const SUPPORTER_BADGE_HEIGHT = 52;
+const SUPPORTER_BADGE_DIR = 'skins/supporters/badge';
+const SUPPORTER_BADGE_FILE = { believer: 'believer', chosen: 'chosen', eternal: 'founder' };
 
 // ── Beta / dev config (§7, §8, §6 top-label) ────────────────────────────────
 // DEFAULT (post-deploy, all users): an account with nothing equipped renders the shared default
@@ -204,6 +212,9 @@ module.exports = {
   PRICE_OVERRIDES,
   MONTHLY_TOKENS,
   ETERNAL_ONE_TIME_TOKENS,
+  SUPPORTER_BADGE_HEIGHT,
+  SUPPORTER_BADGE_DIR,
+  SUPPORTER_BADGE_FILE,
   BETA_MODE,
   DEV_ACCOUNT_IDS,
   LOCKED,

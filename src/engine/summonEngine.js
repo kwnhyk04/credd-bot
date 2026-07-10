@@ -164,7 +164,10 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
       // essence log row is written once after the loop.
       essence[TIER_ESSENCE_COLUMN[tier]] += essenceGained;
     } else {
-      // New deity → INSERT (enhancement 1 ⇒ curr = base, floor is identity).
+      // New deity → INSERT. [Ascension §3.5] sigils/ascended use their DB
+      // defaults (0 / FALSE ⇒ deity unlocks at 50% base, blessing dormant).
+      // curr_*/enhancement are legacy NOT NULL columns — written but no longer
+      // read anywhere (stats compute at read time from base × sigil multiplier).
       const ins = await client.query(
         `INSERT INTO user_deities
            (discord_id, deity_id, curr_atk, curr_hp, curr_def, enhancement, last_pull_date)

@@ -13,9 +13,21 @@ const path = require('path');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const {
   assetSignatureSync,
+  assetPath,
   loadAssetImage: loadAssetImageSource,
   readAssetJson,
 } = require('../utils/assets');
+
+// [Patch 2 §2.1] Class battle bases (classes/battle_base/<class>.png) are a pure
+// BACKGROUND SWAP over the default raid geometry — they ship no colocated
+// layout, so they reuse the shared base battle layout (identical panel/HP/name
+// coordinates). Everything else uses its own colocated <skin>.layout.json.
+const DEFAULT_BATTLE_LAYOUT_REL = 'skins/supporters/base/battle.layout.json';
+function layoutSourceFor(skinPath) {
+  const normalized = String(skinPath || '').replace(/\\/g, '/');
+  if (normalized.includes('classes/battle_base/')) return assetPath(DEFAULT_BATTLE_LAYOUT_REL);
+  return layoutPathFor(skinPath);
+}
 const { envNumber, envPositiveInt } = require('../utils/runtimeLogs');
 const { encodeOpaqueCanvas } = require('../utils/canvasEncode');
 
@@ -140,7 +152,7 @@ function getBattleBaseCacheStats() {
 /** Load and cache a skin image together with its own colocated layout. */
 async function loadBattleSkin(skinPath) {
   if (!skinPath) return null;
-  const configPath = layoutPathFor(skinPath);
+  const configPath = layoutSourceFor(skinPath);
   let signature;
   try {
     signature = `${assetSignatureSync(skinPath)}:${assetSignatureSync(configPath)}`;

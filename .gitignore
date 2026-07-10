@@ -27,6 +27,10 @@ assets/generated/
 # Generated skin-alignment artifacts (scripts/alignSkins.js, scripts/skinPreview.js)
 tmp/
 
+# Recompression staging output (scripts/recompress-assets.js) — owner reviews
+# then uploads to R2; never committed.
+assets/_recompressed/
+
 # Local documentation — not pushed
 docs/
 AGENTS.md

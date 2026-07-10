@@ -1,13 +1,11 @@
 'use strict';
 
 const {
-  EmbedBuilder,
   ContainerBuilder,
-  ActionRowBuilder,
+  ThumbnailBuilder,
   ButtonBuilder,
   ButtonStyle,
   MessageFlags,
-  ComponentType,
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -29,7 +27,9 @@ const {
 } = require('../../utils/assets');
 const { bandwidthLog } = require('../../utils/runtimeLogs');
 const { RARITY_SYMBOLS } = require('../../engine/renderSummon');
-const { computeDeityStats, nextDeityAttempt, MAX_ENHANCEMENT } = require('../../engine/deityEnhancement');
+const {
+  MAX_SIGILS, computeSigilStats, nextSigilCost, ascensionCost,
+} = require('../../config/ascension');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const {
   DIVINE_BLESSING_DEITIES, ECHO_BLESSING_DEITIES, ECHO_BLESSING_KEY_MAP,
@@ -54,7 +54,6 @@ const MYTHOLOGY_LABEL = { PH: 'Philippine Mythology', Norse: 'Norse Mythology', 
 const MYTHOLOGY_DIR = { PH: 'philippine', Norse: 'norse', Greek: 'greek' };
 
 const DEITIES_DIR = path.resolve(__dirname, '..', '..', '..', 'assets', 'deities');
-const INFO_DIVIDER = '━━━━━━━━━━━━━━━━━━━━';
 const THUMBNAIL_EXTENSIONS = ['webp', 'png', 'jpg'];
 let mythologyPageCache = null;
 
@@ -224,6 +223,34 @@ async function handleListButton(interaction) {
 }
 
 // ── crd deity info <name> ─────────────────────────────────────────────────
+const DEITY_INFO_COLUMNS = `dr.name, dr.mythology, dr.tier, dr.blessing_name, dr.blessing_description,
+            dr.lore, dr.base_atk, dr.base_hp, dr.base_def,
+            ud.user_deity_id, ud.sigils, ud.ascended`;
+
+/** Portrait candidates for a deity row (remote list or first existing local file). */
+function resolveDeityPortraitPath(d) {
+  const slug = d.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  const dir = MYTHOLOGY_DIR[d.mythology] ?? d.mythology?.toLowerCase();
+  if (isRemoteAssetsEnabled()) return deityThumbnailCandidates(dir, slug);
+  for (const ext of ['png', 'jpg']) {
+    const p = safeDeityImagePath(dir, `${slug}.${ext}`);
+    if (p && fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+/** Owned-deity info row by user_deity_id (button refresh path). */
+async function fetchDeityInfoRow(discordId, userDeityId) {
+  const { rows } = await pool.query(
+    `SELECT ${DEITY_INFO_COLUMNS}
+       FROM user_deities ud
+       JOIN deity_roster dr ON dr.deity_id = ud.deity_id
+      WHERE ud.user_deity_id = $1 AND ud.discord_id = $2`,
+    [userDeityId, discordId]
+  );
+  return rows[0] || null;
+}
+
 async function info(message, name) {
   if (!name) {
     await reply(message, { content: 'Usage: `crd deity info <deity name>`' });
@@ -231,8 +258,7 @@ async function info(message, name) {
   }
   const discordId = message.author.id;
   const { rows } = await pool.query(
-    `SELECT dr.name, dr.mythology, dr.tier, dr.blessing_name, dr.blessing_description, dr.lore,
-            ud.curr_atk, ud.curr_hp, ud.curr_def, ud.enhancement
+    `SELECT ${DEITY_INFO_COLUMNS}
        FROM deity_roster dr
        LEFT JOIN user_deities ud
          ON ud.deity_id = dr.deity_id AND ud.discord_id = $1
@@ -245,32 +271,13 @@ async function info(message, name) {
     return;
   }
   const d = rows[0];
-  if (d.curr_atk == null) {
+  if (d.user_deity_id == null) {
     // Roster match but the player doesn't own it.
     await reply(message, { content: `You haven't summoned ${d.name} yet.` });
     return;
   }
 
-  const alias = TIER_ALIAS[d.tier];
-  const mythologyLabel = MYTHOLOGY_LABEL[d.mythology] ?? `${d.mythology} Mythology`;
-
-  // Portrait: assets/deities/<mythology dir>/<name_lowercase_underscored>.(png|jpg)
-  const slug = d.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-  const dir = MYTHOLOGY_DIR[d.mythology] ?? d.mythology?.toLowerCase();
-  let portraitPath = null;
-  if (isRemoteAssetsEnabled()) {
-    portraitPath = deityThumbnailCandidates(dir, slug);
-  } else {
-    for (const ext of ['png', 'jpg']) {
-      const p = safeDeityImagePath(dir, `${slug}.${ext}`);
-      if (p && fs.existsSync(p)) { portraitPath = p; break; }
-    }
-  }
-
   await reply(message, await buildDeityInfoPayload(d, {
-    alias,
-    mythologyLabel,
-    portraitPath,
     ownerId: message.author.id,
     ownerDisplayName: displayNameFor(message, message.author.id),
   }));
@@ -353,175 +360,109 @@ async function firstAvailablePublicImage(paths, logContext = {}) {
 }
 
 /**
- * Deity-info payload: portrait card (art LEFT, name/mythology/blessing/stats RIGHT)
- * then lore + AI disclaimer + enhance hint as text. Mirrors the weapon-info card.
+ * Deity-info payload (Ascension §3.7 — Components V2, real separators; mirrors
+ * the equipment info card): thumbnail top-right, header (name/tier/mythology),
+ * then Sigils → Stats → Blessing → Lore sections, plus ONE dynamic button:
+ *   sigils < 10          → Unlock Sigil (cost: N <Tier> Essence)
+ *   10/10, not ascended  → Ascend (N Essence + N Credux)
+ *   ascended             → no button.
  */
-async function buildDeityInfoPayload(d, { alias, mythologyLabel, portraitPath, ownerId, ownerDisplayName = null }) {
+async function buildDeityInfoPayload(d, { ownerId, ownerDisplayName = null }) {
+  const alias = TIER_ALIAS[d.tier];
+  const mythologyLabel = MYTHOLOGY_LABEL[d.mythology] ?? `${d.mythology} Mythology`;
   const btype = DIVINE_BLESSING_DEITIES.has(d.name) ? 'Divine' : 'Echo';
-  const deityInfoHasLore = typeof d.lore === 'string' && d.lore.trim().length > 0;
-  const deityInfoLoreBlock = deityInfoHasLore ? `*${d.lore.trim()}*` : 'No lore recorded yet.';
-  const deityInfoHeaderName = ownerDisplayName ? `${ownerDisplayName}'s` : '';
-  const deityInfoThumbnailUrl = await firstAvailablePublicImage(portraitPath, {
+  const sigils = Math.max(0, Math.min(MAX_SIGILS, Number(d.sigils) || 0));
+  const ascended = Boolean(d.ascended);
+  const stats = computeSigilStats(d, sigils);
+  const loreBlock = typeof d.lore === 'string' && d.lore.trim().length > 0
+    ? `*${d.lore.trim()}*`
+    : 'No lore recorded yet.';
+  const thumbnailUrl = await firstAvailablePublicImage(resolveDeityPortraitPath(d), {
     system: 'deity',
     command: 'deity',
     imageType: 'deity_thumbnail',
     userId: ownerId,
   });
-  const deityInfoDefensiveStats = [];
-  const deityInfoOffensiveStats = [];
-  if (d.curr_hp != null) deityInfoDefensiveStats.push(`HP: ${Number(d.curr_hp).toLocaleString()}`);
-  if (d.curr_def != null) deityInfoDefensiveStats.push(`Defense: ${Number(d.curr_def).toLocaleString()}`);
-  if (d.curr_atk != null) deityInfoOffensiveStats.push(`Attack: ${Number(d.curr_atk).toLocaleString()}`);
-  const deityInfoStats = [
-    deityInfoDefensiveStats.join('\n'),
-    deityInfoOffensiveStats.join('\n'),
-  ].filter(Boolean).join('\n\n') || 'No stats.';
-  const separatorEmbed = new EmbedBuilder()
-    .setColor(TIER_COLOR[d.tier] ?? BRAND)
-    .setTitle(`${deityInfoHeaderName} ${d.name}`.trim())
-    .setDescription([
-      INFO_DIVIDER,
-      ...(ownerId ? [`**Owner**\n<@${ownerId}>`] : []),
-      `**Mythology**\n${mythologyLabel}`,
-      `**Tier**\n${alias}`,
-      `**Enhancement**\n+${Math.max(0, (Number(d.enhancement) || 1) - 1)}`,
-      `**${btype} Blessing - ${d.blessing_name}**\n${d.blessing_description || 'No blessing description.'}`,
-      `**Stats**\n${deityInfoStats}`,
-      INFO_DIVIDER,
-      `**Lore**\n${deityInfoLoreBlock}\n\n${AI_DISCLAIMER}`,
-      INFO_DIVIDER,
-      `**Help**\n💡 \`crd deity enhance ${d.name.toLowerCase()}\``,
-    ].join('\n\n'));
-  if (deityInfoThumbnailUrl) separatorEmbed.setThumbnail(deityInfoThumbnailUrl);
-  return { embeds: [separatorEmbed] };
-}
 
-// ── crd deity enhance <name> (forge — Part E template, essence currency) ───
-const GREEN = 0x2ecc71;
-const RED = 0xe74c3c;
-
-/** Live forge data by user_deity_id (or by name when looked up first). */
-async function fetchDeityForgeData(discordId, userDeityId) {
-  const { rows } = await pool.query(
-    `SELECT ud.user_deity_id, ud.enhancement, ud.curr_atk, ud.curr_hp, ud.curr_def,
-            dr.name, dr.tier, dr.base_atk, dr.base_hp, dr.base_def
-       FROM user_deities ud
-       JOIN deity_roster dr ON dr.deity_id = ud.deity_id
-      WHERE ud.user_deity_id = $1 AND ud.discord_id = $2`,
-    [userDeityId, discordId]
-  );
-  const d = rows[0];
-  if (!d) return null;
-  const essCol = TIER_ESSENCE_COLUMN[d.tier]; // whitelisted from our constant map
-  const essRes = await pool.query(
-    `SELECT ${essCol} AS amount FROM users_bag WHERE discord_id = $1`,
-    [discordId]
-  );
-  d.essence = essRes.rows[0]?.amount ?? 0;
-  return d;
-}
-
-function essenceFooter(d) {
-  return `-# ${emoji(TIER_ESSENCE_COLUMN[d.tier])} ${d.tier} Essence: **${d.essence}**`;
-}
-
-/**
- * Append the next-level section (or maxed note). Returns whether Enhance
- * should be ENABLED: false when maxed; affordability also disables it (the
- * section stays visible). Render-side only — clicks re-validate in the txn.
- */
-function addDeityNextSection(container, d) {
-  const next = nextDeityAttempt(d.tier, d.enhancement);
-  if (next == null) {
-    container.addTextDisplayComponents((td) => td.setContent('-# Maximum enhancement reached'));
-    return false;
+  // Sigils section + button state share the same cost lookups.
+  const sigilCost = nextSigilCost(d.tier, sigils);
+  const ascCost = ascensionCost(d.tier);
+  let sigilBlock;
+  if (ascended) {
+    sigilBlock = `**Sigils**\n${MAX_SIGILS}/${MAX_SIGILS} — Ascended ✦`;
+  } else if (sigils >= MAX_SIGILS) {
+    sigilBlock =
+      `**Sigils**\n${sigils}/${MAX_SIGILS} — Ready to Ascend\n` +
+      `Ascension: **${ascCost.essence}** ${d.tier} Essence + **${ascCost.credux.toLocaleString()}** Credux`;
+  } else {
+    sigilBlock =
+      `**Sigils**\n${sigils}/${MAX_SIGILS}\n` +
+      `Next Sigil: **${sigilCost.essence}** ${d.tier} Essence`;
   }
-  const preview = computeDeityStats(d, d.enhancement + 1);
-  container.addTextDisplayComponents((td) =>
-    td.setContent(
-      `**Next: +${next.targetLevel}**\n` +
-      `Cost: **${next.cost}** ${d.tier} Essence · Success: **100%**\n` +
-      `-# On success → ATK ${preview.curr_atk} · HP ${preview.curr_hp} · DEF ${preview.curr_def}`
-    )
-  );
-  return d.essence >= next.cost;
-}
 
-function deityForgeButtonsRow(userDeityId, discordId, enhanceEnabled) {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`denhance:attempt:${userDeityId}:${discordId}`)
-      .setLabel('🔨 Enhance')
-      .setStyle(ButtonStyle.Success)
-      .setDisabled(!enhanceEnabled),
-    new ButtonBuilder()
-      .setCustomId(`denhance:cancel:${userDeityId}:${discordId}`)
-      .setLabel('Cancel')
-      .setStyle(ButtonStyle.Secondary),
-  );
-}
+  const statsBlock =
+    '**Stats**\n' +
+    `HP: ${stats.curr_hp.toLocaleString()}\n` +
+    `Attack: ${stats.curr_atk.toLocaleString()}\n` +
+    `Defense: ${stats.curr_def.toLocaleString()}`;
 
-/** Forge view — identical structure to the weapon forge (Part E). */
-function buildDeityForgePayload(d, discordId, { resultLine = null, color = null, buttons = true } = {}) {
-  const alias = TIER_ALIAS[d.tier];
-  const icon = emojiForDisplay(d.name, '🕯️');
+  // §3.7: never show the blessing text before Ascension.
+  const blessingBlock = ascended
+    ? `**${btype} Blessing — ${d.blessing_name}**\n${d.blessing_description || 'No blessing description.'}`
+    : '**Blessing**\nBlessing dormant — ascend this deity to awaken it.';
 
-  const container = new ContainerBuilder()
-    .setAccentColor(color ?? (TIER_COLOR[d.tier] ?? BRAND))
-    .addTextDisplayComponents((td) =>
-      td.setContent(`## 🔨 Forge — ${icon} ${d.name} (${alias}) +${d.enhancement - 1}`)
-    )
+  const titleLine = `## 🕯️ ${ownerDisplayName ? `${ownerDisplayName}'s ` : ''}${d.name}`;
+  const ownerLine = ownerId ? `-# <@${ownerId}>` : null;
+  const headerText = ownerLine ? `${titleLine}\n${ownerLine}` : titleLine;
+
+  const container = new ContainerBuilder().setAccentColor(TIER_COLOR[d.tier] ?? BRAND);
+  if (thumbnailUrl) {
+    container.addSectionComponents((section) => section
+      .addTextDisplayComponents((td) => td.setContent(headerText))
+      .addTextDisplayComponents((td) => td.setContent(`**Tier**\n${alias}`))
+      .addTextDisplayComponents((td) => td.setContent(`**Mythology**\n${mythologyLabel}`))
+      .setThumbnailAccessory(new ThumbnailBuilder().setURL(thumbnailUrl)));
+  } else {
+    container
+      .addTextDisplayComponents((td) => td.setContent(headerText))
+      .addTextDisplayComponents((td) => td.setContent(`**Tier**\n${alias}`))
+      .addTextDisplayComponents((td) => td.setContent(`**Mythology**\n${mythologyLabel}`));
+  }
+
+  container
     .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) =>
-      td.setContent(`**Current Stats**\nATK **${d.curr_atk}** · HP **${d.curr_hp}** · DEF **${d.curr_def}**`)
-    )
-    .addSeparatorComponents(sep);
+    .addTextDisplayComponents((td) => td.setContent(sigilBlock))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(statsBlock))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(blessingBlock))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(`**Lore**\n${loreBlock}\n\n${AI_DISCLAIMER}`));
 
-  const enhanceEnabled = addDeityNextSection(container, d);
-
-  if (resultLine) {
+  // Dynamic button (§3.7) — hidden once ascended. custom_id carries deity + owner;
+  // the handler rejects clicks from anyone but the owner.
+  if (!ascended && ownerId) {
+    const label = sigils < MAX_SIGILS
+      ? `Unlock Sigil (cost: ${sigilCost.essence} ${d.tier} Essence)`
+      : `Ascend (${ascCost.essence} Essence + ${ascCost.credux.toLocaleString()} Credux)`;
     container.addSeparatorComponents(sep);
-    container.addTextDisplayComponents((td) => td.setContent(resultLine));
+    container.addActionRowComponents((row) => row.setComponents(
+      new ButtonBuilder()
+        .setCustomId(`dsigil:act:${d.user_deity_id}:${ownerId}`)
+        .setLabel(label)
+        .setStyle(sigils < MAX_SIGILS ? ButtonStyle.Primary : ButtonStyle.Success)
+    ));
   }
-
-  container
-    .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) => td.setContent(essenceFooter(d)));
-
-  const components = [container];
-  if (buttons) components.push(deityForgeButtonsRow(d.user_deity_id, discordId, enhanceEnabled));
-  return { components, flags: MessageFlags.IsComponentsV2 };
-}
-
-/**
- * Verdict + next-step preview in one (continuous forging — deterministic, so
- * always the ✅ card). Buttons stay live; Enhance disabled when maxed or the
- * remaining essence can't afford the next level.
- */
-function buildDeityResolvedPayload(d, discordId, result) {
-  const icon = emojiForDisplay(d.name, '🕯️');
-  const container = new ContainerBuilder()
-    .setAccentColor(GREEN)
-    .addTextDisplayComponents((td) =>
-      td.setContent(`## ✅ Forge Success — ${icon} ${d.name} +${result.newEnhancement - 2} → +${result.newEnhancement - 1}`)
-    )
-    .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) =>
-      td.setContent(`**Resulting Stats**\nATK **${d.curr_atk}** · HP **${d.curr_hp}** · DEF **${d.curr_def}**`)
-    )
-    .addSeparatorComponents(sep);
-
-  const enhanceEnabled = addDeityNextSection(container, d);
-
-  container
-    .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) => td.setContent(essenceFooter(d)));
 
   return {
-    components: [container, deityForgeButtonsRow(d.user_deity_id, discordId, enhanceEnabled)],
+    components: [container],
     flags: MessageFlags.IsComponentsV2,
+    allowedMentions: { parse: [] },
   };
 }
+
+// ── Sigil unlock / Ascension (Ascension §3.5/§3.7) ─────────────────────────
+const RED = 0xe74c3c;
 
 function notePayload(text, color = RED) {
   const container = new ContainerBuilder()
@@ -531,15 +472,20 @@ function notePayload(text, color = RED) {
 }
 
 /**
- * One atomic deity enhancement. DETERMINISTIC (Master §9 — no success-rate
- * table): always succeeds when the essence requirement is met. Lock order:
- * users_bag → user_deities (standardized with the weapon forge / sell).
+ * One atomic step of deity progression — the SHARED function behind both the
+ * embed button and `crd deity enhance`:
+ *   sigils < 10           → unlock the next Sigil (tier essence)
+ *   sigils = 10, !ascended → Ascend (tier essence + Credux)
+ *   ascended              → no-op ('ascended')
+ * State is re-checked INSIDE the transaction with row locks on users_bag and
+ * the user_deities row, so double-clicks cannot double-spend or over-increment.
+ * Lock order: users_bag → user_deities (standardized with the weapon forge).
  */
-async function attemptDeityEnhance(client, discordId, userDeityId) {
+async function attemptSigilStep(client, discordId, userDeityId) {
   await client.query('BEGIN');
 
   const bagRes = await client.query(
-    `SELECT epic_essence, mythic_essence, legendary_essence, supreme_essence
+    `SELECT credux, epic_essence, mythic_essence, legendary_essence, supreme_essence
        FROM users_bag WHERE discord_id = $1 FOR UPDATE`,
     [discordId]
   );
@@ -549,7 +495,7 @@ async function attemptDeityEnhance(client, discordId, userDeityId) {
   }
 
   const dRes = await client.query(
-    `SELECT ud.enhancement, dr.tier, dr.name, dr.base_atk, dr.base_hp, dr.base_def
+    `SELECT ud.sigils, ud.ascended, dr.tier, dr.name
        FROM user_deities ud
        JOIN deity_roster dr ON dr.deity_id = ud.deity_id
       WHERE ud.user_deity_id = $1 AND ud.discord_id = $2
@@ -562,43 +508,97 @@ async function attemptDeityEnhance(client, discordId, userDeityId) {
   }
   const d = dRes.rows[0];
 
-  const next = nextDeityAttempt(d.tier, d.enhancement);
-  if (next == null) {
+  if (d.ascended) {
     await client.query('ROLLBACK');
-    return { status: 'maxed' };
+    return { status: 'ascended', name: d.name };
   }
+
   const essCol = TIER_ESSENCE_COLUMN[d.tier]; // whitelisted from our constant map
-  const essBefore = bagRes.rows[0][essCol];
-  if (essBefore < next.cost) {
-    await client.query('ROLLBACK');
-    return { status: 'insufficient', cost: next.cost, essence: essBefore, tier: d.tier };
+  const essBefore = Number(bagRes.rows[0][essCol]);
+
+  if (d.sigils < MAX_SIGILS) {
+    // ── Sigil unlock ──
+    const cost = nextSigilCost(d.tier, d.sigils);
+    if (essBefore < cost.essence) {
+      await client.query('ROLLBACK');
+      return { status: 'insufficient_essence', need: cost.essence, have: essBefore, tier: d.tier, name: d.name };
+    }
+    await client.query(
+      `UPDATE users_bag SET ${essCol} = ${essCol} - $2 WHERE discord_id = $1`,
+      [discordId, cost.essence]
+    );
+    await client.query(
+      'UPDATE user_deities SET sigils = sigils + 1 WHERE user_deity_id = $1',
+      [userDeityId]
+    );
+    await client.query(
+      `INSERT INTO game_logs (discord_id, action, item_type, previous_essence_count, updated_essence_count)
+       VALUES ($1, 'Deity Sigil', $2, $3, $4)`,
+      [discordId, essCol, essBefore, essBefore - cost.essence]
+    );
+    await client.query('COMMIT');
+    return { status: 'sigil', name: d.name, sigils: d.sigils + 1, cost: cost.essence, tier: d.tier };
   }
-  const essAfter = essBefore - next.cost;
 
+  // ── Ascension ──
+  const ac = ascensionCost(d.tier);
+  const creduxBefore = Number(bagRes.rows[0].credux);
+  if (essBefore < ac.essence) {
+    await client.query('ROLLBACK');
+    return { status: 'insufficient_essence', need: ac.essence, have: essBefore, tier: d.tier, name: d.name };
+  }
+  if (creduxBefore < ac.credux) {
+    await client.query('ROLLBACK');
+    return { status: 'insufficient_credux', need: ac.credux, have: creduxBefore, tier: d.tier, name: d.name };
+  }
   await client.query(
-    `UPDATE users_bag SET ${essCol} = ${essCol} - $2 WHERE discord_id = $1`,
-    [discordId, next.cost]
+    `UPDATE users_bag SET ${essCol} = ${essCol} - $2, credux = credux - $3 WHERE discord_id = $1`,
+    [discordId, ac.essence, ac.credux]
   );
-
-  const newEnhancement = d.enhancement + 1;
-  const stats = computeDeityStats(d, newEnhancement);
   await client.query(
-    `UPDATE user_deities
-        SET enhancement = $2, curr_atk = $3, curr_hp = $4, curr_def = $5
-      WHERE user_deity_id = $1`,
-    [userDeityId, newEnhancement, stats.curr_atk, stats.curr_hp, stats.curr_def]
+    'UPDATE user_deities SET ascended = TRUE WHERE user_deity_id = $1',
+    [userDeityId]
   );
-
   await client.query(
-    `INSERT INTO game_logs (discord_id, action, item_type, previous_essence_count, updated_essence_count)
-     VALUES ($1, 'Deity Enhance', $2, $3, $4)`,
-    [discordId, essCol, essBefore, essAfter]
+    `INSERT INTO game_logs
+       (discord_id, action, item_type, previous_essence_count, updated_essence_count, previous_credux, updated_credux)
+     VALUES ($1, 'Deity Ascend', $2, $3, $4, $5, $6)`,
+    [discordId, essCol, essBefore, essBefore - ac.essence, creduxBefore, creduxBefore - ac.credux]
   );
-
   await client.query('COMMIT');
-  return { status: 'done', success: true, name: d.name, targetLevel: next.targetLevel, cost: next.cost, newEnhancement };
+  return { status: 'ascend', name: d.name, tier: d.tier, cost: ac };
 }
 
+/** Run attemptSigilStep on a pooled client with rollback safety. */
+async function runSigilStep(discordId, userDeityId) {
+  let client;
+  try {
+    client = await pool.connect();
+    return await attemptSigilStep(client, discordId, userDeityId);
+  } catch (err) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    if (client) client.release();
+  }
+}
+
+function sigilStepFailureText(result) {
+  if (result.status === 'insufficient_essence') {
+    return `❌ Not enough ${result.tier} Essence — need **${result.need}**, you have **${result.have}**.`;
+  }
+  if (result.status === 'insufficient_credux') {
+    return `❌ Not enough Credux — need **${result.need.toLocaleString()}**, you have **${result.have.toLocaleString()}**.`;
+  }
+  return null;
+}
+
+/**
+ * `crd deity enhance <name>` — repurposed (§3.5, owner rule): the command only
+ * performs ASCENSION, and only for a deity maxed at 10/10 Sigils. Below 10
+ * Sigils it explains the deity must be awakened (Sigils unlocked) first via
+ * the `crd deity info` button.
+ */
 async function enhance(message, name) {
   if (!name) {
     await reply(message, { content: 'Usage: `crd deity enhance <deity name>`' });
@@ -606,7 +606,7 @@ async function enhance(message, name) {
   }
   const discordId = message.author.id;
   const { rows } = await pool.query(
-    `SELECT ud.user_deity_id, dr.name AS roster_name
+    `SELECT ud.user_deity_id, ud.sigils, ud.ascended, dr.name AS roster_name
        FROM deity_roster dr
        LEFT JOIN user_deities ud
          ON ud.deity_id = dr.deity_id AND ud.discord_id = $1
@@ -617,90 +617,109 @@ async function enhance(message, name) {
     await reply(message, { content: `No deity named **${name}** exists.` });
     return;
   }
-  if (rows[0].user_deity_id == null) {
-    await reply(message, { content: `You haven't summoned ${rows[0].roster_name} yet.` });
+  const row = rows[0];
+  if (row.user_deity_id == null) {
+    await reply(message, { content: `You haven't summoned ${row.roster_name} yet.` });
+    return;
+  }
+  if (row.ascended) {
+    await reply(message, { content: `**${row.roster_name}** is already Ascended ✦.` });
+    return;
+  }
+  if (row.sigils < MAX_SIGILS) {
+    await reply(message, {
+      content:
+        `**${row.roster_name}** needs to be awakened first — **${row.sigils}/${MAX_SIGILS} Sigils**.\n` +
+        `Unlock its remaining Sigils via \`crd deity info ${row.roster_name.toLowerCase()}\` before Ascension.`,
+    });
     return;
   }
 
-  const d = await fetchDeityForgeData(discordId, rows[0].user_deity_id);
-  if (!d) {
-    await reply(message, { content: `You haven't summoned ${name} yet.` });
+  let result;
+  try {
+    result = await runSigilStep(discordId, row.user_deity_id);
+  } catch (err) {
+    console.error('[deity ascend] command failed:', err.message);
+    await reply(message, { content: 'Something went wrong. Nothing was spent.' });
     return;
   }
-  await reply(message, buildDeityForgePayload(d, discordId));
+
+  const failure = sigilStepFailureText(result);
+  if (failure) {
+    await reply(message, { content: failure });
+    return;
+  }
+  if (result.status === 'ascend') {
+    await reply(message, {
+      content:
+        `✦ **${result.name}** has Ascended! Its blessing is now active.\n` +
+        `-# Spent ${result.cost.essence} ${result.tier} Essence + ${result.cost.credux.toLocaleString()} Credux.`,
+    });
+    return;
+  }
+  if (result.status === 'ascended') {
+    await reply(message, { content: `**${result.name}** is already Ascended ✦.` });
+    return;
+  }
+  await reply(message, { content: 'This deity is no longer in your collection.' });
 }
 
-/** Button: denhance:attempt:<userDeityId>:<uid> */
-async function handleEnhanceAttempt(interaction, userDeityId, ownerId) {
+/**
+ * Button: dsigil:act:<userDeityId>:<ownerId> — the §3.7 dynamic button.
+ * Runs the shared transaction, then edits the info message in place with the
+ * refreshed embed/button state.
+ */
+async function handleSigilButton(interaction, userDeityId, ownerId) {
   if (interaction.user.id !== ownerId) {
-    await interaction.reply({ content: 'This forge isn\'t yours.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: 'This deity isn\'t yours — run `crd deity info` yourself!', flags: MessageFlags.Ephemeral });
     return;
   }
 
   await interaction.deferUpdate();
-  let client;
   let result;
   try {
-    client = await pool.connect();
-    result = await attemptDeityEnhance(client, ownerId, userDeityId);
+    result = await runSigilStep(ownerId, userDeityId);
   } catch (err) {
-    if (client) await client.query('ROLLBACK').catch(() => {});
-    console.error('[deity enhance] attempt failed:', err.message);
-    await interaction.followUp({ content: 'Something went wrong. No Essence was spent.', flags: MessageFlags.Ephemeral }).catch(() => {});
+    console.error('[deity sigil] button failed:', err.message);
+    await interaction.followUp({ content: 'Something went wrong. Nothing was spent.', flags: MessageFlags.Ephemeral }).catch(() => {});
     return;
-  } finally {
-    if (client) client.release();
   }
 
   try {
-  if (result.status === 'notfound') {
-    await interaction.editReply(notePayload('This deity is no longer in your collection.'));
-    return;
-  }
+    if (result.status === 'notfound') {
+      await interaction.editReply(notePayload('This deity is no longer in your collection.'));
+      return;
+    }
 
-  const d = await fetchDeityForgeData(ownerId, userDeityId);
-  if (!d) {
-    await interaction.editReply(notePayload('This deity is no longer in your collection.'));
-    return;
-  }
+    const failure = sigilStepFailureText(result);
+    if (failure) {
+      await interaction.followUp({ content: failure, flags: MessageFlags.Ephemeral }).catch(() => {});
+      return;
+    }
 
-  if (result.status === 'insufficient') {
-    const resultLine = `❌ Not enough ${result.tier} Essence — need **${result.cost}**, you have **${result.essence}**.`;
-    await interaction.editReply(buildDeityForgePayload(d, ownerId, { resultLine, color: RED }));
-    return;
-  }
-  if (result.status === 'maxed') {
-    await interaction.editReply(buildDeityForgePayload(d, ownerId, { resultLine: 'This deity is already maxed (+10).' }));
-    return;
-  }
-
-  // status === 'done' → verdict + next-step preview, buttons stay live (chaining).
-  await interaction.editReply(buildDeityResolvedPayload(d, ownerId, result));
+    // Success (sigil unlocked / ascended / already ascended) → refresh in place.
+    const d = await fetchDeityInfoRow(ownerId, userDeityId);
+    if (!d) {
+      await interaction.editReply(notePayload('This deity is no longer in your collection.'));
+      return;
+    }
+    await interaction.editReply(await buildDeityInfoPayload(d, {
+      ownerId,
+      ownerDisplayName: displayNameFor(interaction, ownerId),
+    }));
+    if (result.status === 'ascend') {
+      await interaction.followUp({
+        content: `✦ **${result.name}** has Ascended! Its blessing is now active.`,
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => {});
+    }
   } catch (err) {
-    console.error('[deity enhance] result refresh failed:', err.message);
-    const note = result.status === 'done'
-      ? 'Deity enhancement result was processed, but the forge view could not refresh. Run `crd deity enhance <name>` again to continue.'
-      : 'Deity forge view could not refresh. Run `crd deity enhance <name>` again to reload it.';
-    await interaction.editReply(notePayload(note)).catch(() => {});
+    console.error('[deity sigil] refresh failed:', err.message);
     await interaction.followUp({
-      content: 'Deity forge view refresh failed. Run `crd deity enhance <name>` again before making another attempt.',
+      content: 'The view could not refresh — run `crd deity info <name>` again to see the current state.',
       flags: MessageFlags.Ephemeral,
     }).catch(() => {});
   }
-}
-
-/** Button: denhance:cancel:<userDeityId>:<uid> — drop the buttons, keep the last view as-is. */
-async function handleEnhanceCancel(interaction, userDeityId, ownerId) {
-  if (interaction.user.id !== ownerId) {
-    await interaction.reply({ content: 'This forge isn\'t yours.', flags: MessageFlags.Ephemeral });
-    return;
-  }
-  await interaction.deferUpdate();
-  // Strip action rows from the CURRENT message so the last verdict stays visible.
-  const keep = interaction.message.components
-    .filter((c) => c.type !== ComponentType.ActionRow)
-    .map((c) => c.toJSON());
-  await interaction.editReply({ components: keep, flags: MessageFlags.IsComponentsV2 });
 }
 
 // ── crd deity equip <name> [slot] ─────────────────────────────────────────
@@ -903,6 +922,7 @@ async function deities(message) {
   const res = await pool.query(
     `SELECT uc.active_deity_id, uc.active_deity_id_2, uc.active_deity_id_3,
             uc.active_echo_deity_id, uc.believer_level,
+            d1.ascended AS a1, de.ascended AS echo_ascended,
             d1r.name AS n1, d1r.tier AS t1, d1r.mythology AS m1, d1r.image_filename AS img1,
             d1r.blessing_name AS bn1, d1r.blessing_description AS bd1,
             d2r.name AS n2, d2r.tier AS t2, d2r.mythology AS m2, d2r.image_filename AS img2,
@@ -1049,12 +1069,17 @@ async function deities(message) {
   if (resMods.defPct) resLines.push(`DEF +${resMods.defPct}%`);
   if (resMods.critPts) resLines.push(`CRIT +${resMods.critPts}`);
 
-  // Blessing info
+  // Blessing info — [Ascension §3.6] a blessing fires only if that deity is
+  // Ascended; un-ascended deities show it as dormant.
   let blessingText = '';
   if (r.n1) {
     const btype = DIVINE_BLESSING_DEITIES.has(r.n1) ? 'Divine' : 'Echo';
-    blessingText += `**${btype} Blessing:** ${r.bn1 || r.n1}`;
-    if (r.bd1) blessingText += `\n-# ${r.bd1}`;
+    if (r.a1) {
+      blessingText += `**${btype} Blessing:** ${r.bn1 || r.n1}`;
+      if (r.bd1) blessingText += `\n-# ${r.bd1}`;
+    } else {
+      blessingText += `**${btype} Blessing:** Dormant — ascend ${r.n1} to awaken it.`;
+    }
   } else {
     blessingText += '**Divine Blessing:** None';
   }
@@ -1063,8 +1088,12 @@ async function deities(message) {
     r.active_echo_deity_id && r.active_echo_deity_id === r.active_deity_id_3 ? 3 :
     null;
   if (r.echo_name && echoSlot != null && slotUnlocked(echoSlot, believerLevel)) {
-    blessingText += `\n**Echo Blessing:** ${r.echo_bn || r.echo_name}`;
-    if (r.echo_bd) blessingText += `\n-# ${r.echo_bd}`;
+    if (r.echo_ascended) {
+      blessingText += `\n**Echo Blessing:** ${r.echo_bn || r.echo_name}`;
+      if (r.echo_bd) blessingText += `\n-# ${r.echo_bd}`;
+    } else {
+      blessingText += `\n**Echo Blessing:** Dormant — ascend ${r.echo_name} to awaken it.`;
+    }
   } else {
     blessingText += '\n**Echo Blessing:** None';
   }
@@ -1109,4 +1138,4 @@ async function execute(message, { args }) {
   await reply(message, { content: 'Usage: `crd deity collection` · `crd deity info <name>` · `crd deity equip <name> [1|2|3]` · `crd deity enhance <name>` · `crd deity echo <name>` · `crd deities`' });
 }
 
-module.exports = { execute, deities, handleListButton, handleEnhanceAttempt, handleEnhanceCancel, buildDeityInfoPayload };
+module.exports = { execute, deities, handleListButton, handleSigilButton, buildDeityInfoPayload };

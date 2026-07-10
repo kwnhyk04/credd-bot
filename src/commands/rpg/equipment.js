@@ -8,13 +8,19 @@
  * the right. This intentionally avoids canvas/card rendering for normal info.
  */
 
-const { EmbedBuilder } = require('discord.js');
+const {
+  ContainerBuilder,
+  SectionBuilder,
+  ThumbnailBuilder,
+  MessageFlags,
+} = require('discord.js');
 const pool = require('../../db/pool');
 const { resolveName } = require('../../utils/emojis');
 const { runeEmojiName, runeEmoji } = require('../../config/runes');
 const { SELL_PRICES } = require('../../config/sellPrices');
 const { assetPath, isRemoteAssetsEnabled, remoteAssetAvailable, relativeAssetPath } = require('../../utils/assets');
 const { bandwidthLog } = require('../../utils/runtimeLogs');
+const { smallDivider: sep } = require('../../utils/componentsV2');
 
 const SOCKET_LANES = {
   weapon: { native: 'offense', opposite: 'defense' },
@@ -79,7 +85,6 @@ const TIER_COLOR = {
   Supreme: 0xe74c3c,
 };
 
-const INFO_DIVIDER = '━━━━━━━━━━━━━━━━━━━━';
 const THUMBNAIL_EXTENSIONS = ['webp', 'png', 'jpg'];
 
 function reply(message, payload) {
@@ -212,28 +217,60 @@ async function buildInfoPayload(g, gearId, ownerId, ownerDisplayName = null) {
     userId: ownerId,
   });
 
-  const embed = new EmbedBuilder()
-    .setColor(TIER_COLOR[g.tier] ?? TIER_COLOR.Common)
-    .setTitle(`${headerName} ${g.name}`.trim())
-    .setDescription([
-      INFO_DIVIDER,
-      `**Tier**\n${g.tier}`,
-      `**Enhancement**\n+${enhancement}`,
-      `**Stats**\n${statBlock(g)}`,
-      `**Passive - ${passiveName}**\n${passiveDescription}`,
-      `**Rune Slots**\n${formatRuneSlots(sockets)}`,
-      INFO_DIVIDER,
-      `**Lore**\n${loreBlock}\n\n${AI_DISCLAIMER}`,
-      INFO_DIVIDER,
-      `**Details**\n${ownerId ? `Owner: <@${ownerId}>\n` : ''}` +
-        `${g.kind === 'weapon' ? '⚔️' : '🛡️'} ID: \`${gearId}\`\n` +
-        `💰 Sell Value: ${sellValue.toLocaleString()} Credux`,
-      INFO_DIVIDER,
-      `**Help**\n💡 \`crd enhance ${gearId}\` ・ \`crd equip ${gearId}\``,
-    ].join('\n\n'));
+  // Header block (item name + owner mention, Tier, Enhancement). The item art
+  // sits top-right as a real Components V2 thumbnail accessory when a public
+  // image resolves; otherwise the header degrades to plain text (no thumbnail),
+  // preserving the previous "remote-only thumbnail" behavior.
+  const kindIcon = g.kind === 'weapon' ? '⚔️' : '🛡️';
+  const titleLine = `## ${kindIcon} ${g.name}`;
+  const ownerLine = ownerId
+    ? `-# ${headerName ? `${headerName} — ` : ''}<@${ownerId}>`
+    : (headerName ? `-# ${headerName}` : null);
 
-  if (thumbnailUrl) embed.setThumbnail(thumbnailUrl);
-  return { embeds: [embed] };
+  const container = new ContainerBuilder()
+    .setAccentColor(TIER_COLOR[g.tier] ?? TIER_COLOR.Common);
+
+  if (thumbnailUrl) {
+    container.addSectionComponents((section) => {
+      section
+        .addTextDisplayComponents((td) => td.setContent(
+          ownerLine ? `${titleLine}\n${ownerLine}` : titleLine
+        ))
+        .addTextDisplayComponents((td) => td.setContent(`**Tier**\n${g.tier}`))
+        .addTextDisplayComponents((td) => td.setContent(`**Enhancement**\n+${enhancement}`))
+        .setThumbnailAccessory(new ThumbnailBuilder().setURL(thumbnailUrl));
+      return section;
+    });
+  } else {
+    container
+      .addTextDisplayComponents((td) => td.setContent(
+        ownerLine ? `${titleLine}\n${ownerLine}` : titleLine
+      ))
+      .addTextDisplayComponents((td) => td.setContent(`**Tier**\n${g.tier}`))
+      .addTextDisplayComponents((td) => td.setContent(`**Enhancement**\n+${enhancement}`));
+  }
+
+  container
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(`**Stats**\n${statBlock(g)}`))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(`**Passive - ${passiveName}**\n${passiveDescription}`))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(`**Rune Slots**\n${formatRuneSlots(sockets)}`))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(`**Lore**\n${loreBlock}\n\n${AI_DISCLAIMER}`))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(
+      `**Details**\n${ownerId ? `Owner: <@${ownerId}>\n` : ''}` +
+      `${kindIcon} ID: \`${gearId}\`\n` +
+      `💰 Sell Value: ${sellValue.toLocaleString()} Credux`
+    ))
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(
+      `**Help**\n💡 \`crd enhance ${gearId}\` ・ \`crd equip ${gearId}\``
+    ));
+
+  return { components: [container], flags: MessageFlags.IsComponentsV2 };
 }
 
 async function fetchGear(discordId, gearId) {

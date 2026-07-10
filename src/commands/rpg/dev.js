@@ -15,7 +15,7 @@ const path = require('path');
 
 const pool = require('../../db/pool');
 const { computeWeaponStats, computeArmorStats } = require('../../engine/enhancement');
-const { computeDeityStats } = require('../../engine/deityEnhancement');
+const { computeSigilStats } = require('../../config/ascension');
 const { resolveBattle, rngOf } = require('../../engine/battleEngine');
 const {
   buildPlayerFighter, buildMobFighter, fetchMobByName, fetchRandomMob, rollMobLevel,
@@ -738,25 +738,32 @@ async function enhanceEquipment(message, args, devId) {
   }
 }
 
-// ── crd dev enhancedeity @user <deity name> <+level> ───────────────────────
+// ── crd dev enhancedeity @user <deity name> <+sigils> [ascend] ──────────────
+// [Ascension §3.5] Repurposed: sets the Sigil count (0–10) and, with the
+// trailing `ascend` keyword, the ascended flag. Stats are computed at read
+// time — no curr_* writes.
 async function enhanceDeity(message, args, devId) {
   const target = message.mentions.users.first();
-  const rest = nonMentionArgs(argsWithoutConfirm(args));
+  let rest = nonMentionArgs(argsWithoutConfirm(args));
+  const wantAscend = rest[rest.length - 1]?.toLowerCase() === 'ascend';
+  if (wantAscend) rest = rest.slice(0, -1);
   const level = parseLevel(rest[rest.length - 1]);
   const name = rest.slice(0, -1).join(' ').trim();
   if (!target || !name || level == null) {
-    return reply(message, 'Usage: `crd dev enhancedeity @user <deity name> <+0..+10>`');
+    return reply(message, 'Usage: `crd dev enhancedeity @user <deity name> <+0..+10 sigils> [ascend]`');
+  }
+  if (wantAscend && level !== 10) {
+    return reply(message, 'Ascension requires 10/10 Sigils — use `+10 ascend`.');
   }
   const token = `confirm:${target.id}:${level}`;
-  const guard = highValueGuardMessage(args, token, `crd dev enhancedeity @user ${name} +${level} ${token}`);
+  const guard = highValueGuardMessage(args, token, `crd dev enhancedeity @user ${name} +${level}${wantAscend ? ' ascend' : ''} ${token}`);
   if (guard) return reply(message, guard);
 
-  const stored = level + 1;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const dRes = await client.query(
-      `SELECT ud.user_deity_id, dr.name, dr.base_atk, dr.base_hp, dr.base_def
+      `SELECT ud.user_deity_id, dr.name, dr.tier, dr.base_atk, dr.base_hp, dr.base_def
          FROM user_deities ud
          JOIN deity_roster dr ON ud.deity_id = dr.deity_id
         WHERE ud.discord_id = $1 AND dr.name ILIKE $2
@@ -765,14 +772,14 @@ async function enhanceDeity(message, args, devId) {
     );
     if (dRes.rows.length === 0) { await client.query('ROLLBACK'); return reply(message, `<@${target.id}> doesn't own a deity named "${name}".`); }
     const d = dRes.rows[0];
-    const stats = computeDeityStats(d, stored);
     await client.query(
-      'UPDATE user_deities SET enhancement = $2, curr_atk = $3, curr_hp = $4, curr_def = $5 WHERE user_deity_id = $1',
-      [d.user_deity_id, stored, stats.curr_atk, stats.curr_hp, stats.curr_def]
+      'UPDATE user_deities SET sigils = $2, ascended = $3 WHERE user_deity_id = $1',
+      [d.user_deity_id, level, wantAscend]
     );
-    await logDev(client, devId, 'enhance_deity', target.id, `${d.name} → +${level}`);
+    const stats = computeSigilStats(d, level);
+    await logDev(client, devId, 'enhance_deity', target.id, `${d.name} → ${level}/10 sigils${wantAscend ? ' (ascended)' : ''}`);
     await client.query('COMMIT');
-    return reply(message, `✅ **${d.name}** (<@${target.id}>) set to **+${level}** — ATK ${stats.curr_atk} · HP ${stats.curr_hp} · DEF ${stats.curr_def}.`);
+    return reply(message, `✅ **${d.name}** (<@${target.id}>) set to **${level}/10 Sigils**${wantAscend ? ' · **Ascended ✦**' : ''} — ATK ${stats.curr_atk} · HP ${stats.curr_hp} · DEF ${stats.curr_def}.`);
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[dev enhancedeity]', err.message);
@@ -1212,7 +1219,7 @@ const USAGE = [
   '`giveessence @user <epic|mythic|legendary|supreme> <count>` · `givebag @user <lesser|greater|divine> <count>`',
   '`ban @user` · `unban @user`',
   '`resetplayer @user confirm:<id>` · `resetweapons [@user] confirm:<id>` · `resetweapons all confirm:RESET_ALL_GEAR`',
-  '`enhanceequipment <equipment_id> <+level>` · `enhancedeity @user <deity name> <+level>`',
+  '`enhanceequipment <equipment_id> <+level>` · `enhancedeity @user <deity name> <+sigils 0..10> [ascend]`',
   '`battle [mob name] [seed <n>]` — engine smoke test (no rewards)',
   '`setbosshp <boss name> <hp>` · `spawnboss [boss name]` — boss smoke-test enablers',
   '`quest` · `quest refresh <q1|q2|q3>` — view / refresh quests (cap bypassed)',

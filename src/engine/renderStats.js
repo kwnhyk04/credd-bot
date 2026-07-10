@@ -29,6 +29,7 @@ const { resolveName } = require('../utils/emojis');
 const { assetPath, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
 const { loadAvatarAsset } = require('./avatarImageLoader');
 const { performanceLog } = require('../utils/runtimeLogs');
+const { SUPPORTER_BADGE_HEIGHT } = require('../config/cosmetics');
 
 /* ── Background template ([v4.6]) ───────────────────────────────────────────
  * The profile card is drawn on top of a template image. TEMPLATE_FILE is a single
@@ -186,7 +187,7 @@ async function renderStatsImage(d) {
   // Pre-fetch images (frame + avatar + weapon/deity/combat-exp icons) before laying out.
   // [Supporter-stage §6] When a profile skin resolves (d.skinPath), it replaces the default
   // template as the bottom layer; otherwise fall back to the shared default template.
-  const [template, avatar, weaponIcon, armorIcon, deityIcon, deity2Icon, deity3Icon, expIcon] = await Promise.all([
+  const [template, avatar, weaponIcon, armorIcon, deityIcon, deity2Icon, deity3Icon, expIcon, supporterBadge] = await Promise.all([
     d.skinPath ? loadAssetImage(d.skinPath).catch(() => null).then((img) => img || loadTemplate()) : loadTemplate(),
     loadAvatar(d.avatarPath, d.avatarFallbackPath, {
       system: 'stats',
@@ -200,6 +201,9 @@ async function renderStatsImage(d) {
     d.deity2Name ? getEmojiIcon(resolveName(d.deity2Name) || '') : Promise.resolve(null),
     d.deity3Name ? getEmojiIcon(resolveName(d.deity3Name) || '') : Promise.resolve(null),
     getEmojiIcon('combat_exp'),
+    // [§2.5] supporter badge — path only set when tier is active AND art exists;
+    // a load failure still skips the layer gracefully.
+    d.supporterBadgePath ? loadAssetImage(d.supporterBadgePath).catch(() => null) : Promise.resolve(null),
   ]);
 
   // ── Measure the layout (600-wide design space) ──
@@ -254,6 +258,14 @@ async function renderStatsImage(d) {
     ctx.font = F(14, true);
     ctx.fillStyle = ACCENT;
     ctx.fillText(fitText(ctx, d.equippedTitle, nameW), W / 2, y + 74);
+  }
+  // [§2.5] Supporter badge below the Title (below the name when no title),
+  // scaled to SUPPORTER_BADGE_HEIGHT; layer skipped when no badge resolved.
+  if (supporterBadge) {
+    const bh = SUPPORTER_BADGE_HEIGHT;
+    const bw = Math.round(supporterBadge.width * (bh / supporterBadge.height));
+    const by = d.equippedTitle ? y + 80 : y + 56;
+    ctx.drawImage(supporterBadge, Math.round(W / 2 - bw / 2), by, bw, bh);
   }
   ctx.textAlign = 'left';
 

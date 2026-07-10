@@ -13,6 +13,12 @@
  * isn't actually seeded, it simply never matches a row (the spawn pool skips it).
  */
 
+// Max boss attacks a player may make per day (PHT clock). Both attacks MAY land on
+// the SAME spawn (§1.4). This is the single source of truth for the daily cap AND
+// the per-spawn cap; guards in bossSystem read it. Env BOSS_DAILY_ATTACK_LIMIT may
+// override the value for ops, defaulting to this constant.
+const MAX_BOSS_ATTACKS_PER_DAY = 2;
+
 // EXACT mob_roster.name values. "Jotun" is the seeded spelling of Jötunn.
 const GREATER_BOSSES = new Set(['Jotun', 'Fenrir', 'Fafnir', 'Hydra', 'Cerberus']);
 
@@ -24,6 +30,21 @@ const GREATER_CHEST_GOLDEN_CHANCE = 0.20; // Greater chest: 20% → 1× Boss Gol
 // §16 participation rewards (every attacker of the spawn receives these).
 const NORMAL_REWARD  = { credux: 100_000, exp: 20_000, shards: 1_000 };
 const GREATER_REWARD = { credux: 150_000, exp: 30_000, shards: 1_000 };
+
+/**
+ * §1.4 — the single boss-attack cap predicate, read by BOTH the daily and the
+ * per-spawn guard in bossSystem. Pure (no DB), so it is unit-testable in the
+ * sandbox selftest. `limit` is the per-day AND per-spawn allowance
+ * (MAX_BOSS_ATTACKS_PER_DAY unless env-overridden).
+ *   usedToday    = SUM(attacks) across today's rows (PHT)
+ *   spawnAttacks = attacks already spent on THIS spawn
+ * Daily cap is checked first (matches the prior gate ordering / message).
+ */
+function bossAttackDecision({ usedToday, spawnAttacks, limit }) {
+  if (Number(usedToday) >= limit) return { allowed: false, reason: 'daily' };
+  if (Number(spawnAttacks) >= limit) return { allowed: false, reason: 'spawn' };
+  return { allowed: true, reason: null };
+}
 
 function isGreaterBoss(name) {
   return GREATER_BOSSES.has(name);
@@ -81,6 +102,8 @@ function pickWeightedBoss(allBosses, rng = Math.random) {
 }
 
 module.exports = {
+  MAX_BOSS_ATTACKS_PER_DAY,
+  bossAttackDecision,
   GREATER_BOSSES,
   GREATER_SPAWN_CHANCE,
   GREATER_HP_MULTIPLIER,

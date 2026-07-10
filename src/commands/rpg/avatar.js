@@ -42,6 +42,9 @@ async function buy(ctx, key) {
   if (String(row.class_name).toLowerCase() !== String(character.class).toLowerCase()) {
     return reply(ctx, `That avatar is for **${row.class_name}**. Your current class is **${character.class}**.`);
   }
+  if (avatar.isGrantOnlyAvatarRow(row)) {
+    return reply(ctx, `**${avatar.displayName(row)}** isn't available in the shop.`);
+  }
   if (await avatar.ownsAvatar(pool, ctx.userId, row.avatar_id, character.class)) {
     return reply(ctx, `You already own **${avatar.displayName(row)}**. Equip it with \`crd avatar equip ${avatar.avatarShortId(row)}\`.`);
   }

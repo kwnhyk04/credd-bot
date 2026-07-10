@@ -223,6 +223,24 @@ function buildEntries() {
   // ── Non-store sets (founder / tester default / per-tester customs) ─────────
   entries.push(...nonStoreEntries());
 
+  // ── [Patch 2 §2.1] Class default BATTLE skins — synthetic rows NOT derived
+  // from disk (assets live on R2). Mirrors patch2-classbattle-backfill.sql so
+  // the deactivation pass below never flips them off on a reseed. Bases sit at
+  // BUCKET-ROOT classes/battle_base/ (no skins/ prefix — render code special-
+  // cases it). Founder/tester AVATARS live in avatar_catalog, NOT here.
+  const CLASS_BATTLE = [
+    ['swordsman', 'ws'], ['fighter', 'fs'], ['mage', 'ms'], ['knight', 'ks'], ['archer', 'as'],
+  ];
+  for (const [cls, code] of CLASS_BATTLE) {
+    const rel = `classes/battle_base/${cls}.png`;
+    entries.push({
+      cosmetic_key: `class_battle_${cls}`, category: 'battle', tier: 'believer', is_base: false,
+      display_name: `${cls.charAt(0).toUpperCase()}${cls.slice(1)} Battle`,
+      token_cost: 0, has_top_label: false, skin_code: code,
+      render_filename: rel, display_filename: rel, victory_filename: null, defeated_filename: null,
+    });
+  }
+
   return entries;
 }
 

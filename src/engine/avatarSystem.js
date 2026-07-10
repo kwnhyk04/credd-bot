@@ -41,6 +41,21 @@ function isAvatarDevAccount(userId) {
   return avatarDevUnlocksEnabled() && DEV_ACCOUNT_IDS.includes(String(userId));
 }
 
+// Env-INDEPENDENT dev-account membership. Unlike isAvatarDevAccount (which also
+// requires avatarDevUnlocksEnabled()), this is true for any configured dev id
+// regardless of the environment flag — so dev renders/ownership stay consistent
+// even when AVATAR_DEV_UNLOCKS / non-prod detection is off.
+function isDevAccountId(userId) {
+  return DEV_ACCOUNT_IDS.includes(String(userId));
+}
+
+// [Patch 2 §2.2/§2.4] Founder + tester avatars are grant-only (dev command /
+// manual insert), never purchasable — kept out of the supporter avatar shop.
+const GRANT_ONLY_AVATAR_STYLES = new Set(['founder', 'tester']);
+function isGrantOnlyAvatarRow(row) {
+  return !!row && GRANT_ONLY_AVATAR_STYLES.has(String(row.style || '').toLowerCase());
+}
+
 function normalizeClass(className) {
   const raw = String(className || '').trim().toLowerCase();
   return CLASS_NAMES.find((name) => name.toLowerCase() === raw) || null;
@@ -77,6 +92,11 @@ function canonicalAvatarAssetPath(row) {
   const style = String(row.style || '').trim().toLowerCase();
   const folder = classFolder(row.class_name);
   if (!gender || !style || !folder || gender === 'class' || style === 'default') return null;
+  // Only the store styles follow the <gender>/<class>/<class>_<style>.png layout.
+  // Grant-only rows (founder/tester, gender='avatar') store their real path in
+  // asset_path — rebuilding would fabricate a nonexistent key (the crd stats
+  // equipped-avatar bug). Fall through to the stored asset_path for them.
+  if (!STYLE_COST[style] || !['male', 'female'].includes(gender)) return null;
   return `skins/avatars/${gender}/${folder}/${folder}_${style}.png`;
 }
 
@@ -129,6 +149,8 @@ function avatarShortId(row) {
 
 function displayName(row) {
   if (!row || row.is_default) return row?.display_name || 'Default Avatar';
+  // Founder/tester are genderless single-set avatars — use their stored name.
+  if (isGrantOnlyAvatarRow(row)) return row.display_name || `${titleCase(row.style)} Avatar`;
   const style = STYLE_LABEL[row.style] || titleCase(row.style);
   const gender = GENDER_LABEL[row.gender] || titleCase(row.gender);
   return `${style} ${gender} Avatar`;
@@ -225,6 +247,33 @@ async function getOwnedAvatarIds(db, userId, className) {
   return new Set(res.rows.map((row) => Number(row.avatar_id)));
 }
 
+/**
+ * Grant a dev account REAL ownership rows for every active avatar of its class
+ * (class is the ONLY restriction). Idempotent — safe to call on any read path.
+ * No-op for non-dev accounts. This replaces reliance on the env-gated virtual
+ * dev unlock so equipped-avatar rendering (crd stats) and collection ownership
+ * are consistent for dev accounts regardless of environment flags.
+ */
+async function ensureDevAvatarOwnership(db, userId, className) {
+  if (!isDevAccountId(userId)) return;
+  const canonical = normalizeClass(className) || className;
+  if (!canonical) return;
+  try {
+    await ensureDefaultCatalog(db);
+    await db.query(
+      `INSERT INTO user_avatars (discord_id, avatar_id, source, acquired_at)
+       SELECT $1, ac.avatar_id, 'dev', NOW()
+         FROM avatar_catalog ac
+        WHERE ac.is_active = TRUE
+          AND lower(ac.class_name) = lower($2)
+       ON CONFLICT (discord_id, avatar_id) DO NOTHING`,
+      [userId, canonical]
+    );
+  } catch (err) {
+    if (!isMissingAvatarTable(err)) throw err;
+  }
+}
+
 async function buildRows(pool, userId, mode) {
   const character = await getCharacter(pool, userId);
   if (!character) return { className: null, rows: [], ownedIds: new Set(), equippedId: null };
@@ -232,6 +281,8 @@ async function buildRows(pool, userId, mode) {
   const fallback = defaultClassAvatar(className);
   try {
     await ensureDefaultCatalog(pool);
+    // Dev accounts own every avatar of their class (idempotent, class-only).
+    await ensureDevAvatarOwnership(pool, userId, className);
     const [catalogRows, ownedIds, equippedId] = await Promise.all([
       queryClassAvatars(pool, className),
       getOwnedAvatarIds(pool, userId, className),
@@ -239,7 +290,8 @@ async function buildRows(pool, userId, mode) {
     ]);
     const rows = mode === 'collection'
       ? [fallback, ...catalogRows.filter((row) => ownedIds.has(Number(row.avatar_id)))]
-      : catalogRows;
+      // Shop: only purchasable rows — founder/tester are grant-only (§2.2/§2.4).
+      : catalogRows.filter((row) => !isGrantOnlyAvatarRow(row));
     return { className, rows, ownedIds, equippedId, devUnlocked: isAvatarDevAccount(userId) };
   } catch (err) {
     if (!isMissingAvatarTable(err)) throw err;
@@ -258,8 +310,9 @@ function formatRow(row, ownedIds, equippedId, mode) {
   if (row.is_default) return `-# \`default\` :frame_photo: **Default Avatar** | ${marker(row, ownedIds, equippedId)}`;
   const id = avatarShortId(row);
   const name = displayName(row);
-  const status = mode === 'shop' ? '' : ` | ${marker(row, ownedIds, equippedId)}`;
-  return `-# ${iconToken()} ${row.token_cost} | \`${id}\` | :frame_photo: **${name}**${status}`;
+  // Token price is shop-only; the collection shows ownership status instead.
+  if (mode === 'shop') return `-# ${iconToken()} ${row.token_cost} | \`${id}\` | :frame_photo: **${name}**`;
+  return `-# \`${id}\` | :frame_photo: **${name}** | ${marker(row, ownedIds, equippedId)}`;
 }
 
 function pagePayload(state, userId, page, mode) {
@@ -336,6 +389,7 @@ async function getAvatarByKey(db, key, className = null) {
       WHERE (
           lower(avatar_key) = lower($1)
           OR lower(right(avatar_key, 2)) = lower($1)
+          OR lower(left(style, 1) || left(gender, 1)) = lower($1)
         )
         ${classFilter}
         AND is_active = TRUE`,
@@ -377,6 +431,9 @@ async function resolveStatsAvatar(pool, userId, className, logContext = {}) {
   const canonical = normalizeClass(className) || className;
   const fallback = defaultClassAvatar(canonical);
   try {
+    // Dev accounts own every avatar of their class (idempotent, class-only) so the
+    // equipped avatar resolves as owned here regardless of the env dev-unlock flag.
+    await ensureDevAvatarOwnership(pool, userId, canonical);
     const res = await pool.query(
       `SELECT ac.avatar_id, ac.asset_path, ac.avatar_key, ac.class_name, ac.gender, ac.style,
               (ua.avatar_id IS NOT NULL) AS owned
@@ -391,7 +448,7 @@ async function resolveStatsAvatar(pool, userId, className, logContext = {}) {
       [userId, canonical]
     );
     const equipped = res.rows[0] || null;
-    const canUseEquipped = equipped && (isAvatarDevAccount(userId) || equipped.owned);
+    const canUseEquipped = equipped && (isAvatarDevAccount(userId) || isDevAccountId(userId) || equipped.owned);
     const selected = canUseEquipped ? equipped : fallback;
     const avatarSource = canUseEquipped ? 'equipped-avatar' : 'class-fallback';
     const fallbackReason = equipped && !canUseEquipped ? 'equipped-avatar-not-owned' : null;
@@ -423,10 +480,13 @@ module.exports = {
   clearEquippedAvatar,
   defaultClassAvatar,
   displayName,
+  ensureDevAvatarOwnership,
   equipAvatarTx,
+  isDevAccountId,
   getAvatarByKey,
   getCharacter,
   isAvatarDevAccount,
+  isGrantOnlyAvatarRow,
   ownsAvatar,
   resolveAvatarImagePath,
   resolveDefaultClassAvatarPath,

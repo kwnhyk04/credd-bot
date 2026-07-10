@@ -276,6 +276,26 @@ async function handleConfirm(interaction, className, ownerId) {
       [discordId, GRANT_BELIEF_SHARDS, GRANT_SILVER_CHESTS]
     );
 
+    // [Patch 2 §2.1] Class default battle skin: grant + auto-equip in the same
+    // transaction. Keyed off the class_battle_<class> catalog row; a missing row
+    // (backfill SQL not run yet) simply grants nothing — creation never breaks.
+    await client.query(
+      `INSERT INTO user_cosmetics (discord_id, cosmetic_id, source, acquired_at)
+       SELECT $1, cosmetic_id, 'grant', NOW()
+         FROM cosmetic_catalog
+        WHERE cosmetic_key = $2 AND is_active = TRUE
+       ON CONFLICT (discord_id, cosmetic_id) DO NOTHING`,
+      [discordId, `class_battle_${className.toLowerCase()}`]
+    );
+    await client.query(
+      `INSERT INTO equipped_skins (discord_id, category, cosmetic_id, override_path, updated_at)
+       SELECT $1, 'battle', cosmetic_id, NULL, NOW()
+         FROM cosmetic_catalog
+        WHERE cosmetic_key = $2 AND is_active = TRUE
+       ON CONFLICT (discord_id, category) DO NOTHING`,
+      [discordId, `class_battle_${className.toLowerCase()}`]
+    );
+
     await client.query('COMMIT');
 
     const cls = CLASSES[className];
