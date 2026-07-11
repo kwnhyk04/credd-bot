@@ -145,6 +145,45 @@ def('deity', 'deity',
 def('glossary', 'glossary',
   new SlashCommandBuilder().setDescription('Browse the Credd glossary'), noArgs);
 
+def('coin', 'coin',
+  new SlashCommandBuilder().setDescription('Toss a coin with Credux')
+    .addSubcommand((s) => s.setName('toss').setDescription('Call heads or tails')
+      .addIntegerOption((o) => o.setName('amount').setDescription('Credux wager').setRequired(true).setMinValue(1))
+      .addStringOption((o) => o.setName('side').setDescription('Your call').setRequired(true)
+        .addChoices({ name: 'heads', value: 'heads' }, { name: 'tails', value: 'tails' }))),
+  (i) => ({ args: ['toss', String(i.options.getInteger('amount')), i.options.getString('side')], mentions: [] }));
+
+def('dice', 'dice',
+  new SlashCommandBuilder().setDescription('Roll for odd or even with Credux')
+    .addSubcommand((s) => s.setName('roll').setDescription('Call odd or even')
+      .addIntegerOption((o) => o.setName('amount').setDescription('Credux wager').setRequired(true).setMinValue(1))
+      .addStringOption((o) => o.setName('side').setDescription('Your call').setRequired(true)
+        .addChoices({ name: 'odd', value: 'odd' }, { name: 'even', value: 'even' }))),
+  (i) => ({ args: ['roll', String(i.options.getInteger('amount')), i.options.getString('side')], mentions: [] }));
+
+def('baccarat', 'baccarat',
+  new SlashCommandBuilder().setDescription('Play baccarat with Credux')
+    .addIntegerOption((o) => o.setName('amount').setDescription('Credux wager').setRequired(true).setMinValue(1))
+    .addStringOption((o) => o.setName('side').setDescription('Your bet').setRequired(true)
+      .addChoices({ name: 'banker', value: 'banker' }, { name: 'player', value: 'player' })),
+  (i) => ({ args: [String(i.options.getInteger('amount')), i.options.getString('side')], mentions: [] }));
+
+def('blackjack', 'blackjack',
+  new SlashCommandBuilder().setDescription('Play blackjack with Credux')
+    .addIntegerOption((o) => o.setName('amount').setDescription('Credux wager').setRequired(true).setMinValue(1)),
+  (i) => ({ args: [String(i.options.getInteger('amount'))], mentions: [] }));
+
+def('slot', 'slot',
+  new SlashCommandBuilder().setDescription('Play the slot machine with Credux')
+    .addSubcommand((s) => s.setName('machine').setDescription('Spin the reels')
+      .addIntegerOption((o) => o.setName('amount').setDescription('Credux wager').setRequired(true).setMinValue(1))),
+  (i) => ({ args: ['machine', String(i.options.getInteger('amount'))], mentions: [] }));
+
+def('crash', 'crash',
+  new SlashCommandBuilder().setDescription('Play Crash with Credux')
+    .addIntegerOption((o) => o.setName('amount').setDescription('Credux wager').setRequired(true).setMinValue(1)),
+  (i) => ({ args: [String(i.options.getInteger('amount'))], mentions: [] }));
+
 // ── Battle ────────────────────────────────────────────────────────────────────
 def('raid', 'raid', new SlashCommandBuilder().setDescription('Fight a random mob'), noArgs);
 
@@ -198,7 +237,7 @@ def('help', 'help',
     .addStringOption((o) => o.setName('category').setDescription('Filter to one category').setRequired(false)
       .addChoices(
         { name: 'account', value: 'account' }, { name: 'battle', value: 'battle' },
-        { name: 'gacha', value: 'gacha' },
+        { name: 'gacha', value: 'gacha' }, { name: 'casino', value: 'casino' },
         { name: 'inventory', value: 'inventory' }, { name: 'economy', value: 'economy' },
         { name: 'admin', value: 'admin' },
       )),

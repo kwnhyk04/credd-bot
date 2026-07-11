@@ -47,7 +47,7 @@ const setCmd = require('../commands/rpg/set');
 const helpCmd = require('../commands/help');
 const adminCmd = require('../commands/admin');
 const disabledCasinoCmd = require('../commands/casino/disabled');
-const casinoEnabled = envBool('CASINO_ENABLED', false);
+const casinoEnabled = envBool('CASINO_ENABLED', true);
 const casinoCmds = casinoEnabled ? {
   coin: require('../commands/casino/coin'),
   dice: require('../commands/casino/dice'),

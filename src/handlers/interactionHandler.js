@@ -20,7 +20,7 @@ const autoRaidCmd = require('../commands/rpg/autoRaid');
 const glossaryCmd = require('../commands/rpg/glossary');
 const { envBool } = require('../utils/runtimeLogs');
 
-const casinoEnabled = envBool('CASINO_ENABLED', false);
+const casinoEnabled = envBool('CASINO_ENABLED', true);
 const casinoButtons = casinoEnabled ? {
   blackjack: require('../commands/casino/blackjack'),
   crash: require('../commands/casino/crash'),

@@ -65,6 +65,18 @@ const CATEGORIES = [
     ],
   },
   {
+    key: 'casino', emoji: '🎰', title: 'Casino',
+    lines: [
+      { canonical: 'coin', cmd: 'crd coin toss [amount] heads/tails (ct)', desc: 'Coin toss wager' },
+      { canonical: 'dice', cmd: 'crd dice roll [amount] odd/even (dr)', desc: 'Dice wager' },
+      { canonical: 'baccarat', cmd: 'crd baccarat [amount] banker/player (bac)', desc: 'Baccarat wager' },
+      { canonical: 'blackjack', cmd: 'crd blackjack [amount] (bj)', desc: 'Blackjack wager' },
+      { canonical: 'slot', cmd: 'crd slot machine [amount] (sl)', desc: 'Slot machine wager' },
+      { canonical: 'crash', cmd: 'crd crash [amount]', desc: 'Push-your-luck wager' },
+    ],
+    note: 'Casino games are for fun only. Credux has no real cash value.',
+  },
+  {
     key: 'inventory', emoji: '🎒', title: 'Inventory & Gear',
     lines: [
       { canonical: 'bag', cmd: 'crd bag (b)', desc: 'Bag overview' },
@@ -136,7 +148,8 @@ function buildHelpEmbed(ctx, category) {
   const description = shown
     .map((cat) => {
       const lines = cat.lines.map((l) => `-# \`${l.cmd}\` — ${l.desc}`).join('\n');
-      return `**${cat.emoji} ${cat.title}**\n${lines}`;
+      const note = cat.note ? `\n-# ${cat.note}` : '';
+      return `**${cat.emoji} ${cat.title}**\n${lines}${note}`;
     })
     .join('\n\n');
 

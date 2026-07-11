@@ -41,10 +41,13 @@ const SLOT_LADDER = [
  */
 const CRASH_MULT_TABLE = { 1: 1.45, 2: 2.10, 3: 3.05, 4: 4.42, 5: 6.40, 6: 9.28 };
 const CRASH_STEP = 1.45;
+const CRASH_CHANCE_FIRST = 20;
+const CRASH_CHANCE_STEP = 2;
+const CRASH_CHANCE_MAX = 75;
 
 /** Crash chance (%) rolled when ATTEMPTING the given push number. */
 function crashChance(push) {
-  return Math.min(75, 15 + 5 * push);
+  return Math.min(CRASH_CHANCE_MAX, CRASH_CHANCE_FIRST + CRASH_CHANCE_STEP * Math.max(0, push - 1));
 }
 
 /** Cash-out multiplier locked in by SURVIVING the given push number. */
@@ -69,6 +72,9 @@ module.exports = {
   SLOT_LADDER,
   CRASH_MULT_TABLE,
   CRASH_STEP,
+  CRASH_CHANCE_FIRST,
+  CRASH_CHANCE_STEP,
+  CRASH_CHANCE_MAX,
   crashChance,
   crashMultiplier,
   maxBet,

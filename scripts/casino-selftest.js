@@ -176,13 +176,13 @@ const N = 300_000;
   const table = { 1: 1.45, 2: 2.10, 3: 3.05, 4: 4.42, 5: 6.40, 6: 9.28 };
   for (const p of Object.keys(table)) {
     ok(`crash: published mult push ${p}`, payouts.crashMultiplier(Number(p)) === table[p], `got ${payouts.crashMultiplier(Number(p))}`);
-    ok(`crash: published chance push ${p}`, payouts.crashChance(Number(p)) === 15 + 5 * Number(p));
+    ok(`crash: chance push ${p}`, payouts.crashChance(Number(p)) === 20 + 2 * (Number(p) - 1));
   }
   ok('crash: extend mult push 7 = 13.46', payouts.crashMultiplier(7) === 13.46, `got ${payouts.crashMultiplier(7)}`);
   ok('crash: extend mult push 8 = 19.51', payouts.crashMultiplier(8) === 19.51, `got ${payouts.crashMultiplier(8)}`);
-  ok('crash: chance push 7 = 50', payouts.crashChance(7) === 50);
-  ok('crash: chance push 8 = 55', payouts.crashChance(8) === 55);
-  ok('crash: chance caps at 75', payouts.crashChance(12) === 75 && payouts.crashChance(20) === 75);
+  ok('crash: chance push 7 = 32', payouts.crashChance(7) === 32);
+  ok('crash: chance push 8 = 34', payouts.crashChance(8) === 34);
+  ok('crash: chance caps at 75', payouts.crashChance(28) === 74 && payouts.crashChance(29) === 75);
 })();
 
 /* ─────────────────── 4. SLOT lose-branch never three-of-a-kind ─────────────────── */
