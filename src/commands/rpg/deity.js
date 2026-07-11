@@ -711,7 +711,8 @@ async function buildDeityForgePayload(deity, ownerId, resultLine = null) {
     container.addSeparatorComponents(sep).addTextDisplayComponents((td) => td.setContent('Maximum enhancement reached (+10).'));
   }
   if (resultLine) container.addSeparatorComponents(sep).addTextDisplayComponents((td) => td.setContent(resultLine));
-  container.addSeparatorComponents(sep).addTextDisplayComponents((td) => td.setContent(`-# ${deity.tier} Essence: ${deity.essence.toLocaleString()}`));
+  const essenceEmoji = emoji(`${String(deity.tier).toLowerCase()}_essence`);
+  container.addSeparatorComponents(sep).addTextDisplayComponents((td) => td.setContent(`-# ${essenceEmoji} ${deity.tier} Essence: ${deity.essence.toLocaleString()}`));
 
   const enabled = Boolean(next && deity.essence >= next.cost);
   return {

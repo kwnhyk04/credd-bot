@@ -21,12 +21,12 @@ const DEITY_BOOST_TABLE = {
 // ── Essence cost (§9) — [deity's own tier][target display level (1..10)] ────
 // Spent as the deity's own tier essence. Deterministic: 100% success whenever
 // the essence requirement is met (no success-rate table exists for deities).
-// Column totals: Epic 102 · Mythic 70 · Legendary 44 · Supreme 30.
+// Column totals: Epic 330 · Mythic 285 · Legendary 190 · Supreme 100.
 const DEITY_ESSENCE_COST = {
-  Epic:      { 1: 2, 2: 3, 3: 4, 4: 5, 5: 7, 6: 9, 7: 12, 8: 15, 9: 20, 10: 25 },
-  Mythic:    { 1: 2, 2: 3, 3: 3, 4: 4, 5: 5, 6: 6, 7: 8,  8: 10, 9: 13, 10: 16 },
-  Legendary: { 1: 2, 2: 2, 3: 3, 4: 3, 5: 4, 6: 4, 7: 5,  8: 6,  9: 7,  10: 8 },
-  Supreme:   { 1: 2, 2: 2, 3: 2, 4: 2, 5: 3, 6: 3, 7: 3,  8: 4,  9: 4,  10: 5 },
+  Epic:      { 1: 15, 2: 19, 3: 23, 4: 27, 5: 31, 6: 35, 7: 39, 8: 43, 9: 47, 10: 51 },
+  Mythic:    { 1: 15, 2: 18, 3: 21, 4: 24, 5: 27, 6: 30, 7: 33, 8: 36, 9: 39, 10: 42 },
+  Legendary: { 1: 10, 2: 12, 3: 14, 4: 16, 5: 18, 6: 20, 7: 22, 8: 24, 9: 26, 10: 28 },
+  Supreme:   { 1: 4, 2: 5, 3: 6, 4: 7, 5: 8, 6: 10, 7: 12, 8: 14, 9: 16, 10: 18 },
 };
 
 /**

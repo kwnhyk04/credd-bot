@@ -10,6 +10,8 @@ const { RAID_LOOT, rollRaidChest } = require('../src/config/raidLoot');
 const { containRect, badgeRect } = require('../src/engine/identityLayout');
 const { displayEnhancement, formatEnhancedName } = require('../src/utils/enhancementFormat');
 const { computeDeityProgressionStats } = require('../src/engine/deityEnhancement');
+const { DEITY_ESSENCE_COST, nextDeityAttempt } = require('../src/engine/deityEnhancement');
+const { nextSigilCost } = require('../src/config/ascension');
 const { syncSubscriptionEntitlementsTx } = require('../src/engine/supporterEntitlements');
 const { buildDeityInfoPayload, attemptDeityEnhance } = require('../src/commands/rpg/deity');
 const { buildInfoPayload } = require('../src/commands/rpg/equipment');
@@ -56,6 +58,13 @@ async function main() {
     { sigils: 10, ascended: true, enhancement: 3 }
   );
   assert.deepEqual(enhancedDeity, { curr_atk: 120, curr_hp: 240, curr_def: 60 });
+
+  assert.deepEqual(DEITY_ESSENCE_COST.Epic, { 1: 15, 2: 19, 3: 23, 4: 27, 5: 31, 6: 35, 7: 39, 8: 43, 9: 47, 10: 51 });
+  assert.deepEqual(DEITY_ESSENCE_COST.Mythic, { 1: 15, 2: 18, 3: 21, 4: 24, 5: 27, 6: 30, 7: 33, 8: 36, 9: 39, 10: 42 });
+  assert.deepEqual(DEITY_ESSENCE_COST.Legendary, { 1: 10, 2: 12, 3: 14, 4: 16, 5: 18, 6: 20, 7: 22, 8: 24, 9: 26, 10: 28 });
+  assert.deepEqual(DEITY_ESSENCE_COST.Supreme, { 1: 4, 2: 5, 3: 6, 4: 7, 5: 8, 6: 10, 7: 12, 8: 14, 9: 16, 10: 18 });
+  assert.deepEqual(nextDeityAttempt('Supreme', 10), { targetLevel: 10, cost: 18 });
+  assert.deepEqual(nextSigilCost('Epic', 0), { sigil: 1, essence: 5 });
 
   for (const [w, h] of [[100, 100], [100, 150], [140, 100]]) {
     const rect = containRect({ width: w, height: h }, { x: 20, y: 30, w: 200, h: 240 });
@@ -167,10 +176,11 @@ async function main() {
     },
   };
   const enhanced = await attemptDeityEnhance(enhanceClient, '123', 1);
-  assert.deepEqual(enhanced, { status: 'done', name: 'Odin', previousLevel: 0, level: 1, cost: 2 });
+  assert.deepEqual(enhanced, { status: 'done', name: 'Odin', previousLevel: 0, level: 1, cost: 4 });
 
   const deitySource = fs.readFileSync(path.join(__dirname, '..', 'src', 'commands', 'rpg', 'deity.js'), 'utf8');
   assert(/dr\.name, dr\.mythology, dr\.tier, dr\.base_atk/.test(deitySource));
+  assert(deitySource.includes('const essenceEmoji = emoji(`${String(deity.tier).toLowerCase()}_essence`);'));
 
   const avatarSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'engine', 'avatarSystem.js'), 'utf8');
   assert(/purchasableOnly \? 'AND token_cost > 0' : ''/.test(avatarSource));
