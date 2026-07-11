@@ -6,7 +6,7 @@ const queue = [];
 let active = 0;
 
 function limit() {
-  return envPositiveInt('IMAGE_RENDER_CONCURRENCY', 2, { max: 32 });
+  return envPositiveInt('IMAGE_RENDER_CONCURRENCY', 1, { max: 32 });
 }
 
 function release() {

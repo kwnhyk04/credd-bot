@@ -18,7 +18,7 @@ const CACHE_MAX_BYTES = Math.max(
   1024 * 1024,
   envNumber(
     'ASSET_MEMORY_CACHE_MAX_MB',
-    envNumber('ASSET_CACHE_MAX_MB', 128, { min: 1, max: 2048 }),
+    envNumber('ASSET_CACHE_MAX_MB', 48, { min: 1, max: 2048 }),
     { min: 1, max: 2048 }
   ) * 1024 * 1024
 );

@@ -26,7 +26,7 @@ const {
 } = require('../../engine/statAssembly');
 const { runBattle } = require('../../engine/battleRender');
 const { resolveSkin } = require('../../engine/skinResolver');
-const { RAID_LOOT } = require('../../config/raidLoot');
+const { RAID_LOOT, rollRaidChest } = require('../../config/raidLoot');
 const { awardCombatExp } = require('../../utils/awardCombatExp');
 const { progressQuests } = require('../../utils/questProgress');
 
@@ -121,7 +121,8 @@ async function commitRewards(discordId, sim, mobRow, rng) {
     credux = randInt(rng, loot.win.credux);
     exp = randInt(rng, loot.win.exp);
     shards = rng() < loot.win.shardChance ? randInt(rng, loot.win.shards) : 0;
-    chestCol = rng() < loot.win.chestChance ? CHEST_COLUMNS[loot.win.chest] : null;
+    const chest = rollRaidChest(loot.win, rng);
+    chestCol = chest ? CHEST_COLUMNS[chest] : null;
   } else {
     exp = loot.loss.exp;
   }

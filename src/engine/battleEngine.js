@@ -27,7 +27,7 @@
  *     4. actions in actor order:
  *        PLAYER attack: main-hit variance (1 draw) → [Swordsman] bleed draw (1, only
  *        when the main hit lands — RESERVED for stream stability; the bleed value is now
- *        a deterministic 8%/stack) → [labrys 2nd hit] crit (1) + variance (1) →
+ *        a deterministic 3%/stack) → [labrys 2nd hit] crit (1) + variance (1) →
  *        [extra_turn] crit (1) + variance (1) + [Swordsman] bleed (1)
  *        MOB attack: per sub-hit → crit (1 draw) + variance (1 draw)
  *
@@ -77,7 +77,7 @@
  * DEFENDER STACK (R3, fixed order):
  *   player defender: negations (amihan → loki+counter → gridr → skjaldmaer; a fully
  *   evaded hit consumes nothing) → multiplicative reductions (heimdall 50% one-shot →
- *   athena 40% ×2 → odin 50% → steel kite 15% → pelte 25% → njord 30%) →
+ *   athena 40% ×2 → odin 25% on even turns → steel kite 15% → pelte 25% → njord 30%) →
  *   ×(1 + Σ bonusIncomingDmgMult) → Knight ×0.80 → sidapa lethal reprieve →
  *   apply → reflects on FINAL applied damage (enderby 30% + tyr 15%; skipped when
  *   the hit was lethal — R5).
@@ -102,8 +102,9 @@ const KNIGHT_DR = 0.80;
 const INCOMING_DR_FLOOR = 0.25;   // [v5] combined damage-reduction floor: post-DEF incoming never < 25%
 const TOTAL_EVADE_CAP = 0.40;     // [v5] total evade across all sources (enforced in the registry)
 const OVERCHARGE_EVERY = 3;       // [v4.2] fires on rounds 3, 6, 9, …
-const BLEED_PCT_PER_STACK = 0.08; // [Jun-2026] Swordsman: 8% of ATK per stack, per turn
-const BLEED_MAX_STACKS = 5;       // capped at 5 stacks = 40% of ATK
+const BLEED_PCT_PER_STACK = 0.03;
+const BLEED_MAX_STACKS = 10;
+const KNIGHT_OUTGOING_BONUS = 0.30;
 
 const SKIP_TAGS = ['stun', 'paralyze', 'freeze', 'petrify', 'charm', 'confuse', 'miss'];
 const DOT_TAGS = ['bleed', 'burn', 'hp_pct_dot'];
@@ -305,12 +306,12 @@ function resolveBattle(a, b, opts = {}) {
       const immune = side.flags.immune_cc_types;
       if (Array.isArray(immune) && immune.includes(tag)) {
         shared.events.push(`🧿 ${side.name} is immune to ${ACTION_TAG_LABELS[tag] || tag} (Charmed Hide)!`);
-        return;
+        return false;
       }
       const negate = side.flags.salakot_negate_chance || 0;
       if (negate > 0 && rng() < negate) {
         shared.events.push(`🪬 ${side.name} negates an incoming ${ACTION_TAG_LABELS[tag] || tag} (Spirit Ward)!`);
-        return;
+        return false;
       }
     }
     const ex = findDebuff(side, tag);
@@ -322,6 +323,7 @@ function resolveBattle(a, b, opts = {}) {
       // turn. It arms at round start, so it never cancels an action already due.
       side.debuffs.push({ tag, turnsLeft: turns, value, armed: false });
     }
+    return true;
   };
   const sideImmune = (side, tag) => {
     if (side.kind !== 'mob') return false;
@@ -397,7 +399,8 @@ function resolveBattle(a, b, opts = {}) {
   // ── effective stats ────────────────────────────────────────────────────────
   const effAtk = (S) => {
     const mult = S.kind === 'player' ? S.scratch.playerAtkMult : 0;
-    return Math.max(0, S.atk * (1 + mult - debuffValue(S, 'atk_down')));
+    const classBonus = S.classPassive === 'damage_reduction' ? KNIGHT_OUTGOING_BONUS : 0;
+    return Math.max(0, S.atk * (1 + mult + classBonus - debuffValue(S, 'atk_down')));
   };
   const effCritChance = (S) =>
     Math.max(0, S.crit * (1 - debuffValue(S, 'crit_down')));
@@ -406,10 +409,15 @@ function resolveBattle(a, b, opts = {}) {
   const effDef = (S, O, { mainHit = false } = {}) => {
     let def = O.def;
     if (O.kind === 'player') {
-      def *= Math.max(0, 1 + O.scratch.playerDefMult - debuffValue(O, 'def_down'));
+      const shred = Math.max(debuffValue(O, 'def_down'), (S.flags.zeus_def_shred_stacks || 0) * 0.05);
+      def *= Math.max(0, 1 + O.scratch.playerDefMult - shred);
     } else {
       def *= (S.flags.enemy_def_mult || 1.0);
-      const shred = Math.max(debuffValue(O, 'def_down'), S.flags.laevateinn_sword_def_stack || 0);
+      const shred = Math.max(
+        debuffValue(O, 'def_down'),
+        S.flags.laevateinn_sword_def_stack || 0,
+        (S.flags.zeus_def_shred_stacks || 0) * 0.05
+      );
       def *= Math.max(0, 1 - shred);
     }
     if (S.kind === 'player') {
@@ -496,19 +504,36 @@ function resolveBattle(a, b, opts = {}) {
       if (F.athena_hits_absorbed >= 2) F.athena_shield_active = false;
       shared.events.push(`🛡️ Athena's Aegis absorbs 40% (${F.athena_hits_absorbed}/2)!`);
     }
-    if (F.odin_wisdom_block) dmg *= 0.5;
-    if (F.steel_kite_shield_block) dmg *= 0.85;
-    if (F.pelte_block_check) dmg *= 1 - (F.pelte_block_pct || 0);
-    if (F.njord_block_check) dmg *= 1 - (F.njord_block_pct || 0);
-    if (F.echo_njord_block_check) dmg *= 1 - (F.echo_njord_block_pct || 0);
+    let odinDamageBefore = null;
+    let afterOdinMultiplier = 1;
+    if (F.odin_foresight_block) {
+      odinDamageBefore = dmg;
+      dmg *= 0.75;
+    }
+    const applyLaterReduction = (multiplier) => {
+      dmg *= multiplier;
+      if (odinDamageBefore != null) afterOdinMultiplier *= multiplier;
+    };
+    if (F.steel_kite_shield_block) applyLaterReduction(0.85);
+    if (F.pelte_block_check) applyLaterReduction(1 - (F.pelte_block_pct || 0));
+    if (F.njord_block_check) applyLaterReduction(1 - (F.njord_block_pct || 0));
+    if (F.echo_njord_block_check) applyLaterReduction(1 - (F.echo_njord_block_pct || 0));
 
-    dmg *= 1 + O.scratch.bonusIncomingDmgMult;       // additive lane (damocles/vatican/kalasag/hoplite/mail)
-    if (O.classPassive === 'damage_reduction') dmg *= KNIGHT_DR;
+    applyLaterReduction(1 + O.scratch.bonusIncomingDmgMult);
+    if (O.classPassive === 'damage_reduction') applyLaterReduction(KNIGHT_DR);
     // [v5] combined damage-reduction floor — no stack of reductions can cut a hit
     // below 25% of its post-DEF value (Blueprint 1.5 / Gear Overhaul §E).
     const drFloor = postDefDmg * INCOMING_DR_FLOOR;
     if (postDefDmg > 0 && dmg < drFloor) dmg = drFloor;
     dmg = Math.max(0, Math.floor(dmg));
+    if (odinDamageBefore != null) {
+      const withoutOdin = Math.max(0, Math.floor(Math.max(
+        odinDamageBefore * afterOdinMultiplier,
+        postDefDmg > 0 ? drFloor : 0
+      )));
+      const prevented = Math.max(0, withoutOdin - dmg);
+      F.odin_prevented_damage = (F.odin_prevented_damage || 0) + prevented;
+    }
 
     // sidapa lethal reprieve (once per battle)
     if (dmg >= O.hp && F.sidapa_reprieve_available && !F.sidapa_reprieve_used) {
@@ -587,6 +612,12 @@ function resolveBattle(a, b, opts = {}) {
         const damagePct = S.bonusDmgPct + S.scratch.damageBonusPct;
         dmg *= hitMultiplier(critLevel, damagePct);
       }
+      if (mainHit && S.flags.odin_foresight_bonus > 0) {
+        const bonus = Math.floor(S.flags.odin_foresight_bonus);
+        dmg += bonus;
+        S.flags.odin_foresight_bonus = 0;
+        shared.events.push(`🪄 Odin: All-Father's Foresight — released ${bonus} stored damage!`);
+      }
       dmg = Math.max(0, Math.floor(dmg));
 
       const tag = overchargeFired ? ' *(Overcharge!)*'
@@ -604,14 +635,21 @@ function resolveBattle(a, b, opts = {}) {
         if (S.flags.crossbow_pierce) S.flags.crossbow_pierce = false;
         if (S.classPassive === 'stun' && S.stunPreRoll > 0 && !sideImmune(O, 'stun')) {
           if (O.kind !== 'player' || !O.statusImmune) {
-            addDebuff(O, 'stun', S.stunPreRoll);
-            shared.events.push(`👊 ${S.name}'s blow stuns ${O.name} for ${S.stunPreRoll} turn${S.stunPreRoll > 1 ? 's' : ''}!`);
+            const stunned = addDebuff(O, 'stun', S.stunPreRoll);
+            if (stunned) {
+              shared.events.push(`👊 ${S.name}'s blow stuns ${O.name} for ${S.stunPreRoll} turn${S.stunPreRoll > 1 ? 's' : ''}!`);
+              const bash = Math.max(0, Math.floor(dmg * 0.50));
+              const bashResult = applyHitToDefender(S, O, bash, { crit: false });
+              shared.events.push(`💥 ${S.name} follows with Bash for **${bashResult.applied} DMG**!`);
+              O.flags.dizzy_pending = true;
+              shared.events.push(`💫 ${O.name} is Dizzy; its next attack has a 50% miss chance.`);
+              if (result) return;
+            }
           }
         }
       }
-      // Swordsman bleed [Jun-2026]: every landed attack ADDS a stack and refreshes the
-      // bleed to 2 turns. Each stack = 8% of the swordsman's ATK per turn, capped at 5
-      // stacks (40%). At the cap, further hits keep it at 40% and just reset the duration.
+      // Every landed Swordsman attack adds one 3% Bleed stack and refreshes it to 2 turns.
+      // Ten stacks cap the additive value at 30%; later hits only refresh the duration.
       // Requires the swordsman to actually act — a skip-CC'd turn never reaches here.
       // The per-attack rng draw is KEPT (consumed, unused) for draw-order stream stability
       // now that the value is deterministic.
@@ -731,6 +769,14 @@ function resolveBattle(a, b, opts = {}) {
       S.debuffs = S.debuffs.filter((d) => d.turnsLeft > 0);
       shared.events.push(`⏸️ ${S.name} is unable to act (${skipTags.map((d) => d.tag).join(', ')})!`);
       return;
+    }
+    if (S.flags.dizzy_pending) {
+      S.flags.dizzy_pending = false;
+      if (rng() < 0.50) {
+        shared.events.push(`💫 ${S.name} misses its attack due to Dizzy!`);
+        return;
+      }
+      shared.events.push(`💫 ${S.name} overcomes Dizzy and attacks.`);
     }
     if (S.kind === 'player') playerAttack(S, O);
     else mobAttack(S, O);

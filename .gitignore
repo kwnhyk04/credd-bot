@@ -43,6 +43,7 @@ AGENT.md
 !scripts/canvas-cache-schema.sql
 !scripts/avatar-system-schema.sql
 !scripts/avatar-dev-owner-grants.sql
+!scripts/deity-passive-description-update.sql
 
 # OS / editor
 .DS_Store

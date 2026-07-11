@@ -7,7 +7,9 @@
     "start": "node index.js",
     "dev": "node --watch index.js",
     "selftest": "node scripts/battle-selftest.js",
-    "selftest:full": "npm run selftest && node scripts/help-selftest.js && node scripts/casino-selftest.js",
+    "selftest:patch": "node scripts/requested-patch-selftest.js",
+    "selftest:memory": "node scripts/memory-selftest.js",
+    "selftest:full": "npm run selftest && npm run selftest:patch && node scripts/help-selftest.js && node scripts/casino-selftest.js",
     "preflight": "node scripts/production-preflight.js",
     "preflight:prod": "node scripts/production-preflight.js --prod"
   },

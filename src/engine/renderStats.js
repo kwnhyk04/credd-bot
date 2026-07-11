@@ -30,6 +30,7 @@ const { assetPath, loadAssetImage: loadAssetImageSource } = require('../utils/as
 const { loadAvatarAsset } = require('./avatarImageLoader');
 const { performanceLog } = require('../utils/runtimeLogs');
 const { SUPPORTER_BADGE_HEIGHT } = require('../config/cosmetics');
+const { containRect, badgeRect } = require('./identityLayout');
 
 /* ── Background template ([v4.6]) ───────────────────────────────────────────
  * The profile card is drawn on top of a template image. TEMPLATE_FILE is a single
@@ -207,7 +208,7 @@ async function renderStatsImage(d) {
   ]);
 
   // ── Measure the layout (600-wide design space) ──
-  const headerH = 118;
+  const headerH = 224;
   const bodyH = 264;            // class, combat-exp, weapon, armor, deity hdr+val+blessing, stats [v5 +armor]
   const recordsH = 110;         // "Combat Record" heading + boxed cells
   const footerH = 30;
@@ -262,10 +263,14 @@ async function renderStatsImage(d) {
   // [§2.5] Supporter badge below the Title (below the name when no title),
   // scaled to SUPPORTER_BADGE_HEIGHT; layer skipped when no badge resolved.
   if (supporterBadge) {
-    const bh = SUPPORTER_BADGE_HEIGHT;
-    const bw = Math.round(supporterBadge.width * (bh / supporterBadge.height));
-    const by = d.equippedTitle ? y + 80 : y + 56;
-    ctx.drawImage(supporterBadge, Math.round(W / 2 - bw / 2), by, bw, bh);
+    const rect = badgeRect(supporterBadge, {
+      x: W / 2,
+      titleY: y + 74,
+      hasTitle: Boolean(d.equippedTitle),
+      fallbackY: y + 68,
+      height: SUPPORTER_BADGE_HEIGHT,
+    });
+    ctx.drawImage(supporterBadge, rect.x, rect.y, rect.w, rect.h);
   }
   ctx.textAlign = 'left';
 
@@ -285,19 +290,20 @@ async function renderStatsImage(d) {
 
   const ax = W - PAD - AVATAR_W;
   const ay = y + 2;
+  const avatarRect = containRect(avatar, { x: ax, y: ay, w: AVATAR_W, h: AVATAR_H });
   ctx.save();
-  roundRectPath(ctx, ax, ay, AVATAR_W, AVATAR_H, 14);
+  roundRectPath(ctx, avatarRect.x, avatarRect.y, avatarRect.w, avatarRect.h, 14);
   ctx.clip();
   if (avatar) {
-    drawCover(ctx, avatar, ax, ay, AVATAR_W, AVATAR_H);
+    ctx.drawImage(avatar, avatarRect.x, avatarRect.y, avatarRect.w, avatarRect.h);
   } else {
     ctx.fillStyle = BOX;
-    ctx.fillRect(ax, ay, AVATAR_W, AVATAR_H);
+    ctx.fillRect(avatarRect.x, avatarRect.y, avatarRect.w, avatarRect.h);
   }
   ctx.restore();
   ctx.strokeStyle = ACCENT;
   ctx.lineWidth = 2;
-  roundRectPath(ctx, ax, ay, AVATAR_W, AVATAR_H, 14);
+  roundRectPath(ctx, avatarRect.x, avatarRect.y, avatarRect.w, avatarRect.h, 14);
   ctx.stroke();
   const bodyRight = ax - 16;
   const bodyW = bodyRight - PAD;

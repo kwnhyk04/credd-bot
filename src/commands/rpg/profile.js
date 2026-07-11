@@ -1,7 +1,7 @@
 'use strict';
 
 const { MediaGalleryBuilder, MessageFlags } = require('discord.js');
-const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../../utils/imageOutput');
+const { renderOptimizedAttachment, attachmentFromOptimizedImage } = require('../../utils/imageOutput');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 const pool = require('../../db/pool');
 const { assemblePlayerStats, accumulateRuneStats } = require('../../engine/statAssembly');
@@ -27,8 +27,8 @@ const {
 
 // Bump when renderProfile output changes visually (busts every cached profile card).
 // 4: §2.5 — supporter badge below the Title.
-// 5: badge enlarged (SUPPORTER_BADGE_HEIGHT 30 → 52).
-const PROFILE_RENDER_REV = 5;
+// 5: shared supporter badge dimensions and identity-stack spacing.
+const PROFILE_RENDER_REV = 6;
 const PROFILE_IMAGE_OPTIONS = Object.freeze({
   maxWidth: Math.floor(envNumber('PROFILE_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 })),
 });
@@ -275,7 +275,7 @@ async function execute(message) {
 
   const image = cached?.image
     ? attachmentFromOptimizedImage(cached.image, 'profile', { ...logContext, reusedBuffer: true })
-    : await makeOptimizedAttachment(await renderProfileImage(data), 'profile', { ...PROFILE_IMAGE_OPTIONS, logContext });
+    : await renderOptimizedAttachment(() => renderProfileImage(data), 'profile', { ...PROFILE_IMAGE_OPTIONS, logContext });
 
   // Image only — no embed/container wrapper (RenderTweaks Tweak 2).
   await message.reply({

@@ -12,6 +12,7 @@ const { getEmojiIcon } = require('./renderBagItems');
 const { resolveName } = require('../utils/emojis');
 const { formatIntegerEnUS: fmt } = require('../utils/textFormat');
 const { SUPPORTER_BADGE_HEIGHT } = require('../config/cosmetics');
+const { badgeRect } = require('./identityLayout');
 const {
   assetSource,
   assetExistsSync,
@@ -99,7 +100,9 @@ async function loadOptionalImage(source) {
 
 async function loadRenderImages(d, skinPath, options) {
   const localIcons = options.iconPaths || {};
-  const avatarPromise = loadRemoteImage(d.avatarUrl, d.fallbackAvatarUrl);
+  const avatarPromise = options.avatarPath
+    ? loadOptionalImage(options.avatarPath)
+    : loadRemoteImage(d.avatarUrl, d.fallbackAvatarUrl);
   const weaponPromise = localIcons.weapon
     ? loadOptionalImage(localIcons.weapon)
     : (d.weaponName ? getEmojiIcon(resolveName(d.weaponName) || '') : Promise.resolve(null));
@@ -113,7 +116,7 @@ async function loadRenderImages(d, skinPath, options) {
   const [skin, avatar, weapon, deity, combatExp, supporterBadge] = await Promise.all([
     loadOptionalImage(skinPath), avatarPromise, weaponPromise, deityPromise, combatExpPromise,
     // [§2.5] supporter badge — path only set when tier active AND art exists.
-    loadOptionalImage(d.supporterBadgePath),
+    loadOptionalImage(options.supporterBadgePath || d.supporterBadgePath),
   ]);
   return { skin, avatar, weapon, deity, combatExp, supporterBadge };
 }
@@ -332,26 +335,27 @@ function relabelRankCols(record) {
 async function drawCenteredTitle(ctx, layout, view, images) {
   const title = view.title;
   if (!title || !layout.name) return null;
-  if (layout.title) {
-    await drawText(ctx, 'title', title, layout, view, images);
-    return { x: layout.title.x ?? layout.canvas?.w / 2, y: layout.title.y ?? 0 };
-  }
   const ns = layout.name;
   const nameText = ns.uppercase ? String(view.name).toUpperCase() : String(view.name);
   const nameSize = fitSize(ctx, nameText, ns);
   ctx.font = fontOf({ ...ns, size: nameSize });
   const w = ctx.measureText(nameText).width;
   const nameStart = ns.anchor === 'center' ? ns.x - w / 2 : (ns.anchor === 'right' ? ns.x - w : ns.x);
-  const centerX = nameStart + w / 2;
-  // Position the title LOWER — below the believer EXP bar (in the now-empty profile body),
-  // centered on the name. Falls back to a fixed offset under the name if there's no exp bar.
-  const titleY = (layout.exp_bar && Number.isFinite(layout.exp_bar.y))
-    ? layout.exp_bar.y + (ns.title_dy || 48)
-    : ns.y + (ns.title_dy || 120);
+  const centerX = layout.combat_exp?.x ?? nameStart + w / 2;
+  const titleY = Number.isFinite(layout.combat_exp?.y)
+    ? layout.combat_exp.y + 40
+    : (layout.exp_bar?.y ?? ns.y) + 40;
+  const configured = layout.title || {};
   const style = {
-    font: ns.font, weight: 'normal', size: Math.max(13, Math.round((ns.size || 40) * 0.40)),
-    color: (layout.tier_line && layout.tier_line.color) || '#67E7FF',
-    x: centerX, y: titleY, anchor: 'center', max_width: ns.max_width || 600,
+    ...configured,
+    font: configured.font || ns.font,
+    weight: configured.weight || 'normal',
+    size: configured.size || Math.max(13, Math.round((ns.size || 40) * 0.40)),
+    color: configured.color || layout.tier_line?.color || '#67E7FF',
+    x: centerX,
+    y: titleY,
+    anchor: 'center',
+    max_width: configured.max_width || layout.combat_exp?.max_width || ns.max_width || 600,
   };
   await drawText(ctx, '__title', title, { __title: style, name: layout.name }, view, images);
   return { x: centerX, y: titleY };
@@ -381,12 +385,18 @@ async function renderProfileLayoutImage(d, options = {}) {
     await drawText(ctx, key, view[key], layout, view, images);
   }
   const titlePos = await drawCenteredTitle(ctx, layout, view, images);
-  // [§2.5] Supporter badge below the Title, centered on the title's x; scaled
-  // to SUPPORTER_BADGE_HEIGHT. Skipped when no badge resolved or no title pos.
-  if (images.supporterBadge && titlePos) {
-    const bh = SUPPORTER_BADGE_HEIGHT;
-    const bw = Math.round(images.supporterBadge.width * (bh / images.supporterBadge.height));
-    ctx.drawImage(images.supporterBadge, Math.round(titlePos.x - bw / 2), Math.round(titlePos.y + 8), bw, bh);
+  // Supporter badge below the title, or below combat EXP when no title is equipped.
+  if (images.supporterBadge) {
+    const anchorX = titlePos?.x ?? layout.combat_exp?.x ?? layout.name?.x ?? layout.canvas.w / 2;
+    const fallbackY = (layout.combat_exp?.y ?? layout.exp_bar?.y ?? layout.name?.y ?? 0) + 40;
+    const rect = badgeRect(images.supporterBadge, {
+      x: anchorX,
+      titleY: titlePos?.y ?? 0,
+      hasTitle: Boolean(titlePos),
+      fallbackY,
+      height: SUPPORTER_BADGE_HEIGHT,
+    });
+    ctx.drawImage(images.supporterBadge, rect.x, rect.y, rect.w, rect.h);
   }
   drawRecord(ctx, relabelRankCols(layout.record), view.record);
   return canvas.toBuffer('image/png');

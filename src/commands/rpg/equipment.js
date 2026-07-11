@@ -21,6 +21,7 @@ const { SELL_PRICES } = require('../../config/sellPrices');
 const { assetPath, isRemoteAssetsEnabled, remoteAssetAvailable, relativeAssetPath } = require('../../utils/assets');
 const { bandwidthLog } = require('../../utils/runtimeLogs');
 const { smallDivider: sep } = require('../../utils/componentsV2');
+const { formatEnhancedName } = require('../../utils/enhancementFormat');
 
 const SOCKET_LANES = {
   weapon: { native: 'offense', opposite: 'defense' },
@@ -202,12 +203,10 @@ function formatRuneSlots(sockets) {
 async function buildInfoPayload(g, gearId, ownerId, ownerDisplayName = null) {
   const hasPassive = g.passive_name && g.passive_name.toLowerCase() !== 'none';
   const sockets = await socketSlots(g);
-  const headerName = ownerDisplayName ? `${ownerDisplayName}'s` : '';
   const sellValue = SELL_PRICES[g.tier] || 0;
   const loreBlock = typeof g.lore === 'string' && g.lore.trim().length > 0
     ? `*${g.lore.trim()}*`
     : 'No lore recorded yet.';
-  const enhancement = Math.max(0, (Number(g.enhancement) || 1) - 1);
   const passiveName = hasPassive ? g.passive_name : 'None';
   const passiveDescription = hasPassive ? (g.passive_description || 'No passive.') : 'No passive.';
   const thumbnailUrl = await thumbnailUrlFor(g.name, {
@@ -217,15 +216,12 @@ async function buildInfoPayload(g, gearId, ownerId, ownerDisplayName = null) {
     userId: ownerId,
   });
 
-  // Header block (item name + owner mention, Tier, Enhancement). The item art
+  // Header block (item name + enhancement and Tier). The item art
   // sits top-right as a real Components V2 thumbnail accessory when a public
   // image resolves; otherwise the header degrades to plain text (no thumbnail),
   // preserving the previous "remote-only thumbnail" behavior.
   const kindIcon = g.kind === 'weapon' ? '⚔️' : '🛡️';
-  const titleLine = `## ${kindIcon} ${g.name}`;
-  const ownerLine = ownerId
-    ? `-# ${headerName ? `${headerName} — ` : ''}<@${ownerId}>`
-    : (headerName ? `-# ${headerName}` : null);
+  const titleLine = `## ${kindIcon} ${formatEnhancedName(g.name, g.enhancement)}`;
 
   const container = new ContainerBuilder()
     .setAccentColor(TIER_COLOR[g.tier] ?? TIER_COLOR.Common);
@@ -233,21 +229,15 @@ async function buildInfoPayload(g, gearId, ownerId, ownerDisplayName = null) {
   if (thumbnailUrl) {
     container.addSectionComponents((section) => {
       section
-        .addTextDisplayComponents((td) => td.setContent(
-          ownerLine ? `${titleLine}\n${ownerLine}` : titleLine
-        ))
+        .addTextDisplayComponents((td) => td.setContent(titleLine))
         .addTextDisplayComponents((td) => td.setContent(`**Tier**\n${g.tier}`))
-        .addTextDisplayComponents((td) => td.setContent(`**Enhancement**\n+${enhancement}`))
         .setThumbnailAccessory(new ThumbnailBuilder().setURL(thumbnailUrl));
       return section;
     });
   } else {
     container
-      .addTextDisplayComponents((td) => td.setContent(
-        ownerLine ? `${titleLine}\n${ownerLine}` : titleLine
-      ))
-      .addTextDisplayComponents((td) => td.setContent(`**Tier**\n${g.tier}`))
-      .addTextDisplayComponents((td) => td.setContent(`**Enhancement**\n+${enhancement}`));
+      .addTextDisplayComponents((td) => td.setContent(titleLine))
+      .addTextDisplayComponents((td) => td.setContent(`**Tier**\n${g.tier}`));
   }
 
   container

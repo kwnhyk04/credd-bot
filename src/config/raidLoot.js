@@ -23,7 +23,7 @@ const RAID_LOOT = {
       shards: [3, 5],          // was 1–3 @ ~50% — now guaranteed
       shardChance: 1.0,
       chest: 'silver_chest',
-      chestChance: 0.05,
+      chestChance: 0.10,
     },
     loss: { exp: 50 },
   },
@@ -34,10 +34,14 @@ const RAID_LOOT = {
       shards: [8, 10],         // was 3–5
       shardChance: 1.0,
       chest: 'gold_chest',
-      chestChance: 0.10,
+      chestChance: 0.20,
     },
     loss: { exp: 150 },
   },
 };
 
-module.exports = { ELITE_SPAWN_CHANCE, RAID_LOOT };
+function rollRaidChest(winLoot, rng = Math.random) {
+  return rng() < winLoot.chestChance ? winLoot.chest : null;
+}
+
+module.exports = { ELITE_SPAWN_CHANCE, RAID_LOOT, rollRaidChest };

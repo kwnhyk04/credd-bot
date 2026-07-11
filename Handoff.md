@@ -717,6 +717,118 @@ Validation:
    - Help selftest: 160 passed, 0 failed.
    - Casino selftest: 171 passed, 0 failed.
 3. Ran `git diff --check`; only CRLF normalization warnings were reported.
+
+## Fable 5 Change Audit - July 9
+
+Timestamp: 2026-07-09 02:34:18 +08:00
+
+Implemented by: Fable 5, per project owner.
+
+Audited commits:
+
+1. Commit `3f78bae` - `Fix stats skin layout and info embeds`.
+   - Corrected stats skin layout selection and avatar behavior.
+   - Improved profile/stats command rendering inputs.
+   - Improved deity and equipment information embeds.
+   - Updated runtime logging for the affected render path.
+
+2. Commit `7ddf01d` - `Restore stats panel text alignment`.
+   - Restored the stats panel text positions after the layout update.
+   - Added layout-aware alignment for identity, equipment, deity, statistics, record, and quote fields.
+
+## Fable 5 Change Audit - July 11
+
+Timestamp: 2026-07-11 03:41:04 +08:00
+
+Implemented by: Fable 5. Commit metadata includes `Co-Authored-By: Claude Fable 5`.
+
+Audited commit:
+
+1. Commit `f6f1b1c` - `Ascension patch (SP3-5) + founder/skin/badge render fixes`.
+   - Added the Sigil and deity Ascension system, transaction-safe unlock and ascend actions, and updated deity stat assembly.
+   - Added the paginated RPG glossary for deities, weapons, armor, and runes.
+   - Added asset recompression tooling.
+   - Added Founder set grants and class-matched Founder avatar handling.
+   - Added class battle-skin layout fallback behavior.
+   - Added initial supporter badge rendering and render-cache revisions.
+   - Added stats header clamping and related regression tests.
+
+Additional Fable 5 work included in the next consolidated commit:
+
+1. Added four Sigil emoji mappings to `assets/data/game_items.txt`.
+
+## Founder, Badge, Balance, and Memory Follow-up
+
+Timestamp: 2026-07-11 18:57:07 +08:00
+
+Implemented by: Codex.
+
+Root-cause findings:
+
+1. Founder collection visibility was checked against the configured testing database and the actual collection page builder for Discord ID `1475898881467355221`.
+   - The account is an active Eternal Founder with Founder number 1.
+   - All four active Founder catalog cosmetics have explicit `user_cosmetics` rows.
+   - All four are equipped and render on collection pages 1 through 4: Profile, Battle, Battle Result, and Summon.
+   - The database-wide Founder coverage query reported zero founders missing cosmetic grants.
+   - The supplied collection screenshot shows page 1 of 4, so it does not demonstrate missing ownership on pages 2 through 4.
+
+2. The missing Profile badge was reproduced from the supplied screenshot state.
+   - The badge asset exists at `skins/supporters/badge/founder.png`; the older path without the `badge` directory does not exist in the testing bucket.
+   - Profile rendering required an equipped title position before drawing the badge. Accounts with no equipped title therefore suppressed a valid badge.
+   - Stats uses a separate renderer and badge branch; it was audited and retained its independent no-title fallback.
+
+Actions completed:
+
+1. Updated Founder entitlement synchronization.
+   - Founder cosmetics and avatars are inserted as explicit, idempotent ownership rows for activation, manual confirmation, and repair flows.
+   - Existing equipment choices are preserved; the repair does not force-equip cosmetics or avatars.
+   - Eternal Founder token stipend remains idempotent.
+
+2. Updated Profile and Stats identity rendering.
+   - Profile now draws a supporter badge even when no title is equipped and anchors it to the Profile combat-EXP column.
+   - Stats retains its distinct identity layout and no-title fallback.
+   - Supporter badges use a shared aspect-ratio-preserving geometry helper.
+   - Stats avatars use contain-fit geometry so non-square art is not distorted.
+   - Render revisions were bumped to invalidate stale cached cards.
+
+3. Added deity passive database update SQL.
+   - `scripts/deity-passive-description-update.sql` updates Bathala, Odin, and Zeus blessing names/descriptions by stable `blessing_key`.
+   - This updates the fields consumed by both `crd glossary` and `crd deity info`.
+   - The SQL was prepared for manual execution and was not run by Codex.
+
+4. Updated requested combat and reward behavior.
+   - Swordsman Bleed ramps by 3% per stack up to 10 stacks.
+   - Knight takes 20% less incoming damage and deals 30% more outgoing damage.
+   - Fighter Bash and Dizzy behavior was added.
+   - Bathala, Odin, and Zeus blessings were updated to their requested behavior.
+   - Regular raid Silver Chest chance is 10%; Elite raid Gold Chest chance is 20%.
+
+5. Updated RPG information formatting.
+   - Deity and equipment info cards use consistent enhancement display, ownership, stats, lore, and help formatting.
+   - Added reusable enhancement formatting and Sigil emoji usage.
+
+6. Added memory controls and diagnostics.
+   - Added bounded image caches, render work queues, memory logging, and configurable cache defaults.
+   - Added memory, requested-patch, Founder entitlement, supporter badge asset, and visual preview diagnostics.
+
+Validation:
+
+1. Founder diagnostic returned all four owned and equipped Founder collection categories and five Founder avatars.
+2. Supporter badge diagnostic confirmed the live Founder badge asset and rejected the stale blueprint path.
+3. Rendered and visually inspected separate no-title Founder Profile and Stats previews using the real Founder badge.
+4. `scripts/requested-patch-selftest.js` includes no-title badge geometry and entitlement regression coverage.
+5. Ran `npm.cmd run selftest:full`.
+   - Battle selftest: 185 passed, 0 failed.
+   - Requested patch selftest: passed.
+   - Help selftest: 160 passed, 0 failed.
+   - Casino selftest: 171 passed, 0 failed.
+6. Ran `npm.cmd run selftest:memory`.
+   - Baseline RSS: 68 MB.
+   - Peak queued-concurrent RSS: 450 MB.
+   - RSS after the idle interval: 203 MB.
+   - Warm growth check: -10 MB.
+   - Result: passed.
+7. Ran `git diff --check`; only expected LF-to-CRLF working-tree warnings were reported.
 4. Attempted a local render smoke test with a temporary `assets/avatars/...` file during path investigation.
    - The sandbox blocked creating that temporary directory with `EPERM`, so no tracked asset files were added.
 

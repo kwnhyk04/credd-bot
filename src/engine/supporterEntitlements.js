@@ -305,6 +305,57 @@ async function grantBaseSetTx(client, userId) {
   }
 }
 
+/** Materialize subscription grants for activation, manual grants, and repairs. */
+async function syncSubscriptionEntitlementsTx(client, userId, tier, opts = {}) {
+  const appTier = normalizeTier(tier);
+  const isFounder = !!opts.founder || appTier === 'eternal';
+  await grantBaseSetTx(client, userId);
+  if (!isFounder) return { founderCosmetics: 0, founderAvatars: 0 };
+
+  const cosmetics = await client.query(
+    `INSERT INTO user_cosmetics (discord_id, cosmetic_id, source)
+     SELECT $1, cosmetic_id, 'founder'
+       FROM cosmetic_catalog
+      WHERE cosmetic_key LIKE 'founder\\_%' AND is_active = TRUE
+     ON CONFLICT (discord_id, cosmetic_id) DO NOTHING`,
+    [userId]
+  );
+  const avatars = await client.query(
+    `INSERT INTO user_avatars (discord_id, avatar_id, source, acquired_at)
+     SELECT $1, avatar_id, 'grant', NOW()
+       FROM avatar_catalog
+      WHERE style = 'founder' AND is_active = TRUE
+     ON CONFLICT (discord_id, avatar_id) DO NOTHING`,
+    [userId]
+  );
+  return {
+    founderCosmetics: cosmetics.rowCount || 0,
+    founderAvatars: avatars.rowCount || 0,
+  };
+}
+
+/** Repair all materialized entitlements for an existing active supporter. */
+async function syncSubscriptionEntitlements(userId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const supporter = await getSupporter(client, userId);
+    if (!isActiveSupporter(supporter)) {
+      throw new Error('No active supporter subscription to synchronize.');
+    }
+    const result = await syncSubscriptionEntitlementsTx(
+      client, userId, effectiveTier(supporter)
+    );
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 /**
  * §4/§3 — apply a subscribe or founder grant. Upserts the supporters row, assigns a founder
  * number for eternal, auto-grants+equips the base set, and pays the initial stipend
@@ -375,81 +426,32 @@ async function applySubscribe(userId, tier, opts = {}) {
     );
     founderNumber = supporter.rows[0]?.founder_number ?? null;
 
-    await grantBaseSetTx(client, userId);
+    const entitlementSync = await syncSubscriptionEntitlementsTx(
+      client, userId, appTier, { founder: isFounder }
+    );
 
-    // [Patch 2 §2.2] Founder avatar: real user_avatars ownership for every
-    // founder_<class> avatar_catalog row (per-class rows; granting all five
-    // survives any future class change). Idempotent; 0 rows if the catalog
-    // rows aren't seeded yet (patch2-avatar-rows.sql). Founder SKINS need no
-    // rows — ownedIdsResolved grants the founder_* cosmetic scope virtually.
-    if (isFounder) {
-      await client.query(
-        `INSERT INTO user_avatars (discord_id, avatar_id, source, acquired_at)
-         SELECT $1, avatar_id, 'grant', NOW()
-           FROM avatar_catalog
-          WHERE style = 'founder' AND is_active = TRUE
-         ON CONFLICT (discord_id, avatar_id) DO NOTHING`,
-        [userId]
-      );
-
-      // [Founder fix] Grant scope covers the founder_* cosmetic set virtually,
-      // but a founder must also SEE their founder skins — equip the founder
-      // profile/battle/battle_result/summon skins so the founder set renders
-      // (replacing the base/class-default that create.js left equipped).
-      const founderSkins = await client.query(
-        `SELECT cosmetic_id, category FROM cosmetic_catalog
-          WHERE cosmetic_key LIKE 'founder\\_%' AND is_active = true`
-      );
-      for (const row of founderSkins.rows) {
-        await equipCosmeticTx(client, userId, row.category, row.cosmetic_id);
-      }
-
-      // Equip the founder AVATAR matching the player's current class (class-keyed
-      // rows). Inlined upsert to avoid an avatarSystem ↔ supporterEntitlements
-      // require cycle; mirrors avatarSystem.equipAvatarTx exactly.
-      const charRes = await client.query(
-        'SELECT class FROM user_character WHERE discord_id = $1', [userId]
-      );
-      const className = charRes.rows[0]?.class;
-      if (className) {
-        const av = await client.query(
-          `SELECT avatar_id FROM avatar_catalog
-            WHERE style = 'founder' AND is_active = TRUE
-              AND lower(class_name) = lower($1)
-            LIMIT 1`,
-          [className]
-        );
-        if (av.rows[0]) {
-          await client.query(
-            `INSERT INTO equipped_avatars (discord_id, avatar_id, updated_at)
-             VALUES ($1, $2, NOW())
-             ON CONFLICT (discord_id)
-             DO UPDATE SET avatar_id = EXCLUDED.avatar_id, updated_at = NOW()`,
-            [userId, av.rows[0].avatar_id]
-          );
-        }
-      }
-    }
-
+    let stipendGrant = null;
     if (opts.grantStipend !== false) {
       const stipendRef = opts.stripeSubscriptionId ?? null;
       if (appTier === 'eternal') {
-        if (stipendRef) {
-          await grantTokensOnceTx(client, userId, ETERNAL_ONE_TIME_TOKENS, 'founder_grant', stipendRef);
-        } else {
-          await grantTokensTx(client, userId, ETERNAL_ONE_TIME_TOKENS, 'founder_grant', null);
-        }
+        stipendGrant = await grantTokensOnceTx(
+          client,
+          userId,
+          ETERNAL_ONE_TIME_TOKENS,
+          'founder_grant',
+          stipendRef || `eternal-founder:${userId}`
+        );
       } else {
         if (stipendRef) {
-          await grantTokensOnceTx(client, userId, MONTHLY_TOKENS[appTier], 'subscribe_grant', stipendRef);
+          stipendGrant = await grantTokensOnceTx(client, userId, MONTHLY_TOKENS[appTier], 'subscribe_grant', stipendRef);
         } else {
-          await grantTokensTx(client, userId, MONTHLY_TOKENS[appTier], 'subscribe_grant', null);
+          stipendGrant = await grantTokensTx(client, userId, MONTHLY_TOKENS[appTier], 'subscribe_grant', null);
         }
       }
     }
 
     await client.query('COMMIT');
-    return { founderNumber, tier: appTier };
+    return { founderNumber, tier: appTier, entitlementSync, stipendGrant };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     throw err;
@@ -476,5 +478,6 @@ module.exports = {
   userOwnedIds, userOwns, grantCosmeticTx,
   isDevAccount, ownedIdsResolved, collectionOwnedIdsResolved, ownsResolved, isShopCatalog, resolveCatalogRef,
   getEquipped, equipCosmeticTx, setOverrideTx, clearAllEquipped,
-  grantBaseSetTx, applySubscribe, applyMonthlyTokens,
+  grantBaseSetTx, syncSubscriptionEntitlementsTx, syncSubscriptionEntitlements,
+  applySubscribe, applyMonthlyTokens,
 };

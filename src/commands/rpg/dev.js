@@ -1205,7 +1205,9 @@ async function devSub(message, args, devId) {
       `✅ <@${targetId}> is now **${tier}**` +
       `${res.founderNumber != null ? ` (Founder ${String(res.founderNumber).padStart(3, '0')})` : ''}` +
       `${chosenExpiresAt ? ` until **${chosenExpiresAt.toISOString().slice(0, 10)}** (${months} month${months === 1 ? '' : 's'} x ${SUPPORTER_MONTH_DAYS} days)` : ''}` +
-      ' — base set granted + stipend paid.');
+      (res.stipendGrant?.applied === false
+        ? ' — entitlements synchronized; one-time stipend was already paid.'
+        : ' — entitlements synchronized + stipend paid.'));
   } catch (err) {
     console.error('[dev sub]', err.message);
     return reply(message, 'Failed — nothing changed.');

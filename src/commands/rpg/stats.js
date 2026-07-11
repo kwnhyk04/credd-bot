@@ -1,7 +1,7 @@
 'use strict';
 
 const { MediaGalleryBuilder, MessageFlags } = require('discord.js');
-const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../../utils/imageOutput');
+const { renderOptimizedAttachment, attachmentFromOptimizedImage } = require('../../utils/imageOutput');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 const pool = require('../../db/pool');
 const { assemblePlayerStats, accumulateRuneStats } = require('../../engine/statAssembly');
@@ -25,8 +25,8 @@ const { SUPPORTER_BADGE_DIR, SUPPORTER_BADGE_FILE } = require('../../config/cosm
 // Bump when renderStats output changes visually (busts every cached stats card).
 // 9: §1.3 — busts cards cached while an equipped avatar's art was missing on R2.
 // 10: §2.5 — supporter badge below the Title.
-// 11: badge enlarged (SUPPORTER_BADGE_HEIGHT 30 → 52) + name clamp to panel.
-const STATS_RENDER_REV = 11;
+// 11: shared supporter badge dimensions + name clamp to panel.
+const STATS_RENDER_REV = 12;
 const STATS_IMAGE_OPTIONS = Object.freeze({
   quality: 50,
   maxWidth: Math.floor(envNumber('STATS_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 })),
@@ -290,7 +290,7 @@ async function execute(message) {
 
   const image = cached?.image
     ? attachmentFromOptimizedImage(cached.image, 'stats', { ...logContext, reusedBuffer: true })
-    : await makeOptimizedAttachment(await renderStatsImage(data), 'stats', { ...STATS_IMAGE_OPTIONS, logContext });
+    : await renderOptimizedAttachment(() => renderStatsImage(data), 'stats', { ...STATS_IMAGE_OPTIONS, logContext });
 
   // Image only — no embed/container wrapper (RenderTweaks Tweak 2).
   await message.reply({

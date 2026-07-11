@@ -650,15 +650,14 @@ const PASSIVE_REGISTRY = {
   // ── DEITY BLESSINGS — Philippine ─────────────────────────────────────────
 
   'bathala_divine_vessel': (bs) => {
-    // [Supporter-stage §9] REWORK. At the start of each turn (before attacking) add +20% to
-    // ATK and DEF, stacking ADDITIVELY up to +100% (5 stacks; cap reached on turn 5, held at
-    // cap thereafter). Implemented additive-on-base (base × (1 + 0.20 × stacks), stacks ≤ 5),
+    // At the start of each turn, add 10% of base battle ATK and DEF.
+    // The additive ramp caps at 10 stacks, exactly +100% of each base stat.
     // NOT compounding. NO HP component anymore — ATK/DEF only. This is a self-buff window, NOT
     // a debuff: unaffected by the 1-turn rule and never cleansed off Bathala. The engine's HP
     // ramp stays inert because bathala_hp_fraction is left at its reset default (0).
     if (!bs.flags.bathala_stacks) bs.flags.bathala_stacks = 0;
-    if (bs.flags.bathala_stacks < 5) bs.flags.bathala_stacks += 1;
-    const frac = 0.20 * bs.flags.bathala_stacks; // 0.20 → 1.00
+    if (bs.flags.bathala_stacks < 10) bs.flags.bathala_stacks += 1;
+    const frac = 0.10 * bs.flags.bathala_stacks;
     bs.playerAtkMult += frac;
     bs.playerDefMult += frac;
     bs.log.push(`🌅 Bathala: Divine Vessel — Divine ramp +${Math.round(frac * 100)}% ATK/DEF!`);
@@ -719,12 +718,15 @@ const PASSIVE_REGISTRY = {
   // ── DEITY BLESSINGS — Norse ──────────────────────────────────────────────
 
   'odin_all_fathers_wisdom': (bs) => {
-    // Every even turn: 50% reduced incoming damage
+    // Even turns prevent 25%; the immediately following odd-turn attack consumes it.
     if (bs.currentTurn % 2 === 0) {
-      bs.flags.odin_wisdom_block = true;
-      bs.log.push('🪄 Odin: All-Father\'s Wisdom — 50% damage reduction this turn!');
+      bs.flags.odin_foresight_block = true;
+      bs.flags.odin_foresight_bonus = 0;
+      bs.log.push('🪄 Odin: All-Father\'s Foresight — 25% damage reduction this turn!');
     } else {
-      bs.flags.odin_wisdom_block = false;
+      bs.flags.odin_foresight_block = false;
+      bs.flags.odin_foresight_bonus = Math.max(0, Math.floor(bs.flags.odin_prevented_damage || 0));
+      bs.flags.odin_prevented_damage = 0;
     }
   },
 
@@ -867,13 +869,16 @@ const PASSIVE_REGISTRY = {
 
   // ── DEITY BLESSINGS — Greek ──────────────────────────────────────────────
 
-  // [Jun-2026 §4] +100% ATK (was +80%); unchanged: every 3rd turn, enemy DEF -20% for 1 turn.
-  'zeus_thunder_sovereign': everyNthRider(3, 1.00, null, (bs) => {
+  // Chain Lightning: 50% proc, +50% attack damage and a persistent 5% DEF-shred stack.
+  'zeus_thunder_sovereign': (bs) => {
+    if (bs.rng() >= 0.50) return;
+    bs.playerAtkMult += 0.50;
     if (!bs.enemyImmune('def_down')) {
-      bs.applyDebuff('def_down', 1, 0.20);
+      bs.flags.zeus_def_shred_stacks = Math.min(6, (bs.flags.zeus_def_shred_stacks || 0) + 1);
     }
-    bs.log.push('⚡ Zeus: Thunder Sovereign — +100% ATK! Enemy DEF -20%!');
-  }),
+    const shred = Math.min(30, (bs.flags.zeus_def_shred_stacks || 0) * 5);
+    bs.log.push(`⚡ Zeus: Chain Lightning — +50% damage! Enemy DEF -${shred}%!`);
+  },
 
   'ares_blood_frenzy': stackingAtk('ares_stack', 0.08, 0.40, 2),
 

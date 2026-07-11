@@ -28,6 +28,7 @@ const { hasProfileLayout, renderProfileLayoutImage } = require('./profileLayoutR
 const { resolveName } = require('../utils/emojis');
 const { assetPath, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
 const { SUPPORTER_BADGE_HEIGHT } = require('../config/cosmetics');
+const { badgeRect } = require('./identityLayout');
 
 /* ── Background template ([v4.6]) ───────────────────────────────────────────
  * The profile card is drawn on top of a template image. TEMPLATE_FILE is a single
@@ -178,7 +179,7 @@ async function renderProfileImage(d) {
   // [initial-release] Body shows class + combat-exp only (gear/deity/stats moved to crd stats),
   // but layoutH is kept at the original height so the template scale/centering transform is
   // unchanged — shrinking it inflated the scale and pushed the 600-wide layout off the canvas.
-  const bodyH = 264;
+  const bodyH = 382;
   const recordsH = 110;         // "Combat Record" heading + boxed cells
   const footerH = 30;
   const layoutH = headerH + 12 + bodyH + 12 + recordsH + 12 + footerH;
@@ -233,19 +234,6 @@ async function renderProfileImage(d) {
   ctx.font = F(28, true);
   ctx.fillStyle = NAME_COLOR;
   ctx.fillText(fitText(ctx, d.displayName, W - PAD * 2), W / 2, headerH - 40);
-  if (d.equippedTitle) {
-    ctx.font = F(15, true);
-    ctx.fillStyle = ACCENT;
-    ctx.fillText(fitText(ctx, d.equippedTitle, W - PAD * 2), W / 2, headerH - 14);
-  }
-  // [§2.5] Supporter badge below the Title (below the name when no title),
-  // scaled to SUPPORTER_BADGE_HEIGHT; layer skipped when no badge resolved.
-  if (supporterBadge) {
-    const bh = SUPPORTER_BADGE_HEIGHT;
-    const bw = Math.round(supporterBadge.width * (bh / supporterBadge.height));
-    const by = d.equippedTitle ? headerH - 8 : headerH - 34;
-    ctx.drawImage(supporterBadge, Math.round(W / 2 - bw / 2), by, bw, bh);
-  }
   ctx.textAlign = 'left';
 
   y = headerH;
@@ -308,6 +296,26 @@ async function renderProfileImage(d) {
   ctx.fillStyle = SUB_COLOR;
   const needed = d.combatExpMax == null ? 'MAX' : Number(d.combatExpMax).toLocaleString();
   ctx.fillText(`Combat EXP: ${Number(d.combatExp).toLocaleString()} / ${needed}`, cex, by);
+  const combatRatio = d.combatExpMax == null ? 1 : Number(d.combatExp) / Math.max(1, Number(d.combatExpMax));
+  drawProgress(ctx, PAD, by + 9, leftW, 10, combatRatio, EXP_FILL);
+  const titleY = by + 58;
+  if (d.equippedTitle) {
+    ctx.textAlign = 'center';
+    ctx.font = F(15, true);
+    ctx.fillStyle = ACCENT;
+    ctx.fillText(fitText(ctx, d.equippedTitle, leftW), PAD + leftW / 2, titleY);
+    ctx.textAlign = 'left';
+  }
+  if (supporterBadge) {
+    const rect = badgeRect(supporterBadge, {
+      x: PAD + leftW / 2,
+      titleY,
+      hasTitle: Boolean(d.equippedTitle),
+      fallbackY: by + 49,
+      height: SUPPORTER_BADGE_HEIGHT,
+    });
+    ctx.drawImage(supporterBadge, rect.x, rect.y, rect.w, rect.h);
+  }
 
   y = headerH + 12 + bodyH;
 

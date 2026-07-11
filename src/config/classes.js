@@ -22,52 +22,57 @@ const CLASSES = {
   Swordsman: {
     emoji: '⚔️',
     passiveName: 'Bleed',
-    base:    { hp: 700, atk: 225, def: 225, crit: 5.0 },
-    scaling: { hp: 105, atk: 55,  def: 55,  crit: 0.7 },
+    base: { hp: 700, atk: 225, def: 225, crit: 5.0 },
+    scaling: { hp: 105, atk: 55, def: 55, crit: 0.7 },
     flavor:
       'A warrior forged for the battlefield. Neither the strongest nor the fastest, but the most reliable. ' +
       'The Swordsman walks the line between offense and defense, adapting to any fight. Every strike leaves a mark, and every mark bleeds.',
-    passiveLine: '**Passive: Bleed** — Every attack opens a wound. Enemies will suffer beyond the moment of impact.',
+    passiveLine:
+      '**Passive: Bleed** — Every attack opens a wound. Enemies will suffer beyond the moment of impact.',
   },
   Fighter: {
     emoji: '👊',
     passiveName: 'Stun',
-    base:    { hp: 850, atk: 300, def: 150, crit: 1.0 },
-    scaling: { hp: 120, atk: 70,  def: 25,  crit: 0.5 },
+    base: { hp: 850, atk: 300, def: 150, crit: 1.0 },
+    scaling: { hp: 120, atk: 70, def: 25, crit: 0.5 },
     flavor:
       'A warrior who does not wait for the fight to come — they bring it. The Fighter is built on aggression, raw power, ' +
-      'and the unshakable belief that the best defense is a fist to the jaw. When a Fighter lands, the enemy feels it. And sometimes, they don\'t get back up.',
-    passiveLine: '**Passive: Stun** — A devastating blow can stop an enemy cold. Not every hit lands the same way.',
+      "and the unshakable belief that the best defense is a fist to the jaw. When a Fighter lands, the enemy feels it. And sometimes, they don't get back up.",
+    passiveLine:
+      '**Passive: Stun** — A devastating blow can stop an enemy cold. Not every hit lands the same way.',
   },
   Mage: {
     emoji: '🔮',
     passiveName: 'Overcharge',
-    base:    { hp: 600, atk: 350, def: 100, crit: 1.0 },
-    scaling: { hp: 90,  atk: 100, def: 25,  crit: 0.5 },
+    base: { hp: 600, atk: 350, def: 100, crit: 1.0 },
+    scaling: { hp: 90, atk: 100, def: 25, crit: 0.5 },
     flavor:
       'The Mage does not swing a sword. They do not need to. While others close the distance, the Mage is already three moves ahead, ' +
       'building energy that no armor can absorb. When the charge is ready, there is no blocking what comes next.',
-    passiveLine: '**Passive: Overcharge** — Power builds with every turn. When it peaks, the next strike carries everything.',
+    passiveLine:
+      '**Passive: Overcharge** — Power builds with every turn. When it peaks, the next strike carries everything.',
   },
   Knight: {
     emoji: '🛡️',
     passiveName: 'Damage Reduction',
-    base:    { hp: 1000, atk: 200, def: 300, crit: 5.0 },
-    scaling: { hp: 150, atk: 30,  def: 50,  crit: 0.0 },
+    base: { hp: 1000, atk: 200, def: 300, crit: 5.0 },
+    scaling: { hp: 150, atk: 50, def: 50, crit: 0.0 },
     flavor:
       'The Knight does not fall easily. Where others break under pressure, the Knight absorbs it, holds the line, and keeps fighting. ' +
       'Every blow the enemy lands is one they will regret. Endurance is not passive — it is a weapon.',
-    passiveLine: '**Passive: Damage Reduction** — Every hit taken is softened. The Knight was built to outlast anything in front of them.',
+    passiveLine:
+      '**Passive: Damage Reduction** — Every hit taken is softened. The Knight was built to outlast anything in front of them.',
   },
   Archer: {
     emoji: '🏹',
     passiveName: 'Armor Pierce',
-    base:    { hp: 600, atk: 300, def: 150, crit: 5.0 },
-    scaling: { hp: 105, atk: 85,  def: 25,  crit: 0.7 },
+    base: { hp: 600, atk: 300, def: 150, crit: 5.0 },
+    scaling: { hp: 105, atk: 85, def: 25, crit: 0.7 },
     flavor:
       'Swift, precise, and deadly from a distance. The Archer does not wait for the enemy to come — they are already gone before the enemy arrives. ' +
       'Every arrow finds its mark, and no armor is thick enough to stop what cannot be seen coming.',
-    passiveLine: '**Passive: Armor Pierce** — Your arrows do not care for steel or stone. Every shot cuts through the defenses of your enemy, finding the gaps that others cannot.',
+    passiveLine:
+      '**Passive: Armor Pierce** — Your arrows do not care for steel or stone. Every shot cuts through the defenses of your enemy, finding the gaps that others cannot.',
   },
 };
 
@@ -81,7 +86,7 @@ function computeClassStats(className, level) {
   if (!cls) throw new Error(`Unknown class: ${className}`);
   const steps = Math.max(1, level) - 1;
   return {
-    hp:  Math.floor(cls.base.hp  + cls.scaling.hp  * steps),
+    hp: Math.floor(cls.base.hp + cls.scaling.hp * steps),
     atk: Math.floor(cls.base.atk + cls.scaling.atk * steps),
     def: Math.floor(cls.base.def + cls.scaling.def * steps),
     crit: cls.base.crit + cls.scaling.crit * steps,

@@ -7,9 +7,12 @@ const { getProfileImageCacheStats } = require('./profileImageCache');
 const { envBool, envPositiveInt, metaString } = require('./runtimeLogs');
 const { getBattleBaseCacheStats } = require('../engine/battleLayoutRenderer');
 const { getResultBaseCacheStats } = require('../engine/resultLayoutRenderer');
+const pool = require('../db/pool');
 
 let interval = null;
 let lastCpu = process.cpuUsage();
+let lastRss = 0;
+let peakRss = 0;
 
 function mb(bytes) {
   return Math.round((Number(bytes) || 0) / 1024 / 1024);
@@ -25,6 +28,7 @@ function intervalMs() {
 
 function resourceSnapshot() {
   const mem = process.memoryUsage();
+  peakRss = Math.max(peakRss, mem.rss);
   const cpu = process.cpuUsage(lastCpu);
   lastCpu = process.cpuUsage();
   const assets = getAssetCacheStats();
@@ -35,12 +39,26 @@ function resourceSnapshot() {
   const resultBase = getResultBaseCacheStats();
   const battleStaticBytes = Number(battleBase.bytes || 0) + Number(resultBase.bytes || 0);
   const battleStaticMaxBytes = Number(battleBase.maxBytes || 0) + Number(resultBase.maxBytes || 0);
+  const rssDelta = lastRss ? mem.rss - lastRss : 0;
+  lastRss = mem.rss;
+  const activeResources = typeof process.getActiveResourcesInfo === 'function'
+    ? process.getActiveResourcesInfo()
+    : [];
+  const resourceTypes = activeResources.reduce((counts, type) => {
+    counts[type] = (counts[type] || 0) + 1;
+    return counts;
+  }, {});
+  const nativeGap = Math.max(0, mem.rss - mem.heapTotal - mem.external);
   return {
     rss: mb(mem.rss),
     heapUsed: mb(mem.heapUsed),
     heapTotal: mb(mem.heapTotal),
     external: mb(mem.external),
     arrayBuffers: mb(mem.arrayBuffers),
+    rssDelta: mb(rssDelta),
+    rssPeak: mb(peakRss),
+    maxRss: mb((process.resourceUsage?.().maxRSS || 0) * 1024),
+    nativeGap: mb(nativeGap),
     uptimeSec: Math.round(process.uptime()),
     userCpuMs: Math.round(cpu.user / 1000),
     systemCpuMs: Math.round(cpu.system / 1000),
@@ -62,6 +80,11 @@ function resourceSnapshot() {
     queueActive: queue.active,
     queueQueued: queue.queued,
     queueLimit: queue.limit,
+    pgTotal: pool.totalCount,
+    pgIdle: pool.idleCount,
+    pgWaiting: pool.waitingCount,
+    activeResources: activeResources.length,
+    resourceTypes: JSON.stringify(resourceTypes),
     cache: `canvas:${canvas.entries}/inflight:${canvas.inflight}/profile:${profile.entries}/battleStatic:${Number(battleBase.entries || 0) + Number(resultBase.entries || 0)}/queue:${queue.active}+${queue.queued}/${queue.limit}`,
   };
 }
@@ -73,8 +96,11 @@ function logResourceSnapshot() {
 function startResourceMonitor() {
   if (!resourceLogsEnabled() || interval) return null;
   lastCpu = process.cpuUsage();
+  lastRss = 0;
+  peakRss = 0;
   interval = setInterval(logResourceSnapshot, intervalMs());
   console.log(`[resource] monitor started intervalMs=${intervalMs()}`);
+  logResourceSnapshot();
   return stopResourceMonitor;
 }
 

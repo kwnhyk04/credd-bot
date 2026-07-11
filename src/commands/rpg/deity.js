@@ -13,6 +13,7 @@ const pool = require('../../db/pool');
 const { TIER_ALIAS, TIER_COLOR, TIER_ESSENCE_COLUMN } = require('../../config/gachaRates');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay, emoji } = require('../../utils/emojis');
+const { formatEnhancedName } = require('../../utils/enhancementFormat');
 const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../../utils/imageOutput');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 
@@ -225,7 +226,7 @@ async function handleListButton(interaction) {
 // ── crd deity info <name> ─────────────────────────────────────────────────
 const DEITY_INFO_COLUMNS = `dr.name, dr.mythology, dr.tier, dr.blessing_name, dr.blessing_description,
             dr.lore, dr.base_atk, dr.base_hp, dr.base_def,
-            ud.user_deity_id, ud.sigils, ud.ascended`;
+            ud.user_deity_id, ud.enhancement, ud.sigils, ud.ascended`;
 
 /** Portrait candidates for a deity row (remote list or first existing local file). */
 function resolveDeityPortraitPath(d) {
@@ -373,6 +374,9 @@ async function buildDeityInfoPayload(d, { ownerId, ownerDisplayName = null }) {
   const btype = DIVINE_BLESSING_DEITIES.has(d.name) ? 'Divine' : 'Echo';
   const sigils = Math.max(0, Math.min(MAX_SIGILS, Number(d.sigils) || 0));
   const ascended = Boolean(d.ascended);
+  const sigilEmoji = emoji(`${String(d.tier).toLowerCase()}_sigil`);
+  const essenceEmoji = emoji(`${String(d.tier).toLowerCase()}_essence`);
+  const buttonEmoji = /^<a?:[a-z0-9_]+:\d+>$/i.test(essenceEmoji) ? essenceEmoji : null;
   const stats = computeSigilStats(d, sigils);
   const loreBlock = typeof d.lore === 'string' && d.lore.trim().length > 0
     ? `*${d.lore.trim()}*`
@@ -389,15 +393,15 @@ async function buildDeityInfoPayload(d, { ownerId, ownerDisplayName = null }) {
   const ascCost = ascensionCost(d.tier);
   let sigilBlock;
   if (ascended) {
-    sigilBlock = `**Sigils**\n${MAX_SIGILS}/${MAX_SIGILS} — Ascended ✦`;
+    sigilBlock = `**Sigils ${sigilEmoji}**\n${MAX_SIGILS}/${MAX_SIGILS} — Ascended ✦`;
   } else if (sigils >= MAX_SIGILS) {
     sigilBlock =
-      `**Sigils**\n${sigils}/${MAX_SIGILS} — Ready to Ascend\n` +
-      `Ascension: **${ascCost.essence}** ${d.tier} Essence + **${ascCost.credux.toLocaleString()}** Credux`;
+      `**Sigils ${sigilEmoji}**\n${sigils}/${MAX_SIGILS} — Ready to Ascend\n` +
+      `Ascension: ${essenceEmoji} **${ascCost.essence}** ${d.tier} Essence + **${ascCost.credux.toLocaleString()}** Credux`;
   } else {
     sigilBlock =
-      `**Sigils**\n${sigils}/${MAX_SIGILS}\n` +
-      `Next Sigil: **${sigilCost.essence}** ${d.tier} Essence`;
+      `**Sigils ${sigilEmoji}**\n${sigils}/${MAX_SIGILS}\n` +
+      `Next Sigil: ${essenceEmoji} **${sigilCost.essence}** ${d.tier} Essence`;
   }
 
   const statsBlock =
@@ -411,8 +415,8 @@ async function buildDeityInfoPayload(d, { ownerId, ownerDisplayName = null }) {
     ? `**${btype} Blessing — ${d.blessing_name}**\n${d.blessing_description || 'No blessing description.'}`
     : '**Blessing**\nBlessing dormant — ascend this deity to awaken it.';
 
-  const titleLine = `## 🕯️ ${ownerDisplayName ? `${ownerDisplayName}'s ` : ''}${d.name}`;
-  const ownerLine = ownerId ? `-# <@${ownerId}>` : null;
+  const titleLine = `## 🕯️ ${formatEnhancedName(d.name, d.enhancement)}`;
+  const ownerLine = ownerId ? `-# Owner: <@${ownerId}>` : null;
   const headerText = ownerLine ? `${titleLine}\n${ownerLine}` : titleLine;
 
   const container = new ContainerBuilder().setAccentColor(TIER_COLOR[d.tier] ?? BRAND);
@@ -443,14 +447,18 @@ async function buildDeityInfoPayload(d, { ownerId, ownerDisplayName = null }) {
   // the handler rejects clicks from anyone but the owner.
   if (!ascended && ownerId) {
     const label = sigils < MAX_SIGILS
-      ? `Unlock Sigil (cost: ${sigilCost.essence} ${d.tier} Essence)`
+      ? `Unlock Sigil: ${sigilCost.essence} ${d.tier} Essence`
       : `Ascend (${ascCost.essence} Essence + ${ascCost.credux.toLocaleString()} Credux)`;
     container.addSeparatorComponents(sep);
     container.addActionRowComponents((row) => row.setComponents(
-      new ButtonBuilder()
-        .setCustomId(`dsigil:act:${d.user_deity_id}:${ownerId}`)
-        .setLabel(label)
-        .setStyle(sigils < MAX_SIGILS ? ButtonStyle.Primary : ButtonStyle.Success)
+      (() => {
+        const button = new ButtonBuilder()
+          .setCustomId(`dsigil:act:${d.user_deity_id}:${ownerId}`)
+          .setLabel(label)
+          .setStyle(sigils < MAX_SIGILS ? ButtonStyle.Primary : ButtonStyle.Success);
+        if (buttonEmoji) button.setEmoji(buttonEmoji);
+        return button;
+      })()
     ));
   }
 

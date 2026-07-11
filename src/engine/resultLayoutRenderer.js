@@ -41,7 +41,11 @@ const RESULT_BASE_CACHE_MAX_ENTRIES = envPositiveInt(
   { max: 500 }
 );
 const RESULT_BASE_CACHE_TTL_MS = Math.max(0, envNumber('BATTLE_STATIC_LAYER_CACHE_TTL_MS', 600_000, { min: 0, max: 86_400_000 }));
-const RESULT_BASE_CACHE_MAX_BYTES = Math.max(1024 * 1024, envNumber('BATTLE_RENDER_CACHE_MAX_MB', 96, { min: 1, max: 2048 }) * 1024 * 1024);
+const BATTLE_STATIC_TOTAL_MAX_MB = envNumber('BATTLE_RENDER_CACHE_MAX_MB', 48, { min: 2, max: 2048 });
+const RESULT_BASE_CACHE_MAX_BYTES = Math.max(
+  1024 * 1024,
+  envNumber('RESULT_BASE_CACHE_MAX_MB', BATTLE_STATIC_TOTAL_MAX_MB / 2, { min: 1, max: 2048 }) * 1024 * 1024
+);
 const skinCache = new Map(); // skin path -> { signature, promise }
 const resultBaseCache = new Map(); // skin path -> { signature, canvas, bytes, lastUsed }
 let resultBaseCacheBytes = 0;

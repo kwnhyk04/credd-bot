@@ -15,6 +15,7 @@ const { resolveName } = require('../utils/emojis');
 const { formatIntegerEnUS: fmt } = require('../utils/textFormat');
 const { performanceLog } = require('../utils/runtimeLogs');
 const { SUPPORTER_BADGE_HEIGHT } = require('../config/cosmetics');
+const { containRect, badgeRect } = require('./identityLayout');
 const {
   assetSource,
   assetExistsSync,
@@ -131,7 +132,7 @@ async function loadRenderImages(d, skinPath, options) {
   const [skin, avatar, weapon, armor, deity, deity2, deity3, combatExp, supporterBadge] = await Promise.all([
     loadOptionalImage(skinPath), avatarPromise, weaponPromise, armorPromise, deityPromise, deity2Promise, deity3Promise, combatExpPromise,
     // [§2.5] supporter badge — path only set when tier active AND art exists.
-    loadOptionalImage(d.supporterBadgePath),
+    loadOptionalImage(options.supporterBadgePath || d.supporterBadgePath),
   ]);
   return { skin, avatar, weapon, armor, deity, deity2, deity3, combatExp, supporterBadge };
 }
@@ -205,29 +206,31 @@ function drawCover(ctx, img, box) {
 }
 
 function drawAvatar(ctx, img, style) {
-  const w = style.w || style.width || style.size;
-  const h = style.h || style.height || style.size;
+  const originalW = style.w || style.width || style.size;
+  const originalH = style.h || style.height || style.size;
+  const fitted = img ? containRect(img, style) : { x: style.x, y: style.y, w: originalW, h: originalH };
+  const fittedRadius = Math.min(style.radius || 0, fitted.w / 2, fitted.h / 2);
   ctx.save();
   if (style.glow) {
     ctx.shadowColor = style.glow.color;
     ctx.globalAlpha = style.glow.alpha;
     ctx.shadowBlur = style.glow.blur;
-    roundRect(ctx, style.x, style.y, w, h, style.radius);
+    roundRect(ctx, fitted.x, fitted.y, fitted.w, fitted.h, fittedRadius);
     ctx.fillStyle = style.glow.color;
     ctx.fill();
     ctx.globalAlpha = 1;
   }
-  roundRect(ctx, style.x, style.y, w, h, style.radius);
+  roundRect(ctx, fitted.x, fitted.y, fitted.w, fitted.h, fittedRadius);
   ctx.clip();
-  if (img) drawCover(ctx, img, style);
+  if (img) ctx.drawImage(img, fitted.x, fitted.y, fitted.w, fitted.h);
   else {
     ctx.fillStyle = 'rgba(20,22,28,0.92)';
-    ctx.fillRect(style.x, style.y, w, h);
+    ctx.fillRect(fitted.x, fitted.y, fitted.w, fitted.h);
   }
   ctx.restore();
 
   ctx.save();
-  roundRect(ctx, style.x, style.y, w, h, style.radius);
+  roundRect(ctx, fitted.x, fitted.y, fitted.w, fitted.h, fittedRadius);
   ctx.strokeStyle = style.outline;
   ctx.lineWidth = style.outline_width;
   ctx.stroke();
@@ -632,11 +635,14 @@ async function renderStatsLayoutImage(d, options = {}) {
   // [§2.5] Supporter badge below the Title element, centered on its x; scaled
   // to SUPPORTER_BADGE_HEIGHT. Skipped when no badge resolved.
   if (images.supporterBadge && layout.title) {
-    const bh = SUPPORTER_BADGE_HEIGHT;
-    const bw = Math.round(images.supporterBadge.width * (bh / images.supporterBadge.height));
-    const bx = Math.round((layout.title.x ?? layout.canvas.w / 2) - bw / 2);
-    const by = Math.round((layout.title.y ?? 0) + 8);
-    ctx.drawImage(images.supporterBadge, bx, by, bw, bh);
+    const rect = badgeRect(images.supporterBadge, {
+      x: layout.title.x ?? layout.canvas.w / 2,
+      titleY: layout.title.y ?? 0,
+      hasTitle: Boolean(view.title),
+      fallbackY: (layout.name?.y ?? 0) + 34,
+      height: SUPPORTER_BADGE_HEIGHT,
+    });
+    ctx.drawImage(images.supporterBadge, rect.x, rect.y, rect.w, rect.h);
   }
   // Equipments are one combined row, with separate icons for weapon and armor.
   drawEquipmentRow(ctx, layout, view, images);

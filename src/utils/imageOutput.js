@@ -238,9 +238,19 @@ async function makeOptimizedAttachment(buffer, baseName, options = {}) {
   };
 }
 
+async function renderOptimizedAttachment(render, baseName, options = {}) {
+  const logContext = options.logContext || {};
+  const image = await withImageWorkSlot(logContext.imageType || baseName, async () => {
+    const buffer = await render();
+    return optimizeOpaqueAttachment(buffer, baseName, { ...options, skipQueue: true });
+  }, logContext);
+  return attachmentFromOptimizedImage(image, baseName, logContext);
+}
+
 module.exports = {
   optimizeOpaqueAttachment,
   makeOptimizedAttachment,
+  renderOptimizedAttachment,
   attachmentFromOptimizedImage,
   imageContentType,
   extensionFromName,

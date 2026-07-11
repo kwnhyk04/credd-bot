@@ -66,7 +66,7 @@ const ETERNAL_ONE_TIME_TOKENS = 20;
 // Height in px; width scales proportionally. Assets live at
 // skins/supporters/badge/<file>.png (verified upload layout); the eternal tier
 // uses the founder badge art.
-const SUPPORTER_BADGE_HEIGHT = 52;
+const SUPPORTER_BADGE_HEIGHT = 96;
 const SUPPORTER_BADGE_DIR = 'skins/supporters/badge';
 const SUPPORTER_BADGE_FILE = { believer: 'believer', chosen: 'chosen', eternal: 'founder' };
 
