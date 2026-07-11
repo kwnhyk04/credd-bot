@@ -22,7 +22,7 @@ const CACHE_MAX_BYTES = Math.max(
     { min: 1, max: 2048 }
   ) * 1024 * 1024
 );
-const CACHE_TTL_MS = Math.max(0, envNumber('ASSET_CACHE_TTL_MS', 0, { min: 0 }));
+const CACHE_TTL_MS = Math.max(0, envNumber('ASSET_CACHE_TTL_MS', 30 * 60_000, { min: 0 }));
 
 const bufferCache = new Map();
 const imageCache = new Map();
@@ -374,6 +374,7 @@ async function loadCachedImage(loadImageFnOrSource, maybeSource) {
 // re-checked after a TTL so uploading it later needs no restart. Callers use
 // this to decide URL-reference vs attach-fallback, so it must never throw.
 const REMOTE_CHECK_NEGATIVE_TTL_MS = Math.max(0, Number(process.env.ASSET_REMOTE_CHECK_TTL_MS || 600_000));
+const REMOTE_CHECK_MAX = envPositiveInt('ASSET_REMOTE_CHECK_MAX', 1000, { max: 10_000 });
 const remoteAvailability = new Map(); // url → { promise, checkedAt, resolvedFalse }
 
 function remoteAssetAvailable(relativePath) {
@@ -398,6 +399,9 @@ function remoteAssetAvailable(relativePath) {
     }
   })();
   remoteAvailability.set(url, record);
+  while (remoteAvailability.size > REMOTE_CHECK_MAX) {
+    remoteAvailability.delete(remoteAvailability.keys().next().value);
+  }
   return record.promise;
 }
 

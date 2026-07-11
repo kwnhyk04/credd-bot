@@ -52,14 +52,14 @@ async function main() {
   const baseline = snapshot('baseline');
   await renderPair(0);
   snapshot('cold-render');
-  for (let i = 0; i < 12; i++) await renderPair(i);
-  const repeated = snapshot('12-sequential-pairs');
-  for (let batch = 0; batch < 3; batch++) {
+  for (let i = 0; i < 50; i++) await renderPair(i);
+  const repeated = snapshot('100-sequential-images');
+  for (let batch = 0; batch < 2; batch++) {
     await Promise.all(Array.from({ length: 4 }, (_, i) =>
       withImageWorkSlot('memory-selftest', () => renderPair(batch * 4 + i))
     ));
   }
-  const concurrent = snapshot('12-queued-concurrent-pairs');
+  const concurrent = snapshot('16-queued-concurrent-images');
   await new Promise((resolve) => setTimeout(resolve, 1000));
   const idle = snapshot('idle-1s');
   const growthMb = idle.rssMb - repeated.rssMb;

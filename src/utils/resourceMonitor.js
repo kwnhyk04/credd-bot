@@ -13,17 +13,19 @@ let interval = null;
 let lastCpu = process.cpuUsage();
 let lastRss = 0;
 let peakRss = 0;
+let warned450 = false;
+let warned600 = false;
 
 function mb(bytes) {
   return Math.round((Number(bytes) || 0) / 1024 / 1024);
 }
 
 function resourceLogsEnabled() {
-  return envBool('RESOURCE_LOGS', false);
+  return envBool('RESOURCE_LOGS', true);
 }
 
 function intervalMs() {
-  return envPositiveInt('RESOURCE_LOG_INTERVAL_MS', 300_000, { max: 3_600_000 });
+  return envPositiveInt('RESOURCE_LOG_INTERVAL_MS', 600_000, { max: 3_600_000 });
 }
 
 function resourceSnapshot() {
@@ -90,7 +92,20 @@ function resourceSnapshot() {
 }
 
 function logResourceSnapshot() {
-  console.log(`[resource]${metaString(resourceSnapshot())}`);
+  const snapshot = resourceSnapshot();
+  console.log(`[resource]${metaString(snapshot)}`);
+  if (snapshot.rss >= 600 && !warned600) {
+    console.warn(`[resource] RSS CRITICAL threshold=600MB${metaString(snapshot)}`);
+    warned600 = true;
+    warned450 = true;
+  } else if (snapshot.rss >= 450 && !warned450) {
+    console.warn(`[resource] RSS WARNING threshold=450MB${metaString(snapshot)}`);
+    warned450 = true;
+  }
+  if (snapshot.rss < 450) {
+    warned450 = false;
+    warned600 = false;
+  }
 }
 
 function startResourceMonitor() {
@@ -98,6 +113,8 @@ function startResourceMonitor() {
   lastCpu = process.cpuUsage();
   lastRss = 0;
   peakRss = 0;
+  warned450 = false;
+  warned600 = false;
   interval = setInterval(logResourceSnapshot, intervalMs());
   console.log(`[resource] monitor started intervalMs=${intervalMs()}`);
   logResourceSnapshot();

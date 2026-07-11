@@ -208,7 +208,7 @@ async function renderStatsImage(d) {
   ]);
 
   // ── Measure the layout (600-wide design space) ──
-  const headerH = 224;
+  const headerH = 118;
   const bodyH = 264;            // class, combat-exp, weapon, armor, deity hdr+val+blessing, stats [v5 +armor]
   const recordsH = 110;         // "Combat Record" heading + boxed cells
   const footerH = 30;
@@ -254,23 +254,12 @@ async function renderStatsImage(d) {
   ctx.textAlign = 'center';
   ctx.font = F(26, true);
   ctx.fillStyle = NAME_COLOR;
-  ctx.fillText(fitText(ctx, d.displayName, nameW), W / 2, y + 48);
+  const nameY = y + 48;
+  ctx.fillText(fitText(ctx, d.displayName, nameW), W / 2, nameY);
   if (d.equippedTitle) {
     ctx.font = F(14, true);
     ctx.fillStyle = ACCENT;
-    ctx.fillText(fitText(ctx, d.equippedTitle, nameW), W / 2, y + 74);
-  }
-  // [§2.5] Supporter badge below the Title (below the name when no title),
-  // scaled to SUPPORTER_BADGE_HEIGHT; layer skipped when no badge resolved.
-  if (supporterBadge) {
-    const rect = badgeRect(supporterBadge, {
-      x: W / 2,
-      titleY: y + 74,
-      hasTitle: Boolean(d.equippedTitle),
-      fallbackY: y + 68,
-      height: SUPPORTER_BADGE_HEIGHT,
-    });
-    ctx.drawImage(supporterBadge, rect.x, rect.y, rect.w, rect.h);
+    ctx.fillText(fitText(ctx, d.equippedTitle, nameW), W / 2, nameY + 30);
   }
   ctx.textAlign = 'left';
 
@@ -305,6 +294,16 @@ async function renderStatsImage(d) {
   ctx.lineWidth = 2;
   roundRectPath(ctx, avatarRect.x, avatarRect.y, avatarRect.w, avatarRect.h, 14);
   ctx.stroke();
+  if (supporterBadge) {
+    const rect = badgeRect(supporterBadge, {
+      x: avatarRect.x + avatarRect.w / 2,
+      titleY: 0,
+      hasTitle: false,
+      fallbackY: avatarRect.y + 50,
+      height: SUPPORTER_BADGE_HEIGHT,
+    });
+    ctx.drawImage(supporterBadge, rect.x, rect.y, rect.w, rect.h);
+  }
   const bodyRight = ax - 16;
   const bodyW = bodyRight - PAD;
 

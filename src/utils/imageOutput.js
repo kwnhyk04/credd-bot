@@ -10,7 +10,7 @@ const { withImageWorkSlot } = require('./imageWorkQueue');
 
 function requestedFormat() {
   const raw = String(process.env.IMAGE_OUTPUT_FORMAT || '').trim().toLowerCase();
-  return raw === 'webp' ? 'webp' : 'auto';
+  return raw === 'jpg' || raw === 'jpeg' ? 'jpeg' : 'webp';
 }
 
 function specificWebpQualityEnv(imageType, command) {
@@ -27,10 +27,10 @@ function specificWebpQualityEnv(imageType, command) {
 function webpQuality(logContext = {}) {
   const envName = specificWebpQualityEnv(logContext.imageType || logContext.command, logContext.command);
   if (envName && envName.startsWith('RAID_')) {
-    return { quality: envBoundedInt(envName, 42, 1, 100), envName };
+    return { quality: envBoundedInt(envName, 68, 1, 100), envName };
   }
   if (envName && ['PROFILE_IMAGE_WEBP_QUALITY', 'STATS_IMAGE_WEBP_QUALITY', 'BOSS_IMAGE_WEBP_QUALITY'].includes(envName)) {
-    return { quality: envBoundedInt(envName, 50, 1, 100), envName };
+    return { quality: envBoundedInt(envName, 68, 1, 100), envName };
   }
   const fallback = envBoundedInt('IMAGE_WEBP_QUALITY', 65, 1, 100);
   if (!envName) return { quality: fallback, envName: 'IMAGE_WEBP_QUALITY' };
@@ -105,7 +105,7 @@ async function optimizeImageBuffer(input, baseName, {
       const webpBuffer = await pipe
         .webp({
           quality: webp.quality,
-          effort: aggressive ? 6 : 4,
+          effort: aggressive ? 6 : 5,
           smartSubsample: true,
         })
         .toBuffer();

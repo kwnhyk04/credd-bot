@@ -163,13 +163,12 @@ async function renderProfileImage(d) {
   // Pre-fetch images (frame + avatar + weapon/deity/combat-exp icons) before laying out.
   // [Supporter-stage §6] When a profile skin resolves (d.skinPath), it replaces the default
   // template as the bottom layer; otherwise fall back to the shared default template.
-  const [template, avatar, weaponIcon, armorIcon, deityIcon, expIcon, supporterBadge] = await Promise.all([
+  const [template, avatar, weaponIcon, armorIcon, deityIcon, supporterBadge] = await Promise.all([
     d.skinPath ? loadAssetImage(d.skinPath).catch(() => null).then((img) => img || loadTemplate()) : loadTemplate(),
     loadAvatar(d.avatarUrl, d.fallbackAvatarUrl),
     d.weaponName ? getEmojiIcon(resolveName(d.weaponName) || '') : Promise.resolve(null),
     d.armorName ? getEmojiIcon(resolveName(d.armorName) || '') : Promise.resolve(null),
     d.deityName ? getEmojiIcon(resolveName(d.deityName) || '') : Promise.resolve(null),
-    getEmojiIcon('combat_exp'),
     // [§2.5] supporter badge — path only set when tier is active AND art exists.
     d.supporterBadgePath ? loadAssetImage(d.supporterBadgePath).catch(() => null) : Promise.resolve(null),
   ]);
@@ -233,14 +232,18 @@ async function renderProfileImage(d) {
   ctx.textAlign = 'center';
   ctx.font = F(28, true);
   ctx.fillStyle = NAME_COLOR;
-  ctx.fillText(fitText(ctx, d.displayName, W - PAD * 2), W / 2, headerH - 40);
+  const nameY = headerH - 40;
+  ctx.fillText(fitText(ctx, d.displayName, W - PAD * 2), W / 2, nameY);
+  if (d.equippedTitle) {
+    ctx.font = F(15, true);
+    ctx.fillStyle = ACCENT;
+    ctx.fillText(fitText(ctx, d.equippedTitle, W - PAD * 2), W / 2, nameY + 30);
+  }
   ctx.textAlign = 'left';
 
   y = headerH;
   separator(y);
   y += 12;
-
-  const LH = 22;
 
   /* ── ZONE 2 (after sep1): image + believer level/title + believer EXP bar, then class +
    *    combat EXP — all pushed DOWN below the separator. ── */
@@ -283,35 +286,12 @@ async function renderProfileImage(d) {
   drawProgress(ctx, PAD, by + 8, leftW, 10, d.believerExp / d.believerExpMax, EXP_FILL);
   by += 38;
 
-  // Class + combat level (pushed down).
-  ctx.font = F(16, true);
-  ctx.fillStyle = NAME_COLOR;
-  ctx.fillText(`Character Class: ${d.className}, Lvl ${d.combatLevel}`, PAD, by);
-  by += LH;
-
-  // Combat EXP — single text line with the combat-exp icon, no bar.
-  let cex = PAD;
-  if (expIcon) { ctx.drawImage(expIcon, cex, by - 13, 15, 15); cex += 19; }
-  ctx.font = F(13);
-  ctx.fillStyle = SUB_COLOR;
-  const needed = d.combatExpMax == null ? 'MAX' : Number(d.combatExpMax).toLocaleString();
-  ctx.fillText(`Combat EXP: ${Number(d.combatExp).toLocaleString()} / ${needed}`, cex, by);
-  const combatRatio = d.combatExpMax == null ? 1 : Number(d.combatExp) / Math.max(1, Number(d.combatExpMax));
-  drawProgress(ctx, PAD, by + 9, leftW, 10, combatRatio, EXP_FILL);
-  const titleY = by + 58;
-  if (d.equippedTitle) {
-    ctx.textAlign = 'center';
-    ctx.font = F(15, true);
-    ctx.fillStyle = ACCENT;
-    ctx.fillText(fitText(ctx, d.equippedTitle, leftW), PAD + leftW / 2, titleY);
-    ctx.textAlign = 'left';
-  }
   if (supporterBadge) {
     const rect = badgeRect(supporterBadge, {
-      x: PAD + leftW / 2,
-      titleY,
-      hasTitle: Boolean(d.equippedTitle),
-      fallbackY: by + 49,
+      x: ax + AVATAR / 2,
+      titleY: 0,
+      hasTitle: false,
+      fallbackY: ay + 50,
       height: SUPPORTER_BADGE_HEIGHT,
     });
     ctx.drawImage(supporterBadge, rect.x, rect.y, rect.w, rect.h);

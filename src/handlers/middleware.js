@@ -10,17 +10,29 @@ const { envNumber, performanceLog } = require('../utils/runtimeLogs');
 // Window length is per-command; config currently resolves commands to 10s windows.
 const cooldowns = new Map();
 const activityWrites = new Map(); // `${guildId}:${discordId}` -> ms timestamp of last DB write
+const RUNTIME_CACHE_MAX = 10_000;
+const RUNTIME_CACHE_SWEEP_MS = 60_000;
+let lastRuntimeCacheSweep = 0;
 
 function activityWriteThrottleMs() {
   return Math.floor(envNumber('USER_ACTIVITY_WRITE_THROTTLE_MS', 60_000, { min: 0, max: 3_600_000 }));
 }
 
-function trimActivityWrites(now, throttleMs) {
-  if (activityWrites.size <= 10_000) return;
+function trimRuntimeCaches(now, throttleMs) {
+  if (now - lastRuntimeCacheSweep < RUNTIME_CACHE_SWEEP_MS
+      && cooldowns.size <= RUNTIME_CACHE_MAX
+      && activityWrites.size <= RUNTIME_CACHE_MAX) return;
+  lastRuntimeCacheSweep = now;
+  const cooldownStaleBefore = now - 5 * 60_000;
+  for (const [key, last] of cooldowns) {
+    if (last < cooldownStaleBefore) cooldowns.delete(key);
+  }
   const staleBefore = now - Math.max(throttleMs * 2, 300_000);
   for (const [key, last] of activityWrites) {
     if (last < staleBefore) activityWrites.delete(key);
   }
+  while (cooldowns.size > RUNTIME_CACHE_MAX) cooldowns.delete(cooldowns.keys().next().value);
+  while (activityWrites.size > RUNTIME_CACHE_MAX) activityWrites.delete(activityWrites.keys().next().value);
 }
 
 function shouldWriteActivity(discordId, guildId, commandKey) {
@@ -40,7 +52,7 @@ function shouldWriteActivity(discordId, guildId, commandKey) {
     return false;
   }
   activityWrites.set(key, now);
-  trimActivityWrites(now, throttleMs);
+  trimRuntimeCaches(now, throttleMs);
   return true;
 }
 
@@ -126,6 +138,7 @@ async function runMiddleware(ctx, { requiresCharacter = false, commandKey = '' }
   const windowMs = cooldownMs(commandKey);
   const cooldownKey = `${discordId}:${commandKey}`;
   const now = Date.now();
+  trimRuntimeCaches(now, activityWriteThrottleMs());
   const last = cooldowns.get(cooldownKey) ?? 0;
   const elapsed = now - last;
   if (elapsed < windowMs) {
