@@ -142,6 +142,10 @@ function bossStatMultiplier() {
   return envNumber('BOSS_STAT_MULTIPLIER', 10, { min: 1, max: 100 });
 }
 
+function bossAttackDefenseMultiplier() {
+  return envNumber('BOSS_ATK_DEF_MULTIPLIER', 2, { min: 1, max: 100 });
+}
+
 function bossImageMaxWidth() {
   return Math.floor(envNumber('BOSS_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 }));
 }
@@ -152,18 +156,19 @@ function bossDailyAttackLimit() {
 }
 
 function scaledBossStats(stats) {
-  const mult = bossStatMultiplier();
+  const hpMultiplier = bossStatMultiplier();
+  const attackDefenseMultiplier = bossAttackDefenseMultiplier();
   return {
     ...stats,
-    hp: Math.floor(Number(stats.hp || 0) * mult),
-    atk: Math.floor(Number(stats.atk || 0) * mult),
-    def: Math.floor(Number(stats.def || 0) * mult),
-    crit: Number(stats.crit || 0) * mult,
+    hp: Math.floor(Number(stats.hp || 0) * hpMultiplier),
+    atk: Math.floor(Number(stats.atk || 0) * attackDefenseMultiplier),
+    def: Math.floor(Number(stats.def || 0) * attackDefenseMultiplier),
+    crit: Number(stats.crit || 0),
   };
 }
 
 function scaledBossCrit(mobRow) {
-  return Number(mobRow?.base_crit || 0) * bossStatMultiplier();
+  return Number(mobRow?.base_crit || 0);
 }
 
 function clearPendingBossRefresh(guildId, reason = 'cleared') {
@@ -1124,6 +1129,7 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
     imageType: 'boss_status',
     guildId,
     multiplier: bossStatMultiplier(),
+    attackDefenseMultiplier: bossAttackDefenseMultiplier(),
     baseHp: Number(baseStats.hp),
     baseAtk: Number(baseStats.atk),
     baseDef: Number(baseStats.def),

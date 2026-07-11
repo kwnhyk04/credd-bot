@@ -74,7 +74,7 @@ function safeMeta(meta = {}) {
     'profileEntries', 'queueActive', 'queueQueued', 'queueLimit',
     'avatarSource', 'avatarKey', 'assetKey', 'loadStatus', 'quality', 'envName',
     'preservedImage', 'multiplier', 'baseHp', 'baseAtk', 'baseDef', 'baseCrit',
-    'finalHp', 'finalAtk', 'finalDef', 'finalCrit',
+    'finalHp', 'finalAtk', 'finalDef', 'finalCrit', 'attackDefenseMultiplier',
     'source', 'thumbnailVariant',
     'skinSource', 'skinCategory', 'cosmeticKey',
   ];
