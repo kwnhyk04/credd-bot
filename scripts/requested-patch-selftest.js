@@ -6,8 +6,9 @@ const PASSIVES = require('../src/engine/passiveRegistry');
 const { RAID_LOOT, rollRaidChest } = require('../src/config/raidLoot');
 const { containRect, badgeRect } = require('../src/engine/identityLayout');
 const { displayEnhancement, formatEnhancedName } = require('../src/utils/enhancementFormat');
+const { computeDeityProgressionStats } = require('../src/engine/deityEnhancement');
 const { syncSubscriptionEntitlementsTx } = require('../src/engine/supporterEntitlements');
-const { buildDeityInfoPayload } = require('../src/commands/rpg/deity');
+const { buildDeityInfoPayload, attemptDeityEnhance } = require('../src/commands/rpg/deity');
 const { buildInfoPayload } = require('../src/commands/rpg/equipment');
 
 const player = (over = {}) => ({
@@ -31,6 +32,17 @@ async function main() {
   assert.equal(displayEnhancement(undefined), 0);
   assert.equal(formatEnhancedName('Odin', 1), 'Odin +0');
   assert.equal(formatEnhancedName('Odin', 11), 'Odin +10');
+
+  const unascendedDeity = computeDeityProgressionStats(
+    { base_atk: 100, base_hp: 200, base_def: 50 },
+    { sigils: 5, ascended: false, enhancement: 11 }
+  );
+  assert.deepEqual(unascendedDeity, { curr_atk: 75, curr_hp: 150, curr_def: 37 });
+  const enhancedDeity = computeDeityProgressionStats(
+    { base_atk: 100, base_hp: 200, base_def: 50 },
+    { sigils: 10, ascended: true, enhancement: 3 }
+  );
+  assert.deepEqual(enhancedDeity, { curr_atk: 120, curr_hp: 240, curr_def: 60 });
 
   for (const [w, h] of [[100, 100], [100, 150], [140, 100]]) {
     const rect = containRect({ width: w, height: h }, { x: 20, y: 30, w: 200, h: 240 });
@@ -124,6 +136,25 @@ async function main() {
   assert.deepEqual(grants, { founderCosmetics: 4, founderAvatars: 5 });
   assert(!queries.some((sql) => sql.includes('equipped_avatars')));
   assert(!queries.some((sql) => sql.includes("LIKE 'founder") && sql.includes('equipped_skins')));
+
+  let enhanceQuery = 0;
+  const enhanceClient = {
+    async query(sql) {
+      enhanceQuery += 1;
+      if (enhanceQuery === 2) return { rows: [{ supreme_essence: 10 }] };
+      if (enhanceQuery === 3) {
+        return {
+          rows: [{
+            enhancement: 1, ascended: true, tier: 'Supreme', name: 'Odin',
+            base_atk: 100, base_hp: 200, base_def: 50,
+          }],
+        };
+      }
+      return { rows: [] };
+    },
+  };
+  const enhanced = await attemptDeityEnhance(enhanceClient, '123', 1);
+  assert.deepEqual(enhanced, { status: 'done', name: 'Odin', previousLevel: 0, level: 1, cost: 2 });
 
   const deityPayload = await buildDeityInfoPayload({
     name: 'Odin', enhancement: 1, tier: 'Supreme', mythology: 'Norse', sigils: 0,

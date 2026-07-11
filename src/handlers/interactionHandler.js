@@ -43,6 +43,7 @@ const COLLECTOR_OWNED_BUTTONS = new Set([
  *   runes:<filter|prev|next>:<uid>:<page>:<lane>
  *   deities:<prev|next>:<uid>:<page>
  *   dsigil:act:<userDeityId>:<uid>
+ *   denhance:<attempt|cancel>:<userDeityId>:<uid>
  *   enhance:attempt:<weaponId>:<uid>
  *   enhance:cancel:<weaponId>:<uid>
  *   sell:confirm:<mode>:<arg>:<uid>
@@ -149,6 +150,19 @@ async function handleInteraction(interaction) {
       const ownerId = parts[3];
       await deityCmd.handleSigilButton(interaction, userDeityId, ownerId);
       return;
+    }
+
+    if (namespace === 'denhance') {
+      const userDeityId = parts[2];
+      const ownerId = parts[3];
+      if (action === 'attempt') {
+        await deityCmd.handleEnhanceAttempt(interaction, userDeityId, ownerId);
+        return;
+      }
+      if (action === 'cancel') {
+        await deityCmd.handleEnhanceCancel(interaction, ownerId);
+        return;
+      }
     }
 
     if (namespace === 'enhance') {

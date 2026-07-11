@@ -23,7 +23,7 @@
 const { CLASSES } = require('../config/classes');
 const { ELITE_SPAWN_CHANCE } = require('../config/raidLoot');
 const { ECHO_BLESSING_KEY_MAP, DIVINE_BLESSING_DEITIES, computeResonanceMods } = require('../config/blessings');
-const { computeSigilStats } = require('../config/ascension');
+const { computeDeityProgressionStats } = require('./deityEnhancement');
 
 const MOB_LEVEL_MIN = 1;
 const MOB_LEVEL_MAX = 55;
@@ -211,13 +211,13 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
             am.curr_hp  AS a_hp, am.curr_def AS a_def,
             am.native_sockets AS a_native, am.opposite_sockets AS a_opposite,
             ar.name     AS armor_name, ar.passive_key AS armor_passive_key,
-            ud.sigils   AS d1_sigils, ud.ascended AS d1_ascended,
+            ud.sigils   AS d1_sigils, ud.ascended AS d1_ascended, ud.enhancement AS d1_enhancement,
             dr.base_atk AS d1_batk, dr.base_hp AS d1_bhp, dr.base_def AS d1_bdef,
             dr.name     AS deity_name, dr.blessing_key, dr.mythology AS d1_myth,
-            ud2.sigils  AS d2_sigils,
+            ud2.sigils  AS d2_sigils, ud2.ascended AS d2_ascended, ud2.enhancement AS d2_enhancement,
             dr2.base_atk AS d2_batk, dr2.base_hp AS d2_bhp, dr2.base_def AS d2_bdef,
             dr2.name     AS deity2_name, dr2.blessing_key AS blessing_key_2, dr2.mythology AS d2_myth,
-            ud3.sigils  AS d3_sigils,
+            ud3.sigils  AS d3_sigils, ud3.ascended AS d3_ascended, ud3.enhancement AS d3_enhancement,
             dr3.base_atk AS d3_batk, dr3.base_hp AS d3_bhp, dr3.base_def AS d3_bdef,
             dr3.name     AS deity3_name, dr3.blessing_key AS blessing_key_3, dr3.mythology AS d3_myth,
             ude.user_deity_id AS echo_udid, ude.ascended AS echo_ascended,
@@ -248,17 +248,22 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
   const armor = r.a_hp != null
     ? { curr_hp: r.a_hp, curr_def: r.a_def }
     : null;
-  // [Ascension §3.5] Deity stats computed at read time: base × (0.50 + 0.05 × sigils).
   const deity = r.deity_name != null
-    ? computeSigilStats({ base_atk: r.d1_batk, base_hp: r.d1_bhp, base_def: r.d1_bdef }, r.d1_sigils)
+    ? computeDeityProgressionStats({ base_atk: r.d1_batk, base_hp: r.d1_bhp, base_def: r.d1_bdef }, {
+      sigils: r.d1_sigils, ascended: r.d1_ascended, enhancement: r.d1_enhancement,
+    })
     : null;
 
   // [v5 Phase 3] Pantheon slots 2/3 + resonance
   const slot2 = r.deity2_name != null
-    ? computeSigilStats({ base_atk: r.d2_batk, base_hp: r.d2_bhp, base_def: r.d2_bdef }, r.d2_sigils)
+    ? computeDeityProgressionStats({ base_atk: r.d2_batk, base_hp: r.d2_bhp, base_def: r.d2_bdef }, {
+      sigils: r.d2_sigils, ascended: r.d2_ascended, enhancement: r.d2_enhancement,
+    })
     : null;
   const slot3 = r.deity3_name != null
-    ? computeSigilStats({ base_atk: r.d3_batk, base_hp: r.d3_bhp, base_def: r.d3_bdef }, r.d3_sigils)
+    ? computeDeityProgressionStats({ base_atk: r.d3_batk, base_hp: r.d3_bhp, base_def: r.d3_bdef }, {
+      sigils: r.d3_sigils, ascended: r.d3_ascended, enhancement: r.d3_enhancement,
+    })
     : null;
   const deityInfos = [
     r.deity_name ? { name: r.deity_name, mythology: r.d1_myth } : null,

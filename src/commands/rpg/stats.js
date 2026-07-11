@@ -6,7 +6,7 @@ const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 const pool = require('../../db/pool');
 const { assemblePlayerStats, accumulateRuneStats } = require('../../engine/statAssembly');
 const { computeResonanceMods } = require('../../config/blessings');
-const { computeSigilStats } = require('../../config/ascension');
+const { computeDeityProgressionStats } = require('../../engine/deityEnhancement');
 const { EXP_REQUIRED, MAX_COMBAT_LEVEL } = require('../../config/combatExp');
 const { BELIEVER_EXP_PER_LEVEL, believerTitle } = require('../../config/believerProgression');
 const { renderStatsImage } = require('../../engine/renderStats');
@@ -26,7 +26,7 @@ const { SUPPORTER_BADGE_DIR, SUPPORTER_BADGE_FILE } = require('../../config/cosm
 // 9: §1.3 — busts cards cached while an equipped avatar's art was missing on R2.
 // 10: §2.5 — supporter badge below the Title.
 // 11: shared supporter badge dimensions + name clamp to panel.
-const STATS_RENDER_REV = 12;
+const STATS_RENDER_REV = 13;
 const STATS_IMAGE_OPTIONS = Object.freeze({
   quality: 50,
   maxWidth: Math.floor(envNumber('STATS_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 })),
@@ -62,13 +62,13 @@ async function execute(message) {
             ar.name  AS armor_name, ar.type AS armor_type,
             ua.enhancement AS armor_enh, ua.curr_hp AS a_hp, ua.curr_def AS a_def,
             ua.native_sockets AS a_native,
-            dr.name  AS deity_name, dr.blessing_name, ud.sigils AS d1_sigils, ud.ascended AS d1_ascended,
+            dr.name  AS deity_name, dr.blessing_name, ud.sigils AS d1_sigils, ud.ascended AS d1_ascended, ud.enhancement AS d1_enhancement,
             dr.base_atk AS d1_batk, dr.base_hp AS d1_bhp, dr.base_def AS d1_bdef,
             dr.mythology AS d1_myth,
-            d2r.name AS deity2_name, ud2.sigils AS d2_sigils,
+            d2r.name AS deity2_name, ud2.sigils AS d2_sigils, ud2.ascended AS d2_ascended, ud2.enhancement AS d2_enhancement,
             d2r.base_atk AS d2_batk, d2r.base_hp AS d2_bhp, d2r.base_def AS d2_bdef,
             d2r.mythology AS d2_myth,
-            d3r.name AS deity3_name, ud3.sigils AS d3_sigils,
+            d3r.name AS deity3_name, ud3.sigils AS d3_sigils, ud3.ascended AS d3_ascended, ud3.enhancement AS d3_enhancement,
             d3r.base_atk AS d3_batk, d3r.base_hp AS d3_bhp, d3r.base_def AS d3_bdef,
             d3r.mythology AS d3_myth,
             d2r.blessing_name AS deity2_blessing, d3r.blessing_name AS deity3_blessing,
@@ -143,15 +143,20 @@ async function execute(message) {
   const armor = r.a_hp != null
     ? { curr_hp: r.a_hp, curr_def: r.a_def }
     : null;
-  // [Ascension §3.5] Deity stats computed at read time: base × (0.50 + 0.05 × sigils).
   const deity = r.deity_name != null
-    ? computeSigilStats({ base_atk: r.d1_batk, base_hp: r.d1_bhp, base_def: r.d1_bdef }, r.d1_sigils)
+    ? computeDeityProgressionStats({ base_atk: r.d1_batk, base_hp: r.d1_bhp, base_def: r.d1_bdef }, {
+      sigils: r.d1_sigils, ascended: r.d1_ascended, enhancement: r.d1_enhancement,
+    })
     : null;
   const slot2 = r.deity2_name != null
-    ? computeSigilStats({ base_atk: r.d2_batk, base_hp: r.d2_bhp, base_def: r.d2_bdef }, r.d2_sigils)
+    ? computeDeityProgressionStats({ base_atk: r.d2_batk, base_hp: r.d2_bhp, base_def: r.d2_bdef }, {
+      sigils: r.d2_sigils, ascended: r.d2_ascended, enhancement: r.d2_enhancement,
+    })
     : null;
   const slot3 = r.deity3_name != null
-    ? computeSigilStats({ base_atk: r.d3_batk, base_hp: r.d3_bhp, base_def: r.d3_bdef }, r.d3_sigils)
+    ? computeDeityProgressionStats({ base_atk: r.d3_batk, base_hp: r.d3_bhp, base_def: r.d3_bdef }, {
+      sigils: r.d3_sigils, ascended: r.d3_ascended, enhancement: r.d3_enhancement,
+    })
     : null;
   const deityInfos = [
     r.deity_name ? { name: r.deity_name, mythology: r.d1_myth } : null,
@@ -167,8 +172,7 @@ async function execute(message) {
   // enhancement column: 1 = +0; display level is enhancement − 1.
   const weaponEnh = r.weapon_name ? Math.max(0, (r.weapon_enh || 1) - 1) : 0;
   const armorEnh  = r.armor_name  ? Math.max(0, (r.armor_enh  || 1) - 1) : 0;
-  // [Ascension] Deity "+n" now shows the Sigil count (0–10).
-  const deityEnh  = r.deity_name  ? Math.max(0, Number(r.d1_sigils) || 0) : 0;
+  const deityEnh  = r.deity_name ? Math.max(0, (Number(r.d1_enhancement) || 1) - 1) : 0;
 
   const combatAtCap = r.combat_level >= MAX_COMBAT_LEVEL;
 

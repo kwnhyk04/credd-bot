@@ -1,5 +1,7 @@
 'use strict';
 
+const { computeSigilStats } = require('../config/ascension');
+
 /**
  * Deity enhancement constants + pure helper (Master §9, §35.6).
  *
@@ -53,10 +55,17 @@ function nextDeityAttempt(tier, enhancement) {
   return { targetLevel: enhancement, cost: costs[enhancement] };
 }
 
+function computeDeityProgressionStats(deity, { sigils, ascended, enhancement }) {
+  if (!ascended) return computeSigilStats(deity, sigils);
+  const storedEnhancement = Math.max(1, Math.min(MAX_ENHANCEMENT, Number(enhancement) || 1));
+  return computeDeityStats(deity, storedEnhancement);
+}
+
 module.exports = {
   MAX_ENHANCEMENT,
   DEITY_BOOST_TABLE,
   DEITY_ESSENCE_COST,
   computeDeityStats,
+  computeDeityProgressionStats,
   nextDeityAttempt,
 };
