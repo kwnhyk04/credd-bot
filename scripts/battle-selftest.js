@@ -765,7 +765,7 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
   check(`${N}-battle fuzz invariants`, ok, detail);
 }
 
-// — [§1.4] boss daily/per-spawn attack cap (pure predicate; both guards read it) —
+// — Boss daily attack cap —
 {
   section('§1.4 boss attack cap');
   const { MAX_BOSS_ATTACKS_PER_DAY, bossAttackDecision } =
@@ -773,22 +773,20 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
   const limit = MAX_BOSS_ATTACKS_PER_DAY;
   check('cap constant is 2', limit === 2, `limit=${limit}`);
 
-  // Two attacks on the SAME spawn succeed, the third is blocked.
-  const d1 = bossAttackDecision({ usedToday: 0, spawnAttacks: 0, limit }); // 1st
-  const d2 = bossAttackDecision({ usedToday: 1, spawnAttacks: 1, limit }); // 2nd (same spawn)
-  const d3 = bossAttackDecision({ usedToday: 2, spawnAttacks: 2, limit }); // 3rd
+  // Two attacks in a day succeed, the third is blocked.
+  const d1 = bossAttackDecision({ usedToday: 0, limit });
+  const d2 = bossAttackDecision({ usedToday: 1, limit });
+  const d3 = bossAttackDecision({ usedToday: 2, limit });
   check('1st attack allowed', d1.allowed === true);
-  check('2nd attack allowed (same spawn)', d2.allowed === true);
+  check('2nd attack allowed', d2.allowed === true);
   check('3rd attack blocked by daily cap', d3.allowed === false && d3.reason === 'daily');
 
-  // Per-spawn cap independently blocks a 3rd hit even if the daily count looks low
-  // (defensive — e.g. a stale/edge count): full spawn allowance already spent.
-  const dSpawn = bossAttackDecision({ usedToday: 0, spawnAttacks: 2, limit });
-  check('per-spawn cap blocks over-cap spawn', dSpawn.allowed === false && dSpawn.reason === 'spawn');
+  const dNextDaySameSpawn = bossAttackDecision({ usedToday: 0, limit });
+  check('next day resets on the same spawn', dNextDaySameSpawn.allowed === true);
 
-  // Next day: usedToday resets to 0 and it is a fresh spawn → attacks allowed again.
-  const dNextDay = bossAttackDecision({ usedToday: 0, spawnAttacks: 0, limit });
-  check('next day resets → allowed again', dNextDay.allowed === true);
+  const bossSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'bossSystem.js'), 'utf8');
+  check('same-spawn upsert resets the daily counter', /attacks = CASE[\s\S]*?ELSE 1[\s\S]*?last_daily_reset =/.test(bossSource));
+  check('no lifetime per-spawn attack gate remains', !/SELECT attacks FROM boss_attack_log WHERE boss_spawn_id/.test(bossSource));
 }
 
 // — [Ascension §3] Sigils, Ascension costs, gacha rates —

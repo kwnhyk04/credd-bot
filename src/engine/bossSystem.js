@@ -116,8 +116,8 @@ const lastBossStatusUrls = new Map(); // guildId -> { spawnId, url }
 // truth shared by the announcement and the defeat payout (they can never disagree). In-memory
 // only (no schema change); a restart loses it and chestForSpawn re-rolls for that spawn.
 const greaterChests = new Map(); // spawnId → { column, qty, label }
-// spawn_ids created by `crd dev spawnboss` — the daily/once-per-spawn attack
-// rules are BYPASSED for these (multi-attack smoke testing). Regular scheduler
+// spawn_ids created by `crd dev spawnboss` — the daily attack rule is BYPASSED
+// for these (multi-attack smoke testing). Regular scheduler
 // spawns keep every rule. In-memory: a restart reverts a test boss to normal
 // rules, which is fine for testing.
 const devSpawns = new Set();
@@ -1281,15 +1281,12 @@ async function handleAttack(interaction) {
     if (!state || state.status !== 'active') {
       return fail('There is no active boss right now — it has fallen. `crd boss` shows the latest status.');
     }
-    // dev-spawned test boss (crd dev spawnboss): the daily lock and the
-    // once-per-spawn rule are BYPASSED so testers can attack repeatedly;
+    // Dev-spawned test bosses bypass the daily lock so testers can attack repeatedly;
     // damage accumulates on their boss_attack_log row instead
     const isDev = devSpawns.has(state.spawn_id);
     if (!isDev) {
-      // gate 4 — global daily limit (PHT clock). §1.4: a player may attack up to
-      // MAX_BOSS_ATTACKS_PER_DAY times/day, and both attacks MAY land on the same
-      // spawn. One row per (spawn, player); the `attacks` counter accumulates, so the
-      // daily usage is SUM(attacks) today, not the number of rows.
+      // Gate 4: global daily limit (PHT clock). A player may attack up to
+      // MAX_BOSS_ATTACKS_PER_DAY times/day across all boss spawns.
       const dailyLimit = bossDailyAttackLimit();
       const dl = await pool.query(
         `SELECT COALESCE(SUM(attacks), 0)::int AS used
@@ -1299,18 +1296,9 @@ async function handleAttack(interaction) {
         [discordId]
       );
       const usedToday = Number(dl.rows[0]?.used || 0);
-      // gate 5 — per-spawn attacks already spent on THIS spawn.
-      const al = await pool.query(
-        'SELECT attacks FROM boss_attack_log WHERE boss_spawn_id = $1 AND discord_id = $2',
-        [state.spawn_id, discordId]
-      );
-      const spawnAttacks = Number(al.rows[0]?.attacks || 0);
-      // Both guards read the shared cap predicate (§1.4).
-      const decision = bossAttackDecision({ usedToday, spawnAttacks, limit: dailyLimit });
+      const decision = bossAttackDecision({ usedToday, limit: dailyLimit });
       if (!decision.allowed) {
-        return fail(decision.reason === 'daily'
-          ? `You already used all ${dailyLimit} boss attacks today — your attacks reset at midnight PHT.`
-          : 'You already used all your attacks on this boss.');
+        return fail(`You already used all ${dailyLimit} boss attacks today — your attacks reset at midnight PHT.`);
       }
     }
     // gate 6 — no live battle: claim the active_battles slot (reaper covers crashes)
@@ -1365,21 +1353,22 @@ async function handleAttack(interaction) {
           await dbc.query('ROLLBACK');
           return fail('The boss just fell before your strike landed!'); // daily lock NOT consumed
         }
-        // §1.4: attacks ACCUMULATE on the one (spawn, player) row. Dev test bosses
-        // accumulate without a cap; regular bosses accumulate up to the per-spawn
-        // allowance (MAX_BOSS_ATTACKS_PER_DAY). A conflict-update that fails its cap
-        // guard returns no row → the strike is rejected and the txn rolls back (no
-        // pool damage kept). The active_battles slot serializes a user's attacks, so
-        // this is a backstop, not the primary gate.
+        // The per-spawn row keeps lifetime damage while attacks tracks the current
+        // PHT day. The conflict guard is a backstop for the daily limit.
         const ins = await dbc.query(
           `INSERT INTO boss_attack_log
              (boss_spawn_id, guild_id, discord_id, mob_id, total_damage, attacks, last_daily_reset)
            VALUES ($1, $2, $3, $4, $5, 1, (NOW() AT TIME ZONE 'Asia/Manila')::date)
            ON CONFLICT (boss_spawn_id, discord_id) DO UPDATE SET
-             attacks = boss_attack_log.attacks + 1,
+             attacks = CASE
+               WHEN boss_attack_log.last_daily_reset = (NOW() AT TIME ZONE 'Asia/Manila')::date
+                 THEN boss_attack_log.attacks + 1
+               ELSE 1
+             END,
              total_damage = boss_attack_log.total_damage + EXCLUDED.total_damage,
-             attacked_at = NOW()
-           ${isDev ? '' : 'WHERE boss_attack_log.attacks < $6'}
+             attacked_at = NOW(),
+             last_daily_reset = (NOW() AT TIME ZONE 'Asia/Manila')::date
+           ${isDev ? '' : "WHERE boss_attack_log.last_daily_reset <> (NOW() AT TIME ZONE 'Asia/Manila')::date OR boss_attack_log.attacks < $6"}
            RETURNING id`,
           isDev
             ? [state.spawn_id, guildId, discordId, state.mob_id, net]
@@ -1387,7 +1376,7 @@ async function handleAttack(interaction) {
         );
         if (ins.rows.length === 0) {
           await dbc.query('ROLLBACK');
-          return fail('You already used all your attacks on this boss.');
+          return fail(`You already used all ${bossDailyAttackLimit()} boss attacks today — your attacks reset at midnight PHT.`);
         }
         // [v5 Phase 5b] track highest single-attack boss damage (leaderboard metric)
         await dbc.query(
