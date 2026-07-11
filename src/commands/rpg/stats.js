@@ -1,6 +1,6 @@
 'use strict';
 
-const { MediaGalleryBuilder, MessageFlags } = require('discord.js');
+const { EmbedBuilder, MediaGalleryBuilder, MessageFlags } = require('discord.js');
 const { renderOptimizedAttachment, attachmentFromOptimizedImage } = require('../../utils/imageOutput');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 const pool = require('../../db/pool');
@@ -297,12 +297,18 @@ async function execute(message) {
   }
 
   const image = cached?.image
-    ? attachmentFromOptimizedImage(cached.image, 'stats', { ...logContext, reusedBuffer: true })
-    : await renderOptimizedAttachment(() => renderStatsImage(data), 'stats', { ...STATS_IMAGE_OPTIONS, logContext });
+    ? attachmentFromOptimizedImage(cached.image, `stats-${discordId}`, { ...logContext, reusedBuffer: true })
+    : await renderOptimizedAttachment(() => renderStatsImage(data), `stats-${discordId}`, { ...STATS_IMAGE_OPTIONS, logContext });
 
-  // Image only — no embed/container wrapper (RenderTweaks Tweak 2).
+  // Reference the uploaded buffer by its exact attachment filename.
+  const filename = `stats-${discordId}.webp`;
+  if (image.name !== filename || image.format !== 'webp') {
+    throw new Error(`Stats image output mismatch: expected ${filename}, received ${image.name} (${image.format}).`);
+  }
+  const embed = new EmbedBuilder().setImage(`attachment://${filename}`);
   await message.reply({
-    files: [image.file],
+    embeds: [embed],
+    files: [{ attachment: image.buffer, name: filename }],
     allowedMentions: { repliedUser: false },
   });
 }

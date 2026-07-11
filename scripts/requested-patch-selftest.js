@@ -3,6 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { createCanvas } = require('@napi-rs/canvas');
 const { resolveBattle } = require('../src/engine/battleEngine');
 const PASSIVES = require('../src/engine/passiveRegistry');
 const { RAID_LOOT, rollRaidChest } = require('../src/config/raidLoot');
@@ -12,6 +13,7 @@ const { computeDeityProgressionStats } = require('../src/engine/deityEnhancement
 const { syncSubscriptionEntitlementsTx } = require('../src/engine/supporterEntitlements');
 const { buildDeityInfoPayload, attemptDeityEnhance } = require('../src/commands/rpg/deity');
 const { buildInfoPayload } = require('../src/commands/rpg/equipment');
+const { detectImageFormat, validateGeneratedImageBuffer } = require('../src/utils/imageOutput');
 
 const player = (over = {}) => ({
   name: 'Hero', kind: 'player', class: 'Test', classPassive: null,
@@ -31,6 +33,15 @@ const firstDamage = (sim, token = 'attacks') => {
 };
 
 async function main() {
+  const imageCanvas = createCanvas(2, 2);
+  const pngBuffer = imageCanvas.toBuffer('image/png');
+  assert.equal(detectImageFormat(pngBuffer), 'png');
+  assert.equal(validateGeneratedImageBuffer(pngBuffer, {}, 'png'), 'png');
+  assert.throws(() => validateGeneratedImageBuffer(undefined), /must be a Buffer/);
+  assert.throws(() => validateGeneratedImageBuffer(Buffer.alloc(0)), /empty or already disposed/);
+  assert.throws(() => validateGeneratedImageBuffer({ pipe() {} }), /must be a Buffer/);
+  assert.throws(() => validateGeneratedImageBuffer(pngBuffer, {}, 'webp'), /format mismatch/);
+
   assert.equal(displayEnhancement(undefined), 0);
   assert.equal(formatEnhancedName('Odin', 1), 'Odin +0');
   assert.equal(formatEnhancedName('Odin', 11), 'Odin +10');
@@ -163,6 +174,11 @@ async function main() {
 
   const avatarSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'engine', 'avatarSystem.js'), 'utf8');
   assert(/purchasableOnly \? 'AND token_cost > 0' : ''/.test(avatarSource));
+
+  const statsSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'commands', 'rpg', 'stats.js'), 'utf8');
+  assert(statsSource.includes('const filename = `stats-${discordId}.webp`;'));
+  assert(statsSource.includes('setImage(`attachment://${filename}`)'));
+  assert(statsSource.includes('files: [{ attachment: image.buffer, name: filename }]'));
 
   const deityPayload = await buildDeityInfoPayload({
     name: 'Odin', enhancement: 1, tier: 'Supreme', mythology: 'Norse', sigils: 0,

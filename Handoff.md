@@ -829,7 +829,7 @@ Validation:
    - Warm growth check: -10 MB.
    - Result: passed.
 7. Ran `git diff --check`; only expected LF-to-CRLF working-tree warnings were reported.
-4. Attempted a local render smoke test with a temporary `assets/avatars/...` file during path investigation.
+8. Attempted a local render smoke test with a temporary `assets/avatars/...` file during path investigation.
    - The sandbox blocked creating that temporary directory with `EPERM`, so no tracked asset files were added.
 
 ## Stats Avatar Alignment and Compression Follow-up
@@ -1011,3 +1011,148 @@ Validation before final commit:
    - Help selftest: 160 passed, 0 failed.
    - Casino selftest: 171 passed, 0 failed.
 3. Ran `git diff --check`; only CRLF normalization warnings were reported.
+
+## Codex Update Ã¢â‚¬â€ Layout, Memory, Compression, and Boss HP Canvas
+
+Timestamp: 2026-07-11 23:13:54 +08:00 (Asia/Taipei)
+
+Updated using: OpenAI Codex.
+
+This entry appends the latest Codex work without replacing or superseding the earlier Claude/Fable and Codex handoff history.
+
+### Commits
+
+1. `8c60bf8` Ã¢â‚¬â€ `Optimize image memory and card layouts`
+2. `4d13a78` Ã¢â‚¬â€ `Refresh boss HP canvas after attacks`
+
+### Default Profile and Stats Layout Updates
+
+Default `crd profile` only:
+
+1. Removed the Character Class and Combat Level line.
+2. Removed Combat EXP text and its progress bar.
+3. Kept the user name at its existing position.
+4. Positioned the equipped title 30px below the name.
+5. Positioned the active supporter badge relative to the avatar without resizing it.
+6. Did not modify supporter-specific or layout-driven profile templates.
+
+Default `crd stats` only:
+
+1. Restored the previous compact 118px header layout.
+2. Removed unintended reserved vertical space.
+3. Kept the user name at its previous position.
+4. Positioned the equipped title 30px below the name.
+5. Positioned the active supporter badge relative to the avatar without resizing it or reserving layout space.
+6. Kept character, equipment, deity, statistics, and combat-record sections in their compact positions.
+7. Did not modify supporter-specific or layout-driven stats templates.
+
+### Image Compression and Memory Updates
+
+1. Generated opaque image attachments now default to WebP unless JPEG is explicitly requested.
+2. Sharp WebP encoding uses effort 5 normally and effort 6 in aggressive mode.
+3. Existing transparency-preserving output paths remain intact.
+4. Image rendering remains serialized by default with `IMAGE_RENDER_CONCURRENCY=1`.
+5. Added a bounded render queue through `IMAGE_RENDER_QUEUE_MAX`, default 32.
+6. Queue overflow fails with `IMAGE_RENDER_QUEUE_FULL` instead of growing without limit.
+7. Added a default decoded asset-cache TTL of 30 minutes.
+8. Added a maximum of 1,000 remote asset availability records.
+9. Cooldown and activity-write Maps are periodically swept and capped at 10,000 entries.
+10. Resource diagnostics default to a 10-minute interval.
+11. Added RSS warnings at 450MB and 600MB.
+12. Diagnostics include heap, external memory, ArrayBuffers, native gap, CPU, PostgreSQL pool state, major cache sizes, and image queue state.
+13. No forced garbage collection or `--expose-gc` requirement was added.
+
+### Railway Production Environment Guidance
+
+Lower image quality values mean stronger compression. The deployed Railway values may intentionally remain lower than `.env.example`.
+
+```env
+IMAGE_OUTPUT_FORMAT=webp
+IMAGE_COMPRESSION_AGGRESSIVE=true
+IMAGE_FAST_OPAQUE_ENCODE=true
+
+IMAGE_WEBP_QUALITY=60
+PROFILE_IMAGE_WEBP_QUALITY=50
+STATS_IMAGE_WEBP_QUALITY=50
+BOSS_IMAGE_WEBP_QUALITY=50
+RAID_BATTLE_FRAME_WEBP_QUALITY=42
+RAID_BATTLE_RESULT_WEBP_QUALITY=42
+
+IMAGE_RENDER_CONCURRENCY=1
+IMAGE_RENDER_QUEUE_MAX=32
+
+ASSET_DISK_CACHE_ENABLED=true
+ASSET_MEMORY_CACHE_MAX_MB=32
+ASSET_CACHE_TTL_MS=1800000
+ASSET_REMOTE_CHECK_MAX=1000
+CANVAS_MEMORY_CACHE_MAX_MB=8
+
+BATTLE_STATIC_LAYER_CACHE_MAX=20
+BATTLE_STATIC_LAYER_CACHE_TTL_MS=300000
+BATTLE_RENDER_CACHE_MAX_MB=24
+
+PROFILE_IMAGE_CACHE_TTL_MS=60000
+PROFILE_IMAGE_CACHE_MAX=25
+
+RESOURCE_LOGS=true
+RESOURCE_LOG_INTERVAL_MS=600000
+
+BOSS_IMAGE_REFRESH_ENABLED=true
+```
+
+Important:
+
+1. Keep `IMAGE_RENDER_CONCURRENCY=1` to limit simultaneous native Canvas allocations.
+2. Keep `CANVAS_MEMORY_CACHE_MAX_MB=8` for the current low-user Railway deployment.
+3. Add `IMAGE_RENDER_QUEUE_MAX=32`, `ASSET_CACHE_TTL_MS=1800000`, and `ASSET_REMOTE_CHECK_MAX=1000` if absent.
+4. Keep `BOSS_IMAGE_REFRESH_ENABLED=true` so the boss HP canvas regenerates after attacks.
+
+### Memory Validation
+
+The expanded memory test rendered 100 sequential profile/stats images and then 16 queued concurrent images.
+
+1. Baseline RSS: 65MB.
+2. Cold render RSS: 143MB.
+3. RSS after 100 sequential images: 354MB.
+4. Concurrent batch RSS: 346MB.
+5. RSS after idle cleanup: 293MB.
+6. Warm-to-idle growth: -61MB.
+7. JavaScript heap remained around 8Ã¢â‚¬â€œ9MB.
+8. Asset cache stabilized at 10 entries and approximately 44MB under the test configuration.
+
+The measurements indicate that most temporary growth came from native image allocations, external Buffers, and ArrayBuffers rather than an expanding JavaScript heap. RSS fell after rendering stopped.
+
+Representative quality-68 WebP measurements:
+
+1. Profile: 3,525,971-byte PNG to 329,014-byte WebP, a 90.7% reduction.
+2. Stats: 3,525,807-byte PNG to 330,084-byte WebP, a 90.6% reduction.
+
+### Boss HP Canvas Fix
+
+1. Fixed the successful boss-attack refresh path.
+2. The bot now fetches the committed boss state and immediately regenerates the full live boss status canvas.
+3. Canvas HP text and the HP bar now display updated HP after an attack.
+4. The text-only path remains only when `BOSS_IMAGE_REFRESH_ENABLED=false`.
+5. Boss damage, combat simulation, attack limits, rewards, and database behavior were not changed.
+
+### Validation
+
+1. JavaScript syntax checks passed.
+2. `git diff --check` passed apart from expected Windows line-ending warnings.
+3. Requested patch self-test passed.
+4. Memory stress test passed.
+5. Battle self-test: 186 passed, 0 failed.
+6. Schema drift self-test passed.
+7. Help self-test: 181 passed, 0 failed.
+8. Casino self-test: 171 passed, 0 failed.
+
+Use `npm.cmd` on Windows because PowerShell may block `npm.ps1`:
+
+```powershell
+npm.cmd run selftest:full
+npm.cmd run selftest:memory
+```
+
+### Agent Attribution Note
+
+This appended section was written by OpenAI Codex. Earlier entries must remain intact because the repository is also maintained using Claude/Fable. Future agents should append their work with a timestamp and agent attribution rather than deleting prior history.

@@ -57,6 +57,35 @@ function imageResult(buffer, baseName, ext, optimized) {
   return { buffer, name: `${baseName}.${ext}`, optimized, format: ext === 'jpg' ? 'jpeg' : ext };
 }
 
+function detectImageFormat(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) return null;
+  if (buffer.length >= 12
+      && buffer.toString('ascii', 0, 4) === 'RIFF'
+      && buffer.toString('ascii', 8, 12) === 'WEBP') return 'webp';
+  if (buffer.length >= 8
+      && buffer[0] === 0x89 && buffer.toString('ascii', 1, 4) === 'PNG') return 'png';
+  if (buffer.length >= 3
+      && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'jpeg';
+  return null;
+}
+
+function validateGeneratedImageBuffer(buffer, logContext = {}, expectedFormat = null) {
+  if (!Buffer.isBuffer(buffer)) throw new TypeError('Generated image output must be a Buffer.');
+  if (buffer.length === 0) throw new Error('Generated image output is empty or already disposed.');
+  const format = detectImageFormat(buffer);
+  if (!format) throw new Error('Generated image output has an unsupported or invalid signature.');
+  const expected = expectedFormat === 'jpg' ? 'jpeg' : expectedFormat;
+  if (expected && format !== expected) {
+    throw new Error(`Generated image format mismatch: expected ${expected}, detected ${format}.`);
+  }
+  performanceLog('generated image buffer validated', {
+    ...logContext,
+    bytes: buffer.length,
+    format,
+  });
+  return format;
+}
+
 async function optimizeOpaqueAttachment(buffer, baseName, {
   quality = 85,
   background = '#1f2125',
@@ -67,16 +96,22 @@ async function optimizeOpaqueAttachment(buffer, baseName, {
   skipQueue = false,
   logContext = {},
 } = {}) {
-  const input = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
-  const run = () => optimizeImageBuffer(input, baseName, {
-    quality,
-    background,
-    minSavings,
-    maxWidth,
-    preserveTransparency,
-    allowWebp,
-    logContext,
-  });
+  if (!Buffer.isBuffer(buffer)) throw new TypeError('Generated image output must be a Buffer.');
+  if (buffer.length === 0) throw new Error('Generated image output is empty or already disposed.');
+  const input = buffer;
+  const run = async () => {
+    const image = await optimizeImageBuffer(input, baseName, {
+      quality,
+      background,
+      minSavings,
+      maxWidth,
+      preserveTransparency,
+      allowWebp,
+      logContext,
+    });
+    validateGeneratedImageBuffer(image.buffer, logContext, extensionFromName(image.name));
+    return image;
+  };
   if (skipQueue) return run();
   return withImageWorkSlot(logContext.imageType || baseName, run, logContext);
 }
@@ -197,12 +232,15 @@ async function optimizeImageBuffer(input, baseName, {
 }
 
 function attachmentFromOptimizedImage(image, baseName, logContext = {}) {
+  if (!image || typeof image !== 'object') throw new TypeError('Generated image result is missing.');
   const ext = extensionFromName(image.name);
   const name = `${baseName}.${ext}`;
+  const format = validateGeneratedImageBuffer(image.buffer, logContext, ext);
   assertDiscordImageAttachmentsAllowed(`${baseName} attachment fallback`, {
     ...logContext,
     imageType: logContext.imageType || baseName,
     bytes: image.buffer.length,
+    format,
   });
   performanceLog('image output bytes', {
     ...logContext,
@@ -218,7 +256,8 @@ function attachmentFromOptimizedImage(image, baseName, logContext = {}) {
 }
 
 async function makeOptimizedAttachment(buffer, baseName, options = {}) {
-  const input = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  if (!Buffer.isBuffer(buffer)) throw new TypeError('Generated image output must be a Buffer.');
+  const input = buffer;
   const logContext = options.logContext || {};
   assertDiscordImageAttachmentsAllowed(`${baseName} attachment fallback`, {
     ...logContext,
@@ -226,10 +265,12 @@ async function makeOptimizedAttachment(buffer, baseName, options = {}) {
     bytes: input.length,
   });
   const image = await optimizeOpaqueAttachment(input, baseName, options);
+  const format = validateGeneratedImageBuffer(image.buffer, logContext, extensionFromName(image.name));
   performanceLog('image output bytes', {
     ...logContext,
     imageType: logContext.imageType || baseName,
     bytes: image.buffer.length,
+    format,
   });
   return {
     ...image,
@@ -254,4 +295,6 @@ module.exports = {
   attachmentFromOptimizedImage,
   imageContentType,
   extensionFromName,
+  detectImageFormat,
+  validateGeneratedImageBuffer,
 };
