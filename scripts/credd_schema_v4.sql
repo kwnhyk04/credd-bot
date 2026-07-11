@@ -173,6 +173,8 @@ CREATE TABLE user_deities (
     curr_hp        INTEGER     NOT NULL,
     curr_def       INTEGER     NOT NULL,
     enhancement    SMALLINT    NOT NULL DEFAULT 1 CHECK (enhancement BETWEEN 1 AND 11),
+    sigils         SMALLINT    NOT NULL DEFAULT 0 CHECK (sigils BETWEEN 0 AND 10),
+    ascended       BOOLEAN     NOT NULL DEFAULT FALSE,
     obtained_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_pull_date DATE        NOT NULL,
     UNIQUE (discord_id, deity_id)                                -- one owned row per deity

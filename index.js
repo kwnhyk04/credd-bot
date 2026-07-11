@@ -13,6 +13,7 @@ const { startResetScheduler } = require('./src/schedulers/resetScheduler');
 const { startBossScheduler } = require('./src/schedulers/bossScheduler');
 const { startSeasonScheduler } = require('./src/schedulers/seasonScheduler');
 const pool = require('./src/db/pool');
+const { verifyRequiredSchema } = require('./src/db/schemaGuard');
 const { auditWeaponEmojis, reconcileEmojiIds } = require('./src/utils/emojis');
 const { sweepCanvasCache, verifyCanvasCacheReady } = require('./src/utils/canvasCache');
 const { syncSlashCommandsOnStart } = require('./src/utils/slashCommandSync');
@@ -165,4 +166,19 @@ async function shutdown(signal) {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
-client.login(BOT_TOKEN);
+async function bootstrap() {
+  try {
+    await verifyRequiredSchema(pool);
+  } catch (err) {
+    console.error('[credd] Refusing to log in: database schema check failed:', err);
+    await pool.end().catch(() => {});
+    process.exitCode = 1;
+    return;
+  }
+  await client.login(BOT_TOKEN);
+}
+
+bootstrap().catch((err) => {
+  console.error('[credd] Startup failed:', err);
+  process.exitCode = 1;
+});

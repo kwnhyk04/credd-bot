@@ -36,7 +36,7 @@ const fs = require('fs');
 const path = require('path');
 const {
   ContainerBuilder, ButtonBuilder, ButtonStyle,
-  MessageFlags,
+  MessageFlags, PermissionFlagsBits,
 } = require('discord.js');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const pool = require('../db/pool');
@@ -836,6 +836,40 @@ async function resolveAnnounceChannelId(guildId) {
   return guildConfig.getConfig(guildId).boss_announcement_channel_id || null;
 }
 
+function redirectChannelIssue(channel, guildId, botUser) {
+  if (channel.guildId !== guildId) return `channel belongs to guild ${channel.guildId || 'unknown'}`;
+  if (typeof channel.isTextBased !== 'function' || !channel.isTextBased()) {
+    return 'channel is not text-based';
+  }
+  if (typeof channel.isSendable === 'function' && !channel.isSendable()) {
+    return 'channel type is not sendable';
+  }
+  const permissions = typeof channel.permissionsFor === 'function'
+    ? channel.permissionsFor(botUser)
+    : null;
+  if (!permissions?.has(PermissionFlagsBits.ViewChannel)) return 'missing View Channel';
+  const sendPermission = typeof channel.isThread === 'function' && channel.isThread()
+    ? PermissionFlagsBits.SendMessagesInThreads
+    : PermissionFlagsBits.SendMessages;
+  if (!permissions.has(sendPermission)) {
+    return channel.isThread?.() ? 'missing Send Messages in Threads' : 'missing Send Messages';
+  }
+  if (channel.isThread?.() && channel.archived) return 'thread is archived';
+  if (channel.isThread?.() && channel.joined === false && channel.joinable === false) {
+    return 'bot is not in the thread and cannot join it';
+  }
+  return null;
+}
+
+function warnRedirectFailure(guildId, channelId, channel, reason) {
+  console.warn('[boss] official redirect skipped', {
+    guildId,
+    channelId,
+    channelType: channel?.type ?? 'unresolved',
+    reason,
+  });
+}
+
 async function postOfficialRedirect(client, guildId, channelIdHint = null, { force = false } = {}) {
   const now = Date.now();
   const last = nonOfficialRedirects.get(guildId) || 0;
@@ -843,17 +877,44 @@ async function postOfficialRedirect(client, guildId, channelIdHint = null, { for
 
   const channelId = channelIdHint || await resolveAnnounceChannelId(guildId);
   if (!channelId) return null;
-  const channel = await client.channels.fetch(channelId).catch(() => null);
-  if (!channel) return null;
-  const msg = await channel.send({
-    content: bossRedirectMessage(),
-    allowedMentions: { parse: [] },
-  }).catch((err) => {
-    console.error(`[boss] official redirect failed (guild ${guildId}):`, err.message);
+  nonOfficialRedirects.set(guildId, now);
+
+  let channel;
+  try {
+    channel = await client.channels.fetch(channelId);
+  } catch (err) {
+    warnRedirectFailure(guildId, channelId, null, `${err.code || 'fetch failed'}: ${err.message}`);
     return null;
-  });
-  if (msg) nonOfficialRedirects.set(guildId, now);
-  return msg;
+  }
+  if (!channel) {
+    warnRedirectFailure(guildId, channelId, null, 'channel was not found');
+    return null;
+  }
+
+  const issue = redirectChannelIssue(channel, guildId, client.user);
+  if (issue) {
+    warnRedirectFailure(guildId, channelId, channel, issue);
+    return null;
+  }
+
+  if (channel.isThread?.() && channel.joined === false && channel.joinable) {
+    try {
+      await channel.join();
+    } catch (err) {
+      warnRedirectFailure(guildId, channelId, channel, `${err.code || 'thread join failed'}: ${err.message}`);
+      return null;
+    }
+  }
+
+  try {
+    return await channel.send({
+      content: bossRedirectMessage(),
+      allowedMentions: { parse: [] },
+    });
+  } catch (err) {
+    warnRedirectFailure(guildId, channelId, channel, `${err.code || 'send failed'}: ${err.message}`);
+    return null;
+  }
 }
 
 /** Post a fresh boss message in the configured (or hinted) channel and repoint the Map. */
@@ -1508,4 +1569,6 @@ module.exports = {
   buildBossMessage,
   repointLiveMessage,
   refreshLiveMessage,
+  postOfficialRedirect,
+  redirectChannelIssue,
 };

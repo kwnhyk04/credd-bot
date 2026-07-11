@@ -482,6 +482,8 @@ CREATE TABLE IF NOT EXISTS public."user_deities" (
     "curr_hp" integer NOT NULL,
     "curr_def" integer NOT NULL,
     "enhancement" smallint DEFAULT 1 NOT NULL,
+    "sigils" smallint DEFAULT 0 NOT NULL,
+    "ascended" boolean DEFAULT false NOT NULL,
     "obtained_at" timestamp with time zone DEFAULT now() NOT NULL,
     "last_pull_date" date NOT NULL
 );
@@ -1811,6 +1813,17 @@ BEGIN
        AND conrelid = 'public.user_deities'::regclass
   ) THEN
     ALTER TABLE public."user_deities" ADD CONSTRAINT "user_deities_enhancement_check" CHECK (enhancement >= 1 AND enhancement <= 11);
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'user_deities_sigils_check'
+       AND conrelid = 'public.user_deities'::regclass
+  ) THEN
+    ALTER TABLE public."user_deities" ADD CONSTRAINT "user_deities_sigils_check" CHECK (sigils >= 0 AND sigils <= 10);
   END IF;
 END $$;
 

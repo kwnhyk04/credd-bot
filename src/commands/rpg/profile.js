@@ -39,7 +39,7 @@ const PROFILE_IMAGE_OPTIONS = Object.freeze({
  * so the displayed numbers match what actually fights. Display name + avatar are read
  * from the target's Discord member/user, not the DB. With no mention, shows your own.
  */
-async function execute(message) {
+async function executeProfile(message, db = pool) {
   // Target: a mentioned/option user, else the author. Member gives the server nickname.
   // [v4.9] ctx.getMention works on both the prefix (@mention) and slash (user option) paths.
   const {
@@ -50,7 +50,7 @@ async function execute(message) {
     fallbackAvatarUrl,
   } = resolveProfileTarget(message);
   const [characterResult, raidStreakResult, rankedResult] = await Promise.all([
-    pool.query(
+    db.query(
       `SELECT uc.class, uc.combat_level, uc.combat_exp,
             uc.believer_level, uc.believer_exp,
             uc.raids_won, uc.raids_lost, uc.pvp_wins, uc.pvp_losses,
@@ -60,13 +60,17 @@ async function execute(message) {
             ar.name  AS armor_name, ar.type AS armor_type,
             ua.enhancement AS armor_enh, ua.curr_hp AS a_hp, ua.curr_def AS a_def,
             ua.native_sockets AS a_native,
-            dr.name  AS deity_name, dr.blessing_name, ud.sigils AS d1_sigils, ud.ascended AS d1_ascended, ud.enhancement AS d1_enhancement,
+            dr.name AS deity_name, dr.blessing_name,
+            COALESCE(ud.sigils, 0) AS d1_unlocked_sigils,
+            COALESCE(ud.ascended, FALSE) AS d1_ascended, ud.enhancement AS d1_enhancement,
             dr.base_atk AS d1_batk, dr.base_hp AS d1_bhp, dr.base_def AS d1_bdef,
             dr.mythology AS d1_myth,
-            d2r.name AS deity2_name, ud2.sigils AS d2_sigils, ud2.ascended AS d2_ascended, ud2.enhancement AS d2_enhancement,
+            d2r.name AS deity2_name, COALESCE(ud2.sigils, 0) AS d2_unlocked_sigils,
+            COALESCE(ud2.ascended, FALSE) AS d2_ascended, ud2.enhancement AS d2_enhancement,
             d2r.base_atk AS d2_batk, d2r.base_hp AS d2_bhp, d2r.base_def AS d2_bdef,
             d2r.mythology AS d2_myth,
-            d3r.name AS deity3_name, ud3.sigils AS d3_sigils, ud3.ascended AS d3_ascended, ud3.enhancement AS d3_enhancement,
+            d3r.name AS deity3_name, COALESCE(ud3.sigils, 0) AS d3_unlocked_sigils,
+            COALESCE(ud3.ascended, FALSE) AS d3_ascended, ud3.enhancement AS d3_enhancement,
             d3r.base_atk AS d3_batk, d3r.base_hp AS d3_bhp, d3r.base_def AS d3_bdef,
             d3r.mythology AS d3_myth,
             tcq.display AS equipped_title
@@ -86,7 +90,7 @@ async function execute(message) {
       [discordId]
     ),
     // Raid streak = CURRENT win streak (leading wins from the most recent raid).
-    pool.query(
+    db.query(
       `WITH ordered AS (
          SELECT result, ROW_NUMBER() OVER (ORDER BY timestamp DESC, id DESC) AS rn
            FROM raid_logs
@@ -99,7 +103,7 @@ async function execute(message) {
       [discordId]
     ),
     // Rank record from ranked_logs (challenger-only rows; result win|loss). rank streak = CURRENT.
-    pool.query(
+    db.query(
       `WITH ordered AS (
          SELECT result, ROW_NUMBER() OVER (ORDER BY timestamp DESC, id DESC) AS rn
            FROM ranked_logs
@@ -140,17 +144,17 @@ async function execute(message) {
     : null;
   const deity = r.deity_name != null
     ? computeDeityProgressionStats({ base_atk: r.d1_batk, base_hp: r.d1_bhp, base_def: r.d1_bdef }, {
-      sigils: r.d1_sigils, ascended: r.d1_ascended, enhancement: r.d1_enhancement,
+      sigils: r.d1_unlocked_sigils, ascended: r.d1_ascended, enhancement: r.d1_enhancement,
     })
     : null;
   const slot2 = r.deity2_name != null
     ? computeDeityProgressionStats({ base_atk: r.d2_batk, base_hp: r.d2_bhp, base_def: r.d2_bdef }, {
-      sigils: r.d2_sigils, ascended: r.d2_ascended, enhancement: r.d2_enhancement,
+      sigils: r.d2_unlocked_sigils, ascended: r.d2_ascended, enhancement: r.d2_enhancement,
     })
     : null;
   const slot3 = r.deity3_name != null
     ? computeDeityProgressionStats({ base_atk: r.d3_batk, base_hp: r.d3_bhp, base_def: r.d3_bdef }, {
-      sigils: r.d3_sigils, ascended: r.d3_ascended, enhancement: r.d3_enhancement,
+      sigils: r.d3_unlocked_sigils, ascended: r.d3_ascended, enhancement: r.d3_enhancement,
     })
     : null;
   const deityInfos = [
@@ -161,7 +165,7 @@ async function execute(message) {
   const resonance = computeResonanceMods(deityInfos);
   const pantheonMods = (slot2 || slot3 || resonance.atkPct || resonance.hpPct || resonance.defPct || resonance.critPts)
     ? { slot2, slot3, resonance } : null;
-  const { mods: runeMods } = await accumulateRuneStats(pool, r);
+  const { mods: runeMods } = await accumulateRuneStats(db, r);
   const stats = assemblePlayerStats(r.class, r.combat_level, weapon, armor, deity, runeMods, pantheonMods);
 
   // enhancement column: 1 = +0; display level is enhancement − 1.
@@ -225,13 +229,13 @@ async function execute(message) {
     userId: discordId,
   };
 
-  const skin = await resolveSkin(pool, discordId, 'profile');
+  const skin = await resolveSkin(db, discordId, 'profile');
   data.skinPath = skin.path; // null → renderer keeps the default template
-  data.topLabel = await resolveProfileLabel(pool, discordId);
+  data.topLabel = await resolveProfileLabel(db, discordId);
   // [§2.5] Supporter badge — active subscribers only; resolved here so the badge
   // identity is part of the cache key via `data`; missing art → renderer skips.
   data.supporterBadgePath = null;
-  const supporterTier = effectiveTier(await getSupporter(pool, discordId));
+  const supporterTier = effectiveTier(await getSupporter(db, discordId));
   if (supporterTier && SUPPORTER_BADGE_FILE[supporterTier]) {
     const badgeRel = `${SUPPORTER_BADGE_DIR}/${SUPPORTER_BADGE_FILE[supporterTier]}.png`;
     if (isRemoteAssetsEnabled()) {
@@ -288,4 +292,22 @@ async function execute(message) {
   });
 }
 
-module.exports = { execute, believerTitle };
+async function execute(message, options = {}) {
+  try {
+    await executeProfile(message, options.db || pool);
+  } catch (err) {
+    console.error('[profile] command failed', {
+      command: 'profile',
+      operation: 'load-and-render-profile',
+      userId: message.author?.id,
+      guildId: message.guild?.id,
+      error: err,
+    });
+    await message.reply({
+      content: 'Profile is temporarily unavailable. Please try again later.',
+      allowedMentions: { repliedUser: false },
+    }).catch(() => {});
+  }
+}
+
+module.exports = { execute, executeProfile, believerTitle };
