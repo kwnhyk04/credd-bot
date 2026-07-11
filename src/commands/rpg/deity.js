@@ -657,7 +657,7 @@ async function enhance(message, name) {
 async function fetchDeityForgeData(discordId, userDeityId) {
   const { rows } = await pool.query(
     `SELECT ud.user_deity_id, ud.enhancement, ud.curr_atk, ud.curr_hp, ud.curr_def,
-            dr.name, dr.tier, dr.base_atk, dr.base_hp, dr.base_def
+            dr.name, dr.mythology, dr.tier, dr.base_atk, dr.base_hp, dr.base_def
        FROM user_deities ud
        JOIN deity_roster dr ON dr.deity_id = ud.deity_id
       WHERE ud.user_deity_id = $1 AND ud.discord_id = $2`,

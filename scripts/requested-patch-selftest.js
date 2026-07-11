@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const { resolveBattle } = require('../src/engine/battleEngine');
 const PASSIVES = require('../src/engine/passiveRegistry');
 const { RAID_LOOT, rollRaidChest } = require('../src/config/raidLoot');
@@ -155,6 +157,9 @@ async function main() {
   };
   const enhanced = await attemptDeityEnhance(enhanceClient, '123', 1);
   assert.deepEqual(enhanced, { status: 'done', name: 'Odin', previousLevel: 0, level: 1, cost: 2 });
+
+  const deitySource = fs.readFileSync(path.join(__dirname, '..', 'src', 'commands', 'rpg', 'deity.js'), 'utf8');
+  assert(/dr\.name, dr\.mythology, dr\.tier, dr\.base_atk/.test(deitySource));
 
   const deityPayload = await buildDeityInfoPayload({
     name: 'Odin', enhancement: 1, tier: 'Supreme', mythology: 'Norse', sigils: 0,
