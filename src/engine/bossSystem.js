@@ -1468,16 +1468,17 @@ async function handleAttack(interaction) {
         await distributeRewards(interaction.client, guildId, state.spawn_id, {
           includeStatusImage: false,
         });
+      } else if (bossImageRefreshEnabled()) {
+        await refreshLiveMessage(interaction.client, guildId).catch((err) => {
+          console.error(`[boss] immediate image refresh failed (guild ${guildId}):`, err.message);
+        });
       } else {
         await refreshLiveMessageTextOnly(interaction.client, guildId, {
           spawnId: state.spawn_id,
-          reason: 'attack-committed',
+          reason: 'image-refresh-disabled',
         }).catch((err) => {
           console.error(`[boss] immediate text refresh failed (guild ${guildId}):`, err.message);
         });
-        if (bossImageRefreshEnabled()) {
-          scheduleBossLiveRefresh(interaction.client, guildId, { spawnId: state.spawn_id });
-        }
       }
 
       const survived = sim.outcome === 'boss_timeout';
