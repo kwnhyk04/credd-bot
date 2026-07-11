@@ -161,6 +161,9 @@ async function main() {
   const deitySource = fs.readFileSync(path.join(__dirname, '..', 'src', 'commands', 'rpg', 'deity.js'), 'utf8');
   assert(/dr\.name, dr\.mythology, dr\.tier, dr\.base_atk/.test(deitySource));
 
+  const avatarSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'engine', 'avatarSystem.js'), 'utf8');
+  assert(/purchasableOnly \? 'AND token_cost > 0' : ''/.test(avatarSource));
+
   const deityPayload = await buildDeityInfoPayload({
     name: 'Odin', enhancement: 1, tier: 'Supreme', mythology: 'Norse', sigils: 0,
     ascended: false, base_atk: 100, base_hp: 100, base_def: 100,

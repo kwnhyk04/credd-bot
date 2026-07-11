@@ -201,12 +201,14 @@ async function getCharacter(pool, userId) {
   return res.rows[0] || null;
 }
 
-async function queryClassAvatars(db, className) {
+async function queryClassAvatars(db, className, { purchasableOnly = false } = {}) {
+  const shopFilter = purchasableOnly ? 'AND token_cost > 0' : '';
   const res = await db.query(
     `SELECT avatar_id, avatar_key, display_name, class_name, gender, style, token_cost, asset_path
        FROM avatar_catalog
       WHERE is_active = TRUE
         AND lower(class_name) = lower($1)
+        ${shopFilter}
       ORDER BY
         COALESCE(CASE style WHEN 'cyber' THEN 1 WHEN 'anime' THEN 2 WHEN 'webtoon' THEN 3 ELSE 99 END, 99),
         COALESCE(CASE gender WHEN 'male' THEN 1 WHEN 'female' THEN 2 ELSE 99 END, 99),
@@ -284,13 +286,13 @@ async function buildRows(pool, userId, mode) {
     // Dev accounts own every avatar of their class (idempotent, class-only).
     await ensureDevAvatarOwnership(pool, userId, className);
     const [catalogRows, ownedIds, equippedId] = await Promise.all([
-      queryClassAvatars(pool, className),
+      queryClassAvatars(pool, className, { purchasableOnly: mode === 'shop' }),
       getOwnedAvatarIds(pool, userId, className),
       getEquippedAvatarId(pool, userId, className),
     ]);
     const rows = mode === 'collection'
       ? [fallback, ...catalogRows.filter((row) => ownedIds.has(Number(row.avatar_id)))]
-      // Shop: only purchasable rows — founder/tester are grant-only (§2.2/§2.4).
+      // Shop: only positive-cost catalog rows; founder/tester remain grant-only.
       : catalogRows.filter((row) => !isGrantOnlyAvatarRow(row));
     return { className, rows, ownedIds, equippedId, devUnlocked: isAvatarDevAccount(userId) };
   } catch (err) {
