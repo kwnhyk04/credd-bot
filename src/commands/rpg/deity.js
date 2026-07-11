@@ -651,7 +651,7 @@ async function enhance(message, name) {
     await reply(message, { content: `You haven't summoned ${row.roster_name} yet.` });
     return;
   }
-  await reply(message, buildDeityForgePayload(forge, discordId));
+  await reply(message, await buildDeityForgePayload(forge, discordId));
 }
 
 async function fetchDeityForgeData(discordId, userDeityId) {
@@ -675,12 +675,25 @@ async function fetchDeityForgeData(discordId, userDeityId) {
   return deity;
 }
 
-function buildDeityForgePayload(deity, ownerId, resultLine = null) {
+async function buildDeityForgePayload(deity, ownerId, resultLine = null) {
   const next = nextDeityAttempt(deity.tier, deity.enhancement);
   const currentLevel = Math.max(0, (Number(deity.enhancement) || 1) - 1);
   const container = new ContainerBuilder()
-    .setAccentColor(TIER_COLOR[deity.tier] ?? BRAND)
-    .addTextDisplayComponents((td) => td.setContent(`## Forge — ${deity.name} +${currentLevel}`))
+    .setAccentColor(TIER_COLOR[deity.tier] ?? BRAND);
+  const thumbnailUrl = await firstAvailablePublicImage(resolveDeityPortraitPath(deity), {
+    system: 'deity',
+    command: 'deity_enhance',
+    imageType: 'deity_thumbnail',
+    userId: ownerId,
+  });
+  if (thumbnailUrl) {
+    container.addSectionComponents((section) => section
+      .addTextDisplayComponents((td) => td.setContent(`## Forge — ${deity.name} +${currentLevel}`))
+      .setThumbnailAccessory(new ThumbnailBuilder().setURL(thumbnailUrl)));
+  } else {
+    container.addTextDisplayComponents((td) => td.setContent(`## Forge — ${deity.name} +${currentLevel}`));
+  }
+  container
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(
       `**Current Stats**\nATK: ${deity.curr_atk.toLocaleString()}\nHP: ${deity.curr_hp.toLocaleString()}\nDEF: ${deity.curr_def.toLocaleString()}`
@@ -796,7 +809,7 @@ async function handleEnhanceAttempt(interaction, userDeityId, ownerId) {
         : result.status === 'insufficient'
           ? `Not enough ${result.tier} Essence: need ${result.need}, have ${result.have}.`
           : `${result.name} must Ascend before it can be enhanced.`;
-    await interaction.editReply(buildDeityForgePayload(forge, ownerId, resultLine));
+    await interaction.editReply(await buildDeityForgePayload(forge, ownerId, resultLine));
   } catch (err) {
     if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('[deity enhance] failed:', err.message);
