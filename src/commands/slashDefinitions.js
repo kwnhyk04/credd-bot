@@ -142,6 +142,9 @@ def('deity', 'deity',
     return { args: name ? [sub, name] : [sub], mentions: [] };
   });
 
+def('glossary', 'glossary',
+  new SlashCommandBuilder().setDescription('Browse the Credd glossary'), noArgs);
+
 // ── Battle ────────────────────────────────────────────────────────────────────
 def('raid', 'raid', new SlashCommandBuilder().setDescription('Fight a random mob'), noArgs);
 
