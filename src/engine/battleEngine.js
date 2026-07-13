@@ -93,7 +93,7 @@ const PASSIVE_REGISTRY = require('./passiveRegistry');
 const { CRIT_MULT, OVERCHARGE_MULT, hitMultiplier } = require('../config/combat');
 
 const MAX_ROUNDS = 50;
-const SUDDEN_DEATH_FROM = 30;     // both lose 10% max HP at end of every round ≥ 30
+const SUDDEN_DEATH_FROM = 30;     // player sides lose 10% max HP at end of every round ≥ 30 (mobs/bosses exempt)
 const SUDDEN_DEATH_PCT = 0.10;
 const SNAPSHOT_EVERY = 3;
 const MITIGATION_K = 200;         // §12: 1 − DEF/(DEF+200)
@@ -1058,15 +1058,23 @@ function resolveBattle(a, b, opts = {}) {
         }
         side.debuffs = side.debuffs.filter((d) => d.turnsLeft > 0);
       }
-      // sudden death (§35.3): simultaneous drain; both dead → mob/challenged wins (R5)
+      // sudden death (§35.3): drain only hits player (user) sides — mobs and bosses are
+      // exempt, so in PvE the user bleeds out while the enemy does not; a PvP duel has two
+      // player sides, so both users still drain. Both dead → mob/challenged wins (R5).
       if (!result && round >= SUDDEN_DEATH_FROM) {
-        const drainA = Math.floor(A.maxHp * SUDDEN_DEATH_PCT);
-        const drainB = Math.floor(B.maxHp * SUDDEN_DEATH_PCT);
-        damage(A, drainA);
-        damage(B, drainB);
-        shared.events.push(`☠️ Sudden death! Both combatants lose 10% max HP (${A.name} -${drainA}, ${B.name} -${drainB}).`);
-        if (A.hp <= 0 && B.hp <= 0) win(B, 'sudden_death');
-        else checkDeaths('sudden_death');
+        const drained = [];
+        for (const side of [A, B]) {
+          if (side.kind !== 'player') continue;
+          const drain = Math.floor(side.maxHp * SUDDEN_DEATH_PCT);
+          damage(side, drain);
+          drained.push(`${side.name} -${drain}`);
+        }
+        if (drained.length) {
+          const who = drained.length > 1 ? 'Both combatants lose' : 'The challenger loses';
+          shared.events.push(`☠️ Sudden death! ${who} 10% max HP (${drained.join(', ')}).`);
+          if (A.hp <= 0 && B.hp <= 0) win(B, 'sudden_death');
+          else checkDeaths('sudden_death');
+        }
       }
     }
 

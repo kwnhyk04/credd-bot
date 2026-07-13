@@ -139,11 +139,11 @@ function bossLogCacheMaxEventsPerAttacker() {
 }
 
 function bossStatMultiplier() {
-  return envNumber('BOSS_STAT_MULTIPLIER', 10, { min: 1, max: 100 });
+  return envNumber('BOSS_STAT_MULTIPLIER', 5, { min: 1, max: 100 });
 }
 
 function bossAttackDefenseMultiplier() {
-  return envNumber('BOSS_ATK_DEF_MULTIPLIER', 2, { min: 1, max: 100 });
+  return envNumber('BOSS_ATK_DEF_MULTIPLIER', 1.5, { min: 1, max: 100 });
 }
 
 function bossImageMaxWidth() {
