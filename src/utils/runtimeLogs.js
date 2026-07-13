@@ -1,6 +1,9 @@
 'use strict';
 
+const { registerMemorySource } = require('./memoryRegistry');
+
 const warnedEnv = new Set();
+const WARNED_ENV_MAX = 100;
 
 function envRaw(name) {
   const raw = process.env[name];
@@ -11,6 +14,7 @@ function warnInvalidEnv(name, raw, fallback, reason) {
   const key = `${name}:${raw}`;
   if (warnedEnv.has(key)) return;
   warnedEnv.add(key);
+  while (warnedEnv.size > WARNED_ENV_MAX) warnedEnv.delete(warnedEnv.values().next().value);
   console.warn(`[env] ${name}=${raw || '<empty>'} ignored (${reason}); using ${fallback}.`);
 }
 
@@ -105,6 +109,11 @@ function performanceLog(event, meta = {}) {
 function criticalEgressWarn(event, meta = {}) {
   console.warn(`[egress] ${event}${metaString(meta)}`);
 }
+
+registerMemorySource('runtime.env-warnings', () => ({
+  entries: warnedEnv.size,
+  maxEntries: WARNED_ENV_MAX,
+}));
 
 module.exports = {
   envTrue,

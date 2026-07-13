@@ -10,6 +10,7 @@
  */
 
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+const { encodeCanvas } = require('../utils/canvasEncode');
 const path = require('path');
 const { getEmojiIcon, FONT_FAMILY } = require('./renderBagItems');
 const { assetPath, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
@@ -30,19 +31,15 @@ const QUEST_ICON_FILE = {
   duel_wins: 'quest_duel.png',
   duel_challenges: 'quest_duel.png',
 };
-const questIconCache = new Map(); // type → Image | null
 async function loadAssetImage(source) {
   return loadAssetImageSource(loadImage, source);
 }
 
 async function getQuestIcon(type) {
-  if (questIconCache.has(type)) return questIconCache.get(type);
   const file = assetPath(`quest icons/${QUEST_ICON_FILE[type] || 'quest_icon.png'}`);
-  let img = null;
-  try { img = await loadAssetImage(file); }
+  try { return await loadAssetImage(file); }
   catch (err) { console.error(`[renderQuestRows] icon '${type}' failed:`, err.message); }
-  questIconCache.set(type, img);
-  return img;
+  return null;
 }
 
 // Layout
@@ -188,7 +185,7 @@ async function renderQuestRowsImage(quests, { rewardIcon = 'belief_shards' } = {
 
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
-  return canvas.toBuffer('image/png');
+  return encodeCanvas(canvas);
 }
 
 module.exports = { renderQuestRowsImage };

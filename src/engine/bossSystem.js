@@ -66,6 +66,7 @@ const { encodeOpaqueCanvas } = require('../utils/canvasEncode');
 const {
   envBool, envNumber, envPositiveInt, bandwidthLog, performanceLog,
 } = require('../utils/runtimeLogs');
+const { registerMemorySource } = require('../utils/memoryRegistry');
 const { bossFeatTitlesFor } = require('../config/titles');
 const {
   isGreaterBoss, bossRewards, rollBossChest, hpMultiplierForChest, pickWeightedBoss,
@@ -203,34 +204,43 @@ function compactBossSim(sim) {
   const limit = bossLogCacheMaxEventsPerAttacker();
   const rounds = Array.isArray(sim?.rounds) ? sim.rounds : [];
   const totalEvents = rounds.reduce((sum, round) => sum + (round.events?.length || 0), 0);
-  if (totalEvents <= limit) return sim;
-
-  let remaining = limit;
-  const compacted = [];
-  for (let i = rounds.length - 1; i >= 0 && remaining > 0; i--) {
-    const round = rounds[i];
-    const events = Array.isArray(round.events) ? round.events : [];
-    const kept = events.slice(Math.max(0, events.length - remaining));
-    if (kept.length > 0) {
-      compacted.unshift({ ...round, events: kept });
-      remaining -= kept.length;
+  let compacted = rounds;
+  if (totalEvents > limit) {
+    let remaining = limit;
+    compacted = [];
+    for (let i = rounds.length - 1; i >= 0 && remaining > 0; i--) {
+      const round = rounds[i];
+      const events = Array.isArray(round.events) ? round.events : [];
+      const kept = events.slice(Math.max(0, events.length - remaining));
+      if (kept.length > 0) {
+        compacted.unshift({ round: round.round, events: kept });
+        remaining -= kept.length;
+      }
     }
+    const dropped = totalEvents - compacted.reduce((sum, round) => sum + round.events.length, 0);
+    if (dropped > 0 && compacted.length > 0) {
+      compacted[0] = {
+        ...compacted[0],
+        events: [`-# Earlier boss log events compacted (${dropped} hidden).`, ...compacted[0].events],
+      };
+    }
+    performanceLog('boss log compacted', {
+      system: 'boss',
+      command: 'boss:attack',
+      events: totalEvents,
+      limit,
+      removed: dropped,
+    });
+  } else {
+    compacted = rounds.map((round) => ({ round: round.round, events: [...(round.events || [])] }));
   }
-  const dropped = totalEvents - compacted.reduce((sum, round) => sum + round.events.length, 0);
-  if (dropped > 0 && compacted.length > 0) {
-    compacted[0] = {
-      ...compacted[0],
-      events: [`-# Earlier boss log events compacted (${dropped} hidden).`, ...compacted[0].events],
-    };
-  }
-  performanceLog('boss log compacted', {
-    system: 'boss',
-    command: 'boss:attack',
-    events: totalEvents,
-    limit,
-    removed: dropped,
-  });
-  return { ...sim, rounds: compacted, snapshots: [] };
+  return {
+    seed: sim.seed,
+    winner: sim.winner,
+    a: { name: sim.a?.name || 'Player' },
+    b: { name: sim.b?.name || 'Boss' },
+    rounds: compacted,
+  };
 }
 
 function rememberBossLog(spawnId, discordId, sim) {
@@ -297,6 +307,14 @@ function purgeBossRuntimeForGuild(guildId, reason = 'cleared') {
   currentSpawn.delete(guildId);
 }
 
+function clearBossRuntimeForGuild(guildId, reason = 'guild-removed') {
+  clearPendingBossRefresh(guildId, reason);
+  purgeBossRuntimeForGuild(guildId, reason);
+  liveMessages.delete(guildId);
+  nonOfficialRedirects.delete(guildId);
+  lastBossStatusUrls.delete(guildId);
+}
+
 /**
  * [v4.6] The chest outcome for a spawn — the ONE place announcement and payout agree.
  * Normal bosses → deterministic 1× Boss Treasure Chest. Greater bosses → rolled 80/20 ONCE
@@ -358,32 +376,74 @@ function bossImagePath(name) {
  *    renders full-width and centered (raw portrait PNGs render off-center).
  *    Rendered once per file, cached in memory. ─────────────────────────── */
 const BANNER_W = 1200, BANNER_H = 600;
-const bannerCache = new Map(); // imgPath → Promise<Buffer|null>
+const BANNER_CACHE_MAX_ENTRIES = envPositiveInt('BOSS_BANNER_CACHE_MAX', 4, { max: 100 });
+const BANNER_CACHE_MAX_BYTES = Math.max(
+  1024 * 1024,
+  envNumber('BOSS_BANNER_CACHE_MAX_MB', 8, { min: 1, max: 256 }) * 1024 * 1024
+);
+const BANNER_CACHE_TTL_MS = Math.max(
+  0,
+  envNumber('BOSS_BANNER_CACHE_TTL_MS', 600_000, { min: 0, max: 86_400_000 })
+);
+const bannerCache = new Map(); // imgPath → { promise, bytes, lastUsed }
+let bannerCacheBytes = 0;
+
+function dropBossBanner(key) {
+  const entry = bannerCache.get(key);
+  if (!entry) return;
+  bannerCache.delete(key);
+  bannerCacheBytes = Math.max(0, bannerCacheBytes - entry.bytes);
+}
+
+function trimBossBanners(now = Date.now()) {
+  if (BANNER_CACHE_TTL_MS) {
+    for (const [key, entry] of bannerCache) {
+      if (now - entry.lastUsed > BANNER_CACHE_TTL_MS) dropBossBanner(key);
+    }
+  }
+  while (bannerCache.size > BANNER_CACHE_MAX_ENTRIES || bannerCacheBytes > BANNER_CACHE_MAX_BYTES) {
+    dropBossBanner(bannerCache.keys().next().value);
+  }
+}
 
 async function loadAssetImage(source) {
   return loadAssetImageSource(loadImage, source);
 }
 
 function bossBanner(imgPath) {
-  if (!bannerCache.has(imgPath)) {
-    bannerCache.set(imgPath, (async () => {
-      try {
-        const img = await loadAssetImage(imgPath);
-        const canvas = createCanvas(BANNER_W, BANNER_H);
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#1f2125';
-        ctx.fillRect(0, 0, BANNER_W, BANNER_H);
-        const scale = Math.min(BANNER_W / img.width, BANNER_H / img.height);
-        const w = img.width * scale, h = img.height * scale;
-        ctx.drawImage(img, (BANNER_W - w) / 2, (BANNER_H - h) / 2, w, h);
-        return encodeOpaqueCanvas(canvas, { system: 'boss', command: 'boss', imageType: 'boss_banner' });
-      } catch (err) {
-        console.warn('[boss] banner render failed:', err.message);
-        return null;
-      }
-    })());
+  const cached = bannerCache.get(imgPath);
+  if (cached) {
+    cached.lastUsed = Date.now();
+    bannerCache.delete(imgPath);
+    bannerCache.set(imgPath, cached);
+    return cached.promise;
   }
-  return bannerCache.get(imgPath);
+  const entry = { bytes: 0, lastUsed: Date.now(), promise: null };
+  entry.promise = (async () => {
+    try {
+      const img = await loadAssetImage(imgPath);
+      const canvas = createCanvas(BANNER_W, BANNER_H);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#1f2125';
+      ctx.fillRect(0, 0, BANNER_W, BANNER_H);
+      const scale = Math.min(BANNER_W / img.width, BANNER_H / img.height);
+      const w = img.width * scale, h = img.height * scale;
+      ctx.drawImage(img, (BANNER_W - w) / 2, (BANNER_H - h) / 2, w, h);
+      const buffer = encodeOpaqueCanvas(canvas, { system: 'boss', command: 'boss', imageType: 'boss_banner' });
+      if (bannerCache.get(imgPath) === entry) {
+        entry.bytes = buffer.length;
+        bannerCacheBytes += entry.bytes;
+        trimBossBanners();
+      }
+      return buffer;
+    } catch (err) {
+      console.warn('[boss] banner render failed:', err.message);
+      return null;
+    }
+  })();
+  bannerCache.set(imgPath, entry);
+  trimBossBanners();
+  return entry.promise;
 }
 
 /* ── boss lore (assets/monsters/boss/lore/boss_lores.txt: "Name: text") ──── */
@@ -1013,6 +1073,7 @@ function scheduleBossLiveRefresh(client, guildId, { spawnId = null } = {}) {
   const existing = pendingBossRefreshes.get(guildId);
   if (existing) {
     existing.spawnId = spawnId || existing.spawnId;
+    if (existing.running) existing.rerun = true;
     bandwidthLog('boss image refresh coalesced', {
       system: 'boss',
       command: 'boss:attack',
@@ -1036,7 +1097,9 @@ function scheduleBossLiveRefresh(client, guildId, { spawnId = null } = {}) {
 
   const timer = setTimeout(async () => {
     const pending = pendingBossRefreshes.get(guildId);
-    pendingBossRefreshes.delete(guildId);
+    if (!pending) return;
+    pending.timer = null;
+    pending.running = true;
     if (pending?.spawnId && currentSpawn.get(guildId) && currentSpawn.get(guildId) !== pending.spawnId) {
       bandwidthLog('boss image refresh skipped', {
         system: 'boss',
@@ -1046,23 +1109,30 @@ function scheduleBossLiveRefresh(client, guildId, { spawnId = null } = {}) {
         spawnId: pending.spawnId,
         reason: 'stale-spawn',
       });
+      pendingBossRefreshes.delete(guildId);
       return;
     }
     const started = Date.now();
-    await refreshLiveMessage(client, guildId).catch((err) => {
-      console.error(`[boss] debounced refresh failed (guild ${guildId}):`, err.message);
-    });
-    bandwidthLog('boss image refresh rendered', {
-      system: 'boss',
-      command: 'boss:attack',
-      imageType: 'boss_status',
-      guildId,
-      spawnId: pending?.spawnId,
-      durationMs: Date.now() - started,
-    });
+    try {
+      await refreshLiveMessage(client, guildId).catch((err) => {
+        console.error(`[boss] debounced refresh failed (guild ${guildId}):`, err.message);
+      });
+      bandwidthLog('boss image refresh rendered', {
+        system: 'boss',
+        command: 'boss:attack',
+        imageType: 'boss_status',
+        guildId,
+        spawnId: pending?.spawnId,
+        durationMs: Date.now() - started,
+      });
+    } finally {
+      if (pendingBossRefreshes.get(guildId) !== pending) return;
+      pendingBossRefreshes.delete(guildId);
+      if (pending.rerun) scheduleBossLiveRefresh(client, guildId, { spawnId: pending.spawnId });
+    }
   }, debounceMs);
 
-  pendingBossRefreshes.set(guildId, { timer, spawnId });
+  pendingBossRefreshes.set(guildId, { timer, spawnId, running: false, rerun: false });
 }
 
 /* ── spawn / escape (scheduler paths) ───────────────────────────────────── */
@@ -1565,6 +1635,41 @@ async function tickGuild(client, guildId) {
   await spawnBoss(client, guildId);
 }
 
+function getBossMemoryStats() {
+  trimBossBanners();
+  let logEvents = 0;
+  let estimatedLogBytes = 0;
+  for (const sim of logCache.values()) {
+    logEvents += (sim.rounds || []).reduce((sum, round) => sum + (round.events?.length || 0), 0);
+    try { estimatedLogBytes += Buffer.byteLength(JSON.stringify(sim)); } catch { /* counters only */ }
+  }
+  const pending = [...pendingBossRefreshes.values()];
+  return {
+    liveMessages: liveMessages.size,
+    logEntries: logCache.size,
+    logSpawnEntries: logCacheOrder.size,
+    logEvents,
+    estimatedLogBytes,
+    currentSpawns: currentSpawn.size,
+    pendingRefreshes: pendingBossRefreshes.size,
+    runningRefreshes: pending.filter((entry) => entry.running).length,
+    redirectEntries: nonOfficialRedirects.size,
+    statusUrlEntries: lastBossStatusUrls.size,
+    greaterChestEntries: greaterChests.size,
+    devSpawnEntries: devSpawns.size,
+    bannerEntries: bannerCache.size,
+    bannerBytes: bannerCacheBytes,
+    bannerMaxEntries: BANNER_CACHE_MAX_ENTRIES,
+    bannerMaxBytes: BANNER_CACHE_MAX_BYTES,
+    bannerTtlMs: BANNER_CACHE_TTL_MS,
+    loreEntries: loreMap?.size || 0,
+    assetFileEntries: bossAssetLookup.files.length,
+    assetLookupEntries: bossAssetLookup.resolved.size,
+  };
+}
+
+registerMemorySource('boss.runtime', getBossMemoryStats);
+
 module.exports = {
   tickGuild,
   spawnBoss,
@@ -1578,4 +1683,6 @@ module.exports = {
   refreshLiveMessage,
   postOfficialRedirect,
   redirectChannelIssue,
+  clearBossRuntimeForGuild,
+  getBossMemoryStats,
 };

@@ -22,6 +22,7 @@ const {
   MessageFlags,
 } = require('discord.js');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const { encodeCanvas } = require('../utils/canvasEncode');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji, emojiForDisplay } = require('../utils/emojis');
 const {
@@ -118,14 +119,14 @@ function star4Path(ctx, cx, cy, r) {
 /* ════════════════════════════════════════════
  * CANVAS GRID
  * ══════════════════════════════════════════ */
-const frames = {};
 async function loadFrames() {
-  if (frames.Remnant) return;
-  await Promise.all(
-    Object.entries(FRAME_FILES).map(async ([rarity, file]) => {
-      frames[rarity] = await loadAssetImage(assetPath(`animations/gacha/${file}`));
-    })
+  const entries = await Promise.all(
+    Object.entries(FRAME_FILES).map(async ([rarity, file]) => [
+      rarity,
+      await loadAssetImage(assetPath(`animations/gacha/${file}`)),
+    ])
   );
+  return Object.fromEntries(entries);
 }
 
 /**
@@ -133,7 +134,7 @@ async function loadFrames() {
  * @returns {Promise<Buffer>}
  */
 async function renderSummonGrid(results) {
-  await loadFrames();
+  const frames = await loadFrames();
 
   const layout = LAYOUTS[results.length] ?? LAYOUTS[10];
   const cardW = layout.cardW;
@@ -215,7 +216,7 @@ async function renderSummonGrid(results) {
     ctx.shadowOffsetY = 0;
   }
 
-  return canvas.toBuffer('image/png');
+  return encodeCanvas(canvas);
 }
 
 /* ════════════════════════════════════════════
@@ -399,7 +400,7 @@ const WIDE_W = PAD * 2 + 5 * LAYOUTS[10].cardW + 4 * GAP;
  * @returns {Promise<Buffer>} PNG — one 340px card centered on the wide canvas
  */
 async function renderDeityCard({ name, rarity, portraitPath }) {
-  await loadFrames();
+  const frames = await loadFrames();
   const cardW = LAYOUTS[1].cardW; // 340
   const cardH = Math.round(cardW * (SRC.h / SRC.w));
 
@@ -456,7 +457,7 @@ async function renderDeityCard({ name, rarity, portraitPath }) {
     ctx.shadowOffsetY = 0;
   }
 
-  return canvas.toBuffer('image/png');
+  return encodeCanvas(canvas);
 }
 
 /**
@@ -493,7 +494,7 @@ async function renderCenteredArt(filePath) {
   ctx.fillStyle = BG;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(img, Math.round((WIDE_W - dw) / 2), PAD, dw, dh);
-  return canvas.toBuffer('image/png');
+  return encodeCanvas(canvas);
 }
 
 module.exports = {

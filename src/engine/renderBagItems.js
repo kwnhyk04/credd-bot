@@ -15,10 +15,13 @@
  */
 
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+const { encodeCanvas } = require('../utils/canvasEncode');
 const fs = require('fs');
 const path = require('path');
 const { emoji } = require('../utils/emojis');
-const { assetSource, isRemoteSource, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
+const { assetSource, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
+const { envNumber, envPositiveInt } = require('../utils/runtimeLogs');
+const { registerMemorySource } = require('../utils/memoryRegistry');
 
 const ROOT = path.join(__dirname, '..', '..');
 const CACHE_DIR = path.join(ROOT, 'assets', 'cache', 'emojis');
@@ -54,8 +57,41 @@ const COUNT_FONT = `15px "${FONT_FAMILY}"`;
 const CMD_FONT = `11px "${FONT_FAMILY}"`;
 
 // emojiName → loaded Image (successes only, so transient failures retry later)
-const iconCache = new Map();
-const localIconCache = new Map();
+const ICON_CACHE_MAX_ENTRIES = envPositiveInt('EMOJI_IMAGE_CACHE_MAX', 256, { max: 2000 });
+const ICON_CACHE_MAX_BYTES = Math.max(1024 * 1024, envNumber('EMOJI_IMAGE_CACHE_MAX_MB', 4, { min: 1, max: 128 }) * 1024 * 1024);
+const ICON_CACHE_TTL_MS = Math.max(0, envNumber('EMOJI_IMAGE_CACHE_TTL_MS', 1_800_000, { min: 0, max: 86_400_000 }));
+const iconCache = new Map(); // key -> { image, bytes, lastUsed }
+let iconCacheBytes = 0;
+
+function cachedIcon(key) {
+  const entry = iconCache.get(key);
+  if (!entry) return null;
+  if (ICON_CACHE_TTL_MS && Date.now() - entry.lastUsed > ICON_CACHE_TTL_MS) {
+    iconCache.delete(key);
+    iconCacheBytes = Math.max(0, iconCacheBytes - entry.bytes);
+    return null;
+  }
+  entry.lastUsed = Date.now();
+  iconCache.delete(key);
+  iconCache.set(key, entry);
+  return entry.image;
+}
+
+function rememberIcon(key, image) {
+  const bytes = Math.max(1, (image?.width || 0) * (image?.height || 0) * 4);
+  const old = iconCache.get(key);
+  if (old) iconCacheBytes -= old.bytes;
+  iconCache.delete(key);
+  iconCache.set(key, { image, bytes, lastUsed: Date.now() });
+  iconCacheBytes += bytes;
+  while (iconCache.size > ICON_CACHE_MAX_ENTRIES || iconCacheBytes > ICON_CACHE_MAX_BYTES) {
+    const first = iconCache.entries().next().value;
+    if (!first) break;
+    iconCache.delete(first[0]);
+    iconCacheBytes = Math.max(0, iconCacheBytes - first[1].bytes);
+  }
+  return image;
+}
 
 // '<:silver_chest:1514006354027741184>' → '1514006354027741184'
 function emojiIdOf(name) {
@@ -65,7 +101,8 @@ function emojiIdOf(name) {
 
 /** Disk-cached CDN icon. Returns a canvas Image or null (row renders without icon). */
 async function getEmojiIcon(name) {
-  if (iconCache.has(name)) return iconCache.get(name);
+  const cached = cachedIcon(name);
+  if (cached) return cached;
   try {
     const file = path.join(CACHE_DIR, `${name}.png`);
     if (!fs.existsSync(file)) {
@@ -77,8 +114,7 @@ async function getEmojiIcon(name) {
       fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()));
     }
     const img = await loadImage(file);
-    iconCache.set(name, img);
-    return img;
+    return rememberIcon(name, img);
   } catch (err) {
     console.error(`[renderBagItems] icon '${name}' unavailable:`, err.message);
     return null;
@@ -89,7 +125,8 @@ async function getEmojiIcon(name) {
  *  a canvas Image or null. Used for items with no custom emoji (weapons/armors). */
 async function getUnicodeIcon(hex) {
   const key = `u${hex}`;
-  if (iconCache.has(key)) return iconCache.get(key);
+  const cached = cachedIcon(key);
+  if (cached) return cached;
   try {
     const file = path.join(CACHE_DIR, `${key}.png`);
     if (!fs.existsSync(file)) {
@@ -99,8 +136,7 @@ async function getUnicodeIcon(hex) {
       fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()));
     }
     const img = await loadImage(file);
-    iconCache.set(key, img);
-    return img;
+    return rememberIcon(key, img);
   } catch (err) {
     console.error(`[renderBagItems] twemoji '${hex}' unavailable:`, err.message);
     return null;
@@ -113,27 +149,32 @@ async function loadAssetImage(source) {
 
 async function getLocalIcon(filePath) {
   const resolved = assetSource(filePath);
-  let mtimeMs = 'remote';
-  if (!isRemoteSource(resolved)) {
-    try {
-      mtimeMs = fs.statSync(resolved).mtimeMs;
-    } catch {
-      return null;
-    }
-  }
-
-  const cached = localIconCache.get(resolved);
-  if (cached && cached.mtimeMs === mtimeMs) return cached.image;
-
   try {
-    const image = await loadAssetImage(resolved);
-    localIconCache.set(resolved, { mtimeMs, image });
-    return image;
+    return await loadAssetImage(resolved);
   } catch {
-    localIconCache.set(resolved, { mtimeMs, image: null });
     return null;
   }
 }
+
+function getEmojiImageCacheStats() {
+  if (ICON_CACHE_TTL_MS) {
+    const now = Date.now();
+    for (const [key, entry] of iconCache) {
+      if (now - entry.lastUsed <= ICON_CACHE_TTL_MS) continue;
+      iconCache.delete(key);
+      iconCacheBytes = Math.max(0, iconCacheBytes - entry.bytes);
+    }
+  }
+  return {
+    entries: iconCache.size,
+    bytes: iconCacheBytes,
+    maxEntries: ICON_CACHE_MAX_ENTRIES,
+    maxBytes: ICON_CACHE_MAX_BYTES,
+    ttlMs: ICON_CACHE_TTL_MS,
+  };
+}
+
+registerMemorySource('images.discord-emojis', getEmojiImageCacheStats);
 
 function roundRectPath(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -258,8 +299,8 @@ async function renderBagItemsImage(items) {
   }
 
   ctx.textBaseline = 'alphabetic';
-  return canvas.toBuffer('image/png');
+  return encodeCanvas(canvas);
 }
 
 // getEmojiIcon shared with renderSummon (badge essence icons use the same cache).
-module.exports = { renderBagItemsImage, getEmojiIcon, FONT_FAMILY };
+module.exports = { renderBagItemsImage, getEmojiIcon, FONT_FAMILY, getEmojiImageCacheStats };

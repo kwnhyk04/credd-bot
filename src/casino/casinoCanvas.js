@@ -11,10 +11,13 @@
  */
 
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+const { encodeCanvas, releaseCanvas } = require('../utils/canvasEncode');
 const path = require('path');
 const pool = require('../db/pool');
 const { rankLabel, SUIT_LABEL } = require('./cardDeck');
 const { assetPath, assetSource, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
+const { envNumber, envPositiveInt } = require('../utils/runtimeLogs');
+const { registerMemorySource } = require('../utils/memoryRegistry');
 
 const ROOT = path.join(__dirname, '..', '..');
 const FONT = 'DejaVu Sans';
@@ -29,13 +32,9 @@ const COLORS = {
   gold: '#e0a526', green: '#43d675', red: '#f23f43', grey: '#95a5a6',
 };
 
-const imgCache = new Map();
 function loadCached(p) {
   const resolved = assetSource(p);
-  if (!imgCache.has(resolved)) {
-    imgCache.set(resolved, loadAssetImageSource(loadImage, resolved).catch(() => null));
-  }
-  return imgCache.get(resolved);
+  return loadAssetImageSource(loadImage, resolved).catch(() => null);
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -84,6 +83,7 @@ const loggedMissing = new Set();
 function logMissingAsset(p) {
   if (loggedMissing.has(p)) return;
   loggedMissing.add(p);
+  while (loggedMissing.size > 200) loggedMissing.delete(loggedMissing.values().next().value);
   pool.query(
     `INSERT INTO dev_logs (dev_id, action_type, target_discord_id, amount_or_detail)
      VALUES ('system', 'asset_missing', 'system', $1)`,
@@ -122,6 +122,7 @@ function contentBBox(img) {
   const ctx = cv.getContext('2d');
   ctx.drawImage(img, 0, 0);
   const data = ctx.getImageData(0, 0, iw, ih).data;
+  releaseCanvas(cv);
   let minX = iw, minY = ih, maxX = -1, maxY = -1;
   const ALPHA = 12; // ignore near-transparent fringe
   for (let y = 0; y < ih; y++) {
@@ -182,7 +183,8 @@ async function buildCardFace(card) {
   }
   if (!symImg) { logMissingAsset(symbolPngPath(suit)); return programmaticFace(card); }
 
-  const W = bg.width, H = bg.height;
+  // Cache small working faces because full-size canvases retained about 312 MB across the deck.
+  const W = 140, H = 196;
   const cv = createCanvas(W, H);
   const ctx = cv.getContext('2d');
   console.log(`[cardFace] ${suit} ${rank} card=${W}x${H}`);
@@ -193,12 +195,81 @@ async function buildCardFace(card) {
 }
 
 // Composited card faces are cached by suit_rank (a face is identical every time).
-const faceCache = new Map();
+const FACE_CACHE_MAX_ENTRIES = envPositiveInt('CASINO_CARD_FACE_CACHE_MAX', 8, { max: 52 });
+const FACE_CACHE_MAX_BYTES = Math.max(
+  1024 * 1024,
+  envNumber('CASINO_CARD_FACE_CACHE_MAX_MB', 4, { min: 1, max: 128 }) * 1024 * 1024
+);
+const FACE_CACHE_TTL_MS = Math.max(
+  0,
+  envNumber('CASINO_CARD_FACE_CACHE_TTL_MS', 600_000, { min: 0, max: 86_400_000 })
+);
+const faceCache = new Map(); // key -> { promise, bytes, createdAt, lastUsed }
+let faceCacheBytes = 0;
+
+function dropFace(key) {
+  const entry = faceCache.get(key);
+  if (!entry) return;
+  faceCache.delete(key);
+  faceCacheBytes = Math.max(0, faceCacheBytes - entry.bytes);
+}
+
+function trimFaceCache(now = Date.now()) {
+  if (FACE_CACHE_TTL_MS) {
+    for (const [key, entry] of faceCache) {
+      if (now - entry.lastUsed > FACE_CACHE_TTL_MS) dropFace(key);
+    }
+  }
+  while (faceCache.size > FACE_CACHE_MAX_ENTRIES || faceCacheBytes > FACE_CACHE_MAX_BYTES) {
+    dropFace(faceCache.keys().next().value);
+  }
+}
+
 function cardFaceCanvas(card) {
   const key = `${card.suit}_${card.rank}`;
-  if (!faceCache.has(key)) faceCache.set(key, buildCardFace(card));
-  return faceCache.get(key);
+  const cached = faceCache.get(key);
+  if (cached) {
+    cached.lastUsed = Date.now();
+    faceCache.delete(key);
+    faceCache.set(key, cached);
+    return cached.promise;
+  }
+  const entry = {
+    bytes: 0,
+    createdAt: Date.now(),
+    lastUsed: Date.now(),
+    promise: null,
+  };
+  entry.promise = buildCardFace(card).then((canvas) => {
+    if (faceCache.get(key) === entry) {
+      entry.bytes = Math.max(1, canvas.width * canvas.height * 4);
+      faceCacheBytes += entry.bytes;
+      trimFaceCache();
+    }
+    return canvas;
+  }).catch((err) => {
+    dropFace(key);
+    throw err;
+  });
+  faceCache.set(key, entry);
+  trimFaceCache();
+  return entry.promise;
 }
+
+function getCasinoCanvasCacheStats() {
+  trimFaceCache();
+  return {
+    faceEntries: faceCache.size,
+    faceBytes: faceCacheBytes,
+    faceMaxEntries: FACE_CACHE_MAX_ENTRIES,
+    faceMaxBytes: FACE_CACHE_MAX_BYTES,
+    faceTtlMs: FACE_CACHE_TTL_MS,
+    missingAssetEntries: loggedMissing.size,
+    bboxCache: 'weak',
+  };
+}
+
+registerMemorySource('casino.card-faces', getCasinoCanvasCacheStats);
 
 /** A centered row of small square images (coin / dice / slot faces). */
 async function strip(paths, { tile = 92, gap = 16, panelW = PANEL_W, padY = 10 } = {}) {
@@ -208,7 +279,7 @@ async function strip(paths, { tile = 92, gap = 16, panelW = PANEL_W, padY = 10 }
   const total = imgs.length * tile + (imgs.length - 1) * gap;
   let x = (panelW - total) / 2;
   for (const im of imgs) { drawContain(ctx, im, x, padY, tile, tile); x += tile + gap; }
-  return canvas.toBuffer('image/png');
+  return encodeCanvas(canvas);
 }
 
 /**
@@ -227,7 +298,7 @@ async function cardStrip(entries, { cardW = 64, cardH = 90, gap = 12, panelW = P
     drawContain(ctx, im, x, padY, cardW, cardH);
     x += cardW + gap;
   }
-  return canvas.toBuffer('image/png');
+  return encodeCanvas(canvas);
 }
 
 /**
@@ -258,7 +329,7 @@ async function resultStrip(lines, { panelW = PANEL_W } = {}) {
     ctx.fillText(l.text, panelW / 2, y);
     y += (l.gap ?? 6);
   }
-  return canvas.toBuffer('image/png');
+  return encodeCanvas(canvas);
 }
 
 /** Crash multiplier body — compact fonts per feedback. */
@@ -293,7 +364,7 @@ async function crashPanel({ multiplier, crashed, crashPoint, bet, pushes }) {
   ctx.fillStyle = COLORS.text;
   ctx.font = `11px ${FONT}`;
   ctx.fillText(`Pushes survived: ${pushes}`, W / 2, 86);
-  return canvas.toBuffer('image/png');
+  return encodeCanvas(canvas);
 }
 
-module.exports = { strip, cardStrip, resultStrip, crashPanel, COLORS, PANEL_W };
+module.exports = { strip, cardStrip, resultStrip, crashPanel, COLORS, PANEL_W, getCasinoCanvasCacheStats };

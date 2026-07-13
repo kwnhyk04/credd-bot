@@ -37,9 +37,10 @@ const {
   EmbedBuilder, AttachmentBuilder,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, PermissionsBitField,
 } = require('discord.js');
-const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+const { createCanvas, GlobalFonts } = require('@napi-rs/canvas');
 const path = require('path');
-const { emojiForDisplay } = require('../utils/emojis');
+const { emojiForDisplay, resolveName } = require('../utils/emojis');
+const { getEmojiIcon } = require('./renderBagItems');
 const { optimizeOpaqueAttachment, attachmentFromOptimizedImage } = require('../utils/imageOutput');
 const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard');
 const { getCachedCanvasUrl } = require('../utils/canvasCache');
@@ -47,6 +48,7 @@ const { envBool, envNumber, performanceLog } = require('../utils/runtimeLogs');
 const { encodeOpaqueCanvas } = require('../utils/canvasEncode');
 const { loadBattleSkin, renderBattleSkinPanel } = require('./battleLayoutRenderer');
 const { loadResultSkin, renderResultPanel } = require('./resultLayoutRenderer');
+const { registerMemorySource } = require('../utils/memoryRegistry');
 
 const ROOT = path.join(__dirname, '..', '..');
 const FONT = 'DejaVu Sans';
@@ -65,6 +67,7 @@ const BATTLE_RESULT_RENDER_REV = 2;
 const BATTLE_FRAME_MODES = new Set(['full', 'start_and_final', 'text_only']);
 const BATTLE_FRAME_COOLDOWN_MAX = 5000;
 const battleFrameCooldowns = new Map();
+let activeBattleCollectors = 0;
 
 const COLORS = {
   bg: '#1f2125', card: '#26282d', cardLine: '#36393f',
@@ -143,32 +146,10 @@ function shouldRenderBattleFrame({ phase, guildId, ownerId, mode }) {
 /* ----------------------------------------------------------------------- */
 /* CUSTOM-EMOJI ICONS: registry display name → CDN image, cached in-memory. */
 /* ----------------------------------------------------------------------- */
-const emojiImageCache = new Map(); // emoji id → Promise<Image|null>
-
-function emojiIdForDisplay(displayName) {
-  if (!displayName) return null;
-  const tag = emojiForDisplay(displayName, null);
-  const m = /^<:\w+:(\d+)>$/.exec(tag || '');
-  return m ? m[1] : null;
-}
-
 /** Resolve + fetch the custom-emoji image for an item display name (or null). */
 function getEmojiImage(displayName) {
-  const id = emojiIdForDisplay(displayName);
-  if (!id) return Promise.resolve(null);
-  if (!emojiImageCache.has(id)) {
-    emojiImageCache.set(id, (async () => {
-      try {
-        const res = await fetch(`https://cdn.discordapp.com/emojis/${id}.png?size=64`);
-        if (!res.ok) return null;
-        return await loadImage(Buffer.from(await res.arrayBuffer()));
-      } catch (err) {
-        console.warn(`[battleRender] emoji image ${id} fetch failed:`, err.message);
-        return null; // cached — one failed lookup never re-fetches per frame
-      }
-    })());
-  }
-  return emojiImageCache.get(id);
+  const name = resolveName(displayName);
+  return name ? getEmojiIcon(name) : Promise.resolve(null);
 }
 
 /** Fetch all loadout icons for a sim once, before animating. */
@@ -964,15 +945,16 @@ async function runBattle(channel, {
     }
   }
 
+  const battleLogPages = logEmbeds(sim);
   const collector = msg.createMessageComponentCollector({ time: 300_000 });
+  activeBattleCollectors += 1;
   collector.on('collect', async (i) => {
     try {
       if (i.customId === 'battle_log') {
         await i.deferReply({ flags: MessageFlags.Ephemeral });
-        const pages = logEmbeds(sim);
-        await i.editReply({ embeds: pages.slice(0, 10) });
-        for (let p = 10; p < pages.length; p += 10) {
-          await i.followUp({ embeds: pages.slice(p, p + 10), flags: MessageFlags.Ephemeral });
+        await i.editReply({ embeds: battleLogPages.slice(0, 10) });
+        for (let p = 10; p < battleLogPages.length; p += 10) {
+          await i.followUp({ embeds: battleLogPages.slice(p, p + 10), flags: MessageFlags.Ephemeral });
         }
       }
     } catch (err) {
@@ -983,9 +965,18 @@ async function runBattle(channel, {
       }
     }
   });
-  collector.on('end', () => msg.edit({ components: [] }).catch(() => {}));
+  collector.once('end', () => {
+    activeBattleCollectors = Math.max(0, activeBattleCollectors - 1);
+    msg.edit({ components: [] }).catch(() => {});
+  });
 
   return sim;
 }
+
+registerMemorySource('battle.runtime', () => ({
+  cooldownEntries: battleFrameCooldowns.size,
+  cooldownMaxEntries: BATTLE_FRAME_COOLDOWN_MAX,
+  activeCollectors: activeBattleCollectors,
+}));
 
 module.exports = { runBattle, renderBattlePanel, renderRewardsPanel, battleEmbed, logEmbeds, UPDATE_MS };

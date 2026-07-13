@@ -15,6 +15,7 @@ const engine = require('../../casino/blackjack');
 const { blackjackValue } = require('../../casino/cardDeck');
 const render = require('../../casino/casinoRender');
 const flow = require('./flow');
+const { registerMemorySource } = require('../../utils/memoryRegistry');
 
 const TIMEOUT_MS = 60_000;
 const STALE_SESSION_MS = TIMEOUT_MS * 2;
@@ -70,21 +71,28 @@ async function execute(message, { args }) {
     timer: null,
     resolving: false,
     settled: false,
+    createdAt: Date.now(),
   };
   sessions.set(uid, wrap);
 
-  if (session.state === 'done') {
-    // Natural on the deal → settle and show the final card immediately.
-    const after = await settleMoney(wrap);
-    const fin = await render.buildBlackjack({ mode: 'final', uid, bet: v.amount, session, balance: after });
-    wrap.message = await message.reply({ ...fin, allowedMentions: { repliedUser: false } });
-    await sessionStore.attachMessage(debit.sessionId, { channelId: message.channel.id, messageId: wrap.message.id }).catch(() => {});
+  try {
+    if (session.state === 'done') {
+      // Natural on the deal → settle and show the final card immediately.
+      const after = await settleMoney(wrap);
+      const fin = await render.buildBlackjack({ mode: 'final', uid, bet: v.amount, session, balance: after });
+      wrap.message = await message.reply({ ...fin, allowedMentions: { repliedUser: false } });
+      await sessionStore.attachMessage(debit.sessionId, { channelId: message.channel.id, messageId: wrap.message.id }).catch(() => {});
+      sessions.delete(uid);
+    } else {
+      const active = await render.buildBlackjack({ mode: 'active', uid, bet: v.amount, session, balance: debit.after });
+      wrap.message = await message.reply({ ...active, allowedMentions: { repliedUser: false } });
+      await sessionStore.attachMessage(debit.sessionId, { channelId: message.channel.id, messageId: wrap.message.id }).catch(() => {});
+      armTimer(wrap);
+    }
+  } catch (err) {
+    clearTimer(wrap);
     sessions.delete(uid);
-  } else {
-    const active = await render.buildBlackjack({ mode: 'active', uid, bet: v.amount, session, balance: debit.after });
-    wrap.message = await message.reply({ ...active, allowedMentions: { repliedUser: false } });
-    await sessionStore.attachMessage(debit.sessionId, { channelId: message.channel.id, messageId: wrap.message.id }).catch(() => {});
-    armTimer(wrap);
+    throw err;
   }
 }
 
@@ -188,9 +196,25 @@ async function finalize(wrap, applyEdit) {
     armTimer(wrap);
     throw err;
   }
-  const payload = await render.buildBlackjack({ mode: 'final', uid: wrap.uid, bet: wrap.bet, session: wrap.session, balance: after });
-  await applyEdit({ components: payload.components, files: payload.files, flags: payload.flags }).catch(() => {});
-  sessions.delete(wrap.uid);
+  try {
+    const payload = await render.buildBlackjack({ mode: 'final', uid: wrap.uid, bet: wrap.bet, session: wrap.session, balance: after });
+    await applyEdit({ components: payload.components, files: payload.files, flags: payload.flags }).catch(() => {});
+  } finally {
+    sessions.delete(wrap.uid);
+  }
 }
 
-module.exports = { execute, handleButton };
+function getBlackjackSessionStats() {
+  const values = [...sessions.values()];
+  const oldest = values.reduce((min, wrap) => Math.min(min, wrap.createdAt || Date.now()), Date.now());
+  return {
+    entries: sessions.size,
+    timers: values.filter((wrap) => Boolean(wrap.timer)).length,
+    resolving: values.filter((wrap) => wrap.resolving).length,
+    oldestMs: values.length ? Date.now() - oldest : 0,
+  };
+}
+
+registerMemorySource('casino.blackjack-sessions', getBlackjackSessionStats);
+
+module.exports = { execute, handleButton, getBlackjackSessionStats };

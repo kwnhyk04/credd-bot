@@ -3,6 +3,7 @@
 const {
   envNumber, envPositiveInt, performanceLog,
 } = require('./runtimeLogs');
+const { registerMemorySource } = require('./memoryRegistry');
 
 const pools = new Map();
 
@@ -66,12 +67,21 @@ function pickRandomRow(rows, rng = Math.random) {
 }
 
 function getSelectionPoolStats() {
+  const now = Date.now();
+  for (const [key, entry] of pools) {
+    if (entry.expiresAt <= now) pools.delete(key);
+  }
+  let rows = 0;
+  for (const entry of pools.values()) rows += entry.rows?.length || 0;
   return {
     entries: pools.size,
+    rows,
     maxEntries: maxEntries(),
     ttlMs: ttlMs(),
   };
 }
+
+registerMemorySource('database.selection-pools', getSelectionPoolStats);
 
 module.exports = {
   getSelectionPool,

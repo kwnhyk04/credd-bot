@@ -15,6 +15,7 @@ const sessionStore = require('../../casino/sessionStore');
 const engine = require('../../casino/crash');
 const render = require('../../casino/casinoRender');
 const flow = require('./flow');
+const { registerMemorySource } = require('../../utils/memoryRegistry');
 
 const TIMEOUT_MS = 60_000;
 const STALE_SESSION_MS = TIMEOUT_MS * 2;
@@ -69,13 +70,20 @@ async function execute(message, { args }) {
     message: null,
     timer: null,
     resolving: false,
+    createdAt: Date.now(),
   };
   sessions.set(uid, wrap);
 
-  const payload = await render.buildCrash({ uid, bet: v.amount, session, balance: debit.after });
-  wrap.message = await message.reply({ ...payload, allowedMentions: { repliedUser: false } });
-  await sessionStore.attachMessage(debit.sessionId, { channelId: message.channel.id, messageId: wrap.message.id }).catch(() => {});
-  armTimer(wrap);
+  try {
+    const payload = await render.buildCrash({ uid, bet: v.amount, session, balance: debit.after });
+    wrap.message = await message.reply({ ...payload, allowedMentions: { repliedUser: false } });
+    await sessionStore.attachMessage(debit.sessionId, { channelId: message.channel.id, messageId: wrap.message.id }).catch(() => {});
+    armTimer(wrap);
+  } catch (err) {
+    clearTimer(wrap);
+    sessions.delete(uid);
+    throw err;
+  }
 }
 
 async function handleButton(interaction, action, ownerId) {
@@ -187,4 +195,17 @@ async function resolve(wrap, applyEdit) {
   await applyEdit({ components: payload.components, files: payload.files, flags: payload.flags }).catch(() => {});
 }
 
-module.exports = { execute, handleButton };
+function getCrashSessionStats() {
+  const values = [...sessions.values()];
+  const oldest = values.reduce((min, wrap) => Math.min(min, wrap.createdAt || Date.now()), Date.now());
+  return {
+    entries: sessions.size,
+    timers: values.filter((wrap) => Boolean(wrap.timer)).length,
+    resolving: values.filter((wrap) => wrap.resolving).length,
+    oldestMs: values.length ? Date.now() - oldest : 0,
+  };
+}
+
+registerMemorySource('casino.crash-sessions', getCrashSessionStats);
+
+module.exports = { execute, handleButton, getCrashSessionStats };

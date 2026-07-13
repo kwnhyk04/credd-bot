@@ -21,6 +21,7 @@ const {
   MessageFlags,
 } = require('discord.js');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const { encodeCanvas } = require('../../utils/canvasEncode');
 const pool = require('../../db/pool');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay } = require('../../utils/emojis');
@@ -43,14 +44,12 @@ const BANNER_PATH = assetPath('quest icons/attendance.png');
 const ICON_MAX_H = 132;
 const PANEL_W = 420;
 const PANEL_H = ICON_MAX_H + 16;
-let bannerPromise; // cached Promise<Buffer|null>
 async function loadAssetImage(source) {
   return loadAssetImageSource(loadImage, source);
 }
 
 function banner() {
-  if (bannerPromise !== undefined) return bannerPromise;
-  bannerPromise = (async () => {
+  return (async () => {
     try {
       const img = await loadAssetImage(BANNER_PATH);
       const scale = Math.min((PANEL_W - 16) / img.width, ICON_MAX_H / img.height);
@@ -58,10 +57,9 @@ function banner() {
       const canvas = createCanvas(PANEL_W, PANEL_H);
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, (PANEL_W - w) / 2, (PANEL_H - h) / 2, w, h);
-      return canvas.toBuffer('image/png');
+      return encodeCanvas(canvas);
     } catch { return null; }
   })();
-  return bannerPromise;
 }
 
 function reply(message, payload) {

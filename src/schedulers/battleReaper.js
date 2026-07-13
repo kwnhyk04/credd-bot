@@ -32,8 +32,9 @@ async function startBattleReaper() {
   await reapStaleBattles('startup cleanup');
 
   // Periodic reaper
-  setInterval(reapStaleBattles, REAPER_INTERVAL_MS);
+  const interval = setInterval(reapStaleBattles, REAPER_INTERVAL_MS);
   console.log(`[battleReaper] Periodic battle reaper started (every 1 min, threshold ${STALE_BATTLE_MINUTES} min).`);
+  return () => clearInterval(interval);
 }
 
 module.exports = { startBattleReaper };

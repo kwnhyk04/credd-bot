@@ -25,9 +25,11 @@ const pool = require('../../db/pool');
 const { isBanned } = require('../../handlers/middleware');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emoji } = require('../../utils/emojis');
+const { registerMemorySource } = require('../../utils/memoryRegistry');
 
 const DAILY_CAP = 1_000_000;            // receiver-side Credux/day (§3)
 const CONFIRM_WINDOW_MS = 60_000;
+let activeBestowCollectors = 0;
 
 const GOLD = 0xf0b232;
 const GREEN = 0x43d675;
@@ -210,6 +212,7 @@ async function execute(message, { args }) {
     });
 
     const collector = card.createMessageComponentCollector({ time: CONFIRM_WINDOW_MS });
+    activeBestowCollectors += 1;
     let settled = false;
 
     collector.on('collect', async (i) => {
@@ -265,6 +268,7 @@ async function execute(message, { args }) {
     });
 
     collector.on('end', (_c, reason) => {
+      activeBestowCollectors = Math.max(0, activeBestowCollectors - 1);
       if (reason === 'settled') return;
       card.edit(buildResultPayload('⌛ Bestow offer expired. Nothing was transferred.', null, GREY)).catch(() => {});
     });
@@ -273,5 +277,10 @@ async function execute(message, { args }) {
     return reply(message, 'Bestow failed — nothing was changed.').catch(() => {});
   }
 }
+
+registerMemorySource('collectors.bestow', () => ({
+  active: activeBestowCollectors,
+  lifetimeMs: CONFIRM_WINDOW_MS,
+}));
 
 module.exports = { execute, performBestow };

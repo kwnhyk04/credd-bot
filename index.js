@@ -1,5 +1,8 @@
 'use strict';
 
+require('dotenv').config();
+require('./src/utils/imageRuntime').configureImageRuntime();
+
 const { Client, GatewayIntentBits, Options } = require('discord.js');
 const { BOT_TOKEN, CLIENT_ID } = require('./src/config/config');
 const { setupGlobalErrorHandlers } = require('./src/utils/errorHandler');
@@ -12,6 +15,7 @@ const { startBattleReaper } = require('./src/schedulers/battleReaper');
 const { startResetScheduler } = require('./src/schedulers/resetScheduler');
 const { startBossScheduler } = require('./src/schedulers/bossScheduler');
 const { startSeasonScheduler } = require('./src/schedulers/seasonScheduler');
+const { clearBossRuntimeForGuild } = require('./src/engine/bossSystem');
 const pool = require('./src/db/pool');
 const { verifyRequiredSchema } = require('./src/db/schemaGuard');
 const { auditWeaponEmojis, reconcileEmojiIds } = require('./src/utils/emojis');
@@ -31,6 +35,7 @@ const CANVAS_CACHE_SWEEP_MS = 6 * 3600_000;
 let casinoSweepInterval = null;
 let canvasCacheSweepInterval = null;
 let stopResourceMonitor = null;
+const stopSchedulers = [];
 
 function casinoEnabled() {
   return envBool('CASINO_ENABLED', false);
@@ -44,9 +49,20 @@ const client = new Client({
   ],
   makeCache: Options.cacheWithLimits({
     ...Options.DefaultMakeCacheSettings,
-    MessageManager: 25,
+    MessageManager: 5,
     ReactionManager: 0,
+    ReactionUserManager: 0,
     PresenceManager: 0,
+    GuildBanManager: 0,
+    GuildInviteManager: 0,
+    GuildScheduledEventManager: 0,
+    GuildSoundboardSoundManager: 0,
+    GuildStickerManager: 0,
+    StageInstanceManager: 0,
+    ThreadMemberManager: 0,
+    VoiceStateManager: 0,
+    AutoModerationRuleManager: 0,
+    PollAnswerVoterManager: 0,
     GuildMemberManager: {
       maxSize: 100,
       keepOverLimit: (member) => member.id === member.client.user?.id,
@@ -54,6 +70,10 @@ const client = new Client({
     UserManager: 200,
     GuildEmojiManager: 500,
   }),
+  sweepers: {
+    ...Options.DefaultSweeperSettings,
+    messages: { interval: 300, lifetime: 300 },
+  },
 });
 
 client.once('ready', async () => {
@@ -91,10 +111,10 @@ client.once('ready', async () => {
   } catch (err) {
     console.error('[commands] Slash-command sync failed:', err.message);
   }
-  await startBattleReaper();
-  startResetScheduler();
-  startBossScheduler(client);
-  startSeasonScheduler();
+  stopSchedulers.push(await startBattleReaper());
+  stopSchedulers.push(startResetScheduler());
+  stopSchedulers.push(startBossScheduler(client));
+  stopSchedulers.push(startSeasonScheduler());
   // Emoji diagnostics (warn-only, never blocks startup).
   auditWeaponEmojis(pool);
   reconcileEmojiIds(client);
@@ -118,7 +138,7 @@ client.once('ready', async () => {
   canvasCacheSweepInterval = setInterval(() => {
     sweepCanvasCache().catch((err) => console.error('[canvasCache] sweep failed:', err.message));
   }, CANVAS_CACHE_SWEEP_MS);
-  stopResourceMonitor = startResourceMonitor();
+  stopResourceMonitor = startResourceMonitor({ client });
 });
 
 client.on('messageCreate', async (message) => {
@@ -149,6 +169,11 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
+client.on('guildDelete', (guild) => {
+  guildConfig.deleteGuild(guild.id);
+  clearBossRuntimeForGuild(guild.id);
+});
+
 // Graceful shutdown: stop the sweep, close Discord, drain the pool, exit clean.
 // Postgres rolls back any transaction cut mid-flight, so money invariants hold.
 let shuttingDown = false;
@@ -159,6 +184,11 @@ async function shutdown(signal) {
   if (casinoSweepInterval) clearInterval(casinoSweepInterval);
   if (canvasCacheSweepInterval) clearInterval(canvasCacheSweepInterval);
   if (stopResourceMonitor) stopResourceMonitor();
+  for (const stop of stopSchedulers.splice(0)) {
+    try { if (typeof stop === 'function') stop(); } catch (err) {
+      console.error('[credd] scheduler stop failed:', err.message);
+    }
+  }
   try { client.destroy(); } catch (err) { console.error('[credd] client.destroy failed:', err.message); }
   try { await pool.end(); } catch (err) { console.error('[credd] pool.end failed:', err.message); }
   process.exit(0);

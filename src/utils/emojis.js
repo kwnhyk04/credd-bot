@@ -25,6 +25,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { registerMemorySource } = require('./memoryRegistry');
 
 // Registries live in assets/data (this file is src/utils/).
 // Both files share the format and load into ONE lookup (items + deities).
@@ -257,6 +258,12 @@ async function reconcileEmojiIds(client) {
     console.warn('[emojis] ID reconcile skipped:', err.message);
   }
 }
+
+registerMemorySource('static.emoji-registry', () => ({
+  registryEntries: registry.size,
+  displayIndexEntries: displayIndex.size,
+  animatedNames: ANIMATED_NAMES.size,
+}));
 
 module.exports = {
   emoji,

@@ -13,7 +13,9 @@ const { getEmojiIcon } = require('./renderBagItems');
 const { loadAvatarAsset } = require('./avatarImageLoader');
 const { resolveName } = require('../utils/emojis');
 const { formatIntegerEnUS: fmt } = require('../utils/textFormat');
-const { performanceLog } = require('../utils/runtimeLogs');
+const { envPositiveInt, performanceLog } = require('../utils/runtimeLogs');
+const { registerMemorySource } = require('../utils/memoryRegistry');
+const { encodeCanvas } = require('../utils/canvasEncode');
 const { SUPPORTER_BADGE_HEIGHT } = require('../config/cosmetics');
 const { containRect, badgeRect } = require('./identityLayout');
 const {
@@ -39,16 +41,22 @@ function hasStatsLayout(skinPath) {
   return Boolean(skinPath && (isRemoteAssetsEnabled() || assetExistsSync(layoutPathFor(skinPath))));
 }
 
+const LAYOUT_CACHE_MAX = envPositiveInt('LAYOUT_METADATA_CACHE_MAX', 64, { max: 500 });
 const layoutCache = new Map(); // layout path -> { mtimeMs, layout }
 
 async function loadLayout(configPath) {
   const resolved = assetSource(configPath);
   const mtimeMs = assetSignatureSync(resolved);
   const cached = layoutCache.get(resolved);
-  if (cached && cached.mtimeMs === mtimeMs) return cached.layout;
+  if (cached && cached.mtimeMs === mtimeMs) {
+    layoutCache.delete(resolved);
+    layoutCache.set(resolved, cached);
+    return cached.layout;
+  }
 
   const layout = await readAssetJson(resolved);
   layoutCache.set(resolved, { mtimeMs, layout });
+  while (layoutCache.size > LAYOUT_CACHE_MAX) layoutCache.delete(layoutCache.keys().next().value);
   return layout;
 }
 
@@ -654,7 +662,13 @@ async function renderStatsLayoutImage(d, options = {}) {
   // Relabel the duel record columns to RANK (PvP duels became ranked) without editing every
   // per-skin stats.layout.json: re-map the labels by column key at draw time.
   drawRecord(ctx, relabelRankCols(layout.record), view.record);
-  return canvas.toBuffer('image/png');
+  return encodeCanvas(canvas);
 }
 
-module.exports = { hasStatsLayout, layoutPathFor, renderStatsLayoutImage };
+function getStatsLayoutCacheStats() {
+  return { entries: layoutCache.size, maxEntries: LAYOUT_CACHE_MAX };
+}
+
+registerMemorySource('layouts.stats', getStatsLayoutCacheStats);
+
+module.exports = { hasStatsLayout, layoutPathFor, renderStatsLayoutImage, getStatsLayoutCacheStats };

@@ -24,10 +24,13 @@ const { CLASSES } = require('../config/classes');
 const { ELITE_SPAWN_CHANCE } = require('../config/raidLoot');
 const { ECHO_BLESSING_KEY_MAP, DIVINE_BLESSING_DEITIES, computeResonanceMods } = require('../config/blessings');
 const { computeDeityProgressionStats } = require('./deityEnhancement');
+const { envPositiveInt } = require('../utils/runtimeLogs');
+const { registerMemorySource } = require('../utils/memoryRegistry');
 
 const MOB_LEVEL_MIN = 1;
 const MOB_LEVEL_MAX = 55;
 const MOB_ROSTER_CACHE_TTL_MS = Math.max(0, Number(process.env.MOB_ROSTER_CACHE_TTL_MS || 300_000));
+const MOB_ROSTER_CACHE_MAX = envPositiveInt('MOB_ROSTER_CACHE_MAX', 32, { max: 500 });
 const MOB_SELECT_COLUMNS = `
   mob_id, name, mythology, mob_type, base_hp, hp_per_level, base_atk,
   atk_per_level, base_def, def_per_level, base_crit, skill_key,
@@ -55,12 +58,17 @@ function cachedMobRows(key) {
     mobRosterCache.delete(key);
     return null;
   }
+  mobRosterCache.delete(key);
+  mobRosterCache.set(key, hit);
   return cloneRows(hit.rows);
 }
 
 function rememberMobRows(key, rows) {
   if (MOB_ROSTER_CACHE_TTL_MS > 0) {
     mobRosterCache.set(key, { at: Date.now(), rows: cloneRows(rows) });
+    while (mobRosterCache.size > MOB_ROSTER_CACHE_MAX) {
+      mobRosterCache.delete(mobRosterCache.keys().next().value);
+    }
   }
   return rows;
 }
@@ -74,6 +82,23 @@ async function queryMobRows(db, key, sql, params = []) {
 
 function clearMobRosterCache() {
   mobRosterCache.clear();
+}
+
+function getMobRosterCacheStats() {
+  const now = Date.now();
+  if (MOB_ROSTER_CACHE_TTL_MS > 0) {
+    for (const [key, entry] of mobRosterCache) {
+      if (now - entry.at > MOB_ROSTER_CACHE_TTL_MS) mobRosterCache.delete(key);
+    }
+  }
+  let rows = 0;
+  for (const entry of mobRosterCache.values()) rows += entry.rows?.length || 0;
+  return {
+    entries: mobRosterCache.size,
+    rows,
+    maxEntries: MOB_ROSTER_CACHE_MAX,
+    ttlMs: MOB_ROSTER_CACHE_TTL_MS,
+  };
 }
 
 /**
@@ -443,6 +468,8 @@ async function fetchRandomMob(db, rng) {
   return rows[Math.floor(rng() * rows.length)];
 }
 
+registerMemorySource('database.mob-roster', getMobRosterCacheStats);
+
 module.exports = {
   CLASS_PASSIVES,
   computeClassBattleStats,
@@ -459,4 +486,5 @@ module.exports = {
   fetchRandomBoss,
   fetchAllBosses,
   clearMobRosterCache,
+  getMobRosterCacheStats,
 };

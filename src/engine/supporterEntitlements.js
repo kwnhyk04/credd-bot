@@ -22,9 +22,16 @@ const {
   CATEGORIES, MONTHLY_TOKENS, ETERNAL_ONE_TIME_TOKENS, TIER_RANK, DEV_ACCOUNT_IDS,
 } = require('../config/cosmetics');
 const { envBool } = require('../utils/runtimeLogs');
+const { registerMemorySource } = require('../utils/memoryRegistry');
 const { grantTokensTx, grantTokensOnceTx } = require('./supporterTokens');
 
 let supporterSchemaCache = null;
+
+registerMemorySource('database.supporter-schema', () => ({
+  columnEntries: supporterSchemaCache?.columns?.size || 0,
+  tierEntries: supporterSchemaCache?.tierValues?.size || 0,
+  fixedSchemaSnapshot: true,
+}));
 
 const STORED_TIER_ALIASES = {
   chosen_believer: 'chosen',

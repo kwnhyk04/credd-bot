@@ -20,6 +20,7 @@ const {
   ButtonBuilder, ButtonStyle, MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
+const { registerMemorySource } = require('../../utils/memoryRegistry');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay } = require('../../utils/emojis');
 const { TIER_ALIAS } = require('../../config/gachaRates');
@@ -73,6 +74,10 @@ function fmtRange([lo, hi], suffix = '') {
 
 // ── page data ───────────────────────────────────────────────────────────────
 let mythologyCache = null;
+registerMemorySource('database.glossary-mythologies', () => ({
+  entries: mythologyCache?.length || 0,
+  fixedQueryResult: true,
+}));
 async function mythologies() {
   if (mythologyCache) return mythologyCache;
   const res = await pool.query(

@@ -37,9 +37,10 @@ function startBossScheduler(client) {
     }
   };
 
-  setInterval(tick, TICK_MS);
+  const interval = setInterval(tick, TICK_MS);
   tick(); // startup pass (recover overdue transitions immediately)
   console.log('[bossScheduler] Boss scheduler started (every 60s, official support server only, bosses remain until defeated).');
+  return () => clearInterval(interval);
 }
 
 module.exports = { startBossScheduler };

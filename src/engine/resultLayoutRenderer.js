@@ -23,7 +23,8 @@ const {
   readAssetJson,
 } = require('../utils/assets');
 const { envNumber, envPositiveInt } = require('../utils/runtimeLogs');
-const { encodeOpaqueCanvas } = require('../utils/canvasEncode');
+const { encodeOpaqueCanvas, releaseCanvas } = require('../utils/canvasEncode');
+const { registerMemorySource } = require('../utils/memoryRegistry');
 
 const ROOT = path.join(__dirname, '..', '..');
 const FONT_FALLBACK = 'DejaVu Sans';
@@ -37,11 +38,11 @@ for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
 
 const RESULT_BASE_CACHE_MAX_ENTRIES = envPositiveInt(
   'BATTLE_STATIC_LAYER_CACHE_MAX',
-  envPositiveInt('RESULT_BASE_CACHE_MAX_ENTRIES', 30, { max: 500 }),
+  envPositiveInt('RESULT_BASE_CACHE_MAX_ENTRIES', 8, { max: 500 }),
   { max: 500 }
 );
 const RESULT_BASE_CACHE_TTL_MS = Math.max(0, envNumber('BATTLE_STATIC_LAYER_CACHE_TTL_MS', 600_000, { min: 0, max: 86_400_000 }));
-const BATTLE_STATIC_TOTAL_MAX_MB = envNumber('BATTLE_RENDER_CACHE_MAX_MB', 48, { min: 2, max: 2048 });
+const BATTLE_STATIC_TOTAL_MAX_MB = envNumber('BATTLE_RENDER_CACHE_MAX_MB', 16, { min: 2, max: 2048 });
 const RESULT_BASE_CACHE_MAX_BYTES = Math.max(
   1024 * 1024,
   envNumber('RESULT_BASE_CACHE_MAX_MB', BATTLE_STATIC_TOTAL_MAX_MB / 2, { min: 1, max: 2048 }) * 1024 * 1024
@@ -54,6 +55,7 @@ const warned = new Set();
 function warnOnce(key, message) {
   if (warned.has(key)) return;
   warned.add(key);
+  while (warned.size > 200) warned.delete(warned.values().next().value);
   console.warn(message);
 }
 
@@ -78,12 +80,19 @@ function estimateCanvasBytes(canvas) {
   return Math.max(1, (Number(canvas?.width) || 0) * (Number(canvas?.height) || 0) * 4);
 }
 
+function dropResultBase(key) {
+  const entry = resultBaseCache.get(key);
+  if (!entry) return;
+  resultBaseCache.delete(key);
+  resultBaseCacheBytes = Math.max(0, resultBaseCacheBytes - entry.bytes);
+  releaseCanvas(entry.canvas);
+}
+
 function trimResultBaseCache() {
   while (resultBaseCache.size > RESULT_BASE_CACHE_MAX_ENTRIES || resultBaseCacheBytes > RESULT_BASE_CACHE_MAX_BYTES) {
     const oldest = resultBaseCache.entries().next().value;
     if (!oldest) break;
-    resultBaseCache.delete(oldest[0]);
-    resultBaseCacheBytes -= oldest[1].bytes;
+    dropResultBase(oldest[0]);
   }
 }
 
@@ -96,8 +105,7 @@ function trimSkinCache() {
 function cacheResultBase(key, signature, canvas) {
   const existing = resultBaseCache.get(key);
   if (existing) {
-    resultBaseCache.delete(key);
-    resultBaseCacheBytes -= existing.bytes;
+    dropResultBase(key);
   }
   const entry = {
     signature,
@@ -115,8 +123,7 @@ function cachedResultBase(key, signature) {
   const entry = resultBaseCache.get(key);
   if (!entry) return null;
   if (entry.signature !== signature || (RESULT_BASE_CACHE_TTL_MS && Date.now() - entry.lastUsed > RESULT_BASE_CACHE_TTL_MS)) {
-    resultBaseCache.delete(key);
-    resultBaseCacheBytes -= entry.bytes;
+    dropResultBase(key);
     return null;
   }
   entry.lastUsed = Date.now();
@@ -126,11 +133,17 @@ function cachedResultBase(key, signature) {
 }
 
 function clearResultBaseCache() {
-  resultBaseCache.clear();
-  resultBaseCacheBytes = 0;
+  for (const key of [...resultBaseCache.keys()]) dropResultBase(key);
 }
 
 function getResultBaseCacheStats() {
+  if (RESULT_BASE_CACHE_TTL_MS) {
+    const now = Date.now();
+    for (const [key, entry] of resultBaseCache) {
+      if (now - entry.lastUsed <= RESULT_BASE_CACHE_TTL_MS) continue;
+      dropResultBase(key);
+    }
+  }
   return {
     entries: resultBaseCache.size,
     maxEntries: RESULT_BASE_CACHE_MAX_ENTRIES,
@@ -153,24 +166,31 @@ async function loadResultSkin(skinPath) {
   }
 
   const cached = skinCache.get(skinPath);
-  if (cached && cached.signature === signature) return cached.promise;
-
-  const promise = (async () => {
+  let promise = cached && cached.signature === signature ? cached.promise : null;
+  if (!promise) promise = (async () => {
     const layout = await readAssetJson(configPath);
     if (!validateResultLayout(layout)) {
       warnOnce(configPath, `[resultLayout] invalid layout ${configPath}; using default rewards strip.`);
       return null;
     }
-    const image = await loadAssetImageSource(loadImage, skinPath);
-    return { image, layout, skinPath, configPath, signature };
+    return { layout, skinPath, configPath, signature };
   })().catch((err) => {
     warnOnce(configPath, `[resultLayout] failed to load ${path.basename(skinPath)}: ${err.message}; using default rewards strip.`);
     return null;
   });
 
-  skinCache.set(skinPath, { signature, promise });
-  trimSkinCache();
-  return promise;
+  if (!cached || cached.signature !== signature) {
+    skinCache.set(skinPath, { signature, promise });
+    trimSkinCache();
+  }
+  const metadata = await promise;
+  if (!metadata) return null;
+  try {
+    return { ...metadata, image: await loadAssetImageSource(loadImage, skinPath) };
+  } catch (err) {
+    warnOnce(skinPath, `[resultLayout] failed to load ${path.basename(skinPath)}: ${err.message}; using default rewards strip.`);
+    return null;
+  }
 }
 
 function fontOf(family, weight, size) {
@@ -360,6 +380,12 @@ async function renderResultPanel(sim, rewards, skin, { loadIcon } = {}) {
 
   return encodeOpaqueCanvas(canvas, { system: 'battle', imageType: 'battle_result' });
 }
+
+registerMemorySource('battle.results-layout', () => ({
+  layoutEntries: skinCache.size,
+  warningEntries: warned.size,
+  ...getResultBaseCacheStats(),
+}));
 
 module.exports = {
   layoutPathFor,

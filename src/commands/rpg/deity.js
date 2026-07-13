@@ -11,6 +11,7 @@ const {
 const fs = require('fs');
 const path = require('path');
 const pool = require('../../db/pool');
+const { registerMemorySource } = require('../../utils/memoryRegistry');
 const { TIER_ALIAS, TIER_COLOR, TIER_ESSENCE_COLUMN } = require('../../config/gachaRates');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay, emoji } = require('../../utils/emojis');
@@ -36,6 +37,7 @@ const {
   computeDeityStats, computeDeityProgressionStats, nextDeityAttempt,
 } = require('../../engine/deityEnhancement');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const { releaseCanvas } = require('../../utils/canvasEncode');
 const {
   DIVINE_BLESSING_DEITIES, ECHO_BLESSING_DEITIES, ECHO_BLESSING_KEY_MAP,
   SLOT_UNLOCK_GATES, computeResonanceMods, DOMAIN_RESONANCES, MYTHOLOGY_RESONANCES,
@@ -61,6 +63,11 @@ const MYTHOLOGY_DIR = { PH: 'philippine', Norse: 'norse', Greek: 'greek' };
 const DEITIES_DIR = path.resolve(__dirname, '..', '..', '..', 'assets', 'deities');
 const THUMBNAIL_EXTENSIONS = ['webp', 'png', 'jpg'];
 let mythologyPageCache = null;
+
+registerMemorySource('database.deity-mythologies', () => ({
+  entries: mythologyPageCache?.length || 0,
+  fixedQueryResult: true,
+}));
 
 async function loadAssetImage(source) {
   return loadAssetImageSource(loadImage, source);
@@ -1207,20 +1214,31 @@ async function deities(message) {
     guildId: message.guild?.id,
     userId: message.author?.id,
   };
-  const gridCached = await getCachedCanvasUrl(
-    ['deities-collection', DEITY_RENDER_REV, slots, unlockState],
-    async () => canvas.toBuffer('image/png'),
-    { preserveTransparency: true },
-    { returnImageOnFailure: true, logContext }
-  );
-  const attachment = gridCached?.url
-    ? { url: gridCached.url, file: null }
-    : gridCached?.image
-      ? attachmentFromOptimizedImage(gridCached.image, 'deities', { ...logContext, reusedBuffer: true })
-      : await makeOptimizedAttachment(canvas.toBuffer('image/png'), 'deities', {
-        logContext,
-        preserveTransparency: true,
-      });
+  let gridPng = null;
+  const renderGrid = async () => {
+    if (!gridPng) gridPng = canvas.toBuffer('image/png');
+    return gridPng;
+  };
+  let attachment;
+  try {
+    const gridCached = await getCachedCanvasUrl(
+      ['deities-collection', DEITY_RENDER_REV, slots, unlockState],
+      renderGrid,
+      { preserveTransparency: true },
+      { returnImageOnFailure: true, logContext }
+    );
+    attachment = gridCached?.url
+      ? { url: gridCached.url, file: null }
+      : gridCached?.image
+        ? attachmentFromOptimizedImage(gridCached.image, 'deities', { ...logContext, reusedBuffer: true })
+        : await makeOptimizedAttachment(await renderGrid(), 'deities', {
+          logContext,
+          preserveTransparency: true,
+        });
+  } finally {
+    releaseCanvas(canvas);
+    gridPng = null;
+  }
 
   // Build resonance info
   const deityInfos = slots.map((s, idx) =>

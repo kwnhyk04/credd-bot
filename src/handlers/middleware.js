@@ -4,6 +4,7 @@ const pool = require('../db/pool');
 const { cooldownMs } = require('../config/cooldowns');
 const guildConfig = require('./guildConfigCache');
 const { envNumber, performanceLog } = require('../utils/runtimeLogs');
+const { registerMemorySource } = require('../utils/memoryRegistry');
 
 // In-memory cooldown store: "discord_id:commandKey" → timestamp of last use.
 // Compound key gives each command its own independent window (per-user, across guilds).
@@ -168,4 +169,15 @@ async function runMiddleware(ctx, { requiresCharacter = false, commandKey = '' }
   return true;
 }
 
-module.exports = { runMiddleware, isBanned };
+function getMiddlewareCacheStats() {
+  trimRuntimeCaches(Date.now(), activityWriteThrottleMs());
+  return {
+    cooldownEntries: cooldowns.size,
+    activityEntries: activityWrites.size,
+    maxEntriesEach: RUNTIME_CACHE_MAX,
+  };
+}
+
+registerMemorySource('middleware.runtime', getMiddlewareCacheStats);
+
+module.exports = { runMiddleware, isBanned, getMiddlewareCacheStats };

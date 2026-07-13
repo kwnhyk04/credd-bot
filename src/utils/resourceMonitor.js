@@ -5,6 +5,7 @@ const { getCanvasCacheStats } = require('./canvasCache');
 const { getImageWorkQueueStats } = require('./imageWorkQueue');
 const { getProfileImageCacheStats } = require('./profileImageCache');
 const { envBool, envPositiveInt, metaString } = require('./runtimeLogs');
+const { memorySourceSnapshots } = require('./memoryRegistry');
 const { getBattleBaseCacheStats } = require('../engine/battleLayoutRenderer');
 const { getResultBaseCacheStats } = require('../engine/resultLayoutRenderer');
 const pool = require('../db/pool');
@@ -15,6 +16,7 @@ let lastRss = 0;
 let peakRss = 0;
 let warned450 = false;
 let warned600 = false;
+let discordClient = null;
 
 function mb(bytes) {
   return Math.round((Number(bytes) || 0) / 1024 / 1024);
@@ -26,6 +28,42 @@ function resourceLogsEnabled() {
 
 function intervalMs() {
   return envPositiveInt('RESOURCE_LOG_INTERVAL_MS', 600_000, { max: 3_600_000 });
+}
+
+function discordCacheStats() {
+  if (!discordClient) return {};
+  let messages = 0;
+  let members = 0;
+  let emojis = 0;
+  let roles = 0;
+  let voiceStates = 0;
+  let scheduledEvents = 0;
+  let stickers = 0;
+  for (const guild of discordClient.guilds?.cache?.values?.() || []) {
+    members += guild.members?.cache?.size || 0;
+    emojis += guild.emojis?.cache?.size || 0;
+    roles += guild.roles?.cache?.size || 0;
+    voiceStates += guild.voiceStates?.cache?.size || 0;
+    scheduledEvents += guild.scheduledEvents?.cache?.size || 0;
+    stickers += guild.stickers?.cache?.size || 0;
+    for (const channel of guild.channels?.cache?.values?.() || []) {
+      messages += channel.messages?.cache?.size || 0;
+    }
+  }
+  return {
+    guilds: discordClient.guilds?.cache?.size || 0,
+    channels: discordClient.channels?.cache?.size || 0,
+    users: discordClient.users?.cache?.size || 0,
+    messages,
+    members,
+    emojis,
+    roles,
+    voiceStates,
+    scheduledEvents,
+    stickers,
+    applicationEmojis: discordClient.application?.emojis?.cache?.size || 0,
+    listeners: discordClient.eventNames?.().reduce((sum, event) => sum + discordClient.listenerCount(event), 0) || 0,
+  };
 }
 
 function resourceSnapshot() {
@@ -51,6 +89,7 @@ function resourceSnapshot() {
     return counts;
   }, {});
   const nativeGap = Math.max(0, mem.rss - mem.heapTotal - mem.external);
+  const caches = memorySourceSnapshots();
   return {
     rss: mb(mem.rss),
     heapUsed: mb(mem.heapUsed),
@@ -87,13 +126,41 @@ function resourceSnapshot() {
     pgWaiting: pool.waitingCount,
     activeResources: activeResources.length,
     resourceTypes: JSON.stringify(resourceTypes),
+    discord: discordCacheStats(),
+    caches,
     cache: `canvas:${canvas.entries}/inflight:${canvas.inflight}/profile:${profile.entries}/battleStatic:${Number(battleBase.entries || 0) + Number(resultBase.entries || 0)}/queue:${queue.active}+${queue.queued}/${queue.limit}`,
   };
 }
 
 function logResourceSnapshot() {
   const snapshot = resourceSnapshot();
-  console.log(`[resource]${metaString(snapshot)}`);
+  console.log(`[resource]${metaString(snapshot)} details=${JSON.stringify({
+    units: 'MB',
+    memory: {
+      heapUsed: snapshot.heapUsed,
+      heapTotal: snapshot.heapTotal,
+      rss: snapshot.rss,
+      external: snapshot.external,
+      arrayBuffers: snapshot.arrayBuffers,
+      nativeGap: snapshot.nativeGap,
+      rssDelta: snapshot.rssDelta,
+      rssPeak: snapshot.rssPeak,
+    },
+    postgres: {
+      total: snapshot.pgTotal,
+      idle: snapshot.pgIdle,
+      waiting: snapshot.pgWaiting,
+    },
+    imageQueue: {
+      active: snapshot.queueActive,
+      queued: snapshot.queueQueued,
+      limit: snapshot.queueLimit,
+    },
+    discord: snapshot.discord,
+    caches: snapshot.caches,
+    activeResources: snapshot.activeResources,
+    resourceTypes: JSON.parse(snapshot.resourceTypes),
+  })}`);
   if (snapshot.rss >= 600 && !warned600) {
     console.warn(`[resource] RSS CRITICAL threshold=600MB${metaString(snapshot)}`);
     warned600 = true;
@@ -108,8 +175,9 @@ function logResourceSnapshot() {
   }
 }
 
-function startResourceMonitor() {
+function startResourceMonitor({ client = null } = {}) {
   if (!resourceLogsEnabled() || interval) return null;
+  discordClient = client;
   lastCpu = process.cpuUsage();
   lastRss = 0;
   peakRss = 0;
@@ -125,10 +193,12 @@ function stopResourceMonitor() {
   if (!interval) return;
   clearInterval(interval);
   interval = null;
+  discordClient = null;
 }
 
 module.exports = {
   startResourceMonitor,
   stopResourceMonitor,
   resourceLogsEnabled,
+  resourceSnapshot,
 };

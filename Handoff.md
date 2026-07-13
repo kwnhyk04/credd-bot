@@ -1156,3 +1156,133 @@ npm.cmd run selftest:memory
 ### Agent Attribution Note
 
 This appended section was written by OpenAI Codex. Earlier entries must remain intact because the repository is also maintained using Claude/Fable. Future agents should append their work with a timestamp and agent attribution rather than deleting prior history.
+
+---
+
+### Boss Stat Rescale + Sudden-Death Player-Only Drain
+
+**Agent:** Claude Code (Opus 4.8)
+**Timestamp:** 2026-07-14 04:43:52 TST
+**Commit:** 5f6cd96
+
+1. Boss stat multipliers lowered: HP 10x to 5x, ATK/DEF 2x to 1.5x.
+2. Defaults changed in `bossStatMultiplier()` and `bossAttackDefenseMultiplier()` (`src/engine/bossSystem.js`) and in `.env.example` (`BOSS_STAT_MULTIPLIER`, `BOSS_ATK_DEF_MULTIPLIER`).
+3. Applied at the single spawn path via `scaledBossStats`; normal and elite mob scaling untouched. Greater-boss chest HP multiplier (`hpMultiplierForChest`) left unchanged.
+4. Already-spawned bosses keep their persisted `max_hp`/`scaled_atk`/`scaled_def`; only new spawns use the new multipliers.
+5. Round-30 sudden-death HP drain (`src/engine/battleEngine.js`) now hits only player (user) sides. Mobs and bosses are exempt, so in PvE the user bleeds out while the enemy does not; PvP duels still drain both user sides.
+
+**Validation:** Battle self-test 186 passed / 0 failed; requested patch self-test passed.
+
+**Note:** Only the three files above were committed. The unrelated pre-existing working-tree modifications from prior sessions were left unstaged and untouched.
+
+---
+
+### Complete Production Memory Audit and Retention Fixes
+
+**Agent:** OpenAI Codex (5.6 Sol ultra)
+**Timestamp:** 2026-07-14 04:49:00 TST
+**Commit:** This entry is included in the memory-audit commit created immediately afterward.
+
+Audits performed and changes completed:
+
+1. Audited every application-owned module-scope Map, Set, Array, cache, queue, Buffer holder, Canvas holder, Image holder, timer, collector, and listener.
+   - Classified request-local containers as collectible after the request lifecycle.
+   - Classified fixed registries, schema snapshots, lore, mythology lists, font registrations, and guild-scoped records as finite or lifecycle-owned.
+   - Added lightweight counters for 32 cache and runtime sources without exposing or retaining their contents.
+
+2. Found the primary production memory leak in `src/casino/casinoCanvas.js`.
+   - The old card source image cache retained about 436.2 MB of decoded images.
+   - The old 52-card face cache retained about 311.8 MB of 1024x1536 canvases.
+   - Removed the duplicate source image cache and routed card assets through the shared asset cache.
+   - Reduced composited card faces to 140x196 and bounded them to eight entries, 4 MB, and a 10-minute TTL.
+   - The full-deck test now retains about 1 MB of face canvases.
+
+3. Audited all battle, raid, result, profile, stats, equipment, weapon, portrait, deity, summon, quest, bag, boss, and casino renderers.
+   - Removed duplicate renderer-local Image caches from portrait, weapon, quest, bag-local, summon-frame, battle-skin, result-skin, and battle-emoji paths.
+   - Kept layout caches metadata-only where possible.
+   - Bounded battle and result static canvases to a combined 16 MB and eight entries per cache with a 10-minute TTL.
+   - Released evicted battle/result base canvases immediately.
+
+4. Added deterministic Canvas disposal after image encoding.
+   - Added `releaseCanvas()` in `src/utils/canvasEncode.js`.
+   - Request canvases are resized to 1x1 in `finally` immediately after PNG or JPEG encoding so native surfaces do not wait for V8 heap pressure.
+   - Applied this lifecycle to production render paths without changing their output or gameplay behavior.
+
+5. Audited R2 asset downloads and image decoding.
+   - Added shared in-flight deduplication for buffer and image loads with `finally` cleanup.
+   - Kept the decoded asset and source buffer caches under one 256-entry, 40 MB, 30-minute ceiling.
+   - Removed the compressed R2 Buffer after decoding when the disk cache can reload it, avoiding duplicate encoded and decoded copies.
+   - Kept remote availability checks capped at 1,000 entries with negative-result expiry.
+   - Values below the measured 40 MB decoded working-set floor now fall back to 40 MB to prevent eviction and decode churn.
+
+6. Audited generated PNG, JPEG, WebP, GIF, raw-frame, and composite buffers.
+   - Output buffers remain request-local until the Discord send/edit or R2 upload resolves.
+   - Canvas and profile caches retain R2 URLs rather than generated buffers.
+   - The only intentional generated-buffer caches are bounded casino processed media and boss banners.
+   - Added a WeakRef memory test that confirmed zero generated profile/stats output buffers remained reachable after forced garbage collection.
+
+7. Bounded native and image-processing work.
+   - Configured Sharp for an 8 MB memory cache, zero file cache, 20 cached items, and concurrency one.
+   - Reduced the image queue maximum from 32 to 16 and retained one active renderer by default.
+   - Added queue and active-job age instrumentation with guaranteed `finally` cleanup.
+
+8. Audited casino media, boss, Discord, and secondary caches.
+   - Casino processed GIF/PNG buffers now share a 12-entry, 24 MB, 10-minute cache; R2 production prewarming is skipped.
+   - Boss banners now use four entries, 8 MB, and a 10-minute TTL.
+   - Boss logs now retain only compact names, winner, seed, and capped event text rather than full snapshots.
+   - Emoji Images are bounded to 256 entries, 4 MB, and a 30-minute TTL.
+   - Profile/stats layout metadata is capped at 64 entries and mob roster data at 32 entries.
+   - Discord messages are limited to five per channel and swept after five minutes; unused managers are disabled and members, users, and emojis are bounded.
+
+9. Audited sessions, timers, schedulers, collectors, listeners, and queues.
+   - Blackjack and crash sessions now clear Maps and timers on reply, render, timeout, settlement, and error exits.
+   - Boss refreshes coalesce to one active job and one rerun per guild instead of overlapping.
+   - Battle collectors retain prebuilt log pages instead of full simulations and expire after five minutes.
+   - Bestow and duel collectors retain their fixed 60-second lifetimes and expose active counts.
+   - Battle, boss, reset, and season schedulers now return stop callbacks that run during graceful shutdown.
+   - Guild-owned configuration and boss runtime state are cleared on `guildDelete`.
+
+10. Added 10-minute production memory instrumentation in `src/utils/resourceMonitor.js`.
+    - Logs `heapUsed`, `heapTotal`, `rss`, `external`, and `arrayBuffers` together.
+    - Also logs native gap, RSS delta and peak, CPU, PostgreSQL pool counts, Discord cache/listener counts, active Node resource types, image queue state, and every registered cache size and limit.
+    - Keeps warning thresholds at 450 MB and 600 MB.
+
+11. Added and expanded validation.
+    - `npm.cmd run selftest:memory` passed at 310 MB idle RSS and 300 MB after forced GC, with zero generated output buffers reachable.
+    - `npm.cmd run selftest:memory:casino` passed at 328 MB final RSS, eight card faces, about 1 MB of face canvases, and 36 MB of shared assets.
+    - `npm.cmd run selftest:full` passed: 186 battle checks, requested patch and schema checks, 181 help/command checks, and 171 casino checks.
+    - JavaScript syntax checks and `git diff --check` passed.
+
+12. Added `docs/production-memory-audit.md` with the complete inventory, measured consumers, renderer and R2 lifecycle review, instrumentation reference, validation results, and Railway recommendations.
+
+`.env.example` memory changes in this audit:
+
+1. Changed `IMAGE_RENDER_QUEUE_MAX` from `32` to `16`.
+2. Added `SHARP_CACHE_MEMORY_MB=8`.
+3. Added `SHARP_CACHE_FILES=0`.
+4. Added `SHARP_CACHE_ITEMS=20`.
+5. Added `SHARP_CONCURRENCY=1`.
+6. Changed `BATTLE_STATIC_LAYER_CACHE_MAX` from `30` to `8`.
+7. Changed `BATTLE_RENDER_CACHE_MAX_MB` from `48` to `16`.
+8. Changed `ASSET_MEMORY_CACHE_MAX_MB` from `48` to `40`.
+9. Added `LAYOUT_METADATA_CACHE_MAX=64`.
+10. Added `MOB_ROSTER_CACHE_MAX=32`.
+11. Added `EMOJI_IMAGE_CACHE_MAX=256`.
+12. Added `EMOJI_IMAGE_CACHE_MAX_MB=4`.
+13. Added `EMOJI_IMAGE_CACHE_TTL_MS=1800000`.
+14. Added `BOSS_BANNER_CACHE_MAX=4`.
+15. Added `BOSS_BANNER_CACHE_MAX_MB=8`.
+16. Added `BOSS_BANNER_CACHE_TTL_MS=600000`.
+17. Added `CASINO_CARD_FACE_CACHE_MAX=8`.
+18. Added `CASINO_CARD_FACE_CACHE_MAX_MB=4`.
+19. Added `CASINO_CARD_FACE_CACHE_TTL_MS=600000`.
+20. Added `CASINO_MEDIA_CACHE_MAX=12`.
+21. Added `CASINO_MEDIA_CACHE_MAX_MB=24`.
+22. Added `CASINO_MEDIA_CACHE_TTL_MS=600000`.
+
+Production note:
+
+1. Keep `RESOURCE_LOGS=true` and set `RESOURCE_LOG_INTERVAL_MS=600000` for the requested 10-minute snapshots.
+2. Keep `ASSET_DISK_CACHE_ENABLED=true` and do not lower `ASSET_MEMORY_CACHE_MAX_MB` below 40; a 24 MB stress run caused continuous native re-decoding and temporary RSS around 1.1 to 1.25 GB.
+3. Restart the production process after deployment so native allocations retained by the old process are fully released.
+4. No combat, rewards, odds, command behavior, database schema, or other gameplay logic was changed by this memory-audit batch.

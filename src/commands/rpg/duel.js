@@ -33,11 +33,13 @@ const {
 } = require('../../engine/duelLocks');
 const { isBanned } = require('../../handlers/middleware');
 const { progressQuests } = require('../../utils/questProgress');
+const { registerMemorySource } = require('../../utils/memoryRegistry');
 
 const CHALLENGE_WINDOW_MS = 60_000;
 const MAX_DUEL_LEVEL = 50; // [Jun-2026 §3] current max combat level
 const WAGER_CAP = 50_000;          // [v5 §4.1] max Credux staked per wager duel
 const BESTOW_DAILY_CAP = 1_000_000; // [v5 §4.1] wager winnings share the bestow daily cap
+let activeDuelCollectors = 0;
 
 function reply(message, content) {
   return message.reply({ content, allowedMentions: { repliedUser: false } });
@@ -275,6 +277,7 @@ async function runWager(message, challenger, target, stake) {
   });
 
   const collector = challengeMsg.createMessageComponentCollector({ time: CHALLENGE_WINDOW_MS });
+  activeDuelCollectors += 1;
   let settled = false;
   collector.on('collect', async (i) => {
     try {
@@ -366,6 +369,7 @@ async function runWager(message, challenger, target, stake) {
     }
   });
   collector.on('end', (_c, reason) => {
+    activeDuelCollectors = Math.max(0, activeDuelCollectors - 1);
     if (reason === 'settled') return;
     safeReleaseDuelLock(duelLock);
     challengeMsg.edit({
@@ -463,6 +467,7 @@ async function execute(message) {
     });
 
     const collector = challengeMsg.createMessageComponentCollector({ time: CHALLENGE_WINDOW_MS });
+    activeDuelCollectors += 1;
     let settled = false;
 
     collector.on('collect', async (i) => {
@@ -577,6 +582,7 @@ async function execute(message) {
     });
 
     collector.on('end', (_collected, reason) => {
+      activeDuelCollectors = Math.max(0, activeDuelCollectors - 1);
       if (reason === 'settled') return;
       safeReleaseDuelLock(duelLock);
       challengeMsg.edit({
@@ -590,5 +596,10 @@ async function execute(message) {
     return reply(message, 'Duel failed — nothing was changed.').catch(() => {});
   }
 }
+
+registerMemorySource('collectors.duel', () => ({
+  active: activeDuelCollectors,
+  lifetimeMs: CHALLENGE_WINDOW_MS,
+}));
 
 module.exports = { execute };

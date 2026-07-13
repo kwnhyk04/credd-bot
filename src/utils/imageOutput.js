@@ -1,6 +1,7 @@
 'use strict';
 
 const sharp = require('sharp');
+require('./imageRuntime').configureImageRuntime();
 const { AttachmentBuilder } = require('discord.js');
 const { assertDiscordImageAttachmentsAllowed } = require('./egressGuard');
 const {

@@ -10,7 +10,7 @@ const seasonEngine = require('../engine/seasonEngine');
  * ended, so a daily tick is enough to catch a 2-month boundary.
  */
 function startSeasonScheduler() {
-  cron.schedule('5 0 * * *', async () => {
+  const task = cron.schedule('5 0 * * *', async () => {
     try {
       const res = await seasonEngine.rolloverIfDue(pool);
       if (res.rolled) {
@@ -21,6 +21,7 @@ function startSeasonScheduler() {
     }
   }, { timezone: 'Asia/Manila' });
   console.log('[seasonScheduler] started (daily 00:05 PHT).');
+  return () => task.stop();
 }
 
 module.exports = { startSeasonScheduler };

@@ -10,10 +10,10 @@
  */
 
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
-const fs = require('fs');
+const { encodeCanvas } = require('../utils/canvasEncode');
 const path = require('path');
 const { FONT_FAMILY } = require('./renderBagItems');
-const { assetSource, isRemoteSource, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
+const { assetSource, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
 
 const ROOT = path.join(__dirname, '..', '..');
 for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
@@ -43,8 +43,6 @@ const SLOT_EMPTY_BORDER = '#3a3d46';
 const TIER_COLOR = {
   Common: '#95a5a6', Rare: '#3498db', Mythic: '#9b59b6', Legendary: '#fbbf24', Supreme: '#e74c3c',
 };
-
-const imageCache = new Map();
 
 /* ── Socket panel layout (rune slots in the right column) ─────────────────── */
 const SOCK_BOX = 72;        // target slot box edge
@@ -96,24 +94,9 @@ async function loadLocalImage(filePath) {
   }
 
   const resolved = assetSource(filePath);
-  let mtimeMs = 'remote';
-  if (!isRemoteSource(resolved)) {
-    try {
-      mtimeMs = fs.statSync(resolved).mtimeMs;
-    } catch {
-      return null;
-    }
-  }
-
-  const cached = imageCache.get(resolved);
-  if (cached && cached.mtimeMs === mtimeMs) return cached.image;
-
   try {
-    const image = await loadAssetImageSource(loadImage, resolved);
-    imageCache.set(resolved, { mtimeMs, image });
-    return image;
+    return await loadAssetImageSource(loadImage, resolved);
   } catch {
-    imageCache.set(resolved, { mtimeMs, image: null });
     return null;
   }
 }
@@ -303,7 +286,7 @@ async function renderPortraitCard(d) {
     }
   }
 
-  return canvas.toBuffer('image/png');
+  return encodeCanvas(canvas);
 }
 
 module.exports = { renderPortraitCard };

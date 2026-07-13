@@ -13,6 +13,9 @@ const { resolveName } = require('../utils/emojis');
 const { formatIntegerEnUS: fmt } = require('../utils/textFormat');
 const { SUPPORTER_BADGE_HEIGHT } = require('../config/cosmetics');
 const { badgeRect } = require('./identityLayout');
+const { envPositiveInt } = require('../utils/runtimeLogs');
+const { registerMemorySource } = require('../utils/memoryRegistry');
+const { encodeCanvas } = require('../utils/canvasEncode');
 const {
   assetSource,
   assetExistsSync,
@@ -36,16 +39,22 @@ function hasProfileLayout(skinPath) {
   return Boolean(skinPath && (isRemoteAssetsEnabled() || assetExistsSync(layoutPathFor(skinPath))));
 }
 
+const LAYOUT_CACHE_MAX = envPositiveInt('LAYOUT_METADATA_CACHE_MAX', 64, { max: 500 });
 const layoutCache = new Map(); // layout path -> { mtimeMs, layout }
 
 async function loadLayout(configPath) {
   const resolved = assetSource(configPath);
   const mtimeMs = assetSignatureSync(resolved);
   const cached = layoutCache.get(resolved);
-  if (cached && cached.mtimeMs === mtimeMs) return cached.layout;
+  if (cached && cached.mtimeMs === mtimeMs) {
+    layoutCache.delete(resolved);
+    layoutCache.set(resolved, cached);
+    return cached.layout;
+  }
 
   const layout = await readAssetJson(resolved);
   layoutCache.set(resolved, { mtimeMs, layout });
+  while (layoutCache.size > LAYOUT_CACHE_MAX) layoutCache.delete(layoutCache.keys().next().value);
   return layout;
 }
 
@@ -399,7 +408,13 @@ async function renderProfileLayoutImage(d, options = {}) {
     ctx.drawImage(images.supporterBadge, rect.x, rect.y, rect.w, rect.h);
   }
   drawRecord(ctx, relabelRankCols(layout.record), view.record);
-  return canvas.toBuffer('image/png');
+  return encodeCanvas(canvas);
 }
 
-module.exports = { hasProfileLayout, layoutPathFor, renderProfileLayoutImage };
+function getProfileLayoutCacheStats() {
+  return { entries: layoutCache.size, maxEntries: LAYOUT_CACHE_MAX };
+}
+
+registerMemorySource('layouts.profile', getProfileLayoutCacheStats);
+
+module.exports = { hasProfileLayout, layoutPathFor, renderProfileLayoutImage, getProfileLayoutCacheStats };

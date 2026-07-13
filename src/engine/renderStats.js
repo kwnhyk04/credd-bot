@@ -23,6 +23,7 @@
 
 const path = require('path');
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const { encodeCanvas } = require('../utils/canvasEncode');
 const { getEmojiIcon, FONT_FAMILY } = require('./renderBagItems');
 const { hasStatsLayout, renderStatsLayoutImage } = require('./statsLayoutRenderer');
 const { resolveName } = require('../utils/emojis');
@@ -40,12 +41,8 @@ const { containRect, badgeRect } = require('./identityLayout');
  * old flat dark background at the native 600-wide layout. */
 const TEMPLATE_FILE = 'default_template.png';
 const SCRIM = 'rgba(18,19,22,0.50)';
-let templateCache;
 function loadTemplate() {
-  if (templateCache === undefined) {
-    templateCache = loadAssetImage(assetPath(`profile/${TEMPLATE_FILE}`)).catch(() => null);
-  }
-  return templateCache;
+  return loadAssetImage(assetPath(`profile/${TEMPLATE_FILE}`)).catch(() => null);
 }
 
 async function loadAssetImage(source) {
@@ -447,7 +444,7 @@ async function renderStatsImage(d) {
   ctx.fillText(fitText(ctx, `“${quoteFor(d.discordId)}”`, W - PAD * 2), W / 2, y);
   ctx.textAlign = 'left';
 
-  return canvas.toBuffer('image/png');
+  return encodeCanvas(canvas);
 }
 
 /**

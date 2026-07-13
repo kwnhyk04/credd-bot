@@ -10,6 +10,7 @@
  */
 
 const pool = require('../db/pool');
+const { registerMemorySource } = require('../utils/memoryRegistry');
 
 const cache = new Map(); // guildId -> { prefix, bot_channel_id, announcement_channel_id, boss_announcement_channel_id }
 
@@ -61,4 +62,16 @@ function setField(guildId, field, value) {
   cache.set(guildId, cur);
 }
 
-module.exports = { loadAll, getConfig, getPrefix, setField, cache, DEFAULTS, normalizeChannelId };
+function deleteGuild(guildId) {
+  cache.delete(guildId);
+}
+
+function getGuildConfigCacheStats() {
+  return { entries: cache.size, source: 'server_config' };
+}
+
+registerMemorySource('guild.config', getGuildConfigCacheStats);
+
+module.exports = {
+  loadAll, getConfig, getPrefix, setField, deleteGuild, cache, DEFAULTS, normalizeChannelId, getGuildConfigCacheStats,
+};

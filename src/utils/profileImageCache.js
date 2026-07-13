@@ -1,5 +1,7 @@
 'use strict';
 
+const { registerMemorySource } = require('./memoryRegistry');
+
 const crypto = require('crypto');
 const { envNumber, envPositiveInt, performanceLog } = require('./runtimeLogs');
 
@@ -20,6 +22,17 @@ function signature(parts) {
 function trim() {
   while (cache.size > maxEntries()) {
     cache.delete(cache.keys().next().value);
+  }
+}
+
+function sweepExpired(now = Date.now()) {
+  const ttl = ttlMs();
+  if (ttl <= 0) {
+    cache.clear();
+    return;
+  }
+  for (const [key, entry] of cache) {
+    if (now - entry.createdAt > ttl) cache.delete(key);
   }
 }
 
@@ -44,6 +57,7 @@ function getProfileImageCache(userId, expectedSignature, logContext = {}) {
 
 function setProfileImageCache(userId, imageSignature, url) {
   if (!url || ttlMs() <= 0) return;
+  cache.delete(userId);
   cache.set(userId, {
     signature: imageSignature,
     url,
@@ -53,12 +67,15 @@ function setProfileImageCache(userId, imageSignature, url) {
 }
 
 function getProfileImageCacheStats() {
+  sweepExpired();
   return {
     entries: cache.size,
     maxEntries: maxEntries(),
     ttlMs: ttlMs(),
   };
 }
+
+registerMemorySource('profile.urls', getProfileImageCacheStats);
 
 module.exports = {
   signature,

@@ -20,6 +20,7 @@ const data = {
   records: { raids: 10, raidsWon: 8, raidStreak: 2, duels: 5, duelWins: 3, duelStreak: 1 },
   topLabel: { hasTopLabel: true, word: 'Founder 001' }, quote: 'Memory remains bounded.',
 };
+const generatedBufferRefs = [];
 
 function snapshot(phase) {
   const mem = process.memoryUsage();
@@ -44,8 +45,11 @@ async function renderPair(index) {
     avatarPath: avatars[index % avatars.length],
     supporterBadgePath: badgePath,
   };
-  await renderProfileLayoutImage(data, options);
-  await renderStatsLayoutImage(data, options);
+  let output = await renderProfileLayoutImage(data, options);
+  generatedBufferRefs.push(new WeakRef(output));
+  output = await renderStatsLayoutImage(data, options);
+  generatedBufferRefs.push(new WeakRef(output));
+  output = null;
 }
 
 async function main() {
@@ -66,7 +70,35 @@ async function main() {
   if (growthMb > 160) {
     throw new Error(`RSS kept growing after warm-up by ${growthMb} MB`);
   }
-  console.log(JSON.stringify({ status: 'passed', baselineRssMb: baseline.rssMb, peakRssMb: concurrent.rssMb, warmGrowthMb: growthMb }));
+  if (idle.rssMb > 350) {
+    throw new Error(`Steady-state RSS exceeded the 350 MB target: ${idle.rssMb} MB`);
+  }
+  let collected = idle;
+  if (typeof global.gc === 'function') {
+    global.gc();
+    await new Promise((resolve) => setImmediate(resolve));
+    global.gc();
+    collected = snapshot('forced-gc');
+    const reachableGeneratedBuffers = generatedBufferRefs.reduce(
+      (count, ref) => count + (ref.deref() ? 1 : 0),
+      0
+    );
+    if (reachableGeneratedBuffers !== 0) {
+      throw new Error(`${reachableGeneratedBuffers} generated image buffers remained reachable after GC`);
+    }
+    collected.reachableGeneratedBuffers = reachableGeneratedBuffers;
+  }
+  console.log(JSON.stringify({
+    status: 'passed',
+    baselineRssMb: baseline.rssMb,
+    peakRssMb: concurrent.rssMb,
+    steadyRssMb: idle.rssMb,
+    collectedRssMb: collected.rssMb,
+    collectedArrayBuffersMb: collected.arrayBuffersMb,
+    reachableGeneratedBuffers: collected.reachableGeneratedBuffers ?? null,
+    targetRssMb: 350,
+    warmGrowthMb: growthMb,
+  }));
 }
 
 main().catch((err) => {

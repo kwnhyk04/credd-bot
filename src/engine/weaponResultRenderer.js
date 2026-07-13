@@ -19,6 +19,7 @@
  */
 
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+const { encodeCanvas } = require('../utils/canvasEncode');
 const path = require('path');
 const fs = require('fs');
 const { resolveName } = require('../utils/emojis');
@@ -27,7 +28,6 @@ const {
   assetPath,
   assetSource,
   isRemoteAssetsEnabled,
-  isRemoteSource,
   loadAssetImage: loadAssetImageSource,
 } = require('../utils/assets');
 
@@ -62,8 +62,6 @@ const SPRITE = 88; // weapon sprite box
 // Full 5-column width — every render uses it so narrow results stay centered
 // in the Discord embed (≥ ~640px rule).
 const GRID_W = PAD * 2 + COLS_MAX * CARD_W + (COLS_MAX - 1) * GAP; // 940
-const spriteCache = new Map();
-
 function tierOf(item) {
   return TIERS[(item.tier || 'common').toLowerCase()] || TIERS.common;
 }
@@ -118,26 +116,9 @@ function statsLine(item) {
 
 async function loadSpriteOne(imgPath) {
   const resolved = assetSource(imgPath);
-  let mtimeMs;
-  if (isRemoteSource(resolved)) {
-    mtimeMs = 'remote';
-  } else {
-    try {
-      mtimeMs = fs.statSync(resolved).mtimeMs;
-    } catch {
-      return null;
-    }
-  }
-
-  const cached = spriteCache.get(resolved);
-  if (cached && cached.mtimeMs === mtimeMs) return cached.image;
-
   try {
-    const image = await loadAssetImageSource(loadImage, resolved);
-    spriteCache.set(resolved, { mtimeMs, image });
-    return image;
-  } catch (err) {
-    spriteCache.set(resolved, { mtimeMs, image: null });
+    return await loadAssetImageSource(loadImage, resolved);
+  } catch {
     return null;
   }
 }
@@ -276,7 +257,7 @@ async function renderWeaponResults(items) {
       await drawCard(ctx, rowItems[c], startX + c * (CARD_W + GAP), y);
     }
   }
-  return canvas.toBuffer('image/png');
+  return encodeCanvas(canvas);
 }
 
 module.exports = { renderWeaponResults, TIERS, weaponImagePath };

@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const {
   envBool, envNumber, envPositiveInt, bandwidthLog,
 } = require('./runtimeLogs');
+const { registerMemorySource } = require('./memoryRegistry');
 
 const ASSETS_ROOT = path.join(process.cwd(), 'assets');
 const DISK_CACHE_ROOT = path.join(process.cwd(), '.cache', 'assets');
@@ -18,14 +19,16 @@ const CACHE_MAX_BYTES = Math.max(
   1024 * 1024,
   envNumber(
     'ASSET_MEMORY_CACHE_MAX_MB',
-    envNumber('ASSET_CACHE_MAX_MB', 48, { min: 1, max: 2048 }),
-    { min: 1, max: 2048 }
+    envNumber('ASSET_CACHE_MAX_MB', 40, { min: 40, max: 2048 }),
+    { min: 40, max: 2048 }
   ) * 1024 * 1024
 );
 const CACHE_TTL_MS = Math.max(0, envNumber('ASSET_CACHE_TTL_MS', 30 * 60_000, { min: 0 }));
 
 const bufferCache = new Map();
 const imageCache = new Map();
+const bufferInflight = new Map();
+const imageInflight = new Map();
 let cacheBytes = 0;
 const cacheStats = {
   bufferHits: 0,
@@ -97,13 +100,36 @@ function cacheSet(cache, key, value, size) {
   return value;
 }
 
+function cacheDelete(cache, key) {
+  const entry = cache.get(key);
+  if (!entry) return false;
+  cache.delete(key);
+  cacheBytes = Math.max(0, cacheBytes - entry.size);
+  return true;
+}
+
 function clearAssetCache() {
   bufferCache.clear();
   imageCache.clear();
   cacheBytes = 0;
 }
 
+function sweepExpiredAssetCache(now = Date.now()) {
+  if (!CACHE_TTL_MS) return 0;
+  let removed = 0;
+  for (const cache of [bufferCache, imageCache]) {
+    for (const [key, entry] of cache) {
+      if (now - entry.createdAt <= CACHE_TTL_MS) continue;
+      cache.delete(key);
+      cacheBytes = Math.max(0, cacheBytes - entry.size);
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
 function getAssetCacheStats() {
+  sweepExpiredAssetCache();
   return {
     ...cacheStats,
     bufferEntries: bufferCache.size,
@@ -259,12 +285,7 @@ function assetSource(source) {
   return raw;
 }
 
-async function fetchAssetBuffer(source) {
-  const resolved = assetSource(source);
-  const cached = cacheGet(bufferCache, resolved, 'bufferHits');
-  if (cached) return cached;
-  cacheStats.bufferMisses += 1;
-
+async function fetchUncachedAssetBuffer(resolved) {
   if (isRemoteSource(resolved)) {
     const disk = await readDiskCache(resolved);
     if (disk) return cacheSet(bufferCache, resolved, disk, disk.length);
@@ -295,6 +316,22 @@ async function fetchAssetBuffer(source) {
   }
   const buffer = await fs.promises.readFile(resolved);
   return cacheSet(bufferCache, resolved, buffer, buffer.length);
+}
+
+async function fetchAssetBuffer(source) {
+  const resolved = assetSource(source);
+  const cached = cacheGet(bufferCache, resolved, 'bufferHits');
+  if (cached) return cached;
+  const pending = bufferInflight.get(resolved);
+  if (pending) return pending;
+  cacheStats.bufferMisses += 1;
+  const job = fetchUncachedAssetBuffer(resolved);
+  bufferInflight.set(resolved, job);
+  try {
+    return await job;
+  } finally {
+    if (bufferInflight.get(resolved) === job) bufferInflight.delete(resolved);
+  }
 }
 
 async function attachmentSource(source) {
@@ -340,23 +377,37 @@ async function loadAssetImage(loadImageFn, source) {
   const resolved = assetSource(source);
   const cached = cacheGet(imageCache, resolved, 'imageHits');
   if (cached) return cached;
+  const pending = imageInflight.get(resolved);
+  if (pending) return pending;
   cacheStats.imageMisses += 1;
 
-  try {
-    const image = isRemoteSource(resolved)
-      ? await loadImageOrSanitize(loadImageFn, await fetchAssetBuffer(resolved))
-      : await loadImageOrSanitize(loadImageFn, resolved);
-    return cacheSet(imageCache, resolved, image, estimateImageBytes(image));
-  } catch (err) {
-    if (isRemoteSource(resolved)) {
-      const rel = relativeAssetPath(resolved);
-      const fallback = rel ? localAssetPath(rel) : null;
-      if (fallback && fs.existsSync(fallback)) {
-        const image = await loadImageOrSanitize(loadImageFn, fallback);
-        return cacheSet(imageCache, resolved, image, estimateImageBytes(image));
+  const job = (async () => {
+    try {
+      const image = isRemoteSource(resolved)
+        ? await loadImageOrSanitize(loadImageFn, await fetchAssetBuffer(resolved))
+        : await loadImageOrSanitize(loadImageFn, resolved);
+      const result = cacheSet(imageCache, resolved, image, estimateImageBytes(image));
+      // Drop duplicate remote bytes after decoding when the disk cache can reload them.
+      if (isRemoteSource(resolved) && diskCacheEnabled()) cacheDelete(bufferCache, resolved);
+      return result;
+    } catch (err) {
+      if (isRemoteSource(resolved)) {
+        const rel = relativeAssetPath(resolved);
+        const fallback = rel ? localAssetPath(rel) : null;
+        if (fallback && fs.existsSync(fallback)) {
+          const image = await loadImageOrSanitize(loadImageFn, fallback);
+          cacheDelete(bufferCache, resolved);
+          return cacheSet(imageCache, resolved, image, estimateImageBytes(image));
+        }
       }
+      throw err;
     }
-    throw err;
+  })();
+  imageInflight.set(resolved, job);
+  try {
+    return await job;
+  } finally {
+    if (imageInflight.get(resolved) === job) imageInflight.delete(resolved);
   }
 }
 
@@ -428,6 +479,17 @@ function assetSignatureSync(source) {
   return fs.statSync(resolved).mtimeMs;
 }
 
+registerMemorySource('assets.decoded-and-buffers', getAssetCacheStats);
+registerMemorySource('assets.remote-availability', () => ({
+  entries: remoteAvailability.size,
+  maxEntries: REMOTE_CHECK_MAX,
+  negativeTtlMs: REMOTE_CHECK_NEGATIVE_TTL_MS,
+}));
+registerMemorySource('assets.inflight', () => ({
+  bufferEntries: bufferInflight.size,
+  imageEntries: imageInflight.size,
+}));
+
 module.exports = {
   ASSETS_ROOT,
   assetPath,
@@ -450,6 +512,7 @@ module.exports = {
   remoteAssetAvailable,
   assetSignatureSync,
   clearAssetCache,
+  sweepExpiredAssetCache,
   getAssetCacheStats,
   isRemoteSource,
   isRemoteAssetsEnabled,

@@ -33,9 +33,10 @@ const { getAssetUrl, isRemoteAssetsEnabled, assetVersion } = require('./assets')
 const { optimizeOpaqueAttachment, extensionFromName, imageContentType } = require('./imageOutput');
 const { bandwidthLog, envNumber, performanceLog } = require('./runtimeLogs');
 const { withImageWorkSlot } = require('./imageWorkQueue');
+const { registerMemorySource } = require('./memoryRegistry');
 
 const MEMORY_MAX = 5000;
-const MEMORY_MAX_BYTES = Math.max(1024 * 1024, envNumber('CANVAS_MEMORY_CACHE_MAX_MB', 128, { min: 1, max: 2048 }) * 1024 * 1024);
+const MEMORY_MAX_BYTES = Math.max(1024 * 1024, envNumber('CANVAS_MEMORY_CACHE_MAX_MB', 8, { min: 1, max: 2048 }) * 1024 * 1024);
 const memory = new Map(); // cacheKey → url (insertion-ordered; trimmed FIFO)
 const inflight = new Map(); // cacheKey → Promise<{url}|null>
 const lastTouched = new Map(); // cacheKey -> ms timestamp of last last_used_at write
@@ -252,6 +253,10 @@ function getCanvasCacheStats() {
     enabled: enabled(),
   };
 }
+
+registerMemorySource('canvas.urls', getCanvasCacheStats);
+registerMemorySource('canvas.inflight', () => ({ entries: inflight.size }));
+registerMemorySource('canvas.touch-throttle', () => ({ entries: lastTouched.size }));
 
 module.exports = {
   getCachedCanvasUrl,
