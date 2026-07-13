@@ -1,10 +1,8 @@
 # Credd Bot
 
-Discord RPG bot for **The Last Believer**.
+A mythology-inspired RPG where players collect deities from world mythologies, build their characters, battle powerful bosses, compete in ranked PvP, and progress through an evolving fantasy world.
 
-Credd is a prefix-first Discord bot with slash-command support, PostgreSQL
-persistence, canvas-rendered RPG cards, combat, gacha, bosses, ranked PvP,
-economy systems, inventory management, cosmetics, and casino games.
+Credd is a prefix-first Discord bot with slash-command support, PostgreSQL persistence, canvas-rendered RPG cards, combat, gacha, bosses, ranked PvP, economy systems, inventory management, cosmetics, and casino games.
 
 Default prefix:
 
@@ -20,6 +18,10 @@ crd
 - @napi-rs/canvas for rendered profile, battle, inventory, summon, shop, and result images
 - sharp for casino image padding and composition
 - node-cron for scheduled resets, bosses, seasons, and cleanup jobs
+
+## Deployment
+
+This discord bot is deployed via <u>[Railway](https://railway.com/)</u> and uses <u>[Supabase](https://supabase.com/)</u> for its database.
 
 ## Main Systems
 
@@ -53,3 +55,17 @@ src/utils/                Assets, components, emojis, text, IDs, rewards, and he
 scripts/                  Selftests, slash deploy, preflight, schema, and tooling
 assets/                   Local development assets and render data
 ```
+
+## AI Assistance
+
+Credd was designed and directed by the owner.
+
+The gameplay systems, progression mechanics, economy, balancing, user experience, and overall product vision are original work created for Credd.
+
+This project was developed with AI-assisted software engineering using **Claude Code** and **OpenAI Codex**, which were used to implement, refactor, optimize, and maintain the codebase.
+
+## Usage
+
+This repository is shared for learning, reference, and personal non-commercial use.
+
+Commercial use, redistribution, operating public or commercial derivatives, or using Credd's branding, artwork, or assets without permission is not permitted.

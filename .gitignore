@@ -19,17 +19,16 @@ dist/
 build/
 .cache/
 coverage/
-assets/cache/
-# Derived casino spin media (scripts/build-casino-spin-assets.js) — lives in R2,
-# regenerated on demand; runtime falls back to on-the-fly render if absent.
-assets/generated/
+# Runtime media lives in Cloudflare R2. Keep only the small resources that the
+# bot reads directly from disk in production.
+assets/*
+!assets/data/
+!assets/data/**
+!assets/fonts/
+!assets/fonts/**
 
 # Generated skin-alignment artifacts (scripts/alignSkins.js, scripts/skinPreview.js)
 tmp/
-
-# Recompression staging output (scripts/recompress-assets.js) — owner reviews
-# then uploads to R2; never committed.
-assets/_recompressed/
 
 # Local documentation — not pushed
 docs/
