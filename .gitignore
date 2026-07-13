@@ -34,6 +34,8 @@ tmp/
 docs/
 AGENTS.md
 AGENT.md
+Handoff.md
+handoff.md
 
 # SQL scratch/backup dumps — deployment schema (and v4 rules schema) stay tracked
 *.sql
