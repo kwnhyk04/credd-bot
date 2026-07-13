@@ -23,6 +23,14 @@ crd
 
 This discord bot is deployed via <u>[Railway](https://railway.com/)</u> and uses <u>[Supabase](https://supabase.com/)</u> for its database.
 
+## License
+
+This project is licensed under the <u>[Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.](https://spdx.org/licenses/CC-BY-NC-SA-4.0.html)</u>
+
+The source code is shared so developers can study, learn from, and build upon the project for personal and non-commercial purposes.
+
+Commercial use, hosting commercial instances, or distributing commercial derivatives of Credd is not permitted without prior written permission.
+
 ## Main Systems
 
 - Account registration and character creation
