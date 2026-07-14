@@ -22,6 +22,9 @@ const { emoji } = require('../utils/emojis');
 const { assetSource, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
 const { envNumber, envPositiveInt } = require('../utils/runtimeLogs');
 const { registerMemorySource } = require('../utils/memoryRegistry');
+const {
+  recordAssetCache, recordAssetDownload,
+} = require('../utils/networkTelemetry');
 
 const ROOT = path.join(__dirname, '..', '..');
 const CACHE_DIR = path.join(ROOT, 'assets', 'cache', 'emojis');
@@ -62,8 +65,16 @@ const ICON_CACHE_MAX_BYTES = Math.max(1024 * 1024, envNumber('EMOJI_IMAGE_CACHE_
 const ICON_CACHE_TTL_MS = Math.max(0, envNumber('EMOJI_IMAGE_CACHE_TTL_MS', 1_800_000, { min: 0, max: 86_400_000 }));
 const iconCache = new Map(); // key -> { image, bytes, lastUsed }
 let iconCacheBytes = 0;
+const iconStats = {
+  hits: 0,
+  misses: 0,
+  diskHits: 0,
+  downloads: 0,
+  downloadedBytes: 0,
+  failures: 0,
+};
 
-function cachedIcon(key) {
+function cachedIcon(key, category) {
   const entry = iconCache.get(key);
   if (!entry) return null;
   if (ICON_CACHE_TTL_MS && Date.now() - entry.lastUsed > ICON_CACHE_TTL_MS) {
@@ -71,6 +82,8 @@ function cachedIcon(key) {
     iconCacheBytes = Math.max(0, iconCacheBytes - entry.bytes);
     return null;
   }
+  iconStats.hits += 1;
+  recordAssetCache(category, 'image', 'hit');
   entry.lastUsed = Date.now();
   iconCache.delete(key);
   iconCache.set(key, entry);
@@ -101,21 +114,40 @@ function emojiIdOf(name) {
 
 /** Disk-cached CDN icon. Returns a canvas Image or null (row renders without icon). */
 async function getEmojiIcon(name) {
-  const cached = cachedIcon(name);
+  const cached = cachedIcon(name, 'discord_emoji');
   if (cached) return cached;
+  iconStats.misses += 1;
+  recordAssetCache('discord_emoji', 'image', 'miss');
+  let fetchAttempted = false;
+  let downloadRecorded = false;
   try {
     const file = path.join(CACHE_DIR, `${name}.png`);
     if (!fs.existsSync(file)) {
       const id = emojiIdOf(name);
       if (!id) return null;
+      fetchAttempted = true;
       const res = await fetch(`https://cdn.discordapp.com/emojis/${id}.png?size=64`);
-      if (!res.ok) return null;
+      if (!res.ok) {
+        iconStats.failures += 1;
+        recordAssetDownload('discord_emoji', 0, false);
+        downloadRecorded = true;
+        return null;
+      }
+      const buffer = Buffer.from(await res.arrayBuffer());
+      iconStats.downloads += 1;
+      iconStats.downloadedBytes += buffer.length;
+      recordAssetDownload('discord_emoji', buffer.length, true);
+      downloadRecorded = true;
       fs.mkdirSync(CACHE_DIR, { recursive: true });
-      fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+      fs.writeFileSync(file, buffer);
+    } else {
+      iconStats.diskHits += 1;
     }
     const img = await loadImage(file);
     return rememberIcon(name, img);
   } catch (err) {
+    iconStats.failures += 1;
+    if (fetchAttempted && !downloadRecorded) recordAssetDownload('discord_emoji', 0, false);
     console.error(`[renderBagItems] icon '${name}' unavailable:`, err.message);
     return null;
   }
@@ -125,19 +157,38 @@ async function getEmojiIcon(name) {
  *  a canvas Image or null. Used for items with no custom emoji (weapons/armors). */
 async function getUnicodeIcon(hex) {
   const key = `u${hex}`;
-  const cached = cachedIcon(key);
+  const cached = cachedIcon(key, 'twemoji');
   if (cached) return cached;
+  iconStats.misses += 1;
+  recordAssetCache('twemoji', 'image', 'miss');
+  let fetchAttempted = false;
+  let downloadRecorded = false;
   try {
     const file = path.join(CACHE_DIR, `${key}.png`);
     if (!fs.existsSync(file)) {
+      fetchAttempted = true;
       const res = await fetch(`https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/${hex}.png`);
-      if (!res.ok) return null;
+      if (!res.ok) {
+        iconStats.failures += 1;
+        recordAssetDownload('twemoji', 0, false);
+        downloadRecorded = true;
+        return null;
+      }
+      const buffer = Buffer.from(await res.arrayBuffer());
+      iconStats.downloads += 1;
+      iconStats.downloadedBytes += buffer.length;
+      recordAssetDownload('twemoji', buffer.length, true);
+      downloadRecorded = true;
       fs.mkdirSync(CACHE_DIR, { recursive: true });
-      fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+      fs.writeFileSync(file, buffer);
+    } else {
+      iconStats.diskHits += 1;
     }
     const img = await loadImage(file);
     return rememberIcon(key, img);
   } catch (err) {
+    iconStats.failures += 1;
+    if (fetchAttempted && !downloadRecorded) recordAssetDownload('twemoji', 0, false);
     console.error(`[renderBagItems] twemoji '${hex}' unavailable:`, err.message);
     return null;
   }
@@ -166,6 +217,7 @@ function getEmojiImageCacheStats() {
     }
   }
   return {
+    ...iconStats,
     entries: iconCache.size,
     bytes: iconCacheBytes,
     maxEntries: ICON_CACHE_MAX_ENTRIES,

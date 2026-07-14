@@ -67,6 +67,7 @@ const {
   envBool, envNumber, envPositiveInt, bandwidthLog, performanceLog,
 } = require('../utils/runtimeLogs');
 const { registerMemorySource } = require('../utils/memoryRegistry');
+const { beginActivity } = require('../utils/networkTelemetry');
 const { bossFeatTitlesFor } = require('../config/titles');
 const {
   isGreaterBoss, bossRewards, rollBossChest, hpMultiplierForChest, pickWeightedBoss,
@@ -1392,7 +1393,7 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
 }
 
 /* ── ⚔️ Attack button ───────────────────────────────────────────────────── */
-async function handleAttack(interaction) {
+async function handleAttackImpl(interaction) {
   const guildId = interaction.guildId;
   const discordId = interaction.user.id;
   const started = Date.now();
@@ -1578,6 +1579,15 @@ async function handleAttack(interaction) {
       userId: discordId,
       durationMs: Date.now() - started,
     });
+  }
+}
+
+async function handleAttack(interaction) {
+  const endActivity = beginActivity('battle.boss');
+  try {
+    return await handleAttackImpl(interaction);
+  } finally {
+    endActivity();
   }
 }
 

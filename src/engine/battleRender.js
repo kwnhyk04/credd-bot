@@ -49,6 +49,7 @@ const { encodeOpaqueCanvas } = require('../utils/canvasEncode');
 const { loadBattleSkin, renderBattleSkinPanel } = require('./battleLayoutRenderer');
 const { loadResultSkin, renderResultPanel } = require('./resultLayoutRenderer');
 const { registerMemorySource } = require('../utils/memoryRegistry');
+const { beginActivity, tagDiscordAttachmentBuffer } = require('../utils/networkTelemetry');
 
 const ROOT = path.join(__dirname, '..', '..');
 const FONT = 'DejaVu Sans';
@@ -62,8 +63,8 @@ for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
 
 const UPDATE_MS = 1800; // delay between embed edits (≥1500ms — rate-limit safety)
 
-const BATTLE_FRAME_RENDER_REV = 2;
-const BATTLE_RESULT_RENDER_REV = 2;
+const BATTLE_FRAME_RENDER_REV = 3;
+const BATTLE_RESULT_RENDER_REV = 3;
 const BATTLE_FRAME_MODES = new Set(['full', 'start_and_final', 'text_only']);
 const BATTLE_FRAME_COOLDOWN_MAX = 5000;
 const battleFrameCooldowns = new Map();
@@ -533,37 +534,94 @@ function battleEmbed(sim, snapIdx, {
   return e;
 }
 
+function fighterVisualCacheParts(fighter = {}) {
+  return {
+    name: fighter.name,
+    kind: fighter.kind,
+    cls: fighter.cls,
+    level: fighter.level,
+    weapon: fighter.weapon,
+    armor: fighter.armor,
+    deity: fighter.deity,
+    skill: fighter.skill,
+    skillDesc: fighter.skillDesc,
+    atk: fighter.atk,
+    def: fighter.def,
+    crit: fighter.crit,
+  };
+}
+
+function snapshotSideVisualCacheParts(side = {}) {
+  return {
+    hp: side.hp,
+    maxHp: side.maxHp,
+    debuffs: (side.debuffs || []).map((debuff) => ({ tag: debuff.tag })),
+  };
+}
+
 function battleFrameCacheParts(sim, snapIdx, { mode, mirror, battleSkinPath }) {
   const idx = Math.min(snapIdx, sim.snapshots.length - 1);
+  const snapshot = sim.snapshots[idx] || {};
   return {
     mode,
     mirror,
     battleSkinPath: battleSkinPath || null,
-    fighterA: sim.a,
-    fighterB: sim.b,
-    snapshot: sim.snapshots[idx] || null,
+    fighterA: fighterVisualCacheParts(sim.a),
+    fighterB: fighterVisualCacheParts(sim.b),
+    snapshot: {
+      round: snapshot.round,
+      a: snapshotSideVisualCacheParts(snapshot.a),
+      b: snapshotSideVisualCacheParts(snapshot.b),
+      actions: snapshot.actions
+        ? {
+            a: {
+              title: snapshot.actions.a?.title,
+              detail: snapshot.actions.a?.detail,
+            },
+            b: {
+              title: snapshot.actions.b?.title,
+              detail: snapshot.actions.b?.detail,
+            },
+          }
+        : null,
+    },
   };
 }
 
+function resultRewardVisualCacheParts(won, rewards) {
+  if (!rewards) return null;
+  const visual = {
+    exp: Number(rewards.exp || 0).toLocaleString(),
+  };
+  if (!won) return visual;
+  visual.credux = Number(rewards.credux || 0).toLocaleString();
+  visual.shards = Number(rewards.shards) > 0 ? String(rewards.shards) : null;
+  visual.chestLabel = rewards.chestLabel ? String(rewards.chestLabel) : null;
+  visual.leveledUp = Boolean(rewards.leveledUp);
+  if (visual.leveledUp) {
+    visual.levelFrom = String(rewards.levelFrom);
+    visual.levelTo = String(rewards.levelTo);
+  }
+  return visual;
+}
+
 function battleResultCacheParts(sim, rewards, resultSkinPath) {
+  const won = sim.winner === 'a';
   return {
     resultSkinPath: resultSkinPath || null,
-    winner: sim.winner,
-    outcome: sim.outcome || null,
-    fighterA: sim.a,
-    fighterB: sim.b,
-    rewards: rewards || null,
+    won,
+    rewards: resultRewardVisualCacheParts(won, rewards),
   };
 }
 
 async function cachedBattleFrame(sim, snapIdx, {
-  mode, mirror, icons, skin, battleSkinPath, guildId, phase = 'update', ownerId = null,
+  mode, command = mode, mirror, icons, skin, battleSkinPath, guildId, phase = 'update', ownerId = null,
 }) {
   const render = () => renderBattlePanel(sim, snapIdx, { mirror, icons, skin, mode });
   const imageOptions = battleImageOptions(mode);
   const logContext = {
     system: 'battle',
-    command: mode,
+    command,
     imageType: 'battle_frame',
     guildId,
     phase,
@@ -605,6 +663,7 @@ async function cachedBattleFrame(sim, snapIdx, {
     reason: 'attachment-fallback-render',
     cacheStatus: 'miss',
   });
+  tagDiscordAttachmentBuffer(image.buffer, logContext);
   return {
     url: `attachment://${image.name}`,
     files: [new AttachmentBuilder(image.buffer, { name: image.name })],
@@ -678,6 +737,7 @@ async function cachedBattleResultImage(renderBuffer, sim, rewards, resultSkinPat
     reason: 'attachment-fallback-render',
     cacheStatus: 'miss',
   });
+  tagDiscordAttachmentBuffer(image.buffer, logContext);
   return {
     url: `attachment://${image.name}`,
     files: [new AttachmentBuilder(image.buffer, { name: image.name })],
@@ -771,9 +831,9 @@ function isDiscordErrorCode(err, code) {
  *                                          shown as the message content on the FINAL
  *                                          frame only. No-op when empty.
  */
-async function runBattle(channel, {
+async function runBattleImpl(channel, {
   mode, sim, rewards = null, onMessage = null, notices = [], footer = null, header = null,
-  battleSkinPath = null, resultSkinPath = null, ownerId = null,
+  battleSkinPath = null, resultSkinPath = null, ownerId = null, telemetryCommand = mode,
 }) {
   const mirror = mode === 'duel';
   const resultImageEnabled = battleResultRenderEnabled();
@@ -844,6 +904,7 @@ async function runBattle(channel, {
     if (frameDecision.render) {
       battleImage = await cachedBattleFrame(sim, i, {
         mode,
+        command: telemetryCommand,
         mirror,
         icons,
         skin,
@@ -973,10 +1034,28 @@ async function runBattle(channel, {
   return sim;
 }
 
+async function runBattle(channel, options) {
+  const endActivity = beginActivity(`battle.${options?.telemetryCommand || options?.mode || 'unknown'}`);
+  try {
+    return await runBattleImpl(channel, options);
+  } finally {
+    endActivity();
+  }
+}
+
 registerMemorySource('battle.runtime', () => ({
   cooldownEntries: battleFrameCooldowns.size,
   cooldownMaxEntries: BATTLE_FRAME_COOLDOWN_MAX,
   activeCollectors: activeBattleCollectors,
 }));
 
-module.exports = { runBattle, renderBattlePanel, renderRewardsPanel, battleEmbed, logEmbeds, UPDATE_MS };
+module.exports = {
+  runBattle,
+  renderBattlePanel,
+  renderRewardsPanel,
+  battleEmbed,
+  logEmbeds,
+  battleFrameCacheParts,
+  battleResultCacheParts,
+  UPDATE_MS,
+};

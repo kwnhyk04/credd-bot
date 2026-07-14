@@ -34,6 +34,7 @@ const {
   loadAssetImage: loadAssetImageSource,
 } = require('../utils/assets');
 const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard');
+const { tagDiscordAttachmentBuffer } = require('../utils/networkTelemetry');
 const { getEmojiIcon } = require('./renderBagItems');
 const { TIER_ALIAS, TIER_ESSENCE_COLUMN } = require('../config/gachaRates');
 
@@ -258,6 +259,12 @@ async function addSummonHeader(container, {
         ...logContext,
         imageType: 'summon_animation',
         bytes: buffer.length,
+      });
+      tagDiscordAttachmentBuffer(buffer, {
+        ...logContext,
+        system: 'summon',
+        command: logContext.command || 'summon',
+        imageType: 'summon_animation',
       });
       const file = new AttachmentBuilder(buffer, { name });
       container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(`attachment://${name}`)));

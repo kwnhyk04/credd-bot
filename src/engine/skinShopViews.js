@@ -38,6 +38,7 @@ const {
   isRemoteSource,
 } = require('../utils/assets');
 const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard');
+const { tagDiscordAttachmentBuffer } = require('../utils/networkTelemetry');
 
 const BRAND = 0x9b59b6;
 const PAGES = ['profile', 'battle', 'battle_result', 'summon'];
@@ -225,6 +226,9 @@ async function buildPreview(db, viewerId, { page = 0, idx = 0, ctx = 'shop', var
         imageType: 'skin_preview',
         userId: viewerId,
         bytes: buffer.length,
+      });
+      tagDiscordAttachmentBuffer(buffer, {
+        system: 'skin', command: 'skin', imageType: 'skin_preview',
       });
       files.push(new AttachmentBuilder(buffer, { name }));
       container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(`attachment://${name}`)));

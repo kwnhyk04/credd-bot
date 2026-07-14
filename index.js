@@ -3,7 +3,9 @@
 require('dotenv').config();
 require('./src/utils/imageRuntime').configureImageRuntime();
 
-const { Client, GatewayIntentBits, Options } = require('discord.js');
+const {
+  Client, GatewayIntentBits, Options, RESTEvents,
+} = require('discord.js');
 const { BOT_TOKEN, CLIENT_ID } = require('./src/config/config');
 const { setupGlobalErrorHandlers } = require('./src/utils/errorHandler');
 const { handleMessage } = require('./src/handlers/commandHandler');
@@ -23,6 +25,7 @@ const { sweepCanvasCache, verifyCanvasCacheReady } = require('./src/utils/canvas
 const { syncSlashCommandsOnStart } = require('./src/utils/slashCommandSync');
 const { envBool } = require('./src/utils/runtimeLogs');
 const { startResourceMonitor } = require('./src/utils/resourceMonitor');
+const { beginActivity, recordDiscordRestResponse } = require('./src/utils/networkTelemetry');
 const {
   discordImageAttachmentsAllowed,
   productionEgressIssues,
@@ -34,11 +37,37 @@ const CASINO_SWEEP_MS = 60_000;
 const CANVAS_CACHE_SWEEP_MS = 6 * 3600_000;
 let casinoSweepInterval = null;
 let canvasCacheSweepInterval = null;
+let casinoSweepRunning = false;
+let canvasCacheSweepRunning = false;
 let stopResourceMonitor = null;
 const stopSchedulers = [];
 
 function casinoEnabled() {
   return envBool('CASINO_ENABLED', false);
+}
+
+async function runCasinoSweep(recoverExpiredSessions, reason = null) {
+  if (casinoSweepRunning) return;
+  casinoSweepRunning = true;
+  const endActivity = beginActivity('scheduler.casino_recovery');
+  try {
+    await (reason ? recoverExpiredSessions({ reason }) : recoverExpiredSessions());
+  } finally {
+    casinoSweepRunning = false;
+    endActivity();
+  }
+}
+
+async function runCanvasCacheSweep() {
+  if (canvasCacheSweepRunning) return;
+  canvasCacheSweepRunning = true;
+  const endActivity = beginActivity('scheduler.canvas_sweep');
+  try {
+    await sweepCanvasCache();
+  } finally {
+    canvasCacheSweepRunning = false;
+    endActivity();
+  }
 }
 
 const client = new Client({
@@ -75,6 +104,8 @@ const client = new Client({
     messages: { interval: 300, lifetime: 300 },
   },
 });
+
+client.rest.on(RESTEvents.Response, recordDiscordRestResponse);
 
 client.once('ready', async () => {
   console.log(`[credd] Logged in as ${client.user.tag}`);
@@ -125,10 +156,10 @@ client.once('ready', async () => {
     const { recoverExpiredSessions } = require('./src/casino/sessionStore');
     // Casino recovery sweep: refund expired stateful sessions (blackjack/crash) whose players
     // never came back — once at startup, then every 60s. A sweep failure must never crash the bot.
-    recoverExpiredSessions({ reason: 'startup_recovery' })
+    runCasinoSweep(recoverExpiredSessions, 'startup_recovery')
       .catch((err) => console.error('[casinoSweep] startup sweep failed:', err.message));
     casinoSweepInterval = setInterval(() => {
-      recoverExpiredSessions()
+      runCasinoSweep(recoverExpiredSessions)
         .catch((err) => console.error('[casinoSweep] sweep failed:', err.message));
     }, CASINO_SWEEP_MS);
   } else {
@@ -136,7 +167,7 @@ client.once('ready', async () => {
   }
   // Canvas-cache eviction (no-op unless R2 write creds are configured).
   canvasCacheSweepInterval = setInterval(() => {
-    sweepCanvasCache().catch((err) => console.error('[canvasCache] sweep failed:', err.message));
+    runCanvasCacheSweep().catch((err) => console.error('[canvasCache] sweep failed:', err.message));
   }, CANVAS_CACHE_SWEEP_MS);
   stopResourceMonitor = startResourceMonitor({ client });
 });

@@ -345,15 +345,12 @@ async function runWager(message, challenger, target, stake) {
         : `💰 ${winnerMention} wins — but the daily cap left no Credux to transfer.`;
 
       let battleSkinPath = null;
-      let resultSkinPath = null;
       try {
         battleSkinPath = (await resolveSkin(pool, challenger.id, 'battle')).path;
-        const variant = sim.winner === 'a' ? 'victory' : 'defeated';
-        resultSkinPath = (await resolveSkin(pool, challenger.id, 'battle_result', { variant })).path;
       } catch (err) {
         console.warn('[wager] skin resolution:', err.message);
       }
-      await runBattle(challengeMsg.channel, { mode: 'duel', sim, notices: [stakeLine], battleSkinPath, resultSkinPath, ownerId: challenger.id });
+      await runBattle(challengeMsg.channel, { mode: 'duel', sim, notices: [stakeLine], battleSkinPath, ownerId: challenger.id });
       } finally {
         await safeReleaseDuelLock(duelLock);
       }
@@ -549,18 +546,13 @@ async function execute(message) {
         // A duel has one shared message, so its visual theme belongs to the
         // challenger who opened it; both combatants still render in that skin's slots.
         let battleSkinPath = null;
-        let resultSkinPath = null;
         try {
           battleSkinPath = (await resolveSkin(pool, challenger.id, 'battle')).path;
-          // STRICT outcome from the challenger's POV (the shared message owner):
-          // challenger wins → victory canvas, else defeated canvas.
-          const variant = sim.winner === 'a' ? 'victory' : 'defeated';
-          resultSkinPath = (await resolveSkin(pool, challenger.id, 'battle_result', { variant })).path;
         } catch (err) {
           console.warn('[duel] battle skin resolution:', err.message);
         }
         await runBattle(challengeMsg.channel, {
-          mode: 'duel', sim, notices, battleSkinPath, resultSkinPath, ownerId: challenger.id,
+          mode: 'duel', sim, notices, battleSkinPath, ownerId: challenger.id,
         });
         } finally {
           await safeReleaseDuelLock(duelLock);

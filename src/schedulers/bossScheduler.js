@@ -16,6 +16,7 @@
  */
 
 const { tickGuild } = require('../engine/bossSystem');
+const { beginActivity } = require('../utils/networkTelemetry');
 
 const TICK_MS = 60_000;
 
@@ -24,6 +25,7 @@ function startBossScheduler(client) {
   const tick = async () => {
     if (ticking) return;
     ticking = true;
+    const endActivity = beginActivity('scheduler.boss');
     try {
       for (const guildId of client.guilds.cache.keys()) {
         try {
@@ -34,6 +36,7 @@ function startBossScheduler(client) {
       }
     } finally {
       ticking = false;
+      endActivity();
     }
   };
 

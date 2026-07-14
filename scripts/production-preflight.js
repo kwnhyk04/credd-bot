@@ -301,6 +301,19 @@ function checkEnvironment() {
     if (envTrue(key)) warn(`dangerous/dev-only flag ${key}=true`, true);
   }
 
+  const configuredPgIdleTimeout = Number(process.env.PG_IDLE_TIMEOUT_MS);
+  const pgIdleTimeoutMs = Number.isFinite(configuredPgIdleTimeout) && configuredPgIdleTimeout > 0
+    ? Math.floor(configuredPgIdleTimeout)
+    : 120_000;
+  if (pgIdleTimeoutMs < 120_000) {
+    warn(
+      `PG_IDLE_TIMEOUT_MS=${pgIdleTimeoutMs} is below 120000 and can reconnect PostgreSQL between 60-second jobs`,
+      true
+    );
+  } else {
+    pass(`PG_IDLE_TIMEOUT_MS=${pgIdleTimeoutMs} keeps PostgreSQL connections across 60-second jobs`);
+  }
+
   // Egress guard: without ASSET_BASE_URL every static image (chest/summon GIFs,
   // boss art, skin previews, casino spin media) is re-uploaded to Discord on
   // every command — Railway bills each upload. With it, they're served from R2
@@ -311,6 +324,14 @@ function checkEnvironment() {
     else fail(`env ASSET_BASE_URL is not an https URL: ${base}`);
   } else {
     warn('env ASSET_BASE_URL is missing — every static image will be uploaded to Discord per command (billable egress)', true);
+  }
+  if (hasEnv('ASSET_VERSION')) {
+    pass('env ASSET_VERSION is set (same-path R2 URLs share one cache identity)');
+  } else {
+    warn(
+      'env ASSET_VERSION is missing - query variants of the same R2 path cannot be safely canonicalized',
+      true
+    );
   }
   for (const key of REQUIRED_R2_ENV) {
     if (hasEnv(key)) pass(`env ${key} is set (canvas cache can publish to R2)`);

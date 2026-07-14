@@ -13,6 +13,7 @@
  */
 
 const crypto = require('crypto');
+const { recordR2Upload, recordR2Delete } = require('./networkTelemetry');
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const SAFE_KEY = /^[A-Za-z0-9._/-]+$/; // object keys we generate; no escaping needed
@@ -68,23 +69,29 @@ async function r2Request(method, key, body = null, contentType = null) {
 }
 
 /** PUT an object. Returns true on success, false otherwise (never throws). */
-async function putObject(key, buffer, contentType) {
+async function putObject(key, buffer, contentType, logContext = {}) {
+  const bytes = Buffer.isBuffer(buffer) || buffer instanceof Uint8Array ? buffer.byteLength : 0;
   try {
     const res = await r2Request('PUT', key, buffer, contentType);
+    recordR2Upload(logContext, bytes, res.ok);
     if (!res.ok) console.warn(`[r2Client] PUT ${key} → ${res.status}`);
     return res.ok;
   } catch (err) {
+    recordR2Upload(logContext, bytes, false);
     console.warn(`[r2Client] PUT ${key} failed:`, err.message);
     return false;
   }
 }
 
 /** DELETE an object. Returns true on success or already-gone (never throws). */
-async function deleteObject(key) {
+async function deleteObject(key, logContext = {}) {
   try {
     const res = await r2Request('DELETE', key);
-    return res.ok || res.status === 404;
+    const ok = res.ok || res.status === 404;
+    recordR2Delete(logContext, ok);
+    return ok;
   } catch (err) {
+    recordR2Delete(logContext, false);
     console.warn(`[r2Client] DELETE ${key} failed:`, err.message);
     return false;
   }

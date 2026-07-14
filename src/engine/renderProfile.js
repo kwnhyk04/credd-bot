@@ -128,8 +128,7 @@ async function loadAvatar(avatarUrl, fallbackUrl) {
   for (const url of [avatarUrl, fallbackUrl]) {
     if (!url) continue;
     try {
-      const res = await fetch(url);
-      if (res.ok) return await loadImage(Buffer.from(await res.arrayBuffer()));
+      return await loadAssetImageSource(loadImage, url);
     } catch { /* try next */ }
   }
   return null;

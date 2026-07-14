@@ -95,8 +95,7 @@ async function loadRemoteImage(primary, fallback) {
   for (const url of [primary, fallback]) {
     if (!url) continue;
     try {
-      const response = await fetch(url);
-      if (response.ok) return await loadImage(Buffer.from(await response.arrayBuffer()));
+      return await loadAssetImageSource(loadImage, url);
     } catch { /* try the fallback */ }
   }
   return null;

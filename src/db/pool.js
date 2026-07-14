@@ -2,6 +2,14 @@ const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
 
+const trackedSockets = new Map();
+const networkStats = {
+  connectionOpens: 0,
+  connectionCloses: 0,
+  closedBytesRead: 0,
+  closedBytesWritten: 0,
+};
+
 function connectionStringWithoutSslParams(raw) {
   if (!raw) return raw;
   try {
@@ -32,7 +40,7 @@ const pool = new Pool({
   max: positiveIntEnv('PG_POOL_MAX', 10),
   // pool.connect() fails fast instead of queueing forever when the pool is starved
   connectionTimeoutMillis: positiveIntEnv('PG_CONNECT_TIMEOUT_MS', 10_000),
-  idleTimeoutMillis: positiveIntEnv('PG_IDLE_TIMEOUT_MS', 30_000),
+  idleTimeoutMillis: positiveIntEnv('PG_IDLE_TIMEOUT_MS', 120_000),
   keepAlive: true,
   // client-side cap — also catches dead sockets the server never saw
   query_timeout: positiveIntEnv('PG_QUERY_TIMEOUT_MS', 30_000),
@@ -45,5 +53,42 @@ const pool = new Pool({
 pool.on('error', (err) => {
   console.error('[pool] Unexpected client error:', err.message);
 });
+
+pool.on('connect', (client) => {
+  const socket = client?.connection?.stream;
+  if (!socket || trackedSockets.has(socket)) return;
+  const entry = {
+    // The socket is new to this pool. A zero baseline includes TLS/auth traffic
+    // that occurred before pg emitted its connect event.
+    bytesRead: 0,
+    bytesWritten: 0,
+  };
+  trackedSockets.set(socket, entry);
+  networkStats.connectionOpens += 1;
+  socket.once('close', () => {
+    networkStats.connectionCloses += 1;
+    networkStats.closedBytesRead += Math.max(0, (Number(socket.bytesRead) || 0) - entry.bytesRead);
+    networkStats.closedBytesWritten += Math.max(0, (Number(socket.bytesWritten) || 0) - entry.bytesWritten);
+    trackedSockets.delete(socket);
+  });
+});
+
+function getNetworkStats() {
+  let bytesRead = networkStats.closedBytesRead;
+  let bytesWritten = networkStats.closedBytesWritten;
+  for (const [socket, entry] of trackedSockets) {
+    bytesRead += Math.max(0, (Number(socket.bytesRead) || 0) - entry.bytesRead);
+    bytesWritten += Math.max(0, (Number(socket.bytesWritten) || 0) - entry.bytesWritten);
+  }
+  return {
+    connectionOpens: networkStats.connectionOpens,
+    connectionCloses: networkStats.connectionCloses,
+    activeSockets: trackedSockets.size,
+    bytesRead,
+    bytesWritten,
+  };
+}
+
+pool.getNetworkStats = getNetworkStats;
 
 module.exports = pool;

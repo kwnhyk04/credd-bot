@@ -221,16 +221,13 @@ async function fight(message) {
   const footer = `${won ? '🏆 Victory' : '💀 Defeat'} vs ${opponentMention}  ·  Rating ${sign}${delta} → ${newRating} (${myBracket.name})  ·  ${valorText}`;
 
   let battleSkinPath = null;
-  let resultSkinPath = null;
   try {
     battleSkinPath = (await resolveSkin(pool, me, 'battle')).path;
-    const variant = won ? 'victory' : 'defeated';
-    resultSkinPath = (await resolveSkin(pool, me, 'battle_result', { variant })).path;
   } catch (err) {
     console.warn('[ranked] skin resolution:', err.message);
   }
   await runBattle(message.channel, {
-    mode: 'duel', sim, header, footer, battleSkinPath, resultSkinPath, ownerId: me,
+    mode: 'duel', telemetryCommand: 'ranked', sim, header, footer, battleSkinPath, ownerId: me,
   });
   } finally {
     await releaseRankedFightLock(me, lockToken).catch((err) => {

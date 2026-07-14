@@ -1,7 +1,8 @@
 'use strict';
 
-const { REST, Routes } = require('discord.js');
+const { REST, RESTEvents, Routes } = require('discord.js');
 const { definitions } = require('../commands/slashDefinitions');
+const { recordDiscordRestResponse } = require('./networkTelemetry');
 
 function commandBody() {
   return definitions.map((d) => d.builder.toJSON());
@@ -36,6 +37,7 @@ async function syncSlashCommandsOnStart(client, { token, clientId, logger = cons
   }
 
   const rest = new REST({ version: '10' }).setToken(token);
+  rest.on(RESTEvents.Response, recordDiscordRestResponse);
   const body = commandBody();
   const configuredGuildIds = parseGuildIds(process.env.GUILD_IDS);
   const guildIds = configuredGuildIds.length

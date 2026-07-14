@@ -16,6 +16,7 @@ const { syncSubscriptionEntitlementsTx } = require('../src/engine/supporterEntit
 const { buildDeityInfoPayload, attemptDeityEnhance } = require('../src/commands/rpg/deity');
 const { buildInfoPayload } = require('../src/commands/rpg/equipment');
 const { detectImageFormat, validateGeneratedImageBuffer } = require('../src/utils/imageOutput');
+const { battleFrameCacheParts, battleResultCacheParts } = require('../src/engine/battleRender');
 
 const player = (over = {}) => ({
   name: 'Hero', kind: 'player', class: 'Test', classPassive: null,
@@ -43,6 +44,95 @@ async function main() {
   assert.throws(() => validateGeneratedImageBuffer(Buffer.alloc(0)), /empty or already disposed/);
   assert.throws(() => validateGeneratedImageBuffer({ pipe() {} }), /must be a Buffer/);
   assert.throws(() => validateGeneratedImageBuffer(pngBuffer, {}, 'webp'), /format mismatch/);
+
+  const startSnapshot = {
+    round: 0,
+    a: { hp: 100, maxHp: 100, debuffs: [] },
+    b: { hp: 100, maxHp: 100, debuffs: [] },
+    actions: {
+      a: { title: 'Ready', detail: 'Awaiting first action' },
+      b: { title: 'Ready', detail: 'Awaiting first action' },
+    },
+    tag: 'start',
+  };
+  const visualFighter = {
+    name: 'Hero', kind: 'player', cls: 'Knight', level: 10,
+    weapon: 'Sword', armor: 'Mail', deity: 'Odin',
+    skill: null, skillDesc: null, atk: 100, def: 80, crit: 5, maxHp: 100,
+  };
+  const frameOptions = { mode: 'raid', mirror: false, battleSkinPath: 'battle.png' };
+  const firstStartKey = battleFrameCacheParts({
+    a: { ...visualFighter, hp: 17 },
+    b: { ...visualFighter, name: 'Mob', kind: 'mob', hp: 0 },
+    snapshots: [startSnapshot],
+    seed: 1,
+  }, 0, frameOptions);
+  const secondStartKey = battleFrameCacheParts({
+    a: { ...visualFighter, hp: 91 },
+    b: { ...visualFighter, name: 'Mob', kind: 'mob', hp: 44 },
+    snapshots: [startSnapshot],
+    seed: 2,
+  }, 0, frameOptions);
+  assert.deepEqual(firstStartKey, secondStartKey);
+  assert.notDeepEqual(
+    firstStartKey,
+    battleFrameCacheParts({
+      a: { ...visualFighter, hp: 17 },
+      b: { ...visualFighter, name: 'Mob', kind: 'mob', hp: 0 },
+      snapshots: [{
+        ...startSnapshot,
+        a: { ...startSnapshot.a, hp: 99 },
+      }],
+    }, 0, frameOptions)
+  );
+  assert.notDeepEqual(
+    firstStartKey,
+    battleFrameCacheParts({
+      a: { ...visualFighter, name: 'Changed Hero', hp: 17 },
+      b: { ...visualFighter, name: 'Mob', kind: 'mob', hp: 0 },
+      snapshots: [startSnapshot],
+    }, 0, frameOptions)
+  );
+
+  const resultRewards = {
+    won: true,
+    credux: 500,
+    exp: 1200,
+    shards: 25,
+    chestLabel: 'Gold Chest',
+    leveledUp: false,
+    levelFrom: 10,
+    levelTo: 10,
+  };
+  const firstResultKey = battleResultCacheParts({
+    winner: 'a', outcome: 'victory', seed: 1,
+    a: { name: 'Hero', hp: 17 },
+    b: { name: 'Mob', hp: 0 },
+  }, resultRewards, 'victory.png');
+  const secondResultKey = battleResultCacheParts({
+    winner: 'a', outcome: 'different-outcome', seed: 2,
+    a: { name: 'Changed Hero', hp: 91 },
+    b: { name: 'Changed Mob', hp: 44 },
+  }, {
+    ...resultRewards,
+    won: false,
+    levelFrom: 999,
+    levelTo: 1000,
+    unusedMetadata: 'ignored',
+  }, 'victory.png');
+  assert.deepEqual(firstResultKey, secondResultKey);
+  assert.notDeepEqual(
+    firstResultKey,
+    battleResultCacheParts({ winner: 'b' }, resultRewards, 'victory.png')
+  );
+  assert.notDeepEqual(
+    firstResultKey,
+    battleResultCacheParts({ winner: 'a' }, { ...resultRewards, credux: 501 }, 'victory.png')
+  );
+  assert.notDeepEqual(
+    firstResultKey,
+    battleResultCacheParts({ winner: 'a' }, resultRewards, 'other-victory.png')
+  );
 
   assert.equal(displayEnhancement(undefined), 0);
   assert.equal(formatEnhancedName('Odin', 1), 'Odin +0');

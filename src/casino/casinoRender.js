@@ -20,6 +20,7 @@ const { assetPath, getAssetUrl, remoteAssetAvailable } = require('../utils/asset
 const { getCachedCanvasUrl } = require('../utils/canvasCache');
 const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard');
 const { attachmentFromOptimizedImage } = require('../utils/imageOutput');
+const { tagDiscordAttachmentBuffer } = require('../utils/networkTelemetry');
 const { COLORS } = canvas;
 const { SLOT_FACE_INDEX } = require('./payoutTables');
 const { BACK_FILE, blackjackValue } = require('./cardDeck');
@@ -63,6 +64,9 @@ function att(buf, name) {
     command: 'casino',
     imageType: name,
     bytes: buf.length,
+  });
+  tagDiscordAttachmentBuffer(buf, {
+    system: 'casino', command: 'casino', imageType: name,
   });
   return new AttachmentBuilder(buf, { name });
 }

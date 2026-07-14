@@ -7,6 +7,9 @@ const {
   envBool, envNumber, envPositiveInt, bandwidthLog,
 } = require('./runtimeLogs');
 const { registerMemorySource } = require('./memoryRegistry');
+const {
+  recordAssetCache, recordAssetDownload, recordAssetHead,
+} = require('./networkTelemetry');
 
 const ASSETS_ROOT = path.join(process.cwd(), 'assets');
 const DISK_CACHE_ROOT = path.join(process.cwd(), '.cache', 'assets');
@@ -24,21 +27,48 @@ const CACHE_MAX_BYTES = Math.max(
   ) * 1024 * 1024
 );
 const CACHE_TTL_MS = Math.max(0, envNumber('ASSET_CACHE_TTL_MS', 30 * 60_000, { min: 0 }));
+const DISK_CACHE_MAX_FILES = envPositiveInt('ASSET_DISK_CACHE_MAX_FILES', 2000, { max: 100_000 });
+const DISK_CACHE_MAX_BYTES = Math.max(
+  1024 * 1024,
+  Math.floor(envNumber('ASSET_DISK_CACHE_MAX_MB', 96, { min: 1, max: 16_384 }) * 1024 * 1024)
+);
+const DISK_CACHE_SWEEP_INTERVAL_MS = Math.max(
+  60 * 60_000,
+  envNumber('ASSET_DISK_CACHE_SWEEP_INTERVAL_MS', 60 * 60_000, {
+    min: 60 * 60_000,
+    max: 7 * 24 * 60 * 60_000,
+  })
+);
 
 const bufferCache = new Map();
 const imageCache = new Map();
 const bufferInflight = new Map();
 const imageInflight = new Map();
 let cacheBytes = 0;
+let diskCacheSweepPromise = null;
+let lastDiskCacheSweepAt = 0;
 const cacheStats = {
   bufferHits: 0,
   bufferMisses: 0,
+  bufferCoalesced: 0,
   imageHits: 0,
   imageMisses: 0,
+  imageCoalesced: 0,
   diskHits: 0,
   diskMisses: 0,
+  diskWrites: 0,
+  diskWriteFailures: 0,
+  diskFiles: 0,
+  diskBytes: 0,
+  diskSweepRuns: 0,
+  diskSweepFailures: 0,
+  diskEvictions: 0,
+  diskEvictedBytes: 0,
   downloadedBytes: 0,
   evictions: 0,
+  canonicalizedUrls: 0,
+  remoteCheckHits: 0,
+  remoteCheckMisses: 0,
 };
 
 function cacheEntryCount() {
@@ -54,12 +84,15 @@ function estimateImageBytes(image) {
 function cacheGet(cache, key, hitStat) {
   const entry = cache.get(key);
   if (!entry) return null;
-  if (CACHE_TTL_MS && Date.now() - entry.createdAt > CACHE_TTL_MS) {
+  if (CACHE_TTL_MS && Date.now() - entry.lastUsed > CACHE_TTL_MS) {
     cache.delete(key);
     cacheBytes -= entry.size;
     return null;
   }
   cacheStats[hitStat] += 1;
+  if (isRemoteSource(key)) {
+    recordAssetCache(assetCategory(key), hitStat.startsWith('image') ? 'image' : 'buffer', 'hit');
+  }
   entry.lastUsed = Date.now();
   cache.delete(key);
   cache.set(key, entry);
@@ -119,7 +152,7 @@ function sweepExpiredAssetCache(now = Date.now()) {
   let removed = 0;
   for (const cache of [bufferCache, imageCache]) {
     for (const [key, entry] of cache) {
-      if (now - entry.createdAt <= CACHE_TTL_MS) continue;
+      if (now - entry.lastUsed <= CACHE_TTL_MS) continue;
       cache.delete(key);
       cacheBytes = Math.max(0, cacheBytes - entry.size);
       removed += 1;
@@ -130,17 +163,35 @@ function sweepExpiredAssetCache(now = Date.now()) {
 
 function getAssetCacheStats() {
   sweepExpiredAssetCache();
+  scheduleDiskCacheSweep();
+  const bufferBytes = [...bufferCache.values()].reduce((sum, entry) => sum + entry.size, 0);
+  const imageBytes = [...imageCache.values()].reduce((sum, entry) => sum + entry.size, 0);
+  const bufferRequests = cacheStats.bufferHits + cacheStats.bufferMisses + cacheStats.bufferCoalesced;
+  const imageRequests = cacheStats.imageHits + cacheStats.imageMisses + cacheStats.imageCoalesced;
   return {
     ...cacheStats,
     bufferEntries: bufferCache.size,
     imageEntries: imageCache.size,
     entries: cacheEntryCount(),
     bytes: cacheBytes,
+    bufferBytes,
+    imageBytes,
+    bufferHitRate: bufferRequests
+      ? Number(((cacheStats.bufferHits + cacheStats.bufferCoalesced) / bufferRequests).toFixed(4))
+      : 0,
+    imageHitRate: imageRequests
+      ? Number(((cacheStats.imageHits + cacheStats.imageCoalesced) / imageRequests).toFixed(4))
+      : 0,
     maxEntries: CACHE_MAX_ENTRIES,
     maxBytes: CACHE_MAX_BYTES,
     ttlMs: CACHE_TTL_MS,
     diskEnabled: diskCacheEnabled(),
     diskRoot: DISK_CACHE_ROOT,
+    diskMaxFiles: DISK_CACHE_MAX_FILES,
+    diskMaxBytes: DISK_CACHE_MAX_BYTES,
+    diskSweepIntervalMs: DISK_CACHE_SWEEP_INTERVAL_MS,
+    diskSweepInFlight: Boolean(diskCacheSweepPromise),
+    diskLastSweepAt: lastDiskCacheSweepAt || null,
   };
 }
 
@@ -228,16 +279,44 @@ function assetExtension(source, fallback = 'bin') {
 }
 
 function diskCacheEnabled() {
-  return envBool('ASSET_DISK_CACHE_ENABLED', false);
+  return envBool('ASSET_DISK_CACHE_ENABLED', true);
+}
+
+function managedRemoteRelativePath(source) {
+  const base = assetBaseUrl();
+  if (!base || !isRemoteSource(source)) return null;
+  try {
+    const baseUrl = new URL(`${base}/`);
+    const sourceUrl = new URL(String(source));
+    if (sourceUrl.origin.toLowerCase() !== baseUrl.origin.toLowerCase()) return null;
+    const basePath = baseUrl.pathname.replace(/\/+$/, '');
+    if (basePath && sourceUrl.pathname !== basePath && !sourceUrl.pathname.startsWith(`${basePath}/`)) return null;
+    const relative = sourceUrl.pathname.slice(basePath.length).replace(/^\/+/, '');
+    return relative ? cleanAssetPath(relative) : null;
+  } catch {
+    return null;
+  }
+}
+
+function assetCategory(source) {
+  const relative = managedRemoteRelativePath(source);
+  if (relative) return relative.split('/').filter(Boolean)[0] || 'root';
+  if (isRemoteSource(source)) return 'external';
+  return cleanAssetPath(relativeAssetPath(source)).split('/').filter(Boolean)[0] || 'local';
+}
+
+function diskCacheAllowed(source) {
+  return diskCacheEnabled() && managedRemoteRelativePath(source) !== null;
 }
 
 function diskCacheIdentity(source) {
   const raw = String(source || '');
   try {
     const url = new URL(raw);
-    return `${url.protocol}//${url.host}${url.pathname}\n${assetVersion()}`;
+    const version = assetVersion();
+    return version ? `${url.protocol}//${url.host}${url.pathname}\n${version}` : raw;
   } catch {
-    return raw.replace(/[?#].*$/, '');
+    return assetVersion() ? raw.replace(/[?#].*$/, '') : raw;
   }
 }
 
@@ -248,33 +327,115 @@ function diskCachePath(source) {
   return path.join(DISK_CACHE_ROOT, `${hash}.${ext}`);
 }
 
-async function readDiskCache(source) {
+async function sweepDiskCache() {
+  cacheStats.diskSweepRuns += 1;
+  let entries;
+  try {
+    entries = await fs.promises.readdir(DISK_CACHE_ROOT, { withFileTypes: true });
+  } catch (err) {
+    if (err?.code === 'ENOENT') {
+      cacheStats.diskFiles = 0;
+      cacheStats.diskBytes = 0;
+      return;
+    }
+    throw err;
+  }
+
+  const files = [];
+  let totalBytes = 0;
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const file = path.join(DISK_CACHE_ROOT, entry.name);
+    try {
+      const stat = await fs.promises.stat(file);
+      files.push({ file, size: stat.size, mtimeMs: stat.mtimeMs });
+      totalBytes += stat.size;
+    } catch (err) {
+      if (err?.code !== 'ENOENT') cacheStats.diskSweepFailures += 1;
+    }
+  }
+
+  files.sort((a, b) => a.mtimeMs - b.mtimeMs);
+  let fileCount = files.length;
+  for (const entry of files) {
+    if (fileCount <= DISK_CACHE_MAX_FILES && totalBytes <= DISK_CACHE_MAX_BYTES) break;
+    try {
+      await fs.promises.unlink(entry.file);
+      fileCount -= 1;
+      totalBytes = Math.max(0, totalBytes - entry.size);
+      cacheStats.diskEvictions += 1;
+      cacheStats.diskEvictedBytes += entry.size;
+    } catch (err) {
+      if (err?.code === 'ENOENT') {
+        fileCount -= 1;
+        totalBytes = Math.max(0, totalBytes - entry.size);
+      } else {
+        cacheStats.diskSweepFailures += 1;
+      }
+    }
+  }
+  cacheStats.diskFiles = fileCount;
+  cacheStats.diskBytes = totalBytes;
+}
+
+function scheduleDiskCacheSweep() {
   if (!diskCacheEnabled()) return null;
+  const now = Date.now();
+  if (diskCacheSweepPromise || now - lastDiskCacheSweepAt < DISK_CACHE_SWEEP_INTERVAL_MS) {
+    return diskCacheSweepPromise;
+  }
+  lastDiskCacheSweepAt = now;
+  const job = sweepDiskCache()
+    .catch(() => {
+      cacheStats.diskSweepFailures += 1;
+    })
+    .finally(() => {
+      if (diskCacheSweepPromise === job) diskCacheSweepPromise = null;
+    });
+  diskCacheSweepPromise = job;
+  return job;
+}
+
+async function readDiskCache(source) {
+  if (!diskCacheAllowed(source)) return null;
   const file = diskCachePath(source);
   try {
     const buffer = await fs.promises.readFile(file);
     cacheStats.diskHits += 1;
+    scheduleDiskCacheSweep();
     return buffer;
   } catch {
     cacheStats.diskMisses += 1;
+    scheduleDiskCacheSweep();
     return null;
   }
 }
 
 async function writeDiskCache(source, buffer) {
-  if (!diskCacheEnabled() || !Buffer.isBuffer(buffer)) return;
+  if (!diskCacheAllowed(source) || !Buffer.isBuffer(buffer)) return;
+  if (buffer.length > DISK_CACHE_MAX_BYTES) return;
   const file = diskCachePath(source);
   try {
     await fs.promises.mkdir(DISK_CACHE_ROOT, { recursive: true });
     await fs.promises.writeFile(file, buffer);
+    cacheStats.diskWrites += 1;
+    scheduleDiskCacheSweep();
   } catch {
+    cacheStats.diskWriteFailures += 1;
     // Disk cache is opportunistic; memory cache and fetch fallback remain authoritative.
   }
 }
 
 function assetSource(source) {
   if (!source) return source;
-  if (isRemoteSource(source)) return source;
+  if (isRemoteSource(source)) {
+    if (!assetVersion()) return source;
+    const relative = managedRemoteRelativePath(source);
+    if (!relative) return source;
+    const canonical = getAssetUrl(relative);
+    if (canonical !== String(source)) cacheStats.canonicalizedUrls += 1;
+    return canonical;
+  }
 
   const raw = String(source);
   const rel = relativeAssetPath(raw);
@@ -289,10 +450,17 @@ async function fetchUncachedAssetBuffer(resolved) {
   if (isRemoteSource(resolved)) {
     const disk = await readDiskCache(resolved);
     if (disk) return cacheSet(bufferCache, resolved, disk, disk.length);
+    let networkRecorded = false;
     try {
       const res = await fetch(resolved);
-      if (!res.ok) throw new Error(`Asset fetch failed ${res.status}: ${resolved}`);
+      if (!res.ok) {
+        recordAssetDownload(assetCategory(resolved), 0, false);
+        networkRecorded = true;
+        throw new Error(`Asset fetch failed ${res.status}: ${resolved}`);
+      }
       const buffer = Buffer.from(await res.arrayBuffer());
+      recordAssetDownload(assetCategory(resolved), buffer.length, true);
+      networkRecorded = true;
       cacheStats.downloadedBytes += buffer.length;
       bandwidthLog('remote asset downloaded', {
         system: 'assets',
@@ -303,6 +471,7 @@ async function fetchUncachedAssetBuffer(resolved) {
       await writeDiskCache(resolved, buffer);
       return cacheSet(bufferCache, resolved, buffer, buffer.length);
     } catch (err) {
+      if (!networkRecorded) recordAssetDownload(assetCategory(resolved), 0, false);
       const rel = relativeAssetPath(resolved);
       const fallback = rel ? localAssetPath(rel) : null;
       if (fallback) {
@@ -323,8 +492,13 @@ async function fetchAssetBuffer(source) {
   const cached = cacheGet(bufferCache, resolved, 'bufferHits');
   if (cached) return cached;
   const pending = bufferInflight.get(resolved);
-  if (pending) return pending;
+  if (pending) {
+    cacheStats.bufferCoalesced += 1;
+    if (isRemoteSource(resolved)) recordAssetCache(assetCategory(resolved), 'buffer', 'coalesced');
+    return pending;
+  }
   cacheStats.bufferMisses += 1;
+  if (isRemoteSource(resolved)) recordAssetCache(assetCategory(resolved), 'buffer', 'miss');
   const job = fetchUncachedAssetBuffer(resolved);
   bufferInflight.set(resolved, job);
   try {
@@ -354,14 +528,26 @@ async function readAssetJson(source) {
 // operates on the ALREADY-FETCHED bytes (no extra egress) and only on the
 // decode-failure path (identical output for images that already decode); the
 // decoded result is cached in imageCache, so it runs at most once per asset.
-async function loadImageOrSanitize(loadImageFn, input) {
+async function loadImageOrSanitize(loadImageFn, input, { sanitizedPath = null } = {}) {
   try {
     return await loadImageFn(input);
   } catch (err) {
     try {
       const sharp = require('sharp');
       const clean = await sharp(input).png().toBuffer();
-      const image = await loadImageFn(clean);
+      let image;
+      if (sanitizedPath) {
+        try {
+          await fs.promises.writeFile(sanitizedPath, clean);
+          cacheStats.diskWrites += 1;
+          scheduleDiskCacheSweep();
+          image = await loadImageFn(sanitizedPath);
+        } catch {
+          image = await loadImageFn(clean);
+        }
+      } else {
+        image = await loadImageFn(clean);
+      }
       bandwidthLog('asset image sanitized (metadata stripped)', {
         system: 'assets', cache: 'sanitize',
         name: assetFileName(typeof input === 'string' ? input : 'buffer', 'asset'),
@@ -373,22 +559,70 @@ async function loadImageOrSanitize(loadImageFn, input) {
   }
 }
 
+async function loadRemoteAssetImage(loadImageFn, resolved) {
+  if (diskCacheAllowed(resolved)) {
+    const file = diskCachePath(resolved);
+    const sanitizedPath = `${file}.decoded.png`;
+    try {
+      await fs.promises.access(sanitizedPath, fs.constants.R_OK);
+      const image = await loadImageFn(sanitizedPath);
+      cacheStats.diskHits += 1;
+      scheduleDiskCacheSweep();
+      return image;
+    } catch {
+      // Try the original cached object before downloading it again.
+      await fs.promises.unlink(sanitizedPath).catch(() => {});
+    }
+    try {
+      await fs.promises.access(file, fs.constants.R_OK);
+      const image = await loadImageOrSanitize(loadImageFn, file, { sanitizedPath });
+      cacheStats.diskHits += 1;
+      scheduleDiskCacheSweep();
+      return image;
+    } catch {
+      // Missing or corrupt disk entries fall through to the authoritative URL.
+      await fs.promises.unlink(file).catch(() => {});
+      await fs.promises.unlink(sanitizedPath).catch(() => {});
+    }
+
+    const buffer = await fetchAssetBuffer(resolved);
+    try {
+      await fs.promises.access(sanitizedPath, fs.constants.R_OK);
+      return await loadImageFn(sanitizedPath);
+    } catch {
+      try {
+        await fs.promises.access(file, fs.constants.R_OK);
+        return await loadImageOrSanitize(loadImageFn, file, { sanitizedPath });
+      } catch {
+        return loadImageOrSanitize(loadImageFn, buffer);
+      }
+    }
+  }
+
+  return loadImageOrSanitize(loadImageFn, await fetchAssetBuffer(resolved));
+}
+
 async function loadAssetImage(loadImageFn, source) {
   const resolved = assetSource(source);
   const cached = cacheGet(imageCache, resolved, 'imageHits');
   if (cached) return cached;
   const pending = imageInflight.get(resolved);
-  if (pending) return pending;
+  if (pending) {
+    cacheStats.imageCoalesced += 1;
+    if (isRemoteSource(resolved)) recordAssetCache(assetCategory(resolved), 'image', 'coalesced');
+    return pending;
+  }
   cacheStats.imageMisses += 1;
+  if (isRemoteSource(resolved)) recordAssetCache(assetCategory(resolved), 'image', 'miss');
 
   const job = (async () => {
     try {
       const image = isRemoteSource(resolved)
-        ? await loadImageOrSanitize(loadImageFn, await fetchAssetBuffer(resolved))
+        ? await loadRemoteAssetImage(loadImageFn, resolved)
         : await loadImageOrSanitize(loadImageFn, resolved);
       const result = cacheSet(imageCache, resolved, image, estimateImageBytes(image));
-      // Drop duplicate remote bytes after decoding when the disk cache can reload them.
-      if (isRemoteSource(resolved) && diskCacheEnabled()) cacheDelete(bufferCache, resolved);
+      // Decoded images and their compressed source bytes should not occupy memory together.
+      if (isRemoteSource(resolved)) cacheDelete(bufferCache, resolved);
       return result;
     } catch (err) {
       if (isRemoteSource(resolved)) {
@@ -436,15 +670,21 @@ function remoteAssetAvailable(relativePath) {
     const expired = entry.resolvedFalse
       && REMOTE_CHECK_NEGATIVE_TTL_MS > 0
       && Date.now() - entry.checkedAt > REMOTE_CHECK_NEGATIVE_TTL_MS;
-    if (!expired) return entry.promise;
+    if (!expired) {
+      cacheStats.remoteCheckHits += 1;
+      return entry.promise;
+    }
   }
+  cacheStats.remoteCheckMisses += 1;
   const record = { checkedAt: Date.now(), resolvedFalse: false };
   record.promise = (async () => {
     try {
       const res = await fetch(url, { method: 'HEAD' });
+      recordAssetHead(assetCategory(url), res.ok);
       if (!res.ok) record.resolvedFalse = true;
       return res.ok;
     } catch {
+      recordAssetHead(assetCategory(url), false);
       record.resolvedFalse = true;
       return false;
     }

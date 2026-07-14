@@ -34,6 +34,7 @@ const { optimizeOpaqueAttachment, extensionFromName, imageContentType } = requir
 const { bandwidthLog, envNumber, performanceLog } = require('./runtimeLogs');
 const { withImageWorkSlot } = require('./imageWorkQueue');
 const { registerMemorySource } = require('./memoryRegistry');
+const { recordCanvasCache } = require('./networkTelemetry');
 
 const MEMORY_MAX = 5000;
 const MEMORY_MAX_BYTES = Math.max(1024 * 1024, envNumber('CANVAS_MEMORY_CACHE_MAX_MB', 8, { min: 1, max: 2048 }) * 1024 * 1024);
@@ -42,6 +43,14 @@ const inflight = new Map(); // cacheKey → Promise<{url}|null>
 const lastTouched = new Map(); // cacheKey -> ms timestamp of last last_used_at write
 let memoryBytes = 0;
 let warnedDb = false;
+const cacheStats = {
+  memoryHits: 0,
+  dbHits: 0,
+  inflightHits: 0,
+  misses: 0,
+  uploadFailures: 0,
+  uploadedBytes: 0,
+};
 
 function enabled() {
   return isRemoteAssetsEnabled() && r2.isConfigured();
@@ -119,13 +128,19 @@ async function getCachedCanvasUrl(parts, renderPng, imageOptions = {}, cacheOpti
 
   const cachedEntry = memory.get(key);
   if (cachedEntry) {
+    cacheStats.memoryHits += 1;
+    recordCanvasCache(logContext, 'memory');
     memory.delete(key);
     memory.set(key, cachedEntry);
     touch(key, logContext);
     performanceLog('canvas cache hit', { ...logContext, cache: 'memory-hit', name: key.slice(0, 12) });
     return { url: typeof cachedEntry === 'string' ? cachedEntry : cachedEntry.url, cache: 'memory-hit' };
   }
-  if (inflight.has(key)) return inflight.get(key);
+  if (inflight.has(key)) {
+    cacheStats.inflightHits += 1;
+    recordCanvasCache(logContext, 'coalesced');
+    return inflight.get(key);
+  }
 
   const job = (async () => {
     try {
@@ -133,6 +148,8 @@ async function getCachedCanvasUrl(parts, renderPng, imageOptions = {}, cacheOpti
         'SELECT url FROM canvas_cache WHERE cache_key = $1', [key]
       );
       if (rows.length > 0) {
+        cacheStats.dbHits += 1;
+        recordCanvasCache(logContext, 'database');
         remember(key, rows[0].url);
         touch(key, logContext);
         performanceLog('canvas cache hit', { ...logContext, cache: 'db-hit', name: key.slice(0, 12) });
@@ -143,6 +160,8 @@ async function getCachedCanvasUrl(parts, renderPng, imageOptions = {}, cacheOpti
       return null;
     }
 
+    cacheStats.misses += 1;
+    recordCanvasCache(logContext, 'miss');
     let image = null;
     try {
       image = await withImageWorkSlot(logContext.imageType || 'canvas', async () => {
@@ -161,7 +180,9 @@ async function getCachedCanvasUrl(parts, renderPng, imageOptions = {}, cacheOpti
       const ext = extensionFromName(image.name);
       const objectKey = `cache/canvas/${key}.${ext}`;
       const contentType = imageContentType(image.name);
-      if (!(await r2.putObject(objectKey, image.buffer, contentType))) {
+      if (!(await r2.putObject(objectKey, image.buffer, contentType, logContext))) {
+        cacheStats.uploadFailures += 1;
+        recordCanvasCache(logContext, 'failure');
         if (returnImageOnFailure) {
           bandwidthLog('cache fallback reused existing buffer', {
             ...logContext,
@@ -174,6 +195,7 @@ async function getCachedCanvasUrl(parts, renderPng, imageOptions = {}, cacheOpti
       }
 
       const url = getAssetUrl(objectKey);
+      cacheStats.uploadedBytes += image.buffer.length;
       await pool.query(
         `INSERT INTO canvas_cache (cache_key, object_key, url)
          VALUES ($1, $2, $3)
@@ -222,7 +244,7 @@ async function sweepCanvasCache({ maxAgeDays = Number(process.env.CANVAS_CACHE_M
       [String(maxAgeDays), batch]
     );
     for (const row of rows) {
-      if (!(await r2.deleteObject(row.object_key))) continue;
+      if (!(await r2.deleteObject(row.object_key, { system: 'canvas', command: 'sweep' }))) continue;
       await pool.query('DELETE FROM canvas_cache WHERE cache_key = $1', [row.cache_key]);
       forgetMemory(row.cache_key);
       swept += 1;
@@ -243,7 +265,16 @@ async function verifyCanvasCacheReady() {
 }
 
 function getCanvasCacheStats() {
+  const directRequests = cacheStats.memoryHits + cacheStats.dbHits + cacheStats.misses;
+  const effectiveRequests = directRequests + cacheStats.inflightHits;
   return {
+    ...cacheStats,
+    hitRate: directRequests
+      ? Number(((cacheStats.memoryHits + cacheStats.dbHits) / directRequests).toFixed(4))
+      : 0,
+    effectiveHitRate: effectiveRequests
+      ? Number(((cacheStats.memoryHits + cacheStats.dbHits + cacheStats.inflightHits) / effectiveRequests).toFixed(4))
+      : 0,
     entries: memory.size,
     inflight: inflight.size,
     touches: lastTouched.size,

@@ -1,9 +1,11 @@
 'use strict';
 
 const pool = require('../db/pool');
+const { beginActivity } = require('../utils/networkTelemetry');
 
 const STALE_BATTLE_MINUTES = 5;
 const REAPER_INTERVAL_MS   = 60_000; // run every 1 minute
+let reaping = false;
 
 /**
  * Delete active_battles rows older than STALE_BATTLE_MINUTES.
@@ -11,6 +13,9 @@ const REAPER_INTERVAL_MS   = 60_000; // run every 1 minute
  * new battles; removing it unlocks them automatically.
  */
 async function reapStaleBattles(reason = 'periodic') {
+  if (reaping) return;
+  reaping = true;
+  const endActivity = beginActivity('scheduler.battle_reaper');
   try {
     const { rowCount } = await pool.query(
       `DELETE FROM active_battles
@@ -21,6 +26,9 @@ async function reapStaleBattles(reason = 'periodic') {
     }
   } catch (err) {
     console.error(`[battleReaper] ${reason} reap error:`, err.message);
+  } finally {
+    reaping = false;
+    endActivity();
   }
 }
 

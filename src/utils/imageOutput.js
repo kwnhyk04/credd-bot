@@ -8,6 +8,7 @@ const {
   envBool, envBoundedInt, performanceLog,
 } = require('./runtimeLogs');
 const { withImageWorkSlot } = require('./imageWorkQueue');
+const { tagDiscordAttachmentBuffer } = require('./networkTelemetry');
 
 function requestedFormat() {
   const raw = String(process.env.IMAGE_OUTPUT_FORMAT || '').trim().toLowerCase();
@@ -248,6 +249,7 @@ function attachmentFromOptimizedImage(image, baseName, logContext = {}) {
     imageType: logContext.imageType || baseName,
     bytes: image.buffer.length,
   });
+  tagDiscordAttachmentBuffer(image.buffer, logContext);
   return {
     ...image,
     name,
@@ -273,6 +275,7 @@ async function makeOptimizedAttachment(buffer, baseName, options = {}) {
     bytes: image.buffer.length,
     format,
   });
+  tagDiscordAttachmentBuffer(image.buffer, logContext);
   return {
     ...image,
     url: `attachment://${image.name}`,
