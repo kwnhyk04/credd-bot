@@ -244,7 +244,8 @@ async function renderSummonGrid(results) {
 async function addSummonHeader(container, {
   flipPath = null, headerEmoji = null, title, separateMedia = false, logContext = {},
 }) {
-  const isImage = typeof flipPath === 'string' && /\.(gif|webp|png|jpe?g)$/i.test(flipPath);
+  const isImage = typeof flipPath === 'string'
+    && ['gif', 'webp', 'png', 'jpg', 'jpeg'].includes(assetExtension(flipPath, ''));
   if (isImage) {
     try {
       container.addTextDisplayComponents((td) => td.setContent('## ✨ ' + title));

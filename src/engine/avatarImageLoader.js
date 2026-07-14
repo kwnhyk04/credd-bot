@@ -10,9 +10,12 @@ function safeAssetKey(source) {
 
 function avatarImageSourceCandidates(source) {
   if (!source) return [];
-  const s = String(source).replace(/\\/g, '/');
+  const raw = String(source).replace(/\\/g, '/');
+  const suffixAt = raw.search(/[?#]/);
+  const suffix = suffixAt >= 0 ? raw.slice(suffixAt) : '';
+  const s = suffixAt >= 0 ? raw.slice(0, suffixAt) : raw;
   const match = /^(.*)\.(png|jpe?g|webp)$/i.exec(s);
-  if (!match) return [s];
+  if (!match) return [raw];
 
   const exts = [match[2].toLowerCase(), 'webp', 'png', 'jpg', 'jpeg'];
   const bases = [match[1]];
@@ -37,7 +40,7 @@ function avatarImageSourceCandidates(source) {
     }
   }
 
-  return [...new Set(bases.flatMap((base) => exts.map((ext) => `${base}.${ext}`)))];
+  return [...new Set(bases.flatMap((base) => exts.map((ext) => `${base}.${ext}${suffix}`)))];
 }
 
 async function loadAvatarAsset(loadImageSource, sources, logContext = {}) {

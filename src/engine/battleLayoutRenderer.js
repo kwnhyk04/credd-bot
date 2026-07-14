@@ -417,9 +417,13 @@ function battleBaseCanvas(skin) {
   const cached = key ? cachedBattleBase(key, signature) : null;
   if (cached) return cached;
 
+  // Draw oversized bases directly because an undersized cache would release them before use.
+  const bytes = Math.max(1, layout.canvas.w * layout.canvas.h * 4);
+  if (!key || bytes > BATTLE_BASE_CACHE_MAX_BYTES) return null;
+
   const base = createCanvas(layout.canvas.w, layout.canvas.h);
   drawStaticBattleBase(base.getContext('2d'), skin);
-  return key ? cacheBattleBase(key, signature, base) : base;
+  return cacheBattleBase(key, signature, base);
 }
 
 function drawAction(ctx, action, style) {
@@ -435,7 +439,9 @@ function renderBattleSkinPanel(sim, snapIdx, skin, { mode = sim.mode, icons = nu
   const state = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
   const canvas = createCanvas(layout.canvas.w, layout.canvas.h);
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(battleBaseCanvas(skin), 0, 0);
+  const base = battleBaseCanvas(skin);
+  if (base) ctx.drawImage(base, 0, 0);
+  else drawStaticBattleBase(ctx, skin);
 
   if (isStyle(layout.header)) {
     const label = mode === 'duel' ? `DUEL • TURN ${state.round}` : `BATTLE • TURN ${state.round}`;

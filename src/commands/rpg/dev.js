@@ -31,6 +31,7 @@ const seasonEngine = require('../../engine/seasonEngine');
 const { grantTitle } = require('../../utils/titleGrant');
 const { buildShopPage } = require('../../engine/skinShopViews');
 const { DIRS, SKINS_DIR } = require('../../config/cosmetics');
+const { isRemoteAssetsEnabled, remoteAssetAvailable } = require('../../utils/assets');
 
 const INT_MAX = 2147483647; // INTEGER column ceiling (shards/chests/relics)
 const MENTION_RE = /^<@!?\d+>$/;
@@ -1033,7 +1034,14 @@ async function devUse(message, args, devId) {
       label = `testers/${folderId}`;
     }
     const folderPath = path.join(SKINS_DIR, ...folder.split('/'));
-    if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
+    const localFolderExists = fs.existsSync(folderPath) && fs.statSync(folderPath).isDirectory();
+    const remoteFolderExists = !localFolderExists && isRemoteAssetsEnabled()
+      ? (await Promise.all(
+          ['profile.png', 'founder_profile.png']
+            .map((name) => remoteAssetAvailable(`skins/${folder}/${name}`))
+        )).some(Boolean)
+      : false;
+    if (!localFolderExists && !remoteFolderExists) {
       return reply(message, `Skin folder not found: \`assets/skins/${folder}\`.`);
     }
     const client = await pool.connect();

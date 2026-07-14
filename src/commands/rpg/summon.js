@@ -4,7 +4,14 @@ const pool = require('../../db/pool');
 const { runSummon } = require('../../engine/summonEngine');
 const { buildFlipMessage, buildResultMessage, flipGifExists } = require('../../engine/renderSummon');
 const { resolveSummonAnimation } = require('../../engine/skinResolver');
-const { assetExistsSync, readAssetJson } = require('../../utils/assets');
+const {
+  assetExistsSync,
+  assetExtension,
+  isRemoteSource,
+  readAssetJson,
+  relativeAssetPath,
+  remoteAssetAvailable,
+} = require('../../utils/assets');
 const {
   SHARDS_PER_PULL,
   ALLOWED_SUMMON_COUNTS,
@@ -100,10 +107,13 @@ async function execute(message, { args }) {
   // Per-skin flip duration: a summon skin may ship a colocated `<basename>.json` with
   // { "flip_seconds": N } (e.g. founder_summon = 7s). Default stays 4s for every other skin.
   let flipMs = 4000;
-  if (flipPath) {
+  if (flipPath && ['gif', 'webp', 'png', 'jpg', 'jpeg'].includes(assetExtension(flipPath, ''))) {
     try {
-      const cfgPath = flipPath.replace(/\.[^.]+$/, '.json');
-      if (assetExistsSync(cfgPath)) {
+      const cfgPath = flipPath.replace(/\.[^./?#]+(?=[?#]|$)/, '.json');
+      const cfgExists = isRemoteSource(cfgPath)
+        ? await remoteAssetAvailable(relativeAssetPath(cfgPath))
+        : assetExistsSync(cfgPath);
+      if (cfgExists) {
         const sec = (await readAssetJson(cfgPath)).flip_seconds;
         if (Number.isFinite(sec) && sec > 0) flipMs = Math.round(sec * 1000);
       }

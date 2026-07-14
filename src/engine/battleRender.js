@@ -63,8 +63,8 @@ for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
 
 const UPDATE_MS = 1800; // delay between embed edits (≥1500ms — rate-limit safety)
 
-const BATTLE_FRAME_RENDER_REV = 3;
-const BATTLE_RESULT_RENDER_REV = 3;
+const BATTLE_FRAME_RENDER_REV = 4;
+const BATTLE_RESULT_RENDER_REV = 4;
 const BATTLE_FRAME_MODES = new Set(['full', 'start_and_final', 'text_only']);
 const BATTLE_FRAME_COOLDOWN_MAX = 5000;
 const battleFrameCooldowns = new Map();
@@ -559,13 +559,16 @@ function snapshotSideVisualCacheParts(side = {}) {
   };
 }
 
-function battleFrameCacheParts(sim, snapIdx, { mode, mirror, battleSkinPath }) {
+function battleFrameCacheParts(sim, snapIdx, {
+  mode, mirror, battleSkinPath, battleSkinLoaded = false,
+}) {
   const idx = Math.min(snapIdx, sim.snapshots.length - 1);
   const snapshot = sim.snapshots[idx] || {};
   return {
     mode,
     mirror,
     battleSkinPath: battleSkinPath || null,
+    battleSkinLoaded: battleSkinPath ? Boolean(battleSkinLoaded) : null,
     fighterA: fighterVisualCacheParts(sim.a),
     fighterB: fighterVisualCacheParts(sim.b),
     snapshot: {
@@ -628,7 +631,12 @@ async function cachedBattleFrame(sim, snapIdx, {
     userId: ownerId,
   };
   const cached = await getCachedCanvasUrl(
-    ['battle-frame', BATTLE_FRAME_RENDER_REV, battleFrameCacheParts(sim, snapIdx, { mode, mirror, battleSkinPath })],
+    ['battle-frame', BATTLE_FRAME_RENDER_REV, battleFrameCacheParts(sim, snapIdx, {
+      mode,
+      mirror,
+      battleSkinPath,
+      battleSkinLoaded: Boolean(skin),
+    })],
     render,
     imageOptions,
     { returnImageOnFailure: true, logContext }

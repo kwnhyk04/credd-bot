@@ -247,9 +247,13 @@ function resultBaseCanvas(skin) {
   const cached = key ? cachedResultBase(key, signature) : null;
   if (cached) return cached;
 
+  // Draw oversized bases directly because an undersized cache would release them before use.
+  const bytes = Math.max(1, layout.canvas.w * layout.canvas.h * 4);
+  if (!key || bytes > RESULT_BASE_CACHE_MAX_BYTES) return null;
+
   const base = createCanvas(layout.canvas.w, layout.canvas.h);
   drawStaticResultBase(base.getContext('2d'), skin);
-  return key ? cacheResultBase(key, signature, base) : base;
+  return cacheResultBase(key, signature, base);
 }
 
 /**
@@ -270,7 +274,9 @@ async function renderResultPanel(sim, rewards, skin, { loadIcon } = {}) {
 
   const canvas = createCanvas(layout.canvas.w, layout.canvas.h);
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(resultBaseCanvas(skin), 0, 0);
+  const base = resultBaseCanvas(skin);
+  if (base) ctx.drawImage(base, 0, 0);
+  else drawStaticResultBase(ctx, skin);
 
   // Draw ONLY the rewards — no VICTORY/DEFEATED word and no "<mob> defeated!"
   // line (the result art already carries those). The layout's

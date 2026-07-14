@@ -93,6 +93,15 @@ async function main() {
       snapshots: [startSnapshot],
     }, 0, frameOptions)
   );
+  assert.notDeepEqual(
+    firstStartKey,
+    battleFrameCacheParts({
+      a: { ...visualFighter, hp: 17 },
+      b: { ...visualFighter, name: 'Mob', kind: 'mob', hp: 0 },
+      snapshots: [startSnapshot],
+    }, 0, { ...frameOptions, battleSkinLoaded: true }),
+    'a generic fallback must not poison the cache key for a later loaded skin'
+  );
 
   const resultRewards = {
     won: true,

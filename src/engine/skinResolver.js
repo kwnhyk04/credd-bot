@@ -29,6 +29,8 @@ const {
   assetPath,
   assetExistsSync,
   isRemoteAssetsEnabled,
+  isRemoteSource,
+  relativeAssetPath,
   remoteAssetAvailable,
 } = require('../utils/assets');
 const {
@@ -54,20 +56,24 @@ function skinAsset(relPath) {
   return isRemoteAssetsEnabled() ? assetPath(`skins/${String(relPath).replace(/\\/g, '/')}`) : null;
 }
 
-/** First existing file (absolute) among `candidates` basenames inside a skins-relative folder. */
-function firstExistingInFolder(relFolder, candidates) {
+/** First available file among `candidates` inside a safe skins-relative folder. */
+async function firstAvailableInFolder(relFolder, candidates) {
   for (const name of candidates) {
     const rel = `${relFolder}/${name}`;
     const abs = skinFilePath(rel);
-    if (existsAbs(abs)) {
-      return isRemoteAssetsEnabled() ? assetPath(`skins/${rel.replace(/\\/g, '/')}`) : abs;
+    if (!abs) continue;
+    if (isRemoteAssetsEnabled()) {
+      const remoteRel = `skins/${rel.replace(/\\/g, '/')}`;
+      if (await remoteAssetAvailable(remoteRel)) return assetPath(remoteRel);
+    } else if (existsAbs(abs)) {
+      return abs;
     }
   }
   return null;
 }
 
 /** Resolve an override_path (file or folder) to the concrete frame for this category/variant. */
-function resolveOverride(relPath, category, variant) {
+async function resolveOverride(relPath, category, variant) {
   if (!relPath) return null;
   // A path with an extension is a concrete single file.
   if (path.extname(relPath)) {
@@ -77,49 +83,30 @@ function resolveOverride(relPath, category, variant) {
   let key = category;
   if (category === 'battle_result') key = variant === 'defeated' ? 'defeated' : 'victory';
   else if (category === 'summon') key = 'summon';
-  return firstExistingInFolder(relPath, SET_FILES[key] || []);
-}
-
-function cleanOverrideFolder(relPath) {
-  const raw = String(relPath || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-  if (
-    !raw ||
-    path.isAbsolute(raw) ||
-    /^[a-zA-Z]:/.test(raw) ||
-    /^https?:\/\//i.test(raw) ||
-    raw.split('/').some((part) => !part || part === '.' || part === '..')
-  ) {
-    return null;
-  }
-  return raw;
-}
-
-function summonOverrideRelativePath(overridePath) {
-  const folder = cleanOverrideFolder(overridePath);
-  return folder ? `skins/${folder}/summon.gif` : null;
+  return firstAvailableInFolder(relPath, SET_FILES[key] || []);
 }
 
 async function resolveSummonAnimation(db, userId) {
-  const { rows } = await db.query(
-    `SELECT override_path
-       FROM equipped_skins
-      WHERE discord_id = $1
-        AND category = 'summon'
-      LIMIT 1`,
-    [userId]
-  );
-  const rel = summonOverrideRelativePath(rows[0]?.override_path);
-  if (!rel) return { path: null, source: 'default' };
-
-  if (isRemoteAssetsEnabled()) {
-    if (!(await remoteAssetAvailable(rel))) return { path: null, source: 'default' };
-    return { path: assetPath(rel), source: 'override' };
+  const resolved = await resolveSkin(db, userId, 'summon');
+  if (!resolved.path || resolved.cosmetic?.is_base) {
+    return { path: null, source: 'default', cosmetic: resolved.cosmetic || null };
   }
 
-  const local = assetPath(rel);
-  return assetExistsSync(local)
-    ? { path: local, source: 'override' }
-    : { path: null, source: 'default' };
+  // Store summon cosmetics render their uploaded Discord emoji instead of the source animation.
+  const cosmeticKey = String(resolved.cosmetic?.cosmetic_key || '');
+  if (/_s\d+$/i.test(cosmeticKey)) {
+    return { ...resolved, path: cosmeticKey, source: 'equipped-emoji' };
+  }
+
+  if (isRemoteSource(resolved.path)) {
+    const rel = relativeAssetPath(resolved.path);
+    if (!rel || !(await remoteAssetAvailable(rel))) {
+      return { path: null, source: 'default', cosmetic: resolved.cosmetic || null };
+    }
+  } else if (!assetExistsSync(resolved.path)) {
+    return { path: null, source: 'default', cosmetic: resolved.cosmetic || null };
+  }
+  return resolved;
 }
 
 /** Pull the right *_filename off a catalog row for the category/variant. */
@@ -145,7 +132,7 @@ async function resolveSkin(db, userId, category, opts = {}) {
 
   // 1. override_path
   if (eq && eq.override_path) {
-    const p = resolveOverride(eq.override_path, category, variant);
+    const p = await resolveOverride(eq.override_path, category, variant);
     if (p) return { path: p, source: 'override', cosmetic: null };
   }
 
@@ -170,7 +157,7 @@ async function resolveSkin(db, userId, category, opts = {}) {
     let key = category;
     if (category === 'battle_result') key = variant === 'defeated' ? 'defeated' : 'victory';
     else if (category === 'summon') key = 'summon';
-    const p = firstExistingInFolder(DIRS.testers, SET_FILES[key] || []);
+    const p = await firstAvailableInFolder(DIRS.testers, SET_FILES[key] || []);
     if (p) return { path: p, source: 'beta', cosmetic: null };
   }
 
@@ -190,7 +177,7 @@ async function resolveStatsSkin(db, userId) {
   const eq = equipped.stats;
 
   if (eq && eq.override_path) {
-    const p = resolveOverride(eq.override_path, 'stats', 'victory');
+    const p = await resolveOverride(eq.override_path, 'stats', 'victory');
     if (p) return { path: p, source: 'override', cosmetic: null };
   }
 
@@ -242,5 +229,4 @@ module.exports = {
   resolveStatsSkin,
   resolveProfileLabel,
   resolveSummonAnimation,
-  summonOverrideRelativePath,
 };
