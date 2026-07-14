@@ -34,6 +34,7 @@ const {
 const { isBanned } = require('../../handlers/middleware');
 const { progressQuests } = require('../../utils/questProgress');
 const { registerMemorySource } = require('../../utils/memoryRegistry');
+const { withNetworkContext } = require('../../utils/networkTelemetry');
 
 const CHALLENGE_WINDOW_MS = 60_000;
 const MAX_DUEL_LEVEL = 50; // [Jun-2026 §3] current max combat level
@@ -279,7 +280,7 @@ async function runWager(message, challenger, target, stake) {
   const collector = challengeMsg.createMessageComponentCollector({ time: CHALLENGE_WINDOW_MS });
   activeDuelCollectors += 1;
   let settled = false;
-  collector.on('collect', async (i) => {
+  collector.on('collect', (i) => withNetworkContext({ command: 'duel' }, async () => {
     try {
       if (i.user.id !== target.id) {
         await i.reply({ content: 'Only the challenged player can respond.', flags: MessageFlags.Ephemeral })
@@ -364,7 +365,7 @@ async function runWager(message, challenger, target, stake) {
       console.error('[wager]', err);
       await challengeMsg.channel.send('Something went wrong running the wager.').catch(() => {});
     }
-  });
+  }));
   collector.on('end', (_c, reason) => {
     activeDuelCollectors = Math.max(0, activeDuelCollectors - 1);
     if (reason === 'settled') return;
@@ -467,7 +468,7 @@ async function execute(message) {
     activeDuelCollectors += 1;
     let settled = false;
 
-    collector.on('collect', async (i) => {
+    collector.on('collect', (i) => withNetworkContext({ command: 'duel' }, async () => {
       try {
         if (i.user.id !== target.id) {
           await i.reply({ content: 'Only the challenged player can respond.', flags: MessageFlags.Ephemeral })
@@ -571,7 +572,7 @@ async function execute(message) {
           .send('Something went wrong running the duel.')
           .catch(() => {});
       }
-    });
+    }));
 
     collector.on('end', (_collected, reason) => {
       activeDuelCollectors = Math.max(0, activeDuelCollectors - 1);

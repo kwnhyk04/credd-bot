@@ -11,9 +11,10 @@
     "selftest:memory": "node --expose-gc scripts/memory-selftest.js",
     "selftest:memory:casino": "node --expose-gc scripts/casino-memory-selftest.js",
     "selftest:telemetry": "node scripts/network-telemetry-selftest.js",
+    "selftest:asset-cache": "node scripts/asset-disk-cache-selftest.js",
     "selftest:skin-r2": "node scripts/skin-r2-selftest.js",
     "selftest:schema": "node scripts/schema-drift-selftest.js",
-    "selftest:full": "npm run selftest && npm run selftest:patch && npm run selftest:telemetry && npm run selftest:skin-r2 && npm run selftest:schema && node scripts/help-selftest.js && node scripts/casino-selftest.js",
+    "selftest:full": "npm run selftest && npm run selftest:patch && npm run selftest:telemetry && npm run selftest:asset-cache && npm run selftest:skin-r2 && npm run selftest:schema && node scripts/help-selftest.js && node scripts/casino-selftest.js",
     "preflight": "node scripts/production-preflight.js",
     "preflight:prod": "node scripts/production-preflight.js --prod"
   },

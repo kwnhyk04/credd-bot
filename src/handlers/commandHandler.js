@@ -6,6 +6,7 @@ const { awardCommandBelieverExp } = require('../utils/awardBelieverExp');
 const guildConfig = require('./guildConfigCache');
 const ALIASES = require('../config/aliases');
 const { envBool } = require('../utils/runtimeLogs');
+const { withNetworkContext } = require('../utils/networkTelemetry');
 
 const registerCmd = require('../commands/rpg/register');
 const createCmd = require('../commands/rpg/create');
@@ -222,7 +223,7 @@ async function handleMessage(message, { runMiddleware, isBanned }) {
   if (impl.mw === 'dev') {
     // Superuser-only (§2). Non-devs get NO reply (invisible), skipping all middleware.
     if (!DEV_IDS.includes(ctx.userId)) return true;
-    await impl.run(ctx, { args: ctx.args });
+    await withNetworkContext({ command }, () => impl.run(ctx, { args: ctx.args }));
     await awardCommandBelieverExp(ctx.userId, command, ctx.args);
     return true;
   }
@@ -232,7 +233,7 @@ async function handleMessage(message, { runMiddleware, isBanned }) {
     const allowed = await runMiddleware(ctx, { requiresCharacter, commandKey: command });
     if (!allowed) return true;
   }
-  await impl.run(ctx, { args: ctx.args });
+  await withNetworkContext({ command }, () => impl.run(ctx, { args: ctx.args }));
   await awardCommandBelieverExp(ctx.userId, command, ctx.args);
   return true;
 }

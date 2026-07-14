@@ -20,6 +20,7 @@ const {
   recordDiscordRestResponse,
   beginActivity,
   takeNetworkTelemetrySnapshot,
+  withNetworkContext,
 } = require('../src/utils/networkTelemetry');
 const pool = require('../src/db/pool');
 
@@ -27,7 +28,7 @@ async function main() {
   delete process.env.ASSET_VERSION;
   assert.strictEqual(
     assetSource('https://cdn.example.test/bucket/profile/card.png?signature=keep-me'),
-    'https://cdn.example.test/bucket/profile/card.png?signature=keep-me'
+    'https://cdn.example.test/bucket/profile/card.png'
   );
   process.env.ASSET_VERSION = 'release-7';
   assert.strictEqual(
@@ -51,14 +52,18 @@ async function main() {
       arrayBuffer: async () => Uint8Array.from([1, 2, 3, 4]).buffer,
     };
   };
-  await fetchAssetBuffer('https://cdn.example.test/bucket/items/card.png?one=1');
-  await fetchAssetBuffer('https://cdn.example.test/bucket/items/card.png?two=2');
+  await withNetworkContext({ command: 'raid' }, async () => {
+    await fetchAssetBuffer('https://cdn.example.test/bucket/items/card.png?one=1');
+    await fetchAssetBuffer('https://cdn.example.test/bucket/items/card.png?two=2');
+  });
   assert.strictEqual(fetches, 1, 'canonical R2 URLs should share one fetch/cache key');
   assert.strictEqual(getAssetCacheStats().bufferMisses, 1);
   assert.strictEqual(getAssetCacheStats().bufferHits, 1);
 
-  recordAssetDownload('profile', 1200, true);
-  recordAssetCache('profile', 'buffer', 'coalesced');
+  withNetworkContext({ command: 'profile' }, () => {
+    recordAssetDownload('profile', 1200, true);
+    recordAssetCache('profile', 'buffer', 'coalesced');
+  });
   recordCanvasCache({ command: 'profile', imageType: 'profile' }, 'memory');
   recordCanvasCache({ command: 'profile', imageType: 'coalesced' }, 'coalesced');
   recordR2Upload({ command: 'raid', imageType: 'battle_frame' }, 2400, true);
@@ -87,9 +92,13 @@ async function main() {
 
   const first = takeNetworkTelemetrySnapshot();
   assert.strictEqual(first.interval.assetDownloads.profile.bytes, 1200);
-  assert.strictEqual(first.interval.assetCache.items.bufferHits, 1);
-  assert.strictEqual(first.interval.assetCache.items.bufferMisses, 1);
+  assert.strictEqual(first.interval.assetCache.equipment_assets.bufferHits, 1);
+  assert.strictEqual(first.interval.assetCache.equipment_assets.bufferMisses, 1);
+  assert.strictEqual(first.interval.assetCacheByCommand.raid.bufferHits, 1);
+  assert.strictEqual(first.interval.assetCacheByCommand.raid.bufferMisses, 1);
   assert.strictEqual(first.interval.assetCache.profile.bufferCoalesced, 1);
+  assert.strictEqual(first.interval.assetCacheByCommand.profile.bufferCoalesced, 1);
+  assert.strictEqual(first.interval.assetDownloadsByCommand.profile.bytes, 1200);
   assert.strictEqual(first.interval.canvasCache.profile.memoryHits, 1);
   assert.strictEqual(first.interval.canvasCache['profile.coalesced'].inflightHits, 1);
   assert.strictEqual(first.interval.r2Uploads['raid.battle_frame'].confirmedBytes, 2400);

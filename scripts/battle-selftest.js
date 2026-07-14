@@ -787,6 +787,19 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
   const bossSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'bossSystem.js'), 'utf8');
   check('same-spawn upsert resets the daily counter', /attacks = CASE[\s\S]*?ELSE 1[\s\S]*?last_daily_reset =/.test(bossSource));
   check('no lifetime per-spawn attack gate remains', !/SELECT attacks FROM boss_attack_log WHERE boss_spawn_id/.test(bossSource));
+  const survivingRefresh = /else if \(bossImageRefreshEnabled\(\)\) \{([\s\S]*?)\n\s*\} else \{/.exec(bossSource)?.[1] || '';
+  check('surviving boss attacks use the configured image debounce',
+    /scheduleBossLiveRefresh/.test(survivingRefresh) && !/await refreshLiveMessage/.test(survivingRefresh));
+  const renderSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'battleRender.js'), 'utf8');
+  const executableRenderSource = renderSource
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+  const renderedFrameCalls = [...executableRenderSource.matchAll(/\bframe\s*\(\s*([^)]+?)\s*\)/g)]
+    .map((match) => match[1].trim());
+  check('battle delivery invokes only the initial and final rendered frames',
+    renderedFrameCalls.length === 2
+      && renderedFrameCalls[0] === '0'
+      && renderedFrameCalls[1] === 'finalIndex');
 }
 
 // — [Ascension §3] Sigils, Ascension costs, gacha rates —

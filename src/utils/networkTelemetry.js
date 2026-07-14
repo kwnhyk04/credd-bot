@@ -1,12 +1,17 @@
 'use strict';
 
+const { AsyncLocalStorage } = require('async_hooks');
 const { registerMemorySource } = require('./memoryRegistry');
 
 const MAX_KEYS = 64;
+const commandContext = new AsyncLocalStorage();
 const streams = {
   assetCache: new Map(),
+  assetCacheByCommand: new Map(),
   assetDownloads: new Map(),
+  assetDownloadsByCommand: new Map(),
   assetHeads: new Map(),
+  assetHeadsByCommand: new Map(),
   canvasCache: new Map(),
   r2Uploads: new Map(),
   r2Deletes: new Map(),
@@ -54,13 +59,24 @@ function contextKey(context = {}, fallback = 'other') {
   return imageType && imageType !== command ? `${command}.${imageType}` : command;
 }
 
+function activeCommandKey() {
+  return contextKey(commandContext.getStore() || {}, 'background');
+}
+
+function withNetworkContext(context, fn) {
+  const current = commandContext.getStore() || {};
+  return commandContext.run({ ...current, ...context }, fn);
+}
+
 function recordAssetDownload(category, bytes, ok = true) {
-  add(streams.assetDownloads, category, {
+  const values = {
     requests: 1,
     successes: ok ? 1 : 0,
     failures: ok ? 0 : 1,
     bytes: ok ? bytes : 0,
-  });
+  };
+  add(streams.assetDownloads, category, values);
+  add(streams.assetDownloadsByCommand, activeCommandKey(), values);
 }
 
 function recordAssetCache(category, cacheType, outcome) {
@@ -71,17 +87,21 @@ function recordAssetCache(category, cacheType, outcome) {
     miss: 'Misses',
     coalesced: 'Coalesced',
   }[state] || 'Other';
-  add(streams.assetCache, category, {
+  const values = {
     [`${type}${suffix}`]: 1,
-  });
+  };
+  add(streams.assetCache, category, values);
+  add(streams.assetCacheByCommand, activeCommandKey(), values);
 }
 
 function recordAssetHead(category, ok) {
-  add(streams.assetHeads, category, {
+  const values = {
     requests: 1,
     available: ok ? 1 : 0,
     unavailable: ok ? 0 : 1,
-  });
+  };
+  add(streams.assetHeads, category, values);
+  add(streams.assetHeadsByCommand, activeCommandKey(), values);
 }
 
 function recordR2Upload(context, bytes, ok) {
@@ -279,6 +299,7 @@ function getNetworkTelemetryStats() {
 registerMemorySource('telemetry.network-counters', getNetworkTelemetryStats);
 
 module.exports = {
+  withNetworkContext,
   recordAssetCache,
   recordAssetDownload,
   recordAssetHead,

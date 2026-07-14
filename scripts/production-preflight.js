@@ -24,7 +24,6 @@ const DANGEROUS_FLAGS = [
   'ALLOW_HIGH_VALUE_DEV_COMMANDS',
   'ALLOW_SUPPORTER_DEV_COMMANDS',
   'ALLOW_LIVE_EVENT_DEV_COMMANDS',
-  'ALLOW_DISCORD_IMAGE_ATTACHMENTS',
   'BETA_MODE',
   'AVATAR_DEV_UNLOCKS',
 ];
@@ -197,11 +196,15 @@ const REQUIRED_INDEXES = [
   'canvas_cache_last_used_idx',
 ];
 
-const REQUIRED_FILES = [
+const REQUIRED_LOCAL_FILES = [
   path.join('assets', 'data', 'game_items.txt'),
   path.join('assets', 'data', 'game_deities.txt'),
   path.join('assets', 'fonts', 'DejaVuSans.ttf'),
   path.join('assets', 'fonts', 'DejaVuSans-Bold.ttf'),
+];
+
+// R2 image files are required locally only when ASSET_BASE_URL is absent.
+const REQUIRED_LOCAL_IMAGE_FILES = [
   path.join('assets', 'animations', 'gacha', 'card_back.png'),
   path.join('assets', 'animations', 'gacha', 'card_remnant.png'),
   path.join('assets', 'animations', 'gacha', 'card_awakened.png'),
@@ -266,7 +269,21 @@ function connectionStringWithoutSslParams(raw) {
 }
 
 function envTrue(name) {
-  return String(process.env[name] || '').trim().toLowerCase() === 'true';
+  return ['1', 'true', 'yes', 'y', 'on'].includes(String(process.env[name] || '').trim().toLowerCase());
+}
+
+function pathIsWithin(root, candidate) {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+}
+
+function diskCachePathIssue(root) {
+  const resolved = path.resolve(root);
+  if (resolved === path.parse(resolved).root) return 'cannot be a filesystem root';
+  if (pathIsWithin(resolved, ROOT)) return 'cannot be the project directory or one of its ancestors';
+  if (pathIsWithin(path.join(ROOT, 'assets'), resolved)) return 'cannot be inside source assets';
+  if (pathIsWithin(path.join(ROOT, '.git'), resolved)) return 'cannot be inside .git';
+  return null;
 }
 
 function rel(filePath) {
@@ -329,9 +346,29 @@ function checkEnvironment() {
     pass('env ASSET_VERSION is set (same-path R2 URLs share one cache identity)');
   } else {
     warn(
-      'env ASSET_VERSION is missing - query variants of the same R2 path cannot be safely canonicalized',
+      'env ASSET_VERSION is missing - cache keys still canonicalize, but replacing an object needs explicit invalidation',
       true
     );
+  }
+  const diskCacheEnabled = !hasEnv('ASSET_DISK_CACHE_ENABLED') || envTrue('ASSET_DISK_CACHE_ENABLED');
+  if (!diskCacheEnabled) {
+    warn('ASSET_DISK_CACHE_ENABLED=false - decoded-image eviction will force repeat remote downloads', true);
+  } else {
+    pass('ASSET_DISK_CACHE_ENABLED=true (remote source bytes survive bounded memory eviction)');
+    const diskMaxMb = Number(process.env.ASSET_DISK_CACHE_MAX_MB || 384);
+    if (Number.isFinite(diskMaxMb) && diskMaxMb >= 256) {
+      pass(`ASSET_DISK_CACHE_MAX_MB=${diskMaxMb} includes recommended headroom above the measured 94 MiB skin set`);
+    } else {
+      warn(`ASSET_DISK_CACHE_MAX_MB=${diskMaxMb} is below the recommended 256 MiB working-set target`, true);
+    }
+    const diskRoot = String(process.env.ASSET_DISK_CACHE_DIR || process.env.ASSET_DISK_CACHE_ROOT || '').trim();
+    if (diskRoot) {
+      const issue = diskCachePathIssue(diskRoot);
+      if (issue) fail(`asset disk cache path ${diskRoot} is unsafe: ${issue}`);
+      else pass('asset disk cache path is configured (mount it on a Railway Volume for redeploy persistence)');
+    } else {
+      warn('ASSET_DISK_CACHE_DIR/ROOT is blank - the default .cache/assets directory is erased on redeploy');
+    }
   }
   for (const key of REQUIRED_R2_ENV) {
     if (hasEnv(key)) pass(`env ${key} is set (canvas cache can publish to R2)`);
@@ -340,15 +377,25 @@ function checkEnvironment() {
 }
 
 function checkFiles() {
-  for (const file of REQUIRED_FILES) {
+  for (const file of REQUIRED_LOCAL_FILES) {
     const fullPath = path.join(ROOT, file);
     if (fs.existsSync(fullPath)) pass(`file exists: ${rel(file)}`);
     else fail(`required file missing: ${rel(file)}`);
   }
-  for (const file of OPTIONAL_FILES) {
-    const fullPath = path.join(ROOT, file);
-    if (fs.existsSync(fullPath)) pass(`optional file exists: ${rel(file)}`);
-    else warn(`optional file missing: ${rel(file)}`);
+
+  if (hasEnv('ASSET_BASE_URL')) {
+    pass('R2 asset mode enabled; remote image files are not required in the local checkout');
+  } else {
+    for (const file of REQUIRED_LOCAL_IMAGE_FILES) {
+      const fullPath = path.join(ROOT, file);
+      if (fs.existsSync(fullPath)) pass(`file exists: ${rel(file)}`);
+      else fail(`required local image missing: ${rel(file)}`);
+    }
+    for (const file of OPTIONAL_FILES) {
+      const fullPath = path.join(ROOT, file);
+      if (fs.existsSync(fullPath)) pass(`optional file exists: ${rel(file)}`);
+      else warn(`optional file missing: ${rel(file)}`);
+    }
   }
 }
 

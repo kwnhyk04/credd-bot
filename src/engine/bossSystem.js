@@ -83,6 +83,8 @@ const RESPAWN_COOLDOWN = '15 minutes';   // spawns every 15 min after defeat
 const RESPAWN_COOLDOWN_MS = 15 * 60_000;
 const ACTIVE_BOSS_EXPIRES_AT_SQL = "NOW() + INTERVAL '100 years'";
 const NON_OFFICIAL_REDIRECT_COOLDOWN_MS = 6 * 60 * 60_000;
+const BOSS_IMAGE_REFRESH_MAX_RETRIES = 2;
+const BOSS_REFRESH_RECONCILE_COOLDOWN_MS = 10 * 60_000;
 const TOP_N = 15;
 const BOSS_STATE_COLUMNS = `
   guild_id, spawn_id, mob_id, boss_level, max_hp, current_hp,
@@ -112,6 +114,7 @@ const logCache = new Map();      // `${spawnId}:${discordId}` → sim
 const logCacheOrder = new Map(); // spawnId → Map<discordId, timestamp>
 const currentSpawn = new Map();  // guildId → spawnId (for logCache purging)
 const pendingBossRefreshes = new Map(); // guildId -> { timer, spawnId }
+const lastBossReconciliations = new Map(); // guildId -> last scheduler reconciliation attempt
 const nonOfficialRedirects = new Map(); // guildId -> ms of last redirect notice
 const lastBossStatusUrls = new Map(); // guildId -> { spawnId, url }
 // [v4.6] Greater Boss chest rolled ONCE at spawn, keyed by spawn_id — the single source of
@@ -193,6 +196,7 @@ function rememberSpawn(guildId, spawnId) {
   if (old && old !== spawnId) {
     clearPendingBossRefresh(guildId, 'spawn-replaced');
     purgeBossRuntimeForSpawn(old, 'spawn-replaced');
+    lastBossReconciliations.delete(guildId);
   }
   currentSpawn.set(guildId, spawnId);
 }
@@ -306,6 +310,7 @@ function purgeBossRuntimeForGuild(guildId, reason = 'cleared') {
   const spawnId = currentSpawn.get(guildId);
   if (spawnId) purgeBossRuntimeForSpawn(spawnId, reason);
   currentSpawn.delete(guildId);
+  lastBossReconciliations.delete(guildId);
 }
 
 function clearBossRuntimeForGuild(guildId, reason = 'guild-removed') {
@@ -1026,7 +1031,7 @@ async function deleteLiveMessage(client, guildId) {
  */
 async function refreshLiveMessage(client, guildId, options = {}) {
   const view = await fetchBossView(guildId);
-  if (!view) return;
+  if (!view) return false;
   rememberSpawn(guildId, view.state.spawn_id);
   const payload = await buildBossMessage(view, options);
   const ref = liveMessages.get(guildId);
@@ -1035,37 +1040,46 @@ async function refreshLiveMessage(client, guildId, options = {}) {
     const msg = channel ? await channel.messages.fetch(ref.messageId).catch(() => null) : null;
     if (msg) {
       const edited = await msg.edit({ ...payload, attachments: [] }).catch(() => null);
-      if (edited) return;
+      if (edited) return true;
     }
   }
-  await postFreshLiveMessage(client, guildId, payload);
+  return Boolean(await postFreshLiveMessage(client, guildId, payload));
 }
 
-async function refreshLiveMessageTextOnly(client, guildId, { spawnId = null, reason = 'text-refresh' } = {}) {
+async function refreshLiveMessageTextOnly(client, guildId, {
+  spawnId = null, reason = 'text-refresh', telemetryCommand = 'boss:attack',
+} = {}) {
   const started = Date.now();
-  await refreshLiveMessage(client, guildId, { includeStatusImage: false });
-  bandwidthLog('boss text refresh updated', {
+  const updated = await refreshLiveMessage(client, guildId, { includeStatusImage: false });
+  bandwidthLog(updated ? 'boss text refresh updated' : 'boss text refresh failed', {
     system: 'boss',
-    command: 'boss:attack',
+    command: telemetryCommand,
     imageType: 'boss_status',
     guildId,
     spawnId,
     reason,
     durationMs: Date.now() - started,
   });
+  return updated;
 }
 
-function scheduleBossLiveRefresh(client, guildId, { spawnId = null } = {}) {
+function scheduleBossLiveRefresh(client, guildId, {
+  spawnId = null, retryAttempt = 0, telemetryCommand = 'boss:attack',
+} = {}) {
   if (!bossImageRefreshEnabled()) {
     bandwidthLog('boss image refresh skipped', {
       system: 'boss',
-      command: 'boss:attack',
+      command: telemetryCommand,
       imageType: 'boss_status',
       guildId,
       spawnId,
       reason: 'disabled',
     });
-    refreshLiveMessageTextOnly(client, guildId, { spawnId, reason: 'image-refresh-disabled' }).catch((err) => {
+    refreshLiveMessageTextOnly(client, guildId, {
+      spawnId,
+      reason: 'image-refresh-disabled',
+      telemetryCommand,
+    }).catch((err) => {
       console.error(`[boss] text refresh failed (guild ${guildId}):`, err.message);
     });
     return;
@@ -1074,10 +1088,11 @@ function scheduleBossLiveRefresh(client, guildId, { spawnId = null } = {}) {
   const existing = pendingBossRefreshes.get(guildId);
   if (existing) {
     existing.spawnId = spawnId || existing.spawnId;
+    existing.telemetryCommand = telemetryCommand || existing.telemetryCommand;
     if (existing.running) existing.rerun = true;
     bandwidthLog('boss image refresh coalesced', {
       system: 'boss',
-      command: 'boss:attack',
+      command: existing.telemetryCommand,
       imageType: 'boss_status',
       guildId,
       spawnId: existing.spawnId,
@@ -1089,11 +1104,12 @@ function scheduleBossLiveRefresh(client, guildId, { spawnId = null } = {}) {
   const debounceMs = bossImageRefreshDebounceMs();
   bandwidthLog('boss image refresh scheduled', {
     system: 'boss',
-    command: 'boss:attack',
+    command: telemetryCommand,
     imageType: 'boss_status',
     guildId,
     spawnId,
     debounceMs,
+    retryAttempt,
   });
 
   const timer = setTimeout(async () => {
@@ -1104,7 +1120,7 @@ function scheduleBossLiveRefresh(client, guildId, { spawnId = null } = {}) {
     if (pending?.spawnId && currentSpawn.get(guildId) && currentSpawn.get(guildId) !== pending.spawnId) {
       bandwidthLog('boss image refresh skipped', {
         system: 'boss',
-        command: 'boss:attack',
+        command: pending.telemetryCommand,
         imageType: 'boss_status',
         guildId,
         spawnId: pending.spawnId,
@@ -1114,26 +1130,49 @@ function scheduleBossLiveRefresh(client, guildId, { spawnId = null } = {}) {
       return;
     }
     const started = Date.now();
+    let refreshSucceeded = false;
+    let failureReason = null;
     try {
-      await refreshLiveMessage(client, guildId).catch((err) => {
+      try {
+        refreshSucceeded = await refreshLiveMessage(client, guildId);
+        if (!refreshSucceeded) failureReason = 'no-message-updated';
+      } catch (err) {
+        failureReason = err.message;
         console.error(`[boss] debounced refresh failed (guild ${guildId}):`, err.message);
-      });
-      bandwidthLog('boss image refresh rendered', {
+      }
+      bandwidthLog(refreshSucceeded ? 'boss image refresh rendered' : 'boss image refresh failed', {
         system: 'boss',
-        command: 'boss:attack',
+        command: pending.telemetryCommand,
         imageType: 'boss_status',
         guildId,
         spawnId: pending?.spawnId,
+        retryAttempt: pending.retryAttempt,
+        ...(failureReason ? { reason: failureReason } : {}),
         durationMs: Date.now() - started,
       });
     } finally {
       if (pendingBossRefreshes.get(guildId) !== pending) return;
       pendingBossRefreshes.delete(guildId);
-      if (pending.rerun) scheduleBossLiveRefresh(client, guildId, { spawnId: pending.spawnId });
+      if (!refreshSucceeded && pending.retryAttempt < BOSS_IMAGE_REFRESH_MAX_RETRIES) {
+        scheduleBossLiveRefresh(client, guildId, {
+          spawnId: pending.spawnId,
+          retryAttempt: pending.retryAttempt + 1,
+          telemetryCommand: pending.telemetryCommand,
+        });
+      } else if (pending.rerun) {
+        scheduleBossLiveRefresh(client, guildId, {
+          spawnId: pending.spawnId,
+          telemetryCommand: pending.telemetryCommand,
+        });
+      } else if (!refreshSucceeded) {
+        liveMessages.delete(guildId);
+      }
     }
   }, debounceMs);
 
-  pendingBossRefreshes.set(guildId, { timer, spawnId, running: false, rerun: false });
+  pendingBossRefreshes.set(guildId, {
+    timer, spawnId, retryAttempt, telemetryCommand, running: false, rerun: false,
+  });
 }
 
 /* ── spawn / escape (scheduler paths) ───────────────────────────────────── */
@@ -1389,6 +1428,7 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
   }
   purgeBossRuntimeForSpawn(spawnId, 'dead');
   currentSpawn.delete(guildId);
+  lastBossReconciliations.delete(guildId);
   return attackerIds.length;
 }
 
@@ -1546,9 +1586,7 @@ async function handleAttackImpl(interaction) {
           includeStatusImage: false,
         });
       } else if (bossImageRefreshEnabled()) {
-        await refreshLiveMessage(interaction.client, guildId).catch((err) => {
-          console.error(`[boss] immediate image refresh failed (guild ${guildId}):`, err.message);
-        });
+        scheduleBossLiveRefresh(interaction.client, guildId, { spawnId: state.spawn_id });
       } else {
         await refreshLiveMessageTextOnly(interaction.client, guildId, {
           spawnId: state.spawn_id,
@@ -1635,6 +1673,26 @@ async function tickGuild(client, guildId) {
       await distributeRewards(client, guildId, state.spawn_id);
       return;
     }
+    rememberSpawn(guildId, state.spawn_id);
+    if (!liveMessages.has(guildId) && !pendingBossRefreshes.has(guildId)) {
+      const now = Date.now();
+      const lastAttempt = lastBossReconciliations.get(guildId) || 0;
+      if (now - lastAttempt >= BOSS_REFRESH_RECONCILE_COOLDOWN_MS) {
+        lastBossReconciliations.set(guildId, now);
+        scheduleBossLiveRefresh(client, guildId, {
+          spawnId: state.spawn_id,
+          telemetryCommand: 'scheduler:boss',
+        });
+        bandwidthLog('boss live message reconciliation scheduled', {
+          system: 'boss',
+          command: 'scheduler:boss',
+          imageType: 'boss_status',
+          guildId,
+          spawnId: state.spawn_id,
+          cooldownMs: BOSS_REFRESH_RECONCILE_COOLDOWN_MS,
+        });
+      }
+    }
     return;
   }
 
@@ -1663,6 +1721,7 @@ function getBossMemoryStats() {
     currentSpawns: currentSpawn.size,
     pendingRefreshes: pendingBossRefreshes.size,
     runningRefreshes: pending.filter((entry) => entry.running).length,
+    reconciliationEntries: lastBossReconciliations.size,
     redirectEntries: nonOfficialRedirects.size,
     statusUrlEntries: lastBossStatusUrls.size,
     greaterChestEntries: greaterChests.size,

@@ -19,6 +19,7 @@ const questsCmd = require('../commands/economy/quests');
 const autoRaidCmd = require('../commands/rpg/autoRaid');
 const glossaryCmd = require('../commands/rpg/glossary');
 const { envBool } = require('../utils/runtimeLogs');
+const { withNetworkContext } = require('../utils/networkTelemetry');
 
 const casinoEnabled = envBool('CASINO_ENABLED', true);
 const casinoButtons = casinoEnabled ? {
@@ -53,7 +54,7 @@ const COLLECTOR_OWNED_BUTTONS = new Set([
  *   bj:<hit|stand>:<uid>          (casino blackjack — bettor-gated, session-locked)
  *   crash:<push|cashout>:<uid>    (casino crash — bettor-gated, session-locked)
  */
-async function handleInteraction(interaction) {
+async function handleInteractionInner(interaction) {
   const isButton = interaction.isButton();
   const isSelect = interaction.isStringSelectMenu && interaction.isStringSelectMenu();
   if (!isButton && !isSelect) return;
@@ -225,6 +226,20 @@ async function handleInteraction(interaction) {
       await interaction.reply({ content: 'An unexpected error occurred.', flags: MessageFlags.Ephemeral }).catch(() => {});
     }
   }
+}
+
+const INTERACTION_COMMANDS = {
+  sshop: 'skin', sprev: 'skin', avat: 'avatar', runes: 'rune', lb: 'leaderboards',
+  title: 'title', essx: 'exchange', quest: 'quests', gloss: 'glossary', araid: 'auto',
+  register: 'register', boss: 'boss', bj: 'blackjack', crash: 'crash', weapons: 'bag',
+  armors: 'bag', chests: 'bag', deities: 'deity', dsigil: 'deity', denhance: 'deity',
+  enhance: 'enhance', sell: 'sell', create: 'create',
+};
+
+function handleInteraction(interaction) {
+  const namespace = String(interaction?.customId || '').split(':')[0].toLowerCase();
+  const command = INTERACTION_COMMANDS[namespace] || namespace || 'interaction';
+  return withNetworkContext({ command }, () => handleInteractionInner(interaction));
 }
 
 module.exports = { handleInteraction };

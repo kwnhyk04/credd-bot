@@ -8,18 +8,22 @@
  *
  * Emoji icons are downloaded ONCE from the Discord CDN
  * (https://cdn.discordapp.com/emojis/<id>.png?size=64 — ids from
- * game_items.txt via the emojis util) and cached to disk at
- * assets/cache/emojis/<name>.png, then memoized in-process. Renders never
+ * game_items.txt via the emojis util) and cached beside the shared asset disk
+ * cache, then memoized in-process. Renders never
  * fetch in steady state; the row image itself is re-rendered per invocation
  * (cheap).
  */
 
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const { encodeCanvas } = require('../utils/canvasEncode');
-const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { emoji } = require('../utils/emojis');
-const { assetSource, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
+const {
+  assetDiskCacheEnabled, assetSource, loadAssetImage: loadAssetImageSource,
+  readAssetDiskCacheFile, writeAssetDiskCacheFile, removeAssetDiskCacheFile,
+  touchAssetDiskCacheFile,
+} = require('../utils/assets');
 const { envNumber, envPositiveInt } = require('../utils/runtimeLogs');
 const { registerMemorySource } = require('../utils/memoryRegistry');
 const {
@@ -27,7 +31,6 @@ const {
 } = require('../utils/networkTelemetry');
 
 const ROOT = path.join(__dirname, '..', '..');
-const CACHE_DIR = path.join(ROOT, 'assets', 'cache', 'emojis');
 
 // Bundled font — the host may have no system fonts at all. Regular + Bold
 // registered under one family so 'bold …' resolves correctly.
@@ -63,15 +66,21 @@ const CMD_FONT = `11px "${FONT_FAMILY}"`;
 const ICON_CACHE_MAX_ENTRIES = envPositiveInt('EMOJI_IMAGE_CACHE_MAX', 256, { max: 2000 });
 const ICON_CACHE_MAX_BYTES = Math.max(1024 * 1024, envNumber('EMOJI_IMAGE_CACHE_MAX_MB', 4, { min: 1, max: 128 }) * 1024 * 1024);
 const ICON_CACHE_TTL_MS = Math.max(0, envNumber('EMOJI_IMAGE_CACHE_TTL_MS', 1_800_000, { min: 0, max: 86_400_000 }));
+const ICON_REMOTE_MISS_TTL_MS = Math.max(0, envNumber('EMOJI_REMOTE_MISS_TTL_MS', 600_000, { min: 0, max: 86_400_000 }));
+const ICON_REMOTE_MISS_MAX = envPositiveInt('EMOJI_REMOTE_MISS_MAX', 256, { max: 2000 });
 const iconCache = new Map(); // key -> { image, bytes, lastUsed }
+const iconInflight = new Map(); // key -> Promise<Image|null>
+const iconRemoteMisses = new Map(); // URL -> expiresAt
 let iconCacheBytes = 0;
 const iconStats = {
   hits: 0,
   misses: 0,
+  coalesced: 0,
   diskHits: 0,
   downloads: 0,
   downloadedBytes: 0,
   failures: 0,
+  negativeHits: 0,
 };
 
 function cachedIcon(key, category) {
@@ -84,18 +93,24 @@ function cachedIcon(key, category) {
   }
   iconStats.hits += 1;
   recordAssetCache(category, 'image', 'hit');
-  entry.lastUsed = Date.now();
+  const now = Date.now();
+  entry.lastUsed = now;
+  if (entry.diskName && now - (entry.diskTouchedAt || 0) >= 300_000) {
+    entry.diskTouchedAt = now;
+    void touchAssetDiskCacheFile(entry.diskName);
+  }
   iconCache.delete(key);
   iconCache.set(key, entry);
   return entry.image;
 }
 
-function rememberIcon(key, image) {
+function rememberIcon(key, image, diskName = null) {
   const bytes = Math.max(1, (image?.width || 0) * (image?.height || 0) * 4);
   const old = iconCache.get(key);
   if (old) iconCacheBytes -= old.bytes;
   iconCache.delete(key);
-  iconCache.set(key, { image, bytes, lastUsed: Date.now() });
+  const now = Date.now();
+  iconCache.set(key, { image, bytes, lastUsed: now, diskTouchedAt: now, diskName });
   iconCacheBytes += bytes;
   while (iconCache.size > ICON_CACHE_MAX_ENTRIES || iconCacheBytes > ICON_CACHE_MAX_BYTES) {
     const first = iconCache.entries().next().value;
@@ -112,86 +127,131 @@ function emojiIdOf(name) {
   return m ? m[1] : null;
 }
 
-/** Disk-cached CDN icon. Returns a canvas Image or null (row renders without icon). */
-async function getEmojiIcon(name) {
-  const cached = cachedIcon(name, 'discord_emoji');
+function iconCacheFileName(key, url) {
+  const safe = String(key || 'icon').replace(/[^a-z0-9_-]+/gi, '_').slice(0, 64) || 'icon';
+  const digest = crypto.createHash('sha256').update(String(url || key || 'icon')).digest('hex').slice(0, 16);
+  return `emoji-${safe}-${digest}.png`;
+}
+
+async function loadDiskCachedIcon(key, category, url) {
+  const cacheKey = String(url || `missing:${key}`);
+  const cached = cachedIcon(cacheKey, category);
   if (cached) return cached;
+  const negativeUntil = iconRemoteMisses.get(cacheKey) || 0;
+  if (negativeUntil > Date.now()) {
+    iconStats.negativeHits += 1;
+    recordAssetCache(category, 'negative', 'hit');
+    return null;
+  }
+  if (negativeUntil) iconRemoteMisses.delete(cacheKey);
+  const pending = iconInflight.get(cacheKey);
+  if (pending) {
+    iconStats.coalesced += 1;
+    recordAssetCache(category, 'image', 'coalesced');
+    return pending;
+  }
   iconStats.misses += 1;
-  recordAssetCache('discord_emoji', 'image', 'miss');
-  let fetchAttempted = false;
-  let downloadRecorded = false;
-  try {
-    const file = path.join(CACHE_DIR, `${name}.png`);
-    if (!fs.existsSync(file)) {
-      const id = emojiIdOf(name);
-      if (!id) return null;
+  recordAssetCache(category, 'image', 'miss');
+  const job = (async () => {
+    let fetchAttempted = false;
+    let downloadRecorded = false;
+    const download = async () => {
       fetchAttempted = true;
-      const res = await fetch(`https://cdn.discordapp.com/emojis/${id}.png?size=64`);
+      const res = await fetch(url);
       if (!res.ok) {
-        iconStats.failures += 1;
-        recordAssetDownload('discord_emoji', 0, false);
+        if (ICON_REMOTE_MISS_TTL_MS && [404, 410].includes(Number(res.status))) {
+          iconRemoteMisses.delete(cacheKey);
+          iconRemoteMisses.set(cacheKey, Date.now() + ICON_REMOTE_MISS_TTL_MS);
+          while (iconRemoteMisses.size > ICON_REMOTE_MISS_MAX) {
+            iconRemoteMisses.delete(iconRemoteMisses.keys().next().value);
+          }
+        }
+        recordAssetDownload(category, 0, false);
         downloadRecorded = true;
         return null;
       }
       const buffer = Buffer.from(await res.arrayBuffer());
+      iconRemoteMisses.delete(cacheKey);
       iconStats.downloads += 1;
       iconStats.downloadedBytes += buffer.length;
-      recordAssetDownload('discord_emoji', buffer.length, true);
+      recordAssetDownload(category, buffer.length, true);
       downloadRecorded = true;
-      fs.mkdirSync(CACHE_DIR, { recursive: true });
-      fs.writeFileSync(file, buffer);
-    } else {
-      iconStats.diskHits += 1;
+      return buffer;
+    };
+    try {
+      if (!url) return null;
+      const diskName = iconCacheFileName(key, url);
+      let file = null;
+      let buffer = null;
+      if (assetDiskCacheEnabled()) {
+        file = await readAssetDiskCacheFile(diskName);
+      }
+      if (!file) {
+        if (assetDiskCacheEnabled()) recordAssetCache(category, 'disk', 'miss');
+        buffer = await download();
+        if (!buffer) {
+          iconStats.failures += 1;
+          return null;
+        }
+        file = await writeAssetDiskCacheFile(diskName, buffer);
+      } else {
+        iconStats.diskHits += 1;
+        recordAssetCache(category, 'disk', 'hit');
+      }
+      let img;
+      try {
+        img = await loadImage(file || buffer);
+      } catch (err) {
+        if (!file) throw err;
+        if (buffer) {
+          await removeAssetDiskCacheFile(diskName);
+          throw err;
+        }
+        await removeAssetDiskCacheFile(diskName);
+        recordAssetCache(category, 'disk', 'miss');
+        buffer = await download();
+        if (!buffer) {
+          iconStats.failures += 1;
+          return null;
+        }
+        file = await writeAssetDiskCacheFile(diskName, buffer);
+        img = await loadImage(file || buffer);
+      }
+      return rememberIcon(cacheKey, img, file ? diskName : null);
+    } catch (err) {
+      iconStats.failures += 1;
+      if (fetchAttempted && !downloadRecorded) recordAssetDownload(category, 0, false);
+      console.error(`[renderBagItems] icon '${key}' unavailable:`, err.message);
+      return null;
     }
-    const img = await loadImage(file);
-    return rememberIcon(name, img);
-  } catch (err) {
-    iconStats.failures += 1;
-    if (fetchAttempted && !downloadRecorded) recordAssetDownload('discord_emoji', 0, false);
-    console.error(`[renderBagItems] icon '${name}' unavailable:`, err.message);
-    return null;
+  })();
+  iconInflight.set(cacheKey, job);
+  try {
+    return await job;
+  } finally {
+    if (iconInflight.get(cacheKey) === job) iconInflight.delete(cacheKey);
   }
+}
+
+/** Disk-cached CDN icon. Returns a canvas Image or null (row renders without icon). */
+async function getEmojiIcon(name) {
+  const id = emojiIdOf(name);
+  return loadDiskCachedIcon(
+    id ? `${name}-${id}` : name,
+    'discord_emoji',
+    id ? `https://cdn.discordapp.com/emojis/${id}.png?size=64` : null
+  );
 }
 
 /** Disk-cached Twemoji (Discord's default-emoji art) by hex codepoint. Returns
  *  a canvas Image or null. Used for items with no custom emoji (weapons/armors). */
 async function getUnicodeIcon(hex) {
   const key = `u${hex}`;
-  const cached = cachedIcon(key, 'twemoji');
-  if (cached) return cached;
-  iconStats.misses += 1;
-  recordAssetCache('twemoji', 'image', 'miss');
-  let fetchAttempted = false;
-  let downloadRecorded = false;
-  try {
-    const file = path.join(CACHE_DIR, `${key}.png`);
-    if (!fs.existsSync(file)) {
-      fetchAttempted = true;
-      const res = await fetch(`https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/${hex}.png`);
-      if (!res.ok) {
-        iconStats.failures += 1;
-        recordAssetDownload('twemoji', 0, false);
-        downloadRecorded = true;
-        return null;
-      }
-      const buffer = Buffer.from(await res.arrayBuffer());
-      iconStats.downloads += 1;
-      iconStats.downloadedBytes += buffer.length;
-      recordAssetDownload('twemoji', buffer.length, true);
-      downloadRecorded = true;
-      fs.mkdirSync(CACHE_DIR, { recursive: true });
-      fs.writeFileSync(file, buffer);
-    } else {
-      iconStats.diskHits += 1;
-    }
-    const img = await loadImage(file);
-    return rememberIcon(key, img);
-  } catch (err) {
-    iconStats.failures += 1;
-    if (fetchAttempted && !downloadRecorded) recordAssetDownload('twemoji', 0, false);
-    console.error(`[renderBagItems] twemoji '${hex}' unavailable:`, err.message);
-    return null;
-  }
+  return loadDiskCachedIcon(
+    key,
+    'twemoji',
+    `https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/${hex}.png`
+  );
 }
 
 async function loadAssetImage(source) {
@@ -219,6 +279,10 @@ function getEmojiImageCacheStats() {
   return {
     ...iconStats,
     entries: iconCache.size,
+    inflight: iconInflight.size,
+    negativeEntries: iconRemoteMisses.size,
+    negativeMaxEntries: ICON_REMOTE_MISS_MAX,
+    negativeTtlMs: ICON_REMOTE_MISS_TTL_MS,
     bytes: iconCacheBytes,
     maxEntries: ICON_CACHE_MAX_ENTRIES,
     maxBytes: ICON_CACHE_MAX_BYTES,

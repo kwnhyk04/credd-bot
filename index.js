@@ -26,6 +26,7 @@ const { syncSlashCommandsOnStart } = require('./src/utils/slashCommandSync');
 const { envBool } = require('./src/utils/runtimeLogs');
 const { startResourceMonitor } = require('./src/utils/resourceMonitor');
 const { beginActivity, recordDiscordRestResponse } = require('./src/utils/networkTelemetry');
+const { verifyAssetDiskCacheReady } = require('./src/utils/assets');
 const {
   discordImageAttachmentsAllowed,
   productionEgressIssues,
@@ -109,6 +110,24 @@ client.rest.on(RESTEvents.Response, recordDiscordRestResponse);
 
 client.once('ready', async () => {
   console.log(`[credd] Logged in as ${client.user.tag}`);
+  try {
+    const disk = await verifyAssetDiskCacheReady();
+    if (disk.enabled) {
+      console.log(
+        `[assets] disk cache ready root=${disk.root} configuredRoot=${disk.configuredRoot} `
+        + `state=${disk.files > 0 ? 'warm' : 'cold'} `
+        + `files=${disk.files} mb=${Math.round(disk.bytes / 1024 / 1024)} `
+        + `maxMb=${Math.round(disk.maxBytes / 1024 / 1024)}`
+      );
+      if (!disk.configuredRoot) {
+        console.warn('[assets] disk cache uses the deployment filesystem and will cold-warm after redeploy.');
+      }
+    } else {
+      console.warn('[assets] disk cache is disabled; evicted remote images will be downloaded again.');
+    }
+  } catch (err) {
+    console.warn('[assets] disk cache is not writable; using bounded memory/network fallback:', err.message);
+  }
   const egressIssues = productionEgressIssues();
   if (egressIssues.length > 0) {
     console.error('[credd] Refusing to start: production egress guard failed.');
