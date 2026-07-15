@@ -70,7 +70,7 @@ const { registerMemorySource } = require('../utils/memoryRegistry');
 const { beginActivity } = require('../utils/networkTelemetry');
 const { bossFeatTitlesFor } = require('../config/titles');
 const {
-  isGreaterBoss, bossRewards, rollBossChest, hpMultiplierForChest, pickWeightedBoss,
+  isGreaterBoss, bossRewards, rollBossChest, pickWeightedBoss,
   MAX_BOSS_ATTACKS_PER_DAY, bossAttackDecision,
 } = require('../config/bosses');
 const {
@@ -144,14 +144,6 @@ function bossLogCacheMaxEventsPerAttacker() {
   return envPositiveInt('BOSS_LOG_CACHE_MAX_EVENTS_PER_ATTACKER', 20, { max: 500 });
 }
 
-function bossStatMultiplier() {
-  return envNumber('BOSS_STAT_MULTIPLIER', 5, { min: 1, max: 100 });
-}
-
-function bossAttackDefenseMultiplier() {
-  return envNumber('BOSS_ATK_DEF_MULTIPLIER', 1.5, { min: 1, max: 100 });
-}
-
 function bossImageMaxWidth() {
   return Math.floor(envNumber('BOSS_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 }));
 }
@@ -161,19 +153,7 @@ function bossDailyAttackLimit() {
   return envPositiveInt('BOSS_DAILY_ATTACK_LIMIT', MAX_BOSS_ATTACKS_PER_DAY, { max: 100 });
 }
 
-function scaledBossStats(stats) {
-  const hpMultiplier = bossStatMultiplier();
-  const attackDefenseMultiplier = bossAttackDefenseMultiplier();
-  return {
-    ...stats,
-    hp: Math.floor(Number(stats.hp || 0) * hpMultiplier),
-    atk: Math.floor(Number(stats.atk || 0) * attackDefenseMultiplier),
-    def: Math.floor(Number(stats.def || 0) * attackDefenseMultiplier),
-    crit: Number(stats.crit || 0),
-  };
-}
-
-function scaledBossCrit(mobRow) {
+function bossCrit(mobRow) {
   return Number(mobRow?.base_crit || 0);
 }
 
@@ -567,7 +547,7 @@ function renderBossStatusCard(state, mobRow) {
   const stats = [
     ['ATK', Number(state.scaled_atk).toLocaleString()],
     ['DEF', Number(state.scaled_def).toLocaleString()],
-    ['CRIT', `${scaledBossCrit(mobRow).toFixed(1)}%`],
+    ['CRIT', `${bossCrit(mobRow).toFixed(1)}%`],
   ];
   let sx = L;
   for (const [k, v] of stats) {
@@ -591,7 +571,7 @@ function bossStatusText(state, mobRow) {
     : `Passive: ${mobRow.skill_description || 'Basic attacks only.'}`;
   return [
     `**HP:** ${cur.toLocaleString()} / ${max.toLocaleString()} (${pct.toFixed(1)}%)`,
-    `**ATK:** ${Number(state.scaled_atk).toLocaleString()}  **DEF:** ${Number(state.scaled_def).toLocaleString()}  **CRIT:** ${scaledBossCrit(mobRow).toFixed(1)}%`,
+    `**ATK:** ${Number(state.scaled_atk).toLocaleString()}  **DEF:** ${Number(state.scaled_def).toLocaleString()}  **CRIT:** ${bossCrit(mobRow).toFixed(1)}%`,
     `-# ${passive}`,
   ].join('\n');
 }
@@ -618,7 +598,7 @@ function bossStatusCacheParts(state, mobRow) {
     scaledAtk: Number(state.scaled_atk),
     scaledDef: Number(state.scaled_def),
     name: mobRow.name,
-    crit: scaledBossCrit(mobRow),
+    crit: bossCrit(mobRow),
     skillName: mobRow.skill_name || '',
     skillDescription: mobRow.skill_description || '',
   };
@@ -1257,8 +1237,8 @@ function scheduleBossLiveRefresh(client, guildId, {
  * `channelId` overrides the configured announce channel (dev spawnboss posts
  * in the invoking channel when server_config has none).
  * `bossName` (crd dev spawnboss <name>) forces a specific boss instead of the
- * weighted pick — Greater bosses still get their 2× HP. Returns false if no boss
- * by that name exists.
+ * weighted pick. Greater status changes weighting/rewards, but all stats come
+ * from the selected mob_roster row. Returns false if no boss by that name exists.
  */
 async function spawnBoss(client, guildId, { force = false, channelId = null, bossName = null } = {}) {
   if (!isOfficialGuild(guildId)) {
@@ -1295,26 +1275,27 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
   // §16: boss level = round(avg) + random(1–10) — NO [1,55] clamp (bosses are
   // exempt; that clamp governs raid mobs only). Defensive floor at 1.
   const level = Math.max(1, Math.round(Number(avg)) + 1 + Math.floor(Math.random() * 10));
-  const baseStats = computeBossStats(row, level);
-  const stats = scaledBossStats(baseStats);
-  // [RenderTweaks] Greater Bosses: HP multiplier is tied to the chest rolled at spawn —
-  // Golden chest (rare 20%) → 3× HP, Treasure chest → 2× HP. Roll the chest ONCE here so the
-  // HP and the payout/announcement share the same outcome; the same object is stashed in
-  // greaterChests below (keyed by the DB-generated spawn_id) so chestForSpawn never re-rolls.
-  // Bosses have no stored total-HP column, so the multiplier applies to the scaled result.
+  const stats = computeBossStats(row, level);
+  // Roll a Greater chest once at spawn so the announcement and payout share
+  // the same outcome. Chest rarity no longer changes HP; Greater stats are
+  // authored explicitly in mob_roster just like normal boss stats.
   const spawnChest = greater ? rollBossChest(row.name, Math.random) : null;
-  const maxHp = greater ? stats.hp * hpMultiplierForChest(spawnChest) : stats.hp;
-  performanceLog('boss stats scaled', {
+  const maxHp = stats.hp;
+  performanceLog('boss stats resolved from database', {
     system: 'boss',
     command: 'boss',
     imageType: 'boss_status',
     guildId,
-    multiplier: bossStatMultiplier(),
-    attackDefenseMultiplier: bossAttackDefenseMultiplier(),
-    baseHp: Number(baseStats.hp),
-    baseAtk: Number(baseStats.atk),
-    baseDef: Number(baseStats.def),
-    baseCrit: Number(baseStats.crit),
+    source: 'mob_roster',
+    greater,
+    bossLevel: level,
+    baseHp: Number(row.base_hp),
+    hpPerLevel: Number(row.hp_per_level),
+    baseAtk: Number(row.base_atk),
+    atkPerLevel: Number(row.atk_per_level),
+    baseDef: Number(row.base_def),
+    defPerLevel: Number(row.def_per_level),
+    baseCrit: Number(row.base_crit),
     finalHp: Number(maxHp),
     finalAtk: Number(stats.atk),
     finalDef: Number(stats.def),
@@ -1340,9 +1321,8 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
   );
   if (ins.rows.length === 0) return false; // lost the race / cooldown not over
 
-  // [RenderTweaks] Stash the chest rolled above against the new spawn_id so the HP mult,
-  // announcement, and payout all read the SAME outcome — chestForSpawn returns this without
-  // re-rolling. (Normal bosses keep their lazy deterministic 1× Treasure roll.)
+  // Stash the chest against the new spawn_id so announcement and payout use
+  // the same outcome without re-rolling. It does not affect boss stats.
   if (spawnChest) greaterChests.set(ins.rows[0].spawn_id, spawnChest);
 
   if (force) devSpawns.add(ins.rows[0].spawn_id); // test boss: attack rules bypassed
@@ -1596,7 +1576,7 @@ async function handleAttackImpl(interaction) {
       }
       state.current_hp = fresh.rows[0].current_hp;
 
-      const boss = { ...buildBossFighter(mobRow, state), crit: scaledBossCrit(mobRow) };
+      const boss = { ...buildBossFighter(mobRow, state), crit: bossCrit(mobRow) };
       const sim = resolveBattle(fighter, boss, { mode: 'boss', seed: Date.now() >>> 0 });
       const net = Math.max(0, Math.floor(sim.totals.netDamage));
 

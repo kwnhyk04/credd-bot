@@ -25,9 +25,12 @@ const ROOT = path.join(__dirname, '..');
 const { resolveBattle, rngOf } = require(path.join(ROOT, 'src', 'engine', 'battleEngine'));
 const PASSIVE_REGISTRY = require(path.join(ROOT, 'src', 'engine', 'passiveRegistry'));
 const {
-  computeClassBattleStats, assemblePlayerStats, computeMobStats,
+  computeClassBattleStats, assemblePlayerStats, computeMobStats, computeBossStats,
 } = require(path.join(ROOT, 'src', 'engine', 'statAssembly'));
 const { applyCombatExp, EXP_REQUIRED, MAX_COMBAT_LEVEL } = require(path.join(ROOT, 'src', 'config', 'combatExp'));
+const {
+  GREATER_BOSSES, rollBossChest, pickWeightedBoss,
+} = require(path.join(ROOT, 'src', 'config', 'bosses'));
 
 // ── tiny test framework ─────────────────────────────────────────────────────
 let passed = 0, failed = 0;
@@ -160,6 +163,10 @@ section('4. Targeted scenarios');
   const s40 = computeMobStats(boss, 40);
   check('C1: boss Lv40 spot check', s40.hp === 76100 && s40.atk === 4600 && s40.def === 1690,
     `got hp=${s40.hp} atk=${s40.atk} def=${s40.def}`);
+  const boss60 = computeBossStats(boss, 60);
+  check('C1: boss Lv60 uses direct DB formula without a runtime multiplier',
+    boss60.hp === 82400 && boss60.atk === 6080 && boss60.def === 2230 && boss60.crit === 20,
+    `got hp=${boss60.hp} atk=${boss60.atk} def=${boss60.def} crit=${boss60.crit}`);
   const sClamp = computeMobStats(blackDuwende, 99);
   check('C1: mob level clamped to 55', sClamp.hp === 2110 + 80 * 55, `got ${sClamp.hp}`);
 }
@@ -785,8 +792,25 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
   check('next day resets on the same spawn', dNextDaySameSpawn.allowed === true);
 
   const bossSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'bossSystem.js'), 'utf8');
+  const bossConfigSource = fs.readFileSync(path.join(ROOT, 'src', 'config', 'bosses.js'), 'utf8');
   check('same-spawn upsert resets the daily counter', /attacks = CASE[\s\S]*?ELSE 1[\s\S]*?last_daily_reset =/.test(bossSource));
   check('no lifetime per-spawn attack gate remains', !/SELECT attacks FROM boss_attack_log WHERE boss_spawn_id/.test(bossSource));
+  check('boss spawn stats come directly from the mob_roster formula',
+    /const stats = computeBossStats\(row, level\);/.test(bossSource)
+      && /const maxHp = stats\.hp;/.test(bossSource));
+  check('boss spawn path has no runtime stat multiplier',
+    !/scaledBossStats|bossStatMultiplier|bossAttackDefenseMultiplier|hpMultiplierForChest|BOSS_STAT_MULTIPLIER|BOSS_ATK_DEF_MULTIPLIER/.test(bossSource));
+  check('Greater configuration has no hidden HP multiplier',
+    !/GREATER_HP_MULTIPLIER|GREATER_HP_GOLDEN_MULTIPLIER|hpMultiplierForChest/.test(bossConfigSource));
+  check('Greater identity and chest rewards remain configured',
+    GREATER_BOSSES.size === 5
+      && rollBossChest('Jotun', () => 0).column === 'boss_golden_chest'
+      && rollBossChest('Jotun', () => 0.99).qty === 2
+      && rollBossChest('Medusa', () => 0).qty === 1);
+  const weightedBossRows = [{ name: 'Jotun' }, { name: 'Medusa' }];
+  check('Greater/normal weighted selection remains enabled',
+    pickWeightedBoss(weightedBossRows, scripted([0.1, 0])).row.name === 'Jotun'
+      && pickWeightedBoss(weightedBossRows, scripted([0.5, 0])).row.name === 'Medusa');
   const survivingRefresh = /if \(remaining <= 0\) \{[\s\S]*?\} else \{([\s\S]*?)\n\s*\}/.exec(bossSource)?.[1] || '';
   check('surviving boss attacks schedule a coalesced progress refresh',
     /scheduleBossLiveRefresh/.test(survivingRefresh) && !/bossStatusImage/.test(survivingRefresh));
