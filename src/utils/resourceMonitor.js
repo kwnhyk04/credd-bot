@@ -5,7 +5,7 @@ const { getAssetCacheStats } = require('./assets');
 const { getCanvasCacheStats } = require('./canvasCache');
 const { getImageWorkQueueStats } = require('./imageWorkQueue');
 const { getProfileImageCacheStats } = require('./profileImageCache');
-const { envBool, envPositiveInt, metaString } = require('./runtimeLogs');
+const { envBool, envInt, metaString } = require('./runtimeLogs');
 const { memorySourceSnapshots } = require('./memoryRegistry');
 const { takeNetworkTelemetrySnapshot } = require('./networkTelemetry');
 const { getBattleBaseCacheStats } = require('../engine/battleLayoutRenderer');
@@ -30,7 +30,9 @@ function resourceLogsEnabled() {
 }
 
 function intervalMs() {
-  return envPositiveInt('RESOURCE_LOG_INTERVAL_MS', 600_000, { max: 3_600_000 });
+  // Five minutes is the production audit ceiling. Older deployments may still
+  // carry a 600000 value; clamp it rather than silently weakening telemetry.
+  return envInt('RESOURCE_LOG_INTERVAL_MS', 300_000, { min: 60_000, max: 300_000 });
 }
 
 function discordCacheStats() {
@@ -312,5 +314,6 @@ module.exports = {
   startResourceMonitor,
   stopResourceMonitor,
   resourceLogsEnabled,
+  resourceLogIntervalMs: intervalMs,
   resourceSnapshot,
 };

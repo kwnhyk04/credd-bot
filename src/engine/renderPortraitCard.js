@@ -10,7 +10,7 @@
  */
 
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
-const { encodeCanvas } = require('../utils/canvasEncode');
+const { encodeCanvas, releaseCanvas } = require('../utils/canvasEncode');
 const path = require('path');
 const { FONT_FAMILY } = require('./renderBagItems');
 const { assetSource, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
@@ -191,8 +191,14 @@ async function renderPortraitCard(d) {
   const panel = sockPanel(sockets.length);
 
   // Height: tallest of the portrait and the text block (+ socket panel), plus padding.
-  const probe = createCanvas(10, 10).getContext('2d');
-  const textH = measureRight(probe, d.title, d.subtitle, d.sections || []) + (panel.h ? panel.h + 8 : 0);
+  const probeCanvas = createCanvas(10, 10);
+  const probe = probeCanvas.getContext('2d');
+  let textH;
+  try {
+    textH = measureRight(probe, d.title, d.subtitle, d.sections || []) + (panel.h ? panel.h + 8 : 0);
+  } finally {
+    releaseCanvas(probeCanvas);
+  }
   const H = Math.max(PH + PAD * 2, textH + PAD * 2);
 
   const canvas = createCanvas(W, H);

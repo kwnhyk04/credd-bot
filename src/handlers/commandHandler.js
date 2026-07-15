@@ -219,11 +219,18 @@ async function handleMessage(message, { runMiddleware, isBanned }) {
 
   const ctx = new MessageContext(message, args);
   const requiresCharacter = COMMAND_MAP[command]?.requiresCharacter ?? false;
+  const telemetryContext = {
+    command,
+    surface: 'prefix',
+    phase: 'final',
+    userId: ctx.userId,
+    messageId: ctx.interactionId || message.id,
+  };
 
   if (impl.mw === 'dev') {
     // Superuser-only (§2). Non-devs get NO reply (invisible), skipping all middleware.
     if (!DEV_IDS.includes(ctx.userId)) return true;
-    await withNetworkContext({ command }, () => impl.run(ctx, { args: ctx.args }));
+    await withNetworkContext(telemetryContext, () => impl.run(ctx, { args: ctx.args }));
     await awardCommandBelieverExp(ctx.userId, command, ctx.args);
     return true;
   }
@@ -233,7 +240,7 @@ async function handleMessage(message, { runMiddleware, isBanned }) {
     const allowed = await runMiddleware(ctx, { requiresCharacter, commandKey: command });
     if (!allowed) return true;
   }
-  await withNetworkContext({ command }, () => impl.run(ctx, { args: ctx.args }));
+  await withNetworkContext(telemetryContext, () => impl.run(ctx, { args: ctx.args }));
   await awardCommandBelieverExp(ctx.userId, command, ctx.args);
   return true;
 }

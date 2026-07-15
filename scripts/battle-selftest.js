@@ -787,19 +787,61 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
   const bossSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'bossSystem.js'), 'utf8');
   check('same-spawn upsert resets the daily counter', /attacks = CASE[\s\S]*?ELSE 1[\s\S]*?last_daily_reset =/.test(bossSource));
   check('no lifetime per-spawn attack gate remains', !/SELECT attacks FROM boss_attack_log WHERE boss_spawn_id/.test(bossSource));
-  const survivingRefresh = /else if \(bossImageRefreshEnabled\(\)\) \{([\s\S]*?)\n\s*\} else \{/.exec(bossSource)?.[1] || '';
-  check('surviving boss attacks use the configured image debounce',
-    /scheduleBossLiveRefresh/.test(survivingRefresh) && !/await refreshLiveMessage/.test(survivingRefresh));
+  const survivingRefresh = /if \(remaining <= 0\) \{[\s\S]*?\} else \{([\s\S]*?)\n\s*\}/.exec(bossSource)?.[1] || '';
+  check('surviving boss attacks schedule a coalesced progress refresh',
+    /scheduleBossLiveRefresh/.test(survivingRefresh) && !/bossStatusImage/.test(survivingRefresh));
+  const scheduledRefresh = /function scheduleBossLiveRefresh[\s\S]*?\/\* .*?spawn \/ escape/.exec(bossSource)?.[0] || '';
+  check('scheduled boss progress refresh uses the coalesced status renderer',
+    /refreshLiveMessageProgress/.test(scheduledRefresh)
+      && !/refreshLiveMessage\(client, guildId\)/.test(scheduledRefresh));
+  const progressRefresh = /async function refreshLiveMessageProgress[\s\S]*?\n\}\n\nfunction scheduleBossLiveRefresh/.exec(bossSource)?.[0] || '';
+  check('surviving boss attacks keep the Canvas status image',
+    /includeStatusImage = bossImageRefreshEnabled\(\)/.test(progressRefresh)
+      && /includeStatusImage,/.test(progressRefresh)
+      && /includeBanner:\s*'remote-only'/.test(progressRefresh)
+      && /BOSS_IMAGE_REFRESH_ENABLED', true/.test(bossSource));
+  check('stale boss progress refreshes are lifecycle-guarded',
+    /shouldApply:\s*\(view\)/.test(scheduledRefresh)
+      && /view\?\.state\?\.status === 'active'/.test(scheduledRefresh)
+      && /pending\.cancelled/.test(scheduledRefresh));
+  check('boss final waits for an already-running progress edit',
+    /await clearPendingBossRefresh\(guildId, 'dead'\)/.test(bossSource)
+      && /return pending\.done/.test(bossSource));
+  check('boss progress/final retain an existing local banner without re-upload',
+    /existingBanner\?\.url/.test(bossSource)
+      && /retainedAttachments = existingBanner\?\.id \? \[\{ id: existingBanner\.id \}\]/.test(bossSource)
+      && /bannerUrl/.test(bossSource));
+  check('boss recovery attaches a missing local banner exactly once',
+    /needsLocalBannerAttachment = localBannerCanBeReused && !existingBanner/.test(bossSource)
+      && /includeBanner:\s*needsLocalBannerAttachment \? true : options\.includeBanner/.test(bossSource));
+  check('boss message recovery preserves the rendered status payload',
+    /postFreshLiveMessage\(client, guildId, payload\)/.test(bossSource)
+      && !/attachmentEditAttempted[\s\S]*?includeStatusImage:\s*false/.test(bossSource));
+
   const renderSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'battleRender.js'), 'utf8');
-  const executableRenderSource = renderSource
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '');
-  const renderedFrameCalls = [...executableRenderSource.matchAll(/\bframe\s*\(\s*([^)]+?)\s*\)/g)]
-    .map((match) => match[1].trim());
-  check('battle delivery invokes only the initial and final rendered frames',
-    renderedFrameCalls.length === 2
-      && renderedFrameCalls[0] === '0'
-      && renderedFrameCalls[1] === 'finalIndex');
+  const { battlePhase, shouldRenderBattleFrame } = require(path.join(ROOT, 'src', 'engine', 'battleRender'));
+  const oldRenderMode = process.env.BATTLE_FRAME_RENDER_MODE;
+  const oldCooldown = process.env.BATTLE_FRAME_RENDER_COOLDOWN_MS;
+  delete process.env.BATTLE_FRAME_RENDER_MODE;
+  process.env.BATTLE_FRAME_RENDER_COOLDOWN_MS = '30000';
+  check('battle phase keeps a zero-length battle as the opening frame', battlePhase(0, 0) === 'start');
+  check('initial battle Canvas remains enabled',
+    shouldRenderBattleFrame({ phase: 'start', guildId: 'g', ownerId: 'u', mode: 'raid' }).render === true);
+  check('start_and_final keeps non-delivered progress frames throttled',
+    shouldRenderBattleFrame({ phase: 'update', guildId: 'g', ownerId: 'u', mode: 'raid' }).render === false);
+  check('final battle Canvas remains enabled',
+    shouldRenderBattleFrame({ phase: 'final', guildId: 'g', ownerId: 'u', mode: 'raid' }).render === true);
+  if (oldRenderMode == null) delete process.env.BATTLE_FRAME_RENDER_MODE;
+  else process.env.BATTLE_FRAME_RENDER_MODE = oldRenderMode;
+  if (oldCooldown == null) delete process.env.BATTLE_FRAME_RENDER_COOLDOWN_MS;
+  else process.env.BATTLE_FRAME_RENDER_COOLDOWN_MS = oldCooldown;
+  check('initial delivery renders frame zero in Canvas',
+    /channel\.send\(\{\s*\.\.\.\(await frame\(0\)\)/.test(renderSource));
+  check('raid result keeps the separate final battle Canvas',
+    /const files = \[\s*\.\.\.battleImage\.files,\s*\.\.\.\(rewardsImage \? rewardsImage\.files : \[\]\)/.test(renderSource)
+      && /if \(rewardsImage\) embeds\.push\(resultEmbed\)/.test(renderSource));
+  check('permission fallback preserves the final Canvas payload',
+    /channel\.send\(\{ \.\.\.finalPayload, attachments: undefined \}\)/.test(renderSource));
 }
 
 // — [Ascension §3] Sigils, Ascension costs, gacha rates —

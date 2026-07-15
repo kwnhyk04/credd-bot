@@ -47,7 +47,13 @@ async function handleSlash(interaction) {
     // Defer AFTER middleware so rejections stay ephemeral & undeferred; reply() now → editReply.
     await ctx.deferReply();
     await withNetworkContext(
-      { command: entry.canonical },
+      {
+        command: entry.canonical,
+        surface: 'slash',
+        phase: 'final',
+        userId: ctx.userId,
+        interactionId: ctx.interactionId || interaction.id,
+      },
       () => impl.run(ctx, { args: ctx.args })
     );
     await awardCommandBelieverExp(ctx.userId, entry.canonical, ctx.args);

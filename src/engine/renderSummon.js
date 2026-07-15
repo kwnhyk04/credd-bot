@@ -233,25 +233,32 @@ async function renderSummonGrid(results) {
  *  · An equipped summon skin that resolves to an image asset (e.g. a tester's
  *    `testers/<id>/summon.gif`, R2 URL) shows the header line `## ✨ <title>`
  *    followed by the GIF as a MediaGallery — remote URLs cost no bot egress; a
- *    local file is attached. This same block is reused in the result so the gif
- *    is kept after the reveal.
+ *    local file is attached. Remote or retained Discord media remains in the
+ *    result without a second upload; a missing retained attachment falls back
+ *    to reattaching the local animation so presentation is unchanged.
  *  · Otherwise the header is a single line — animated emoji + title together
  *    (`## <emoji> <title>`). flipPath → the skin's flip emoji; else headerEmoji
  *    (relic-open path); else the default card_flip emoji. Never throws.
- * @param {{ flipPath?: string|null, headerEmoji?: string|null, title: string, separateMedia?: boolean }} o
+ * @param {{ flipPath?: string|null, headerEmoji?: string|null, title: string, separateMedia?: boolean, includeAnimation?: boolean, animationUrl?: string|null }} o
  * @returns {Promise<Array>} files to attach (empty unless a local gif was used)
  */
 async function addSummonHeader(container, {
-  flipPath = null, headerEmoji = null, title, separateMedia = false, logContext = {},
+  flipPath = null,
+  headerEmoji = null,
+  title,
+  separateMedia = false,
+  includeAnimation = true,
+  animationUrl = null,
+  logContext = {},
 }) {
   const isImage = typeof flipPath === 'string'
     && ['gif', 'webp', 'png', 'jpg', 'jpeg'].includes(assetExtension(flipPath, ''));
-  if (isImage) {
+  if (isImage && includeAnimation) {
     try {
       container.addTextDisplayComponents((td) => td.setContent('## ✨ ' + title));
       if (separateMedia) container.addSeparatorComponents(sep);
-      if (isRemoteSource(flipPath)) {
-        container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(flipPath)));
+      if (animationUrl || isRemoteSource(flipPath)) {
+        container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(animationUrl || flipPath)));
         return [];
       }
       const name = `summonflip.${assetExtension(flipPath, 'gif')}`;
@@ -290,7 +297,7 @@ async function buildFlipMessage(flipPath = null, logContext = {}) {
     flipPath,
     title: 'Invocation in progress...',
     separateMedia: true,
-    logContext,
+    logContext: { ...logContext, phase: 'initial' },
   });
   return {
     components: [container],
@@ -319,14 +326,17 @@ async function buildResultMessage(results, balances, opts = {}) {
     .map((r) => `${RARITY_SYMBOLS[r]} ${r} x**${counts[r]}**`)
     .join(' - ');
 
-  // Keep the animation header (play-once emoji, or the tester gif) and update the
-  // title to the finished text, then add the result body below (§ reveal).
+  // Reuse a remote/existing Discord URL when available. If Discord did not
+  // return the expected suspense attachment, reattach the local animation so
+  // the final presentation never silently loses it.
   const container = new ContainerBuilder().setAccentColor(ACCENT);
   const files = await addSummonHeader(container, {
     flipPath: opts.flipPath,
     headerEmoji: opts.headerEmoji,
     title: `Invocation Complete\n*${FLAVOR[results.length] ?? FLAVOR[10]}*`,
-    logContext: opts.logContext || {},
+    includeAnimation: true,
+    animationUrl: opts.animationUrl,
+    logContext: { ...(opts.logContext || {}), phase: 'final' },
   });
   container
     .addSeparatorComponents(sep)

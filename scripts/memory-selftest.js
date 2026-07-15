@@ -1,5 +1,7 @@
 'use strict';
 
+process.env.RESOURCE_LOGS = 'false';
+
 const path = require('path');
 const { renderProfileLayoutImage } = require('../src/engine/profileLayoutRenderer');
 const { renderStatsLayoutImage } = require('../src/engine/statsLayoutRenderer');

@@ -1,5 +1,7 @@
 'use strict';
 
+process.env.RESOURCE_LOGS = 'false';
+
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
@@ -119,7 +121,7 @@ const {
   clearResultBaseCache,
   getResultBaseCacheStats,
 } = require('../src/engine/resultLayoutRenderer');
-const { buildFlipMessage } = require('../src/engine/renderSummon');
+const { buildFlipMessage, buildResultMessage } = require('../src/engine/renderSummon');
 const {
   avatarImageSourceCandidates,
   loadAvatarAsset,
@@ -274,6 +276,26 @@ async function main() {
   const mediaJson = JSON.stringify(mediaPayload.components.map((component) => component.toJSON()));
   assert.ok(mediaJson.includes(summon.path), 'versioned summon URL should render as MediaGallery content');
   assert.deepEqual(mediaPayload.files, []);
+
+  const summonResults = [{ name: 'Measured Deity', rarity: 'Remnant', isNew: true }];
+  const summonBalances = { beliefShards: 100, sacredRelics: 2 };
+  const remoteResult = await buildResultMessage(summonResults, summonBalances, { flipPath: summon.path });
+  const remoteResultJson = JSON.stringify(remoteResult.components.map((component) => component.toJSON()));
+  assert.deepEqual(remoteResult.files, [], 'remote summon media must never become a bot attachment');
+  assert.ok(remoteResultJson.includes(summon.path), 'final summon result should reuse the zero-upload remote media URL');
+
+  const localFlip = path.join(__dirname, '..', 'assets', 'skins', 'founder', 'founder_summon.webp');
+  const existingAnimationUrl = 'https://cdn.discordapp.com/attachments/test/summonflip.webp';
+  const localResult = await buildResultMessage(summonResults, summonBalances, {
+    flipPath: localFlip,
+    animationUrl: existingAnimationUrl,
+  });
+  const localResultJson = JSON.stringify(localResult.components.map((component) => component.toJSON()));
+  assert.deepEqual(localResult.files, [], 'local summon animation must not be loaded or uploaded in the final edit');
+  assert.ok(localResultJson.includes(existingAnimationUrl), 'final summon result should reuse the initial Discord attachment URL');
+  const summonCommandSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'commands', 'rpg', 'summon.js'), 'utf8');
+  assert.ok(/existingAnimation\?\.url/.test(summonCommandSource));
+  assert.ok(/attachments:\s*existingAnimation\?\.id\s*\?\s*\[\{ id: existingAnimation\.id \}\]/.test(summonCommandSource));
 
   // Store summon skins must resolve to uploaded Discord emojis without probing source GIFs.
   const { db: summonDb, cosmetic } = storeSummonDb();

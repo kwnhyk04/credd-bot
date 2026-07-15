@@ -45,7 +45,7 @@ const { optimizeOpaqueAttachment, attachmentFromOptimizedImage } = require('../u
 const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard');
 const { getCachedCanvasUrl } = require('../utils/canvasCache');
 const { envBool, envNumber, performanceLog } = require('../utils/runtimeLogs');
-const { encodeOpaqueCanvas } = require('../utils/canvasEncode');
+const { encodeOpaqueCanvas, releaseCanvas } = require('../utils/canvasEncode');
 const { loadBattleSkin, renderBattleSkinPanel } = require('./battleLayoutRenderer');
 const { loadResultSkin, renderResultPanel } = require('./resultLayoutRenderer');
 const { registerMemorySource } = require('../utils/memoryRegistry');
@@ -141,7 +141,7 @@ function shouldRenderBattleFrame({ phase, guildId, ownerId, mode }) {
     return { render: false, renderMode, reason: 'frame-cooldown' };
   }
   rememberBattleFrameCooldown(key);
-  return { render: true, renderMode, reason: phase === 'start' ? 'battle-start' : 'battle-update' };
+  return { render: true, renderMode, reason: 'battle-update' };
 }
 
 /* ----------------------------------------------------------------------- */
@@ -377,10 +377,17 @@ function renderBattlePanel(sim, snapIdx, { mirror = false, icons = null, skin = 
   }
   const s = sim.snapshots[Math.min(snapIdx, sim.snapshots.length - 1)];
   // [v4.8] grow a card's height when its (mob) skill line wraps, so nothing overlaps the bar/stats.
-  const measure = createCanvas(8, 8).getContext('2d');
+  const measureCanvas = createCanvas(8, 8);
+  const measure = measureCanvas.getContext('2d');
   const cardW = PANEL_W - PAD * 2;
-  const cardAH = CARD_H + skillExtraLines(measure, sim.a, cardW) * SKILL_LINE_H;
-  const cardBH = CARD_H + skillExtraLines(measure, sim.b, cardW) * SKILL_LINE_H;
+  let cardAH;
+  let cardBH;
+  try {
+    cardAH = CARD_H + skillExtraLines(measure, sim.a, cardW) * SKILL_LINE_H;
+    cardBH = CARD_H + skillExtraLines(measure, sim.b, cardW) * SKILL_LINE_H;
+  } finally {
+    releaseCanvas(measureCanvas);
+  }
   const H = PAD * 3 + cardAH + cardBH;
   const canvas = createCanvas(PANEL_W, H);
   const ctx = canvas.getContext('2d');
@@ -679,13 +686,17 @@ async function cachedBattleFrame(sim, snapIdx, {
   };
 }
 
-async function cachedBattleResultImage(renderBuffer, sim, rewards, resultSkinPath, { guildId, mode } = {}) {
+async function cachedBattleResultImage(renderBuffer, sim, rewards, resultSkinPath, {
+  guildId, mode, command = mode, ownerId = null,
+} = {}) {
   const imageOptions = battleImageOptions(mode);
   const logContext = {
     system: 'battle',
-    command: mode,
+    command,
     imageType: 'battle_result',
     guildId,
+    userId: ownerId,
+    phase: 'final',
   };
   const safeRenderBuffer = async () => {
     const buffer = await renderBuffer();
@@ -852,14 +863,13 @@ async function runBattleImpl(channel, {
   // STRICT outcome: resultSkinPath is the victory OR defeated canvas already
   // chosen by the caller (resolveSkin variant) — never both. A null/invalid
   // result skin falls through to the generic rewards strip below.
-  const [icons, skin, resultSkin] = await Promise.all([
+  // Preserve the original timing: resolve all visual assets before the opening
+  // message, then only encode the result Canvas at completion.
+  let [icons, skin, resultSkin] = await Promise.all([
     prefetchIcons(sim).catch(() => null),
     loadBattleSkin(battleSkinPath),
     showResultPanel ? loadResultSkin(resultSkinPath) : Promise.resolve(null),
   ]);
-
-  // Result panels are rendered lazily on the final frame so short battles do not
-  // hold an extra PNG/WebP buffer while the initial frame is waiting to edit.
   let resultEmbed = null;
   let renderRewardsBuffer = null;
   if (showResultPanel && resultSkin) {
@@ -878,8 +888,6 @@ async function runBattleImpl(channel, {
   const fallbackRewardText = showRaidRewards && rewards != null
     ? rewardText(sim, rewards, { allowCustomEmojis: allowCustomRewardEmojis })
     : null;
-  const defaultResultText = !renderRewardsBuffer ? fallbackResultText : null;
-  const defaultRewardText = !renderRewardsBuffer ? fallbackRewardText : null;
   if (showRaidRewards && rewards != null && !resultImageEnabled) {
     performanceLog('battle result render decision', {
       system: 'battle',
@@ -900,14 +908,16 @@ async function runBattleImpl(channel, {
   const frame = async (i) => {
     const over = i >= finalIndex;
     const phase = battlePhase(i, finalIndex);
+    const wantsRewardsVisual = Boolean(over && resultEmbed && renderRewardsBuffer);
+
     const frameDecision = shouldRenderBattleFrame({
       phase,
       guildId,
       ownerId: battleOwnerId,
       mode,
     });
-    // [egress] raid battle frames keep their rendered dimensions; compression
-    // settings reduce encoded bytes without changing the visible layout.
+    // Keep the command's original Canvas sequence. Compression and cache reuse
+    // reduce bytes without removing the opening or final battle image.
     let battleImage = { url: null, files: [], cacheStatus: 'skipped' };
     if (frameDecision.render) {
       battleImage = await cachedBattleFrame(sim, i, {
@@ -924,7 +934,7 @@ async function runBattleImpl(channel, {
     } else {
       performanceLog('battle frame render decision', {
         system: 'battle',
-        command: mode,
+        command: telemetryCommand,
         imageType: 'battle_frame',
         guildId,
         userId: battleOwnerId,
@@ -936,40 +946,41 @@ async function runBattleImpl(channel, {
         cacheStatus: 'skipped',
       });
     }
+
+    let rewardsImage = null;
+    if (wantsRewardsVisual) {
+      try {
+        rewardsImage = await cachedBattleResultImage(
+          renderRewardsBuffer,
+          sim,
+          rewards,
+          resultSkinPath,
+          { guildId, mode, command: telemetryCommand, ownerId: battleOwnerId }
+        );
+      } catch (err) {
+        console.warn('[battleRender] final result image unavailable; using reward text:', err.message);
+      }
+    }
+    if (rewardsImage) resultEmbed.setImage(rewardsImage.url);
     const includeImage = Boolean(battleImage.url);
     const base = battleEmbed(sim, i, {
       mode,
       includeImage,
       imageUrl: battleImage.url,
+      // Text-only progress/fallbacks must retain the fighter/HP information
+      // that the omitted visual previously carried.
+      includeStateText: !includeImage,
     });
     // Phase 6: ranked threads its result into the embed — the tier matchup in the
     // HEADER (author, top), the outcome + rating move + Valor in the FOOTER (bottom).
     if (over && header) base.setAuthor({ name: header });
     if (over && footer) base.setFooter({ text: footer });
-    const showRewards = over && resultEmbed && renderRewardsBuffer;
-    const rewardsImage = showRewards
-      ? await cachedBattleResultImage(renderRewardsBuffer, sim, rewards, resultSkinPath, {
-        guildId,
-        mode,
-      })
-      : null;
-    if (rewardsImage) resultEmbed.setImage(rewardsImage.url);
-    if (rewardsImage) {
-      performanceLog('battle frame image replaced', {
-        system: 'battle',
-        command: mode,
-        imageType: 'battle_result',
-        guildId,
-        userId: battleOwnerId,
-        phase,
-        rendered: false,
-        reason: 'final-image-replaced-by-result',
-        preservedImage: false,
-        cacheStatus: rewardsImage.cacheStatus || 'result',
-      });
-    }
-    const resultTextForFrame = over && (defaultResultText || (showRewards && !rewardsImage ? fallbackResultText : null));
-    const rewardTextForFrame = over && (defaultRewardText || (showRewards && !rewardsImage ? fallbackRewardText : null));
+    const defaultResultText = !renderRewardsBuffer ? fallbackResultText : null;
+    const defaultRewardText = !renderRewardsBuffer ? fallbackRewardText : null;
+    const resultTextForFrame = over
+      && (defaultResultText || (wantsRewardsVisual && !rewardsImage ? fallbackResultText : null));
+    const rewardTextForFrame = over
+      && (defaultRewardText || (wantsRewardsVisual && !rewardsImage ? fallbackRewardText : null));
     if (resultTextForFrame) {
       base.addFields({ name: '\u200b', value: resultTextForFrame });
     }
@@ -980,10 +991,10 @@ async function runBattleImpl(channel, {
       : null;
     const files = [
       ...battleImage.files,
-      ...(showRewards && rewardsImage ? rewardsImage.files : []),
+      ...(rewardsImage ? rewardsImage.files : []),
     ];
     const embeds = [base];
-    if (showRewards && rewardsImage) embeds.push(resultEmbed);
+    if (rewardsImage) embeds.push(resultEmbed);
     if (rewardTextEmbed) embeds.push(rewardTextEmbed);
     const payload = {
       content: over && noticeLine ? noticeLine : '',
@@ -1007,12 +1018,23 @@ async function runBattleImpl(channel, {
     } catch (err) {
       if (!isDiscordErrorCode(err, 50013)) throw err;
       console.warn('[battleRender] Final battle edit blocked by Discord permissions; sending final frame as a new message.');
+      // Preserve the Canvas result on the rare permission fallback too. Normal
+      // successful edits still upload each attachment only once.
       msg = await channel.send({ ...finalPayload, attachments: undefined });
       if (onMessage) {
         try { await onMessage(msg); } catch (onMessageErr) { console.warn('[battleRender] onMessage:', onMessageErr.message); }
       }
     }
   }
+
+  // The collector only needs the text log and message. Drop final-render
+  // references before its five-minute lifetime begins so decoded skins/icons
+  // cannot be retained by this battle scope.
+  icons = null;
+  skin = null;
+  resultSkin = null;
+  resultEmbed = null;
+  renderRewardsBuffer = null;
 
   const battleLogPages = logEmbeds(sim);
   const collector = msg.createMessageComponentCollector({ time: 300_000 });
@@ -1065,5 +1087,7 @@ module.exports = {
   logEmbeds,
   battleFrameCacheParts,
   battleResultCacheParts,
+  battlePhase,
+  shouldRenderBattleFrame,
   UPDATE_MS,
 };

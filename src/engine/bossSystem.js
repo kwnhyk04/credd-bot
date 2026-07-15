@@ -83,7 +83,7 @@ const RESPAWN_COOLDOWN = '15 minutes';   // spawns every 15 min after defeat
 const RESPAWN_COOLDOWN_MS = 15 * 60_000;
 const ACTIVE_BOSS_EXPIRES_AT_SQL = "NOW() + INTERVAL '100 years'";
 const NON_OFFICIAL_REDIRECT_COOLDOWN_MS = 6 * 60 * 60_000;
-const BOSS_IMAGE_REFRESH_MAX_RETRIES = 2;
+const BOSS_PROGRESS_REFRESH_MAX_RETRIES = 2;
 const BOSS_REFRESH_RECONCILE_COOLDOWN_MS = 10 * 60_000;
 const TOP_N = 15;
 const BOSS_STATE_COLUMNS = `
@@ -127,12 +127,13 @@ const greaterChests = new Map(); // spawnId → { column, qty, label }
 // rules, which is fine for testing.
 const devSpawns = new Set();
 
-function bossImageRefreshEnabled() {
-  return envBool('BOSS_IMAGE_REFRESH_ENABLED', true);
+function bossProgressRefreshDebounceMs() {
+  // Coalesce nearby attacks into one latest-HP Canvas refresh.
+  return envNumber('BOSS_IMAGE_REFRESH_DEBOUNCE_MS', 15_000, { min: 1_000, max: 300_000 });
 }
 
-function bossImageRefreshDebounceMs() {
-  return envNumber('BOSS_IMAGE_REFRESH_DEBOUNCE_MS', 15_000, { min: 1_000, max: 300_000 });
+function bossImageRefreshEnabled() {
+  return envBool('BOSS_IMAGE_REFRESH_ENABLED', true);
 }
 
 function bossLogCacheMaxAttackers() {
@@ -178,10 +179,13 @@ function scaledBossCrit(mobRow) {
 
 function clearPendingBossRefresh(guildId, reason = 'cleared') {
   const pending = pendingBossRefreshes.get(guildId);
-  if (!pending) return;
-  clearTimeout(pending.timer);
+  if (!pending) return Promise.resolve();
+  pending.cancelled = true;
+  if (pending.timer) clearTimeout(pending.timer);
+  pending.timer = null;
   pendingBossRefreshes.delete(guildId);
-  bandwidthLog('boss image refresh skipped', {
+  if (!pending.running) pending.finish();
+  bandwidthLog('boss progress refresh skipped', {
     system: 'boss',
     command: 'boss:attack',
     imageType: 'boss_status',
@@ -189,6 +193,10 @@ function clearPendingBossRefresh(guildId, reason = 'cleared') {
     spawnId: pending.spawnId,
     reason,
   });
+  // Callers that are about to publish a terminal/lifecycle message can await
+  // this. If an edit was already in flight, the terminal edit is then sent
+  // after it and cannot be overwritten by stale progress state.
+  return pending.done;
 }
 
 function rememberSpawn(guildId, spawnId) {
@@ -616,13 +624,16 @@ function bossStatusCacheParts(state, mobRow) {
   };
 }
 
-async function bossStatusImage(state, mobRow) {
+async function bossStatusImage(state, mobRow, {
+  phase = 'snapshot', telemetryCommand = 'boss',
+} = {}) {
   const logContext = {
     system: 'boss',
-    command: 'boss',
+    command: telemetryCommand,
     imageType: 'boss_status',
     guildId: state.guild_id,
     spawnId: state.spawn_id,
+    phase,
   };
   const imageOptions = {
     maxWidth: bossImageMaxWidth(),
@@ -729,7 +740,13 @@ async function fetchBossView(guildId) {
  * separator → lore → separator → rewards → separator → Top 15 → separator →
  * footer + buttons.
  */
-async function buildBossMessage(view, { includeStatusImage = true } = {}) {
+async function buildBossMessage(view, {
+  includeStatusImage = true,
+  includeBanner = true,
+  bannerUrl = null,
+  phase = 'snapshot',
+  telemetryCommand = 'boss',
+} = {}) {
   const { state, mobRow, attackers, attackerCount, isDev = false } = view;
   const { status } = state;
 
@@ -756,21 +773,33 @@ async function buildBossMessage(view, { includeStatusImage = true } = {}) {
   // boss art, letterboxed full-width + centered (mob_roster has no image
   // column — filename derived by convention)
   const files = [];
-  const imgPath = bossImagePath(mobRow.name);
-  if (imgPath && isRemoteSource(imgPath)) {
+  let bannerAdded = false;
+  const imgPath = includeBanner ? bossImagePath(mobRow.name) : null;
+  if (imgPath && bannerUrl) {
+    container.addMediaGalleryComponents((g) =>
+      g.addItems((item) => item.setURL(bannerUrl))
+    );
+    bannerAdded = true;
+  } else if (imgPath && isRemoteSource(imgPath)) {
     container.addMediaGalleryComponents((g) =>
       g.addItems((item) => item.setURL(imgPath))
     );
+    bannerAdded = true;
   } else {
-    const banner = imgPath ? await bossBanner(imgPath) : null;
+    // Progress/final refreshes prefer an existing remote/CDN URL. The recovery
+    // caller opts into one local attachment only when no reusable banner exists.
+    const banner = imgPath && includeBanner !== 'remote-only'
+      ? await bossBanner(imgPath)
+      : null;
     if (banner && discordImageAttachmentsAllowed()) {
       const card = await makeOptimizedAttachment(banner, 'boss_banner', {
         maxWidth: bossImageMaxWidth(),
         logContext: {
           system: 'boss',
-          command: 'boss',
+          command: telemetryCommand,
           imageType: 'boss_banner',
           guildId: state.guild_id,
+          phase,
           bytes: banner.length,
         },
       });
@@ -778,22 +807,24 @@ async function buildBossMessage(view, { includeStatusImage = true } = {}) {
       container.addMediaGalleryComponents((g) =>
         g.addItems((item) => item.setURL(card.url))
       );
+      bannerAdded = true;
     } else if (banner) {
       performanceLog('boss banner skipped, text-only fallback used', {
         system: 'boss',
-        command: 'boss',
+        command: telemetryCommand,
         imageType: 'boss_banner',
         guildId: state.guild_id,
         spawnId: state.spawn_id,
+        phase,
         reason: 'attachments-blocked',
       });
     }
   }
 
-  container.addSeparatorComponents(sep);
+  if (bannerAdded) container.addSeparatorComponents(sep);
   if (includeStatusImage) {
     try {
-      const card = await bossStatusImage(state, mobRow);
+      const card = await bossStatusImage(state, mobRow, { phase, telemetryCommand });
       if (card?.url) {
         if (card.file) files.push(card.file);
         container.addMediaGalleryComponents((g) =>
@@ -806,22 +837,24 @@ async function buildBossMessage(view, { includeStatusImage = true } = {}) {
       console.warn('[boss] status card render failed:', err.message);
       performanceLog('boss image skipped, text-only fallback used', {
         system: 'boss',
-        command: 'boss',
+        command: telemetryCommand,
         imageType: 'boss_status',
         guildId: state.guild_id,
         spawnId: state.spawn_id,
+        phase,
         reason: 'render-failed',
       });
       container.addTextDisplayComponents((td) => td.setContent(bossStatusText(state, mobRow)));
     }
   } else {
-    bandwidthLog('boss image refresh skipped', {
+    bandwidthLog('boss status render skipped', {
       system: 'boss',
-      command: 'boss',
+      command: telemetryCommand,
       imageType: 'boss_status',
       guildId: state.guild_id,
       spawnId: state.spawn_id,
-      reason: 'image-refresh-disabled',
+      phase,
+      reason: 'status-image-disabled',
     });
     container.addTextDisplayComponents((td) => td.setContent(bossStatusText(state, mobRow)));
   }
@@ -1015,7 +1048,7 @@ function repointLiveMessage(guildId, msg) {
  * channel. Already-deleted / missing-message (Unknown Message) is swallowed.
  */
 async function deleteLiveMessage(client, guildId) {
-  clearPendingBossRefresh(guildId, 'live-message-deleted');
+  await clearPendingBossRefresh(guildId, 'live-message-deleted');
   const ref = liveMessages.get(guildId);
   liveMessages.delete(guildId);
   purgeBossRuntimeForGuild(guildId, 'live-message-deleted');
@@ -1033,76 +1066,83 @@ async function refreshLiveMessage(client, guildId, options = {}) {
   const view = await fetchBossView(guildId);
   if (!view) return false;
   rememberSpawn(guildId, view.state.spawn_id);
-  const payload = await buildBossMessage(view, options);
+  const shouldApply = typeof options.shouldApply === 'function'
+    ? () => options.shouldApply(view)
+    : () => true;
+  if (!shouldApply()) return false;
   const ref = liveMessages.get(guildId);
+  let msg = null;
   if (ref) {
     const channel = await client.channels.fetch(ref.channelId).catch(() => null);
-    const msg = channel ? await channel.messages.fetch(ref.messageId).catch(() => null) : null;
-    if (msg) {
-      const edited = await msg.edit({ ...payload, attachments: [] }).catch(() => null);
-      if (edited) return true;
-    }
+    msg = channel ? await channel.messages.fetch(ref.messageId).catch(() => null) : null;
   }
+  // A local spawn banner already lives on Discord. Reuse that CDN URL and
+  // retain only its attachment ID during progress/final edits, avoiding both
+  // a second upload and a visual downgrade. Old status attachments are not
+  // retained, so they cannot accumulate across edits.
+  const localBannerCanBeReused = options.includeBanner === 'remote-only'
+    && !isRemoteSource(bossImagePath(view.mobRow.name));
+  const existingBanner = localBannerCanBeReused
+    ? [...(msg?.attachments?.values?.() || [])].find((attachment) => /^boss_banner\./i.test(attachment.name || ''))
+    : null;
+  // After a restart or deleted/legacy live message there is no Discord
+  // attachment URL to reuse. Attach the local static banner once while
+  // reconstructing/upgrading the live message; subsequent edits retain it by
+  // ID and never upload it again.
+  const needsLocalBannerAttachment = localBannerCanBeReused && !existingBanner;
+  const payload = await buildBossMessage(view, {
+    ...options,
+    includeBanner: needsLocalBannerAttachment ? true : options.includeBanner,
+    bannerUrl: existingBanner?.url || null,
+  });
+  if (!shouldApply()) return false;
+  if (msg && shouldApply()) {
+    const retainedAttachments = existingBanner?.id ? [{ id: existingBanner.id }] : [];
+    const edited = await msg.edit({ ...payload, attachments: retainedAttachments }).catch(() => null);
+    if (edited) return true;
+  }
+  // Preserve the status Canvas if an edit cannot be applied and the live
+  // message must be reconstructed. This rare fallback may repeat an attempted
+  // upload, but it does not change the command into a text-only presentation.
+  if (!shouldApply()) return false;
   return Boolean(await postFreshLiveMessage(client, guildId, payload));
 }
 
-async function refreshLiveMessageTextOnly(client, guildId, {
-  spawnId = null, reason = 'text-refresh', telemetryCommand = 'boss:attack',
+async function refreshLiveMessageProgress(client, guildId, {
+  telemetryCommand = 'boss:attack', shouldApply = null,
 } = {}) {
-  const started = Date.now();
-  const updated = await refreshLiveMessage(client, guildId, { includeStatusImage: false });
-  bandwidthLog(updated ? 'boss text refresh updated' : 'boss text refresh failed', {
-    system: 'boss',
-    command: telemetryCommand,
-    imageType: 'boss_status',
-    guildId,
-    spawnId,
-    reason,
-    durationMs: Date.now() - started,
+  const phase = String(telemetryCommand).startsWith('scheduler:') ? 'background' : 'progress';
+  const includeStatusImage = bossImageRefreshEnabled();
+  return refreshLiveMessage(client, guildId, {
+    includeStatusImage,
+    includeBanner: 'remote-only',
+    phase,
+    telemetryCommand,
+    shouldApply,
   });
-  return updated;
 }
 
 function scheduleBossLiveRefresh(client, guildId, {
   spawnId = null, retryAttempt = 0, telemetryCommand = 'boss:attack',
 } = {}) {
-  if (!bossImageRefreshEnabled()) {
-    bandwidthLog('boss image refresh skipped', {
-      system: 'boss',
-      command: telemetryCommand,
-      imageType: 'boss_status',
-      guildId,
-      spawnId,
-      reason: 'disabled',
-    });
-    refreshLiveMessageTextOnly(client, guildId, {
-      spawnId,
-      reason: 'image-refresh-disabled',
-      telemetryCommand,
-    }).catch((err) => {
-      console.error(`[boss] text refresh failed (guild ${guildId}):`, err.message);
-    });
-    return;
-  }
-
   const existing = pendingBossRefreshes.get(guildId);
   if (existing) {
     existing.spawnId = spawnId || existing.spawnId;
     existing.telemetryCommand = telemetryCommand || existing.telemetryCommand;
     if (existing.running) existing.rerun = true;
-    bandwidthLog('boss image refresh coalesced', {
+    bandwidthLog('boss progress refresh coalesced', {
       system: 'boss',
       command: existing.telemetryCommand,
       imageType: 'boss_status',
       guildId,
       spawnId: existing.spawnId,
-      debounceMs: bossImageRefreshDebounceMs(),
+      debounceMs: bossProgressRefreshDebounceMs(),
     });
     return;
   }
 
-  const debounceMs = bossImageRefreshDebounceMs();
-  bandwidthLog('boss image refresh scheduled', {
+  const debounceMs = bossProgressRefreshDebounceMs();
+  bandwidthLog('boss progress refresh scheduled', {
     system: 'boss',
     command: telemetryCommand,
     imageType: 'boss_status',
@@ -1112,35 +1152,64 @@ function scheduleBossLiveRefresh(client, guildId, {
     retryAttempt,
   });
 
+  let resolveDone;
+  const pending = {
+    timer: null,
+    spawnId,
+    retryAttempt,
+    telemetryCommand,
+    running: false,
+    rerun: false,
+    cancelled: false,
+    finished: false,
+    done: new Promise((resolve) => { resolveDone = resolve; }),
+    finish() {
+      if (this.finished) return;
+      this.finished = true;
+      resolveDone();
+    },
+  };
+
   const timer = setTimeout(async () => {
-    const pending = pendingBossRefreshes.get(guildId);
-    if (!pending) return;
-    pending.timer = null;
-    pending.running = true;
-    if (pending?.spawnId && currentSpawn.get(guildId) && currentSpawn.get(guildId) !== pending.spawnId) {
-      bandwidthLog('boss image refresh skipped', {
-        system: 'boss',
-        command: pending.telemetryCommand,
-        imageType: 'boss_status',
-        guildId,
-        spawnId: pending.spawnId,
-        reason: 'stale-spawn',
-      });
-      pendingBossRefreshes.delete(guildId);
+    if (pendingBossRefreshes.get(guildId) !== pending || pending.cancelled) {
+      pending.finish();
       return;
     }
+    pending.timer = null;
+    pending.running = true;
     const started = Date.now();
     let refreshSucceeded = false;
     let failureReason = null;
     try {
+      if (pending?.spawnId && currentSpawn.get(guildId) && currentSpawn.get(guildId) !== pending.spawnId) {
+        failureReason = 'stale-spawn';
+        pending.cancelled = true;
+        bandwidthLog('boss progress refresh skipped', {
+          system: 'boss',
+          command: pending.telemetryCommand,
+          imageType: 'boss_status',
+          guildId,
+          spawnId: pending.spawnId,
+          reason: failureReason,
+        });
+        return;
+      }
       try {
-        refreshSucceeded = await refreshLiveMessage(client, guildId);
+        refreshSucceeded = await refreshLiveMessageProgress(client, guildId, {
+          telemetryCommand: pending.telemetryCommand,
+          shouldApply: (view) => (
+            !pending.cancelled
+            && pendingBossRefreshes.get(guildId) === pending
+            && (!pending.spawnId || view?.state?.spawn_id === pending.spawnId)
+            && view?.state?.status === 'active'
+          ),
+        });
         if (!refreshSucceeded) failureReason = 'no-message-updated';
       } catch (err) {
         failureReason = err.message;
         console.error(`[boss] debounced refresh failed (guild ${guildId}):`, err.message);
       }
-      bandwidthLog(refreshSucceeded ? 'boss image refresh rendered' : 'boss image refresh failed', {
+      bandwidthLog(refreshSucceeded ? 'boss progress refresh updated' : 'boss progress refresh failed', {
         system: 'boss',
         command: pending.telemetryCommand,
         imageType: 'boss_status',
@@ -1151,28 +1220,30 @@ function scheduleBossLiveRefresh(client, guildId, {
         durationMs: Date.now() - started,
       });
     } finally {
-      if (pendingBossRefreshes.get(guildId) !== pending) return;
-      pendingBossRefreshes.delete(guildId);
-      if (!refreshSucceeded && pending.retryAttempt < BOSS_IMAGE_REFRESH_MAX_RETRIES) {
-        scheduleBossLiveRefresh(client, guildId, {
-          spawnId: pending.spawnId,
-          retryAttempt: pending.retryAttempt + 1,
-          telemetryCommand: pending.telemetryCommand,
-        });
-      } else if (pending.rerun) {
-        scheduleBossLiveRefresh(client, guildId, {
-          spawnId: pending.spawnId,
-          telemetryCommand: pending.telemetryCommand,
-        });
-      } else if (!refreshSucceeded) {
-        liveMessages.delete(guildId);
+      pending.running = false;
+      if (pendingBossRefreshes.get(guildId) === pending) {
+        pendingBossRefreshes.delete(guildId);
+        if (!pending.cancelled && !refreshSucceeded && pending.retryAttempt < BOSS_PROGRESS_REFRESH_MAX_RETRIES) {
+          scheduleBossLiveRefresh(client, guildId, {
+            spawnId: pending.spawnId,
+            retryAttempt: pending.retryAttempt + 1,
+            telemetryCommand: pending.telemetryCommand,
+          });
+        } else if (!pending.cancelled && pending.rerun) {
+          scheduleBossLiveRefresh(client, guildId, {
+            spawnId: pending.spawnId,
+            telemetryCommand: pending.telemetryCommand,
+          });
+        } else if (!pending.cancelled && !refreshSucceeded) {
+          liveMessages.delete(guildId);
+        }
       }
+      pending.finish();
     }
   }, debounceMs);
 
-  pendingBossRefreshes.set(guildId, {
-    timer, spawnId, retryAttempt, telemetryCommand, running: false, rerun: false,
-  });
+  pending.timer = timer;
+  pendingBossRefreshes.set(guildId, pending);
 }
 
 /* ── spawn / escape (scheduler paths) ───────────────────────────────────── */
@@ -1278,7 +1349,15 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
   rememberSpawn(guildId, ins.rows[0].spawn_id);
   const view = await fetchBossView(guildId);
   if (view) {
-    await postFreshLiveMessage(client, guildId, await buildBossMessage(view), announceChannelId);
+    await postFreshLiveMessage(
+      client,
+      guildId,
+      await buildBossMessage(view, {
+        phase: 'spawn',
+        telemetryCommand: force ? 'dev:spawnboss' : 'scheduler:boss',
+      }),
+      announceChannelId
+    );
   }
   return true;
 }
@@ -1298,7 +1377,7 @@ async function expireBoss(client, guildId) {
  * boss_state makes the loser of the race see 0 flipped rows and roll back).
  * Returns the attacker count, or null when nothing was distributed.
  */
-async function distributeRewards(client, guildId, spawnId, { includeStatusImage = false } = {}) {
+async function distributeRewards(client, guildId, spawnId, { includeStatusImage = true } = {}) {
   const dbc = await pool.connect();
   let attackerIds = [];
   let reward = null;
@@ -1406,8 +1485,13 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
   }
 
   // post-commit presentation (failures here never affect the payouts)
-  clearPendingBossRefresh(guildId, 'dead');
-  await refreshLiveMessage(client, guildId, { includeStatusImage }).catch(() => {});
+  await clearPendingBossRefresh(guildId, 'dead');
+  await refreshLiveMessage(client, guildId, {
+    includeStatusImage,
+    includeBanner: 'remote-only',
+    phase: 'final',
+    telemetryCommand: 'boss:final',
+  }).catch(() => {});
   const view = await fetchBossView(guildId).catch(() => null);
   if (view) {
     const channelId = liveMessages.get(guildId)?.channelId || await resolveAnnounceChannelId(guildId);
@@ -1582,18 +1666,9 @@ async function handleAttackImpl(interaction) {
       rememberSpawn(guildId, state.spawn_id);
 
       if (remaining <= 0) {
-        await distributeRewards(interaction.client, guildId, state.spawn_id, {
-          includeStatusImage: false,
-        });
-      } else if (bossImageRefreshEnabled()) {
-        scheduleBossLiveRefresh(interaction.client, guildId, { spawnId: state.spawn_id });
+        await distributeRewards(interaction.client, guildId, state.spawn_id);
       } else {
-        await refreshLiveMessageTextOnly(interaction.client, guildId, {
-          spawnId: state.spawn_id,
-          reason: 'image-refresh-disabled',
-        }).catch((err) => {
-          console.error(`[boss] immediate text refresh failed (guild ${guildId}):`, err.message);
-        });
+        scheduleBossLiveRefresh(interaction.client, guildId, { spawnId: state.spawn_id });
       }
 
       const survived = sim.outcome === 'boss_timeout';

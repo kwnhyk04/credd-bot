@@ -10,12 +10,21 @@
  * Crash's body is a compact drawn panel. @napi-rs/canvas with the bundled DejaVu Sans family.
  */
 
+// Install Canvas accounting before destructuring createCanvas. index.js does this globally too,
+// but keeping the renderer self-contained also covers scripts and focused tests.
+require('../utils/imageRuntime').configureImageRuntime();
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
+const sharp = require('sharp');
 const { encodeCanvas, releaseCanvas } = require('../utils/canvasEncode');
 const path = require('path');
 const pool = require('../db/pool');
 const { rankLabel, SUIT_LABEL } = require('./cardDeck');
-const { assetPath, assetSource, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
+const {
+  assetPath,
+  assetSource,
+  loadAssetImage: loadAssetImageSource,
+  loadCachedBuffer,
+} = require('../utils/assets');
 const { envNumber, envPositiveInt } = require('../utils/runtimeLogs');
 const { registerMemorySource } = require('../utils/memoryRegistry');
 
@@ -35,6 +44,49 @@ const COLORS = {
 function loadCached(p) {
   const resolved = assetSource(p);
   return loadAssetImageSource(loadImage, resolved).catch(() => null);
+}
+
+// Card source art is 1024x1536 or larger but ends up on a 140x196 face. Resize
+// it with bounded Sharp work before Canvas decodes it; retaining or repeatedly
+// decoding the full source in Skia left hundreds of MB warm after the small
+// face had already been produced. The final face dimensions and source detail
+// are preserved, using Lanczos downsampling at the exact displayed resolution.
+async function loadCardBackground(p, width, height) {
+  try {
+    const source = await loadCachedBuffer(assetSource(p));
+    const buffer = await sharp(source)
+      .ensureAlpha()
+      .resize({ width, height, fit: 'fill', kernel: sharp.kernel.lanczos3 })
+      .png()
+      .toBuffer();
+    return await loadImage(buffer);
+  } catch {
+    return null;
+  }
+}
+
+async function loadCardGlyph(p, targetHeight) {
+  try {
+    const source = await loadCachedBuffer(assetSource(p));
+    const metadata = await sharp(source).metadata();
+    const { data, info } = await sharp(source)
+      .ensureAlpha()
+      // Match the former Canvas alpha scan's cutoff so pre-resizing changes
+      // memory behavior without changing the visible glyph bounds.
+      .trim({ background: { r: 0, g: 0, b: 0, alpha: 0 }, threshold: 12 })
+      .resize({ height: targetHeight, kernel: sharp.kernel.lanczos3 })
+      .png()
+      .toBuffer({ resolveWithObject: true });
+    return {
+      image: await loadImage(data),
+      sourceWidth: metadata.width || info.width,
+      sourceHeight: metadata.height || info.height,
+      drawWidth: info.width,
+      drawHeight: info.height,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -108,67 +160,27 @@ function programmaticFace(card) {
   return cv;
 }
 
-// Opaque content bounding box of an image (CardSizeFix3): the number/symbol PNGs are
-// card-sized (e.g. 1024×1536) with the glyph floating in transparent padding, so the
-// raw image height is NOT the glyph height. We scan the alpha channel once per image
-// (WeakMap-cached) to find the tight box around the visible pixels; scaling THAT to the
-// half-height is what actually makes the glyph fill its zone.
-const bboxCache = new WeakMap();
-function contentBBox(img) {
-  const cached = bboxCache.get(img);
-  if (cached) return cached;
-  const iw = img.width, ih = img.height;
-  const cv = createCanvas(iw, ih);
-  const ctx = cv.getContext('2d');
-  ctx.drawImage(img, 0, 0);
-  const data = ctx.getImageData(0, 0, iw, ih).data;
-  releaseCanvas(cv);
-  let minX = iw, minY = ih, maxX = -1, maxY = -1;
-  const ALPHA = 12; // ignore near-transparent fringe
-  for (let y = 0; y < ih; y++) {
-    for (let x = 0; x < iw; x++) {
-      if (data[(y * iw + x) * 4 + 3] > ALPHA) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-  }
-  const box = maxX < 0
-    ? { sx: 0, sy: 0, sw: iw, sh: ih }                       // fully transparent → use whole image
-    : { sx: minX, sy: minY, sw: maxX - minX + 1, sh: maxY - minY + 1 };
-  bboxCache.set(img, box);
-  return box;
-}
-
-// HEIGHT-DRIVEN sizing (CardSizeFix3): the VISIBLE glyph height is `heightFrac` of the
-// card's HALF height; width follows the trimmed-content aspect ratio. Only scaling step
-// — no width cap, no min(). The opaque content box is cropped out of the padded source
-// so the glyph truly fills its zone. Drawn dead-centre horizontally and vertically
-// within its half ('top' | 'bottom'). Logs resolved geometry once per unique card.
-function placeFitted(ctx, img, W, H, heightFrac, half, label, yOffsetFrac = 0) {
-  const { sx, sy, sw, sh } = contentBBox(img);
+function placePreparedGlyph(ctx, prepared, W, H, half, label, yOffsetFrac = 0) {
+  const { image, drawWidth, drawHeight, sourceWidth, sourceHeight } = prepared;
   const halfH = H * 0.5;
-  const targetH = Math.floor(halfH * heightFrac);
-  const scale = targetH / sh;
-  const drawW = Math.floor(sw * scale);
-  const drawH = targetH;
-  const drawX = Math.floor((W - drawW) / 2);
+  const drawX = Math.floor((W - drawWidth) / 2);
   const baseY = half === 'top'
-    ? Math.floor((halfH - drawH) / 2)
-    : Math.floor(halfH + (halfH - drawH) / 2);
+    ? Math.floor((halfH - drawHeight) / 2)
+    : Math.floor(halfH + (halfH - drawHeight) / 2);
   const drawY = baseY + Math.floor(H * yOffsetFrac);
-  console.log(`[cardFace] ${label} src=${img.width}x${img.height} content=${sw}x${sh} draw=${drawW}x${drawH} @(${drawX},${drawY}) targetH=${targetH} halfH=${Math.floor(halfH)}`);
-  ctx.drawImage(img, sx, sy, sw, sh, drawX, drawY, drawW, drawH);
+  console.log(`[cardFace] ${label} src=${sourceWidth}x${sourceHeight} prepared=${drawWidth}x${drawHeight} @(${drawX},${drawY}) halfH=${Math.floor(halfH)}`);
+  ctx.drawImage(image, drawX, drawY, drawWidth, drawHeight);
 }
 
 async function buildCardFace(card) {
   const { suit, rank } = card;
-  const bg = await loadCached(canvasBgPath(suit));
+  const W = 140, H = 196;
+  const rankHeight = Math.floor(H * 0.5 * CARD_RANK_HEIGHT_FRAC);
+  const symbolHeight = Math.floor(H * 0.5 * CARD_SYMBOL_HEIGHT_FRAC);
+  const bg = await loadCardBackground(canvasBgPath(suit), W, H);
   if (!bg) { logMissingAsset(canvasBgPath(suit)); return programmaticFace(card); }
 
-  const numImg = await loadCached(numberPngPath(suit, rank));
+  const numImg = await loadCardGlyph(numberPngPath(suit, rank), rankHeight);
   if (!numImg) { logMissingAsset(numberPngPath(suit, rank)); return programmaticFace(card); }
 
   // Symbol zone: royal face PNG for J/Q/K, else the generic suit symbol. A missing
@@ -176,22 +188,26 @@ async function buildCardFace(card) {
   // forces the programmatic fallback.
   let symImg = null;
   if (ROYAL_RANKS.has(rank)) {
-    symImg = await loadCached(royalPngPath(suit, rank));
-    if (!symImg) { logMissingAsset(royalPngPath(suit, rank)); symImg = await loadCached(symbolPngPath(suit)); }
+    symImg = await loadCardGlyph(royalPngPath(suit, rank), symbolHeight);
+    if (!symImg) { logMissingAsset(royalPngPath(suit, rank)); symImg = await loadCardGlyph(symbolPngPath(suit), symbolHeight); }
   } else {
-    symImg = await loadCached(symbolPngPath(suit));
+    symImg = await loadCardGlyph(symbolPngPath(suit), symbolHeight);
   }
   if (!symImg) { logMissingAsset(symbolPngPath(suit)); return programmaticFace(card); }
 
   // Cache small working faces because full-size canvases retained about 312 MB across the deck.
-  const W = 140, H = 196;
   const cv = createCanvas(W, H);
-  const ctx = cv.getContext('2d');
-  console.log(`[cardFace] ${suit} ${rank} card=${W}x${H}`);
-  ctx.drawImage(bg, 0, 0, W, H);                              // layer 1: full-card background
-  placeFitted(ctx, numImg, W, H, CARD_RANK_HEIGHT_FRAC, 'top', `${suit} ${rank} number`, CARD_RANK_Y_OFFSET_FRAC);
-  placeFitted(ctx, symImg, W, H, CARD_SYMBOL_HEIGHT_FRAC, 'bottom', `${suit} ${rank} symbol`, CARD_SYMBOL_Y_OFFSET_FRAC);
-  return cv;
+  try {
+    const ctx = cv.getContext('2d');
+    console.log(`[cardFace] ${suit} ${rank} card=${W}x${H}`);
+    ctx.drawImage(bg, 0, 0, W, H);                            // layer 1: full-card background
+    placePreparedGlyph(ctx, numImg, W, H, 'top', `${suit} ${rank} number`, CARD_RANK_Y_OFFSET_FRAC);
+    placePreparedGlyph(ctx, symImg, W, H, 'bottom', `${suit} ${rank} symbol`, CARD_SYMBOL_Y_OFFSET_FRAC);
+    return cv;
+  } catch (err) {
+    releaseCanvas(cv);
+    throw err;
+  }
 }
 
 // Composited card faces are cached by suit_rank (a face is identical every time).
@@ -204,14 +220,29 @@ const FACE_CACHE_TTL_MS = Math.max(
   0,
   envNumber('CASINO_CARD_FACE_CACHE_TTL_MS', 600_000, { min: 0, max: 86_400_000 })
 );
-const faceCache = new Map(); // key -> { promise, bytes, createdAt, lastUsed }
+const faceCache = new Map(); // key -> { promise, canvas, bytes, leases, releaseWhenIdle, ... }
 let faceCacheBytes = 0;
+let faceLeases = 0;
+let faceReleasedCanvases = 0;
+let faceDeferredReleases = 0;
+
+function releaseFaceCanvas(entry) {
+  if (!entry?.canvas || entry.canvasReleased) return;
+  releaseCanvas(entry.canvas);
+  entry.canvas = null;
+  entry.canvasReleased = true;
+  faceReleasedCanvases += 1;
+}
 
 function dropFace(key) {
   const entry = faceCache.get(key);
   if (!entry) return;
   faceCache.delete(key);
   faceCacheBytes = Math.max(0, faceCacheBytes - entry.bytes);
+  entry.bytes = 0;
+  entry.releaseWhenIdle = true;
+  if (entry.canvas && entry.leases === 0) releaseFaceCanvas(entry);
+  else if (entry.leases > 0) faceDeferredReleases += 1;
 }
 
 function trimFaceCache(now = Date.now()) {
@@ -225,26 +256,34 @@ function trimFaceCache(now = Date.now()) {
   }
 }
 
-function cardFaceCanvas(card) {
+function faceEntry(card) {
   const key = `${card.suit}_${card.rank}`;
   const cached = faceCache.get(key);
   if (cached) {
     cached.lastUsed = Date.now();
     faceCache.delete(key);
     faceCache.set(key, cached);
-    return cached.promise;
+    return cached;
   }
   const entry = {
     bytes: 0,
+    canvas: null,
+    canvasReleased: false,
     createdAt: Date.now(),
     lastUsed: Date.now(),
+    leases: 0,
     promise: null,
+    releaseWhenIdle: false,
   };
   entry.promise = buildCardFace(card).then((canvas) => {
+    entry.canvas = canvas;
     if (faceCache.get(key) === entry) {
       entry.bytes = Math.max(1, canvas.width * canvas.height * 4);
       faceCacheBytes += entry.bytes;
       trimFaceCache();
+    } else {
+      entry.releaseWhenIdle = true;
+      if (entry.leases === 0) releaseFaceCanvas(entry);
     }
     return canvas;
   }).catch((err) => {
@@ -253,7 +292,39 @@ function cardFaceCanvas(card) {
   });
   faceCache.set(key, entry);
   trimFaceCache();
-  return entry.promise;
+  return entry;
+}
+
+function releaseFaceLease(entry) {
+  if (!entry || entry.leases <= 0) return;
+  entry.leases -= 1;
+  faceLeases = Math.max(0, faceLeases - 1);
+  if (entry.leases === 0 && entry.releaseWhenIdle) releaseFaceCanvas(entry);
+}
+
+async function acquireCardFace(card) {
+  const entry = faceEntry(card);
+  entry.leases += 1;
+  faceLeases += 1;
+  try {
+    const image = await entry.promise;
+    let released = false;
+    return {
+      image,
+      release() {
+        if (released) return;
+        released = true;
+        releaseFaceLease(entry);
+      },
+    };
+  } catch (err) {
+    releaseFaceLease(entry);
+    throw err;
+  }
+}
+
+function clearCasinoCanvasCache() {
+  for (const key of [...faceCache.keys()]) dropFace(key);
 }
 
 function getCasinoCanvasCacheStats() {
@@ -264,8 +335,10 @@ function getCasinoCanvasCacheStats() {
     faceMaxEntries: FACE_CACHE_MAX_ENTRIES,
     faceMaxBytes: FACE_CACHE_MAX_BYTES,
     faceTtlMs: FACE_CACHE_TTL_MS,
+    faceLeases,
+    faceReleasedCanvases,
+    faceDeferredReleases,
     missingAssetEntries: loggedMissing.size,
-    bboxCache: 'weak',
   };
 }
 
@@ -289,16 +362,40 @@ async function strip(paths, { tile = 92, gap = 16, panelW = PANEL_W, padY = 10 }
  * @param {(object|string)[]} entries
  */
 async function cardStrip(entries, { cardW = 64, cardH = 90, gap = 12, panelW = PANEL_W, padY = 10 } = {}) {
-  const imgs = await Promise.all(entries.map((e) => (typeof e === 'string' ? loadCached(e) : cardFaceCanvas(e))));
-  const canvas = createCanvas(panelW, cardH + padY * 2);
-  const ctx = canvas.getContext('2d');
-  const total = entries.length * cardW + (entries.length - 1) * gap;
-  let x = (panelW - total) / 2;
-  for (const im of imgs) {
-    drawContain(ctx, im, x, padY, cardW, cardH);
-    x += cardW + gap;
+  const resourcePromises = entries.map(async (entry) => (
+    typeof entry === 'string'
+      ? { image: await loadCached(entry), release: null }
+      : acquireCardFace(entry)
+  ));
+  let resources;
+  try {
+    resources = await Promise.all(resourcePromises);
+  } catch (err) {
+    // Promise.all does not expose already-acquired leases when a sibling fails.
+    const settled = await Promise.allSettled(resourcePromises);
+    for (const item of settled) {
+      if (item.status === 'fulfilled') item.value.release?.();
+    }
+    throw err;
   }
-  return encodeCanvas(canvas);
+
+  let canvas = null;
+  try {
+    canvas = createCanvas(panelW, cardH + padY * 2);
+    const ctx = canvas.getContext('2d');
+    const total = entries.length * cardW + (entries.length - 1) * gap;
+    let x = (panelW - total) / 2;
+    for (const resource of resources) {
+      drawContain(ctx, resource.image, x, padY, cardW, cardH);
+      x += cardW + gap;
+    }
+    const output = encodeCanvas(canvas);
+    canvas = null;
+    return output;
+  } finally {
+    if (canvas) releaseCanvas(canvas);
+    for (const resource of resources) resource.release?.();
+  }
 }
 
 /**
@@ -306,15 +403,21 @@ async function cardStrip(entries, { cardW = 64, cardH = 90, gap = 12, panelW = P
  * panel width so it never overflows. @param {{text,size?,color?,bold?,gap?}[]} lines
  */
 async function resultStrip(lines, { panelW = PANEL_W } = {}) {
-  const measure = createCanvas(8, 8).getContext('2d');
+  const measureCanvas = createCanvas(8, 8);
+  const measure = measureCanvas.getContext('2d');
   const maxW = panelW - 28;
-  const fitted = lines.map((l) => {
-    let size = l.size || 11;
-    measure.font = `${l.bold ? 'bold ' : ''}${size}px ${FONT}`;
-    const w = measure.measureText(l.text).width;
-    if (w > maxW) size = Math.max(6, Math.floor(size * maxW / w));
-    return { ...l, size };
-  });
+  let fitted;
+  try {
+    fitted = lines.map((l) => {
+      let size = l.size || 11;
+      measure.font = `${l.bold ? 'bold ' : ''}${size}px ${FONT}`;
+      const w = measure.measureText(l.text).width;
+      if (w > maxW) size = Math.max(6, Math.floor(size * maxW / w));
+      return { ...l, size };
+    });
+  } finally {
+    releaseCanvas(measureCanvas);
+  }
   const padY = 6;
   let h = padY * 2;
   for (const l of fitted) h += l.size + (l.gap ?? 6);
@@ -367,4 +470,13 @@ async function crashPanel({ multiplier, crashed, crashPoint, bet, pushes }) {
   return encodeCanvas(canvas);
 }
 
-module.exports = { strip, cardStrip, resultStrip, crashPanel, COLORS, PANEL_W, getCasinoCanvasCacheStats };
+module.exports = {
+  strip,
+  cardStrip,
+  resultStrip,
+  crashPanel,
+  clearCasinoCanvasCache,
+  COLORS,
+  PANEL_W,
+  getCasinoCanvasCacheStats,
+};

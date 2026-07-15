@@ -8,7 +8,7 @@ const {
 } = require('./runtimeLogs');
 const { registerMemorySource } = require('./memoryRegistry');
 const {
-  recordAssetCache, recordAssetDownload, recordAssetHead,
+  recordAssetCache, recordAssetDownload, recordAssetHead, recordR2Read,
 } = require('./networkTelemetry');
 
 const ASSETS_ROOT = path.join(process.cwd(), 'assets');
@@ -884,16 +884,32 @@ function clearRemoteFetchMiss(source) {
   remoteFetchMisses.delete(assetSource(source));
 }
 
+async function cancelResponseBody(response) {
+  try {
+    const cancellation = response?.body?.cancel?.();
+    if (cancellation && typeof cancellation.then === 'function') await cancellation;
+  } catch {
+    // Consumed, absent, or already-locked response bodies need no further work.
+  }
+}
+
 async function fetchUncachedAssetBuffer(resolved) {
   if (isRemoteSource(resolved)) {
     const disk = await readDiskCache(resolved);
     if (disk) return cacheSet(bufferCache, resolved, disk, disk.length);
     let networkRecorded = false;
+    let r2Recorded = false;
+    let res = null;
+    const r2Origin = managedRemoteRelativePath(resolved) !== null;
     try {
-      const res = await fetch(resolved);
+      res = await fetch(resolved);
       if (!res.ok) {
         recordAssetDownload(assetCategory(resolved), 0, false);
         networkRecorded = true;
+        if (r2Origin) {
+          recordR2Read('get', 0, false);
+          r2Recorded = true;
+        }
         const error = new Error(`Asset fetch failed ${res.status}: ${resolved}`);
         error.status = res.status;
         throw error;
@@ -901,6 +917,10 @@ async function fetchUncachedAssetBuffer(resolved) {
       const buffer = Buffer.from(await res.arrayBuffer());
       recordAssetDownload(assetCategory(resolved), buffer.length, true);
       networkRecorded = true;
+      if (r2Origin) {
+        recordR2Read('get', buffer.length, true);
+        r2Recorded = true;
+      }
       cacheStats.downloadedBytes += buffer.length;
       bandwidthLog('remote asset downloaded', {
         system: 'assets',
@@ -912,6 +932,7 @@ async function fetchUncachedAssetBuffer(resolved) {
       return cacheSet(bufferCache, resolved, buffer, buffer.length);
     } catch (err) {
       if (!networkRecorded) recordAssetDownload(assetCategory(resolved), 0, false);
+      if (r2Origin && !r2Recorded) recordR2Read('get', 0, false);
       const rel = relativeAssetPath(resolved);
       const fallback = rel ? localAssetPath(rel) : null;
       if (fallback) {
@@ -921,6 +942,8 @@ async function fetchUncachedAssetBuffer(resolved) {
         } catch { /* throw original error */ }
       }
       throw err;
+    } finally {
+      await cancelResponseBody(res);
     }
   }
   const buffer = await fs.promises.readFile(resolved);
@@ -1137,16 +1160,21 @@ function remoteAssetAvailable(relativePath) {
   cacheStats.remoteCheckMisses += 1;
   const record = { checkedAt: Date.now(), resolvedFalse: false };
   record.promise = (async () => {
+    let res = null;
     try {
-      const res = await fetch(url, { method: 'HEAD' });
+      res = await fetch(url, { method: 'HEAD' });
       recordAssetHead(assetCategory(url), res.ok);
+      recordR2Read('head', 0, res.ok);
       if (res.ok) clearRemoteFetchMiss(url);
       else record.resolvedFalse = true;
       return res.ok;
     } catch {
       recordAssetHead(assetCategory(url), false);
+      recordR2Read('head', 0, false);
       record.resolvedFalse = true;
       return false;
+    } finally {
+      await cancelResponseBody(res);
     }
   })();
   remoteAvailability.set(url, record);

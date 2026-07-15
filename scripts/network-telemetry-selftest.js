@@ -7,6 +7,8 @@ process.env.ASSET_BASE_URL = 'https://cdn.example.test/bucket';
 process.env.ASSET_VERSION = 'release-7';
 process.env.ASSET_DISK_CACHE_ENABLED = 'false';
 process.env.BANDWIDTH_LOGS = 'false';
+process.env.RESOURCE_LOGS = 'true';
+delete process.env.RESOURCE_LOG_INTERVAL_MS;
 
 const {
   assetSource, fetchAssetBuffer, getAssetCacheStats,
@@ -19,9 +21,14 @@ const {
   tagDiscordAttachmentBuffer,
   recordDiscordRestResponse,
   beginActivity,
+  normalizePhase,
   takeNetworkTelemetrySnapshot,
   withNetworkContext,
 } = require('../src/utils/networkTelemetry');
+const { withImageWorkSlot } = require('../src/utils/imageWorkQueue');
+const { resourceLogIntervalMs } = require('../src/utils/resourceMonitor');
+const { createCanvas } = require('@napi-rs/canvas');
+const { encodeCanvas } = require('../src/utils/canvasEncode');
 const pool = require('../src/db/pool');
 
 async function main() {
@@ -67,26 +74,82 @@ async function main() {
   recordCanvasCache({ command: 'profile', imageType: 'profile' }, 'memory');
   recordCanvasCache({ command: 'profile', imageType: 'coalesced' }, 'coalesced');
   recordR2Upload({ command: 'raid', imageType: 'battle_frame' }, 2400, true);
-  let responseBodyCancelled = false;
-  const profileAttachment = Buffer.alloc(600);
-  tagDiscordAttachmentBuffer(profileAttachment, { command: 'profile', imageType: 'profile' });
-  recordDiscordRestResponse({
-    route: '/channels/:id/messages',
-    data: {
-      body: { content: 'ok' },
-      files: [{ name: 'profile-1.webp', data: profileAttachment }],
-    },
-  }, {
-    ok: true,
-    headers: { get: () => '80' },
-    body: {
-      cancel: () => {
-        responseBodyCancelled = true;
-        return Promise.resolve();
-      },
-    },
-  });
-  assert.strictEqual(responseBodyCancelled, true);
+  const rawUserId = '123456789012345678';
+  const rawRequestId = '987654321098765432';
+  const profileAttachment = Buffer.alloc(600, 1);
+  const updateAttachment = Buffer.alloc(100, 2);
+  const finalAttachment = Buffer.alloc(50, 3);
+  const uploadLines = [];
+  let responseBodiesCancelled = 0;
+  const originalLog = console.log;
+  console.log = (...args) => {
+    const line = args.join(' ');
+    if (line.startsWith('[discord-upload] ')) uploadLines.push(line);
+    else originalLog(...args);
+  };
+  try {
+    withNetworkContext({
+      command: 'profile',
+      surface: 'slash',
+      phase: 'final',
+      userId: rawUserId,
+      interactionId: rawRequestId,
+    }, () => {
+      tagDiscordAttachmentBuffer(profileAttachment, { imageType: 'profile', phase: 'start' });
+      tagDiscordAttachmentBuffer(updateAttachment, { imageType: 'battle_frame', phase: 'update' });
+      tagDiscordAttachmentBuffer(finalAttachment, { imageType: 'profile_result', phase: 'final' });
+      const request = {
+        method: 'post',
+        route: `/channels/${rawRequestId}/messages`,
+        data: {
+          body: { content: 'ok' },
+          files: [
+            { name: `profile-${rawUserId}.webp`, data: profileAttachment },
+            { name: `battle-${rawUserId}.webp`, data: updateAttachment },
+            { name: `result-${rawUserId}.webp`, data: finalAttachment },
+          ],
+        },
+      };
+      const response = (ok, status) => ({
+        ok,
+        status,
+        headers: { get: () => '80' },
+        body: {
+          cancel: () => {
+            responseBodiesCancelled += 1;
+            return Promise.resolve();
+          },
+        },
+      });
+      recordDiscordRestResponse({ ...request, retries: 0 }, response(false, 503));
+      recordDiscordRestResponse({ ...request, retries: 1 }, response(true, 200));
+    });
+  } finally {
+    console.log = originalLog;
+  }
+  assert.strictEqual(responseBodiesCancelled, 2);
+  assert.strictEqual(uploadLines.length, 6, 'each attachment attempt/retry should emit one upload event');
+  assert.ok(uploadLines.every((line) => !line.includes(rawUserId) && !line.includes(rawRequestId)), 'upload logs must not contain raw snowflakes');
+  const uploadEvents = uploadLines.map((line) => JSON.parse(line.slice('[discord-upload] '.length)));
+  const initialFailure = uploadEvents.find((event) => event.phase === 'initial' && event.status === 503);
+  const initialSuccess = uploadEvents.find((event) => event.phase === 'initial' && event.status === 200);
+  const intermediateSuccess = uploadEvents.find((event) => event.phase === 'intermediate' && event.status === 200);
+  const finalSuccess = uploadEvents.find((event) => event.phase === 'final' && event.status === 200);
+  assert.ok(initialFailure && initialSuccess && intermediateSuccess && finalSuccess);
+  assert.strictEqual(initialFailure.uploadIndex, 1);
+  assert.strictEqual(initialFailure.uploadCount, 3);
+  assert.strictEqual(initialFailure.retry, 0);
+  assert.strictEqual(initialSuccess.retry, 1);
+  assert.strictEqual(initialFailure.duplicateBuffer, false);
+  assert.strictEqual(initialSuccess.duplicateBuffer, true);
+  assert.strictEqual(initialFailure.fingerprint, initialSuccess.fingerprint);
+  assert.strictEqual(initialFailure.surface, 'slash');
+  assert.match(initialFailure.userHash, /^[a-f0-9]{16}$/);
+  assert.match(initialFailure.correlationId, /^[a-f0-9]{16}$/);
+  assert.ok(initialFailure.filename.includes('{id}'));
+  assert.ok(initialFailure.route.includes(':id'));
+  assert.strictEqual(intermediateSuccess.uploadIndex, 2);
+  assert.strictEqual(finalSuccess.uploadIndex, 3);
   const end = beginActivity('battle.raid');
   end();
 
@@ -99,13 +162,20 @@ async function main() {
   assert.strictEqual(first.interval.assetCache.profile.bufferCoalesced, 1);
   assert.strictEqual(first.interval.assetCacheByCommand.profile.bufferCoalesced, 1);
   assert.strictEqual(first.interval.assetDownloadsByCommand.profile.bytes, 1200);
+  assert.strictEqual(first.interval.r2Reads.get.bytes, 4);
+  assert.strictEqual(first.interval.r2ReadsByCommand.raid.bytes, 4);
   assert.strictEqual(first.interval.canvasCache.profile.memoryHits, 1);
   assert.strictEqual(first.interval.canvasCache['profile.coalesced'].inflightHits, 1);
   assert.strictEqual(first.interval.r2Uploads['raid.battle_frame'].confirmedBytes, 2400);
-  assert.strictEqual(first.interval.discordAttachmentsByCommand.profile.confirmedBytes, 600);
+  assert.strictEqual(first.interval.discordAttachmentsByCommand.profile.confirmedBytes, 750);
+  assert.strictEqual(first.interval.discordAttachmentsByCommand.profile.attemptedBytes, 1500);
+  assert.strictEqual(first.interval.discordAttachmentsByCommand.profile.duplicateAttempts, 3);
+  assert.strictEqual(first.interval.discordAttachmentsByCommandPhase['profile.initial'].confirmedBytes, 600);
+  assert.strictEqual(first.interval.discordAttachmentsByCommandPhase['profile.intermediate'].confirmedBytes, 100);
+  assert.strictEqual(first.interval.discordAttachmentsByCommandPhase['profile.final'].confirmedBytes, 50);
   assert.strictEqual(first.interval.discordAttachmentsByFilenameCategory.profile.confirmedBytes, 600);
-  assert.strictEqual(first.interval.discordRest.messages.requestBytes, 16);
-  assert.strictEqual(first.interval.discordRest.messages.responseBytes, 80);
+  assert.strictEqual(first.interval.discordRest.messages.requestBytes, 32);
+  assert.strictEqual(first.interval.discordRest.messages.responseBytes, 160);
   assert.strictEqual(first.total.activities['battle.raid'].active, 0);
   assert.strictEqual(first.total.activities['battle.raid'].completed, 1);
 
@@ -114,6 +184,7 @@ async function main() {
   assert.strictEqual(second.interval.assetDownloads.profile.bytes, 25);
   assert.strictEqual(second.interval.r2Uploads['raid.battle_frame'].confirmedBytes, 0);
   assert.strictEqual(second.interval.discordAttachmentsByCommand.profile.confirmedBytes, 0);
+  assert.strictEqual(second.interval.discordAttachmentsByCommandPhase['profile.final'].confirmedBytes, 0);
   assert.strictEqual(second.interval.discordAttachmentsByFilenameCategory.profile.confirmedBytes, 0);
 
   const third = takeNetworkTelemetrySnapshot();
@@ -123,6 +194,58 @@ async function main() {
   const bounded = takeNetworkTelemetrySnapshot();
   assert.strictEqual(Object.keys(bounded.total.assetDownloads).length, 64);
   assert.ok(bounded.total.assetDownloads.other, 'overflow counters should share the reserved other key');
+
+  const rendererLines = [];
+  console.log = (...args) => {
+    const line = args.join(' ');
+    if (line.startsWith('[renderer-memory] ')) rendererLines.push(line);
+    else originalLog(...args);
+  };
+  try {
+    await withNetworkContext({
+      command: 'stats', surface: 'slash', phase: 'final', userId: rawUserId, interactionId: rawRequestId,
+    }, async () => {
+      await withImageWorkSlot('stats', async () => Buffer.alloc(16), { userId: rawUserId });
+      const canvas = createCanvas(16, 16);
+      canvas.getContext('2d').fillRect(0, 0, 16, 16);
+      encodeCanvas(canvas);
+    });
+  } finally {
+    console.log = originalLog;
+  }
+  assert.strictEqual(rendererLines.length, 2);
+  assert.ok(rendererLines.every((line) => !line.includes(rawUserId) && !line.includes(rawRequestId)));
+  const rendererEvents = rendererLines.map((line) => JSON.parse(line.slice('[renderer-memory] '.length)));
+  const rendererEvent = rendererEvents.find((event) => event.kind !== 'canvas-lifecycle');
+  const canvasEvent = rendererEvents.find((event) => event.kind === 'canvas-lifecycle');
+  assert.ok(rendererEvent && canvasEvent, 'queue and raw Canvas lifecycles must both be bracketed');
+  assert.strictEqual(rendererEvent.command, 'stats');
+  assert.strictEqual(rendererEvent.phase, 'final');
+  for (const field of ['rss', 'external', 'arrayBuffers', 'nativeGapEstimate']) {
+    assert.ok(Number.isFinite(rendererEvent.before[field]), `renderer before.${field} missing`);
+    assert.ok(Number.isFinite(rendererEvent.after[field]), `renderer after.${field} missing`);
+    assert.ok(Number.isFinite(rendererEvent.delta[field]), `renderer delta.${field} missing`);
+  }
+  assert.strictEqual(canvasEvent.command, 'stats');
+  assert.strictEqual(canvasEvent.width, 16);
+  assert.strictEqual(canvasEvent.height, 16);
+  assert.ok(canvasEvent.renderer.includes('network-telemetry-selftest.js'));
+  for (const field of ['rss', 'external', 'arrayBuffers', 'nativeGapEstimate']) {
+    assert.ok(Number.isFinite(canvasEvent.before[field]), `canvas before.${field} missing`);
+    assert.ok(Number.isFinite(canvasEvent.after[field]), `canvas after.${field} missing`);
+    assert.ok(Number.isFinite(canvasEvent.lifetimeDelta[field]), `canvas lifetimeDelta.${field} missing`);
+  }
+
+  assert.strictEqual(resourceLogIntervalMs(), 300_000);
+  assert.strictEqual(normalizePhase('spawn'), 'initial');
+  assert.strictEqual(normalizePhase('snapshot'), 'final');
+  process.env.RESOURCE_LOG_INTERVAL_MS = '600000';
+  assert.strictEqual(resourceLogIntervalMs(), 300_000, 'stale 10-minute interval must clamp to five minutes');
+  process.env.RESOURCE_LOG_INTERVAL_MS = '120000';
+  assert.strictEqual(resourceLogIntervalMs(), 120_000, 'shorter monitoring intervals remain allowed');
+  process.env.RESOURCE_LOG_INTERVAL_MS = '1';
+  assert.strictEqual(resourceLogIntervalMs(), 60_000, 'diagnostic cadence must retain a production-safe floor');
+  delete process.env.RESOURCE_LOG_INTERVAL_MS;
 
   const socket = new EventEmitter();
   socket.bytesRead = 900;

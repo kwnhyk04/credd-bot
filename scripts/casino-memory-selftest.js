@@ -3,6 +3,7 @@
 process.env.ASSET_BASE_URL = '';
 process.env.PERFORMANCE_LOGS = 'false';
 process.env.BANDWIDTH_LOGS = 'false';
+process.env.RESOURCE_LOGS = 'false';
 
 const { SUITS, RANKS } = require('../src/casino/cardDeck');
 const { cardStrip, getCasinoCanvasCacheStats } = require('../src/casino/casinoCanvas');
@@ -26,6 +27,10 @@ async function main() {
   } finally {
     console.log = originalLog;
   }
+
+  // Let the production idle debounce release Skia's process-wide resource
+  // cache before measuring the steady light-use state.
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
 
   if (typeof global.gc === 'function') {
     global.gc();

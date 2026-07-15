@@ -239,7 +239,13 @@ const INTERACTION_COMMANDS = {
 function handleInteraction(interaction) {
   const namespace = String(interaction?.customId || '').split(':')[0].toLowerCase();
   const command = INTERACTION_COMMANDS[namespace] || namespace || 'interaction';
-  return withNetworkContext({ command }, () => handleInteractionInner(interaction));
+  return withNetworkContext({
+    command,
+    surface: 'component',
+    phase: 'intermediate',
+    userId: interaction?.user?.id,
+    interactionId: interaction?.id,
+  }, () => handleInteractionInner(interaction));
 }
 
 module.exports = { handleInteraction };

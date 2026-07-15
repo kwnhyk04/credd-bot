@@ -68,11 +68,21 @@ async function r2Request(method, key, body = null, contentType = null) {
   });
 }
 
+async function cancelResponseBody(response) {
+  try {
+    const cancellation = response?.body?.cancel?.();
+    if (cancellation && typeof cancellation.then === 'function') await cancellation;
+  } catch {
+    // R2 PUT/DELETE response bodies are not consumed; ignore absent/locked bodies.
+  }
+}
+
 /** PUT an object. Returns true on success, false otherwise (never throws). */
 async function putObject(key, buffer, contentType, logContext = {}) {
   const bytes = Buffer.isBuffer(buffer) || buffer instanceof Uint8Array ? buffer.byteLength : 0;
+  let res = null;
   try {
-    const res = await r2Request('PUT', key, buffer, contentType);
+    res = await r2Request('PUT', key, buffer, contentType);
     recordR2Upload(logContext, bytes, res.ok);
     if (!res.ok) console.warn(`[r2Client] PUT ${key} → ${res.status}`);
     return res.ok;
@@ -80,13 +90,16 @@ async function putObject(key, buffer, contentType, logContext = {}) {
     recordR2Upload(logContext, bytes, false);
     console.warn(`[r2Client] PUT ${key} failed:`, err.message);
     return false;
+  } finally {
+    await cancelResponseBody(res);
   }
 }
 
 /** DELETE an object. Returns true on success or already-gone (never throws). */
 async function deleteObject(key, logContext = {}) {
+  let res = null;
   try {
-    const res = await r2Request('DELETE', key);
+    res = await r2Request('DELETE', key);
     const ok = res.ok || res.status === 404;
     recordR2Delete(logContext, ok);
     return ok;
@@ -94,6 +107,8 @@ async function deleteObject(key, logContext = {}) {
     recordR2Delete(logContext, false);
     console.warn(`[r2Client] DELETE ${key} failed:`, err.message);
     return false;
+  } finally {
+    await cancelResponseBody(res);
   }
 }
 

@@ -1,9 +1,11 @@
 'use strict';
 
 const { envBool, performanceLog } = require('./runtimeLogs');
-const { registerMemorySource } = require('./memoryRegistry');
-
-let releasedCanvases = 0;
+const {
+  canvasMemoryPoint,
+  markCanvasReleased,
+  scheduleCanvasNativeCacheClear,
+} = require('./imageRuntime');
 
 function fastOpaqueEncodeEnabled() {
   return envBool('IMAGE_FAST_OPAQUE_ENCODE', false);
@@ -19,14 +21,18 @@ function fillOpaqueBackground(canvas, background) {
 }
 
 function releaseCanvas(canvas) {
-  if (!canvas) return;
+  if (!canvas) return false;
+  const beforeRelease = envBool('RESOURCE_LOGS', true) ? canvasMemoryPoint() : null;
   try {
     // Resizing drops the native surface because the canvas library has no dispose method.
     canvas.width = 1;
     canvas.height = 1;
-    releasedCanvases += 1;
+    markCanvasReleased(canvas, beforeRelease);
+    scheduleCanvasNativeCacheClear();
+    return true;
   } catch {
     // The completed encode remains valid if dimensions cannot be changed.
+    return false;
   }
 }
 
@@ -73,9 +79,5 @@ function encodeOpaqueCanvas(canvas, logContext = {}, { background = '#1f2125' } 
     releaseCanvas(canvas);
   }
 }
-
-registerMemorySource('native.canvas', () => ({
-  releasedCanvases,
-}));
 
 module.exports = { encodeCanvas, encodeOpaqueCanvas, fastOpaqueEncodeEnabled, releaseCanvas };
