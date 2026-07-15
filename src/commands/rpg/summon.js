@@ -131,18 +131,14 @@ async function execute(message, { args }) {
     if (haveFlip) {
       sent = await reply(message, await buildFlipMessage(flipPath, logContext));
       await sleep(flipMs); // flip plays per-skin duration (default 4s; founder_summon = 7s)
-      // A local suspense GIF already has a Discord CDN URL. Keep that original
-      // attachment by ID and reuse its URL in the final components; this
-      // preserves the animation without uploading the bytes a second time.
-      const existingAnimation = [...(sent.attachments?.values?.() || [])]
-        .find((attachment) => /^summonflip\./i.test(attachment.name || ''));
+      // The tester/equipped animation is suspense-only. Clear any local
+      // attachment when the final result replaces the phase-one components.
       await sent.edit({
         ...(await buildResultMessage(results, balances, {
           flipPath,
-          animationUrl: existingAnimation?.url || null,
           logContext,
         })),
-        attachments: existingAnimation?.id ? [{ id: existingAnimation.id }] : [],
+        attachments: [],
       });
     } else {
       // card_flip.gif not on disk — skip the suspense phase.

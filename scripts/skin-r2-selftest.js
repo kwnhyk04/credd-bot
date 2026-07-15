@@ -282,20 +282,20 @@ async function main() {
   const remoteResult = await buildResultMessage(summonResults, summonBalances, { flipPath: summon.path });
   const remoteResultJson = JSON.stringify(remoteResult.components.map((component) => component.toJSON()));
   assert.deepEqual(remoteResult.files, [], 'remote summon media must never become a bot attachment');
-  assert.ok(remoteResultJson.includes(summon.path), 'final summon result should reuse the zero-upload remote media URL');
+  assert.ok(remoteResultJson.includes('## ✨ Invocation Complete'), 'final image-skin header presentation must be preserved');
+  assert.ok(!remoteResultJson.includes(summon.path), 'remote summon animation must disappear from the final result');
 
   const localFlip = path.join(__dirname, '..', 'assets', 'skins', 'founder', 'founder_summon.webp');
-  const existingAnimationUrl = 'https://cdn.discordapp.com/attachments/test/summonflip.webp';
   const localResult = await buildResultMessage(summonResults, summonBalances, {
     flipPath: localFlip,
-    animationUrl: existingAnimationUrl,
   });
   const localResultJson = JSON.stringify(localResult.components.map((component) => component.toJSON()));
   assert.deepEqual(localResult.files, [], 'local summon animation must not be loaded or uploaded in the final edit');
-  assert.ok(localResultJson.includes(existingAnimationUrl), 'final summon result should reuse the initial Discord attachment URL');
+  assert.ok(!localResultJson.includes('summonflip.'), 'local summon attachment must not be referenced by the final result');
   const summonCommandSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'commands', 'rpg', 'summon.js'), 'utf8');
-  assert.ok(/existingAnimation\?\.url/.test(summonCommandSource));
-  assert.ok(/attachments:\s*existingAnimation\?\.id\s*\?\s*\[\{ id: existingAnimation\.id \}\]/.test(summonCommandSource));
+  const summonRendererSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'engine', 'renderSummon.js'), 'utf8');
+  assert.ok(/attachments:\s*\[\]/.test(summonCommandSource), 'final summon edit must clear suspense attachments');
+  assert.ok(!/existingAnimation|animationUrl/.test(`${summonCommandSource}\n${summonRendererSource}`), 'summon result must not retain suspense media');
 
   // Store summon skins must resolve to uploaded Discord emojis without probing source GIFs.
   const { db: summonDb, cosmetic } = storeSummonDb();

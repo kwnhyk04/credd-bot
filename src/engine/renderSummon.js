@@ -233,13 +233,12 @@ async function renderSummonGrid(results) {
  *  · An equipped summon skin that resolves to an image asset (e.g. a tester's
  *    `testers/<id>/summon.gif`, R2 URL) shows the header line `## ✨ <title>`
  *    followed by the GIF as a MediaGallery — remote URLs cost no bot egress; a
- *    local file is attached. Remote or retained Discord media remains in the
- *    result without a second upload; a missing retained attachment falls back
- *    to reattaching the local animation so presentation is unchanged.
+ *    local file is attached. Result messages omit the animation so suspense
+ *    media disappears when the summon outcome replaces it.
  *  · Otherwise the header is a single line — animated emoji + title together
  *    (`## <emoji> <title>`). flipPath → the skin's flip emoji; else headerEmoji
  *    (relic-open path); else the default card_flip emoji. Never throws.
- * @param {{ flipPath?: string|null, headerEmoji?: string|null, title: string, separateMedia?: boolean, includeAnimation?: boolean, animationUrl?: string|null }} o
+ * @param {{ flipPath?: string|null, headerEmoji?: string|null, title: string, separateMedia?: boolean, includeAnimation?: boolean }} o
  * @returns {Promise<Array>} files to attach (empty unless a local gif was used)
  */
 async function addSummonHeader(container, {
@@ -248,17 +247,20 @@ async function addSummonHeader(container, {
   title,
   separateMedia = false,
   includeAnimation = true,
-  animationUrl = null,
   logContext = {},
 }) {
   const isImage = typeof flipPath === 'string'
     && ['gif', 'webp', 'png', 'jpg', 'jpeg'].includes(assetExtension(flipPath, ''));
-  if (isImage && includeAnimation) {
+  if (isImage && !includeAnimation) {
+    container.addTextDisplayComponents((td) => td.setContent('## ✨ ' + title));
+    return [];
+  }
+  if (isImage) {
     try {
       container.addTextDisplayComponents((td) => td.setContent('## ✨ ' + title));
       if (separateMedia) container.addSeparatorComponents(sep);
-      if (animationUrl || isRemoteSource(flipPath)) {
-        container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(animationUrl || flipPath)));
+      if (isRemoteSource(flipPath)) {
+        container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(flipPath)));
         return [];
       }
       const name = `summonflip.${assetExtension(flipPath, 'gif')}`;
@@ -326,16 +328,14 @@ async function buildResultMessage(results, balances, opts = {}) {
     .map((r) => `${RARITY_SYMBOLS[r]} ${r} x**${counts[r]}**`)
     .join(' - ');
 
-  // Reuse a remote/existing Discord URL when available. If Discord did not
-  // return the expected suspense attachment, reattach the local animation so
-  // the final presentation never silently loses it.
+  // The animation is suspense-only. The result keeps the equipped summon
+  // emoji in its header, but omits both remote media and local attachments.
   const container = new ContainerBuilder().setAccentColor(ACCENT);
   const files = await addSummonHeader(container, {
     flipPath: opts.flipPath,
     headerEmoji: opts.headerEmoji,
     title: `Invocation Complete\n*${FLAVOR[results.length] ?? FLAVOR[10]}*`,
-    includeAnimation: true,
-    animationUrl: opts.animationUrl,
+    includeAnimation: false,
     logContext: { ...(opts.logContext || {}), phase: 'final' },
   });
   container
