@@ -70,7 +70,8 @@ const { registerMemorySource } = require('../utils/memoryRegistry');
 const { beginActivity } = require('../utils/networkTelemetry');
 const { bossFeatTitlesFor } = require('../config/titles');
 const {
-  isGreaterBoss, bossRewards, rollBossChest, pickWeightedBoss,
+  isGreaterBoss, bossRewards, rollBossChest, hpMultiplierForChest,
+  inferChestFromGreaterHp, pickWeightedBoss,
   MAX_BOSS_ATTACKS_PER_DAY, bossAttackDecision,
 } = require('../config/bosses');
 const {
@@ -117,9 +118,9 @@ const pendingBossRefreshes = new Map(); // guildId -> { timer, spawnId }
 const lastBossReconciliations = new Map(); // guildId -> last scheduler reconciliation attempt
 const nonOfficialRedirects = new Map(); // guildId -> ms of last redirect notice
 const lastBossStatusUrls = new Map(); // guildId -> { spawnId, url }
-// [v4.6] Greater Boss chest rolled ONCE at spawn, keyed by spawn_id — the single source of
-// truth shared by the announcement and the defeat payout (they can never disagree). In-memory
-// only (no schema change); a restart loses it and chestForSpawn re-rolls for that spawn.
+// Greater Boss chest rolled once at spawn, keyed by spawn_id. After a restart,
+// chestForSpawn reconstructs the outcome from persisted max_hp before falling
+// back to a roll for legacy spawns that predate chest-linked HP.
 const greaterChests = new Map(); // spawnId → { column, qty, label }
 // spawn_ids created by `crd dev spawnboss` — the daily attack rule is BYPASSED
 // for these (multi-attack smoke testing). Regular scheduler
@@ -314,9 +315,14 @@ function clearBossRuntimeForGuild(guildId, reason = 'guild-removed') {
  * Normal bosses → deterministic 1× Boss Treasure Chest. Greater bosses → rolled 80/20 ONCE
  * and cached by spawn_id, so every read (announcement, every attacker's payout) is identical.
  */
-function chestForSpawn(spawnId, bossName) {
+function chestForSpawn(spawnId, bossName, { baseHp = null, maxHp = null } = {}) {
   if (!isGreaterBoss(bossName)) return rollBossChest(bossName, Math.random); // fixed 1× treasure
-  if (!greaterChests.has(spawnId)) greaterChests.set(spawnId, rollBossChest(bossName, Math.random));
+  if (!greaterChests.has(spawnId)) {
+    greaterChests.set(
+      spawnId,
+      inferChestFromGreaterHp(baseHp, maxHp) || rollBossChest(bossName, Math.random)
+    );
+  }
   return greaterChests.get(spawnId);
 }
 
@@ -686,7 +692,10 @@ async function fetchBossView(guildId) {
   const state = stateRes.rows[0];
   const [mobRes, atkRes, countRes] = await Promise.all([
     pool.query(
-      `SELECT mob_id, name, mythology, base_crit, skill_name, skill_description
+      `SELECT mob_id, name, mythology,
+              base_hp, hp_per_level, base_atk, atk_per_level,
+              base_def, def_per_level, base_crit,
+              skill_name, skill_description
          FROM mob_roster
         WHERE mob_id = $1`,
       [state.mob_id]
@@ -856,7 +865,11 @@ async function buildBossMessage(view, {
   const shardIcon = emojiForDisplay('Belief Shards', '🔮');
   // [v4.6] Greater chest is rolled ONCE at spawn — show the ACTUAL chest this fight awards
   // (not the 80/20 rule), keyed off the same source the payout uses so they never disagree.
-  const spawnChest = chestForSpawn(state.spawn_id, mobRow.name);
+  const baseBossHp = computeBossStats(mobRow, Number(state.boss_level)).hp;
+  const spawnChest = chestForSpawn(state.spawn_id, mobRow.name, {
+    baseHp: baseBossHp,
+    maxHp: state.max_hp,
+  });
   const spawnChestIcon = spawnChest.column === 'boss_golden_chest' ? goldChestIcon : chestIcon;
   // [v4.8] drop the "(this fight)" qualifier — redundant; rewards are understood to be this boss's.
   const chestLine = `${spawnChestIcon} ${spawnChest.label} ×${spawnChest.qty}`;
@@ -1276,18 +1289,21 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
   // exempt; that clamp governs raid mobs only). Defensive floor at 1.
   const level = Math.max(1, Math.round(Number(avg)) + 1 + Math.floor(Math.random() * 10));
   const stats = computeBossStats(row, level);
-  // Roll a Greater chest once at spawn so the announcement and payout share
-  // the same outcome. Chest rarity no longer changes HP; Greater stats are
-  // authored explicitly in mob_roster just like normal boss stats.
+  // Roll a Greater chest once at spawn so HP, announcement, and payout share
+  // the same outcome. Only Greater max HP is adjusted: 2× Treasure => 1.5× HP,
+  // 1× Golden => 2× HP. ATK, DEF, and CRIT remain direct database values.
   const spawnChest = greater ? rollBossChest(row.name, Math.random) : null;
-  const maxHp = stats.hp;
+  const hpMultiplier = greater ? hpMultiplierForChest(spawnChest) : 1;
+  const maxHp = Math.floor(stats.hp * hpMultiplier);
   performanceLog('boss stats resolved from database', {
     system: 'boss',
     command: 'boss',
     imageType: 'boss_status',
     guildId,
-    source: 'mob_roster',
+    source: greater ? 'mob_roster+greater-chest-hp' : 'mob_roster',
     greater,
+    multiplier: hpMultiplier,
+    reason: spawnChest ? `${spawnChest.column}:x${spawnChest.qty}` : 'normal',
     bossLevel: level,
     baseHp: Number(row.base_hp),
     hpPerLevel: Number(row.hp_per_level),
@@ -1321,8 +1337,8 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
   );
   if (ins.rows.length === 0) return false; // lost the race / cooldown not over
 
-  // Stash the chest against the new spawn_id so announcement and payout use
-  // the same outcome without re-rolling. It does not affect boss stats.
+  // Stash the chest against the new spawn_id so HP, announcement, and payout
+  // keep the same outcome without re-rolling.
   if (spawnChest) greaterChests.set(ins.rows[0].spawn_id, spawnChest);
 
   if (force) devSpawns.add(ins.rows[0].spawn_id); // test boss: attack rules bypassed
@@ -1368,7 +1384,7 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
     const flip = await dbc.query(
       `UPDATE boss_state SET status = 'dead', expires_at = NOW()
         WHERE guild_id = $1 AND spawn_id = $2 AND status = 'active' AND current_hp <= 0
-        RETURNING mob_id`,
+        RETURNING mob_id, boss_level, max_hp`,
       [guildId, spawnId]
     );
     if (flip.rows.length === 0) {
@@ -1376,14 +1392,22 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
       return null; // already distributed (or boss not actually down)
     }
 
-    // [v4.4] reward bundle + chest keyed off the boss's greater-ness (config/bosses —
-    // the SAME source the announcement reads, so they never disagree). The Greater
-    // chest is rolled ONCE here; every attacker receives the same outcome.
-    const nameRes = await dbc.query('SELECT name FROM mob_roster WHERE mob_id = $1', [flip.rows[0].mob_id]);
-    const bossName = nameRes.rows[0]?.name || '';
+    // Reward bundle + chest keyed off the boss's Greater identity. The chest was
+    // fixed at spawn; after restart it is recovered from persisted max_hp.
+    const mobRes = await dbc.query(
+      `SELECT name, base_hp, hp_per_level, base_atk, atk_per_level,
+              base_def, def_per_level, base_crit
+         FROM mob_roster WHERE mob_id = $1`,
+      [flip.rows[0].mob_id]
+    );
+    const mobRow = mobRes.rows[0] || {};
+    const bossName = mobRow.name || '';
     reward = bossRewards(bossName);
     // [v4.6] the chest fixed at spawn — same outcome the announcement showed, paid to all.
-    chest = chestForSpawn(spawnId, bossName); // { column (whitelisted), qty, label }
+    chest = chestForSpawn(spawnId, bossName, {
+      baseHp: computeBossStats(mobRow, Number(flip.rows[0].boss_level)).hp,
+      maxHp: flip.rows[0].max_hp,
+    }); // { column (whitelisted), qty, label }
 
     const atk = await dbc.query(
       `SELECT discord_id FROM boss_attack_log

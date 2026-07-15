@@ -29,7 +29,8 @@ const {
 } = require(path.join(ROOT, 'src', 'engine', 'statAssembly'));
 const { applyCombatExp, EXP_REQUIRED, MAX_COMBAT_LEVEL } = require(path.join(ROOT, 'src', 'config', 'combatExp'));
 const {
-  GREATER_BOSSES, rollBossChest, pickWeightedBoss,
+  GREATER_BOSSES, rollBossChest, hpMultiplierForChest,
+  inferChestFromGreaterHp, pickWeightedBoss,
 } = require(path.join(ROOT, 'src', 'config', 'bosses'));
 
 // ── tiny test framework ─────────────────────────────────────────────────────
@@ -797,11 +798,23 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
   check('no lifetime per-spawn attack gate remains', !/SELECT attacks FROM boss_attack_log WHERE boss_spawn_id/.test(bossSource));
   check('boss spawn stats come directly from the mob_roster formula',
     /const stats = computeBossStats\(row, level\);/.test(bossSource)
-      && /const maxHp = stats\.hp;/.test(bossSource));
-  check('boss spawn path has no runtime stat multiplier',
-    !/scaledBossStats|bossStatMultiplier|bossAttackDefenseMultiplier|hpMultiplierForChest|BOSS_STAT_MULTIPLIER|BOSS_ATK_DEF_MULTIPLIER/.test(bossSource));
-  check('Greater configuration has no hidden HP multiplier',
-    !/GREATER_HP_MULTIPLIER|GREATER_HP_GOLDEN_MULTIPLIER|hpMultiplierForChest/.test(bossConfigSource));
+      && /const maxHp = Math\.floor\(stats\.hp \* hpMultiplier\);/.test(bossSource));
+  check('boss spawn path has no global or ATK/DEF stat multiplier',
+    !/scaledBossStats|bossStatMultiplier|bossAttackDefenseMultiplier|BOSS_STAT_MULTIPLIER|BOSS_ATK_DEF_MULTIPLIER/.test(bossSource)
+      && !/stats\.(?:atk|def|crit)\s*\*/.test(bossSource));
+  check('Greater HP multiplier follows the rolled chest only',
+    hpMultiplierForChest(rollBossChest('Jotun', () => 0.99)) === 1.5
+      && hpMultiplierForChest(rollBossChest('Jotun', () => 0)) === 2
+      && hpMultiplierForChest({ column: 'boss_treasure_chest', qty: 1 }) === 1
+      && inferChestFromGreaterHp(100, 150)?.column === 'boss_treasure_chest'
+      && inferChestFromGreaterHp(101, 202)?.column === 'boss_golden_chest'
+      && inferChestFromGreaterHp(100, 100) === null
+      && /const hpMultiplier = greater \? hpMultiplierForChest\(spawnChest\) : 1;/.test(bossSource)
+      && /GREATER_TREASURE_HP_MULTIPLIER\s*=\s*1\.5/.test(bossConfigSource)
+      && /GREATER_GOLDEN_HP_MULTIPLIER\s*=\s*2/.test(bossConfigSource));
+  check('Greater chest outcome is recoverable from persisted max HP after restart',
+    /inferChestFromGreaterHp\(baseHp, maxHp\) \|\| rollBossChest/.test(bossSource)
+      && /RETURNING mob_id, boss_level, max_hp/.test(bossSource));
   check('Greater identity and chest rewards remain configured',
     GREATER_BOSSES.size === 5
       && rollBossChest('Jotun', () => 0).column === 'boss_golden_chest'
