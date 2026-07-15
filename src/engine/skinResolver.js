@@ -89,24 +89,58 @@ async function resolveOverride(relPath, category, variant) {
 async function resolveSummonAnimation(db, userId) {
   const resolved = await resolveSkin(db, userId, 'summon');
   if (!resolved.path || resolved.cosmetic?.is_base) {
-    return { path: null, source: 'default', cosmetic: resolved.cosmetic || null };
+    return {
+      path: 'card_flip',
+      source: 'default',
+      cosmetic: resolved.cosmetic || null,
+      kind: 'emoji',
+      emojiKey: 'card_flip',
+      mediaPath: null,
+    };
   }
 
-  // Store summon cosmetics render their uploaded Discord emoji instead of the source animation.
   const cosmeticKey = String(resolved.cosmetic?.cosmetic_key || '');
-  if (/_s\d+$/i.test(cosmeticKey)) {
-    return { ...resolved, path: cosmeticKey, source: 'equipped-emoji' };
+  const overridePath = String(resolved.overridePath || '').replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
+  const testerMedia = cosmeticKey.toLowerCase().startsWith('tester_')
+    || resolved.source === 'beta'
+    || overridePath === 'testers'
+    || overridePath.startsWith('testers/');
+
+  // Full-size summon media is reserved for tester sets. Every other equipped
+  // catalog skin is represented by its uploaded Discord header emoji, including
+  // founder and future keys that do not follow the historical `_sN` suffix.
+  if (!testerMedia) {
+    const emojiKey = cosmeticKey || 'card_flip';
+    return {
+      ...resolved,
+      path: emojiKey,
+      source: cosmeticKey ? 'equipped-emoji' : 'override-emoji',
+      kind: 'emoji',
+      emojiKey,
+      mediaPath: null,
+    };
   }
 
   if (isRemoteSource(resolved.path)) {
     const rel = relativeAssetPath(resolved.path);
     if (!rel || !(await remoteAssetAvailable(rel))) {
-      return { path: null, source: 'default', cosmetic: resolved.cosmetic || null };
+      return {
+        path: 'card_flip', source: 'default', cosmetic: resolved.cosmetic || null,
+        kind: 'emoji', emojiKey: 'card_flip', mediaPath: null,
+      };
     }
   } else if (!assetExistsSync(resolved.path)) {
-    return { path: null, source: 'default', cosmetic: resolved.cosmetic || null };
+    return {
+      path: 'card_flip', source: 'default', cosmetic: resolved.cosmetic || null,
+      kind: 'emoji', emojiKey: 'card_flip', mediaPath: null,
+    };
   }
-  return resolved;
+  return {
+    ...resolved,
+    kind: 'tester-media',
+    emojiKey: null,
+    mediaPath: resolved.path,
+  };
 }
 
 /** Pull the right *_filename off a catalog row for the category/variant. */
@@ -133,7 +167,7 @@ async function resolveSkin(db, userId, category, opts = {}) {
   // 1. override_path
   if (eq && eq.override_path) {
     const p = await resolveOverride(eq.override_path, category, variant);
-    if (p) return { path: p, source: 'override', cosmetic: null };
+    if (p) return { path: p, source: 'override', cosmetic: null, overridePath: eq.override_path };
   }
 
   // 2. equipped catalog cosmetic

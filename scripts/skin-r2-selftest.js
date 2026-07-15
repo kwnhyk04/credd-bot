@@ -121,7 +121,7 @@ const {
   clearResultBaseCache,
   getResultBaseCacheStats,
 } = require('../src/engine/resultLayoutRenderer');
-const { buildFlipMessage, buildResultMessage } = require('../src/engine/renderSummon');
+const { buildFlipMessage, buildResultMessage, summonFlipEmoji } = require('../src/engine/renderSummon');
 const {
   avatarImageSourceCandidates,
   loadAvatarAsset,
@@ -131,11 +131,11 @@ function expectedUrl(key) {
   return `${BASE_URL}/${key}?v=${encodeURIComponent(VERSION)}`;
 }
 
-function overrideDb() {
+function overrideDb(overridePath = OVERRIDE_FOLDER) {
   const rows = ['profile', 'battle', 'battle_result', 'summon'].map((category) => ({
     category,
     cosmetic_id: null,
-    override_path: OVERRIDE_FOLDER,
+    override_path: overridePath,
   }));
   return {
     async query(sql) {
@@ -146,7 +146,7 @@ function overrideDb() {
   };
 }
 
-function storeSummonDb() {
+function storeSummonDb(overrides = {}) {
   const cosmetic = {
     cosmetic_id: 44,
     cosmetic_key: 'c_rune_glow_s1',
@@ -162,6 +162,7 @@ function storeSummonDb() {
     defeated_filename: null,
     is_active: true,
     skin_code: 's1',
+    ...overrides,
   };
   return {
     cosmetic,
@@ -242,6 +243,8 @@ async function main() {
   assert.equal(profile.source, 'override');
   assert.equal(stats.source, 'profile-override');
   assert.equal(summon.source, 'override');
+  assert.equal(summon.kind, 'tester-media');
+  assert.equal(summon.mediaPath, summon.path);
 
   // Verify profile and stats share one decoded custom R2 background.
   const profileImage = await loadCachedImage(profile.path);
@@ -272,14 +275,22 @@ async function main() {
   }
 
   // A version query must not make a remote WebP look like a non-image token.
-  const mediaPayload = await buildFlipMessage(summon.path);
+  const blockedMediaPayload = await buildFlipMessage(summon.path);
+  const blockedMediaJson = JSON.stringify(blockedMediaPayload.components.map((component) => component.toJSON()));
+  assert.ok(!blockedMediaJson.includes(summon.path), 'image extension alone must never authorize summon media');
+  assert.deepEqual(blockedMediaPayload.files, []);
+
+  const mediaPayload = await buildFlipMessage(summon.path, {}, { allowMedia: true });
   const mediaJson = JSON.stringify(mediaPayload.components.map((component) => component.toJSON()));
   assert.ok(mediaJson.includes(summon.path), 'versioned summon URL should render as MediaGallery content');
   assert.deepEqual(mediaPayload.files, []);
 
   const summonResults = [{ name: 'Measured Deity', rarity: 'Remnant', isNew: true }];
   const summonBalances = { beliefShards: 100, sacredRelics: 2 };
-  const remoteResult = await buildResultMessage(summonResults, summonBalances, { flipPath: summon.path });
+  const remoteResult = await buildResultMessage(summonResults, summonBalances, {
+    flipPath: summon.path,
+    allowMedia: true,
+  });
   const remoteResultJson = JSON.stringify(remoteResult.components.map((component) => component.toJSON()));
   assert.deepEqual(remoteResult.files, [], 'remote summon media must never become a bot attachment');
   assert.ok(remoteResultJson.includes('## ✨ Invocation Complete'), 'final image-skin header presentation must be preserved');
@@ -292,6 +303,7 @@ async function main() {
   const localResultJson = JSON.stringify(localResult.components.map((component) => component.toJSON()));
   assert.deepEqual(localResult.files, [], 'local summon animation must not be loaded or uploaded in the final edit');
   assert.ok(!localResultJson.includes('summonflip.'), 'local summon attachment must not be referenced by the final result');
+  assert.ok(localResultJson.includes(summonFlipEmoji(localFlip)), 'non-tester image paths must use the usual header emoji');
   const summonCommandSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'commands', 'rpg', 'summon.js'), 'utf8');
   const summonRendererSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'engine', 'renderSummon.js'), 'utf8');
   assert.ok(/attachments:\s*\[\]/.test(summonCommandSource), 'final summon edit must clear suspense attachments');
@@ -303,6 +315,8 @@ async function main() {
   const storeSummon = await resolveSummonAnimation(summonDb, 'store-user');
   assert.equal(storeSummon.path, cosmetic.cosmetic_key);
   assert.equal(storeSummon.source, 'equipped-emoji');
+  assert.equal(storeSummon.kind, 'emoji');
+  assert.equal(storeSummon.mediaPath, null);
   assert.equal(
     networkCalls.filter((call) => call.method === 'HEAD').length,
     beforeStoreHeads,
@@ -312,6 +326,76 @@ async function main() {
   const emojiJson = JSON.stringify(emojiPayload.components.map((component) => component.toJSON()));
   assert.ok(emojiJson.includes('1523064836185915555'), 'equipped S1 skin should render the Rune Glow Discord emoji');
   assert.ok(!emojiJson.includes('supporter_store/card_flip'), 'emoji token must not become a broken media URL');
+  const emojiResult = await buildResultMessage(summonResults, summonBalances, { flipPath: storeSummon.emojiKey });
+  const emojiResultJson = JSON.stringify(emojiResult.components.map((component) => component.toJSON()));
+  assert.ok(emojiResultJson.includes('1523064836185915555'), 'equipped skin should also change the final header emoji');
+  assert.deepEqual(emojiResult.files, []);
+
+  // Tester catalog rows retain full suspense media, while founder, future, and
+  // raw non-tester image overrides are forced through header emojis.
+  const { db: testerCatalogDb } = storeSummonDb({
+    cosmetic_id: 45,
+    cosmetic_key: 'tester_123456789_summon',
+    render_filename: `${OVERRIDE_FOLDER}/founder_summon.webp`,
+    display_filename: `${OVERRIDE_FOLDER}/founder_summon.webp`,
+    skin_code: 'st1',
+  });
+  const testerCatalogSummon = await resolveSummonAnimation(testerCatalogDb, '123456789');
+  assert.equal(testerCatalogSummon.kind, 'tester-media');
+  assert.equal(testerCatalogSummon.path, summon.path);
+  const testerCatalogPayload = await buildFlipMessage(
+    testerCatalogSummon.mediaPath,
+    {},
+    { allowMedia: testerCatalogSummon.kind === 'tester-media' }
+  );
+  assert.ok(
+    JSON.stringify(testerCatalogPayload.components.map((component) => component.toJSON())).includes(summon.path),
+    'tester catalog summon should retain its full-size suspense media'
+  );
+
+  const { db: founderDb } = storeSummonDb({
+    cosmetic_id: 46,
+    cosmetic_key: 'founder_summon',
+    render_filename: 'founder/founder_summon.webp',
+    display_filename: 'founder/founder_summon.webp',
+    skin_code: 'sf',
+  });
+  const founderSummon = await resolveSummonAnimation(founderDb, 'founder-user');
+  assert.equal(founderSummon.kind, 'emoji');
+  assert.equal(founderSummon.path, 'founder_summon');
+  const founderPayload = await buildFlipMessage(founderSummon.emojiKey);
+  const founderJson = JSON.stringify(founderPayload.components.map((component) => component.toJSON()));
+  assert.ok(!founderJson.includes('founder_summon.webp'), 'founder summon must not render full-size media');
+  assert.deepEqual(founderPayload.files, []);
+
+  const { db: futureDb } = storeSummonDb({
+    cosmetic_id: 47,
+    cosmetic_key: 'rune_glow',
+    render_filename: 'future/nonstandard-summon-image.webp',
+    display_filename: 'future/nonstandard-summon-image.webp',
+    skin_code: 'future',
+  });
+  const beforeFutureHeads = networkCalls.filter((call) => call.method === 'HEAD').length;
+  const futureSummon = await resolveSummonAnimation(futureDb, 'future-user');
+  assert.equal(futureSummon.kind, 'emoji');
+  assert.equal(
+    networkCalls.filter((call) => call.method === 'HEAD').length,
+    beforeFutureHeads,
+    'emoji-only future skins must not probe their source image'
+  );
+  const futurePayload = await buildFlipMessage(futureSummon.emojiKey);
+  const futureJson = JSON.stringify(futurePayload.components.map((component) => component.toJSON()));
+  assert.ok(futureJson.includes('1523058975392661625'), 'future registered skin keys should change only the header emoji');
+  assert.ok(!futureJson.includes('nonstandard-summon-image.webp'));
+  assert.deepEqual(futurePayload.files, []);
+
+  const founderOverride = await resolveSummonAnimation(
+    overrideDb('founder/founder_summon.webp'),
+    'founder-override-user'
+  );
+  assert.equal(founderOverride.kind, 'emoji');
+  assert.equal(founderOverride.emojiKey, 'card_flip');
+  assert.ok(!/flipGifExists/.test(`${summonCommandSource}\n${summonRendererSource}`), 'header emoji suspense must not depend on a disk GIF');
 
   // Retain version queries while trying the historical `acher_*` R2 fallback.
   const canonicalAvatar = assetPath('skins/avatars/male/archer/archer_cyber.png');
