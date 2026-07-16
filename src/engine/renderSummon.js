@@ -3,17 +3,14 @@
  *
  * Exports:
  *   1. renderSummonGrid(results)            → PNG buffer of the card grid
- *   2. buildFlipMessage()                   → phase-1 payload (spinning card GIF)
+ *   2. buildFlipMessage()                   → phase-1 payload (header emoji/tester media)
  *   3. buildResultMessage(results, balances)→ phase-2 payload (full result container)
- *   4. flipGifExists()                      → guard: phase 1 needs the GIF on disk
- *
- * Flow in the command:  reply(buildFlipMessage()) → sleep(3000) →
+ * Flow in the command:  reply(buildFlipMessage()) → configured suspense delay →
  *                       edit(await buildResultMessage(results, balances))
  *
  * Requires: discord.js v14.19+, @napi-rs/canvas
  * Assets (relative to project root):
  *   assets/animations/gacha/card_remnant|awakened|undying|primordial.png  (rarity frames)
- *   assets/animations/gacha/card_flip.gif                                (phase-1 suspense)
  */
 
 const {
@@ -27,7 +24,6 @@ const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji, emojiForDisplay } = require('../utils/emojis');
 const {
   assetPath,
-  assetExistsSync,
   assetExtension,
   loadCachedBuffer,
   isRemoteSource,
@@ -49,8 +45,6 @@ const ALIAS_TO_ESSENCE = Object.fromEntries(
  * CONFIG
  * ══════════════════════════════════════════ */
 const ACCENT = 0xf0b232;
-// Anchored to the project root (this file is src/engine/), not process.cwd().
-const FLIP_GIF_PATH = assetPath('animations/gacha/card_flip.gif');
 // The 1024×1024 rarity frames live with the gacha animation assets (§35.7).
 
 const FRAME_FILES = {
@@ -95,11 +89,6 @@ const BG = '#0E0F13';
 const TEXT_Y = 0.30;        // fraction of card height for the name line
 const NAME_FONT_SCALE = 0.085;
 const RARITY_FONT_SCALE = 0.055;
-
-/** Phase 1 needs the flip GIF on disk — callers skip the flip when absent. */
-function flipGifExists() {
-  return assetExistsSync(FLIP_GIF_PATH);
-}
 
 async function loadAssetImage(source) {
   return loadAssetImageSource(loadImage, source);
@@ -230,17 +219,16 @@ async function renderSummonGrid(results) {
  */
 /**
  * Add the summon header to `container` and return any files it needs.
- *  · An equipped summon skin that resolves to an image asset (e.g. a tester's
- *    `testers/<id>/summon.gif`, R2 URL) shows the header line `## ✨ <title>`
+ *  · An explicitly authorized tester skin (`allowMedia=true`) that resolves to
+ *    an image asset shows the header line `## ✨ <title>`
  *    followed by the GIF as a MediaGallery — remote URLs cost no bot egress; a
- *    local file is attached. Remote or retained Discord media remains in the
- *    result without a second upload; a missing retained attachment falls back
- *    to reattaching the local animation so presentation is unchanged.
+ *    local file is attached. Result messages omit the animation so suspense
+ *    media disappears when the summon outcome replaces it.
  *  · Otherwise the header is a single line — animated emoji + title together
  *    (`## <emoji> <title>`). flipPath → the skin's flip emoji; else headerEmoji
  *    (relic-open path); else the default card_flip emoji. Never throws.
- * @param {{ flipPath?: string|null, headerEmoji?: string|null, title: string, separateMedia?: boolean, includeAnimation?: boolean, animationUrl?: string|null }} o
- * @returns {Promise<Array>} files to attach (empty unless a local gif was used)
+ * @param {{ flipPath?: string|null, headerEmoji?: string|null, title: string, separateMedia?: boolean, includeAnimation?: boolean, allowMedia?: boolean }} o
+ * @returns {Promise<Array>} files to attach (empty unless authorized tester media is local)
  */
 async function addSummonHeader(container, {
   flipPath = null,
@@ -248,17 +236,21 @@ async function addSummonHeader(container, {
   title,
   separateMedia = false,
   includeAnimation = true,
-  animationUrl = null,
+  allowMedia = false,
   logContext = {},
 }) {
   const isImage = typeof flipPath === 'string'
     && ['gif', 'webp', 'png', 'jpg', 'jpeg'].includes(assetExtension(flipPath, ''));
-  if (isImage && includeAnimation) {
+  if (isImage && allowMedia && !includeAnimation) {
+    container.addTextDisplayComponents((td) => td.setContent('## ✨ ' + title));
+    return [];
+  }
+  if (isImage && allowMedia) {
     try {
       container.addTextDisplayComponents((td) => td.setContent('## ✨ ' + title));
       if (separateMedia) container.addSeparatorComponents(sep);
-      if (animationUrl || isRemoteSource(flipPath)) {
-        container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(animationUrl || flipPath)));
+      if (isRemoteSource(flipPath)) {
+        container.addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(flipPath)));
         return [];
       }
       const name = `summonflip.${assetExtension(flipPath, 'gif')}`;
@@ -287,7 +279,7 @@ async function addSummonHeader(container, {
   return [];
 }
 
-async function buildFlipMessage(flipPath = null, logContext = {}) {
+async function buildFlipMessage(flipPath = null, logContext = {}, opts = {}) {
   // Summon suspense EMBED (CV2): one header line — emoji + title together (or the
   // skin gif directly under the header). MUST be Components-V2 (not legacy
   // `content`): the result phase edits this into a CV2 container and Discord
@@ -297,6 +289,7 @@ async function buildFlipMessage(flipPath = null, logContext = {}) {
     flipPath,
     title: 'Invocation in progress...',
     separateMedia: true,
+    allowMedia: opts.allowMedia === true,
     logContext: { ...logContext, phase: 'initial' },
   });
   return {
@@ -326,16 +319,15 @@ async function buildResultMessage(results, balances, opts = {}) {
     .map((r) => `${RARITY_SYMBOLS[r]} ${r} x**${counts[r]}**`)
     .join(' - ');
 
-  // Reuse a remote/existing Discord URL when available. If Discord did not
-  // return the expected suspense attachment, reattach the local animation so
-  // the final presentation never silently loses it.
+  // The animation is suspense-only. The result keeps the equipped summon
+  // emoji in its header, but omits both remote media and local attachments.
   const container = new ContainerBuilder().setAccentColor(ACCENT);
   const files = await addSummonHeader(container, {
     flipPath: opts.flipPath,
     headerEmoji: opts.headerEmoji,
     title: `Invocation Complete\n*${FLAVOR[results.length] ?? FLAVOR[10]}*`,
-    includeAnimation: true,
-    animationUrl: opts.animationUrl,
+    includeAnimation: false,
+    allowMedia: opts.allowMedia === true,
     logContext: { ...(opts.logContext || {}), phase: 'final' },
   });
   container
@@ -363,17 +355,7 @@ async function buildResultMessage(results, balances, opts = {}) {
 function summonFlipEmoji(flipPath = null) {
   const raw = String(flipPath || '').replace(/\\/g, '/').toLowerCase();
   const base = raw.split('/').pop()?.replace(/\.[^.]+$/, '') || '';
-  const known = [
-    'e_stardust_constellation_s4',
-    'e_eternal_supernova_s3',
-    'e_aurora_ribbon_s2',
-    'c_rune_glow_s1',
-    'stardust_constellation',
-    'eternal_supernova',
-    'aurora_ribbon',
-    'rune_glow',
-  ];
-  const key = known.find((name) => base === name || raw.includes(`/${name}.`)) || 'card_flip';
+  const key = base || 'card_flip';
   const icon = emoji(key);
   return icon === emoji('__missing__') ? emoji('card_flip') : icon;
 }
@@ -525,7 +507,6 @@ module.exports = {
   renderCenteredArt,
   buildFlipMessage,
   buildResultMessage,
-  flipGifExists,
   summonFlipEmoji,
   groupSummonResults,
   RARITY_SYMBOLS,

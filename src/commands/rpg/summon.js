@@ -2,7 +2,7 @@
 
 const pool = require('../../db/pool');
 const { runSummon } = require('../../engine/summonEngine');
-const { buildFlipMessage, buildResultMessage, flipGifExists } = require('../../engine/renderSummon');
+const { buildFlipMessage, buildResultMessage } = require('../../engine/renderSummon');
 const { resolveSummonAnimation } = require('../../engine/skinResolver');
 const {
   assetExistsSync,
@@ -98,16 +98,19 @@ async function execute(message, { args }) {
   }));
   const balances = { beliefShards: shardsRemaining, sacredRelics };
 
-  // Equipped summon skins use equipped_skins(category='summon').override_path + /summon.gif.
-  // Missing/invalid mappings fall back to the bundled card flip. Display-only resolution.
-  let flipPath = null;
-  try { flipPath = (await resolveSummonAnimation(pool, discordId)).path; } catch { /* default flip */ }
-  const haveFlip = !!flipPath || flipGifExists();
+  // Tester sets may use full-size suspense media. Every other equipped summon
+  // skin resolves to a Discord header emoji key; missing mappings use card_flip.
+  let summonPresentation = {
+    kind: 'emoji', emojiKey: 'card_flip', mediaPath: null,
+  };
+  try { summonPresentation = await resolveSummonAnimation(pool, discordId); } catch { /* default emoji */ }
+  const allowMedia = summonPresentation.kind === 'tester-media';
+  const flipPath = allowMedia ? summonPresentation.mediaPath : summonPresentation.emojiKey;
 
-  // Per-skin flip duration: a summon skin may ship a colocated `<basename>.json` with
-  // { "flip_seconds": N } (e.g. founder_summon = 7s). Default stays 4s for every other skin.
+  // Tester media may ship a colocated `<basename>.json` with
+  // { "flip_seconds": N }. Emoji-only skins keep the usual 4-second phase.
   let flipMs = 4000;
-  if (flipPath && ['gif', 'webp', 'png', 'jpg', 'jpeg'].includes(assetExtension(flipPath, ''))) {
+  if (allowMedia && flipPath && ['gif', 'webp', 'png', 'jpg', 'jpeg'].includes(assetExtension(flipPath, ''))) {
     try {
       const cfgPath = flipPath.replace(/\.[^./?#]+(?=[?#]|$)/, '.json');
       const cfgExists = isRemoteSource(cfgPath)
@@ -128,26 +131,18 @@ async function execute(message, { args }) {
     userId: discordId,
   };
   try {
-    if (haveFlip) {
-      sent = await reply(message, await buildFlipMessage(flipPath, logContext));
-      await sleep(flipMs); // flip plays per-skin duration (default 4s; founder_summon = 7s)
-      // A local suspense GIF already has a Discord CDN URL. Keep that original
-      // attachment by ID and reuse its URL in the final components; this
-      // preserves the animation without uploading the bytes a second time.
-      const existingAnimation = [...(sent.attachments?.values?.() || [])]
-        .find((attachment) => /^summonflip\./i.test(attachment.name || ''));
-      await sent.edit({
-        ...(await buildResultMessage(results, balances, {
-          flipPath,
-          animationUrl: existingAnimation?.url || null,
-          logContext,
-        })),
-        attachments: existingAnimation?.id ? [{ id: existingAnimation.id }] : [],
-      });
-    } else {
-      // card_flip.gif not on disk — skip the suspense phase.
-      await reply(message, await buildResultMessage(results, balances, { flipPath, logContext }));
-    }
+    sent = await reply(message, await buildFlipMessage(flipPath, logContext, { allowMedia }));
+    await sleep(flipMs);
+    // Tester animation media is suspense-only. Every other skin is already a
+    // header emoji. Clear any local tester attachment in the final edit.
+    await sent.edit({
+      ...(await buildResultMessage(results, balances, {
+        flipPath,
+        allowMedia,
+        logContext,
+      })),
+      attachments: [],
+    });
   } catch (err) {
     // Display-only failure: the pulls are committed — always tell the player.
     console.error('[summon] display failed:', err.message);
