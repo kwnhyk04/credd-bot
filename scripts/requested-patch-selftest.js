@@ -20,7 +20,7 @@ const { battleFrameCacheParts, battleResultCacheParts } = require('../src/engine
 const { handleButtonInteraction, parseDuelButtonId } = require('../src/commands/rpg/duel');
 const { cancelPendingDuel, findDuelByMessage } = require('../src/engine/duelLocks');
 const {
-  execute: executeCompare, splitDeityNames, weaponEntry, deityEntry,
+  execute: executeCompare, splitDeityNames, weaponEntry, armorEntry, deityEntry,
 } = require('../src/commands/rpg/compare');
 const { groupSummonResults } = require('../src/engine/renderSummon');
 const { emoji } = require('../src/utils/emojis');
@@ -340,6 +340,14 @@ async function main() {
   assert(compareWeapon.includes('Tyrfing'));
   assert(compareWeapon.includes('+7'));
   assert(compareWeapon.includes('DB weapon description'));
+  const compareArmor = armorEntry({
+    name: 'Mail of Brokkr', enhancement: 6, tier: 'Supreme', curr_hp: 20000,
+    curr_def: 1200, passive_name: 'Dwarven Forge', passive_description: 'DB armor description',
+  });
+  assert(compareArmor.includes('Mail of Brokkr'));
+  assert(compareArmor.includes('+5'));
+  assert(compareArmor.includes('HP 20,000 · DEF 1,200'));
+  assert(compareArmor.includes('DB armor description'));
   const compareDeity = deityEntry({
     name: 'Dian Masalanta', mythology: 'Philippine', tier: 'Mythic', base_hp: 100,
     base_atk: 50, base_def: 25, blessing_name: 'Devotion',
@@ -410,6 +418,48 @@ async function main() {
       args: ['weapon', 'same-id', 'same-id'],
     });
     assert(compareReplies.pop().content.includes('Duplicate weapon'));
+
+    const armorById = new Map([
+      ['armor-one', {
+        kind: 'armor', name: 'Mail of Brokkr', enhancement: 6, tier: 'Supreme',
+        curr_hp: 20000, curr_def: 1200, passive_name: 'Dwarven Forge',
+        passive_description: 'DB armor one description',
+      }],
+      ['armor-two', {
+        kind: 'armor', name: 'Aegis Plate', enhancement: 3, tier: 'Legendary',
+        curr_hp: 9000, curr_def: 700, passive_name: 'Aegis Ward',
+        passive_description: 'DB armor two description',
+      }],
+      ['weapon-one', {
+        kind: 'weapon', name: 'Tyrfing', enhancement: 8, tier: 'Mythic',
+        curr_atk: 1234, crit: 12.5, passive_name: 'Cursed Edge',
+        passive_description: 'DB weapon description',
+      }],
+    ]);
+    comparePool.query = async (sql, params) => {
+      assert(sql.includes("'armor' AS kind"));
+      assert.deepEqual(params.slice(1), ['123']);
+      const row = armorById.get(params[0]);
+      return { rows: row ? [row] : [] };
+    };
+
+    await executeCompare(compareMessage, {
+      args: ['armor', 'armor-one', 'armor-two'],
+    });
+    const armorComparison = compareReplies.pop();
+    assert.equal(armorComparison.flags, 32768);
+    const armorComparisonJson = JSON.stringify(armorComparison.components[0].toJSON());
+    assert(armorComparisonJson.includes('Mail of Brokkr'));
+    assert(armorComparisonJson.includes('Aegis Plate'));
+    assert(armorComparisonJson.includes('DB armor one description'));
+    assert(armorComparisonJson.includes('DB armor two description'));
+
+    await executeCompare(compareMessage, {
+      args: ['armor', 'armor-one', 'weapon-one'],
+    });
+    const wrongGearType = compareReplies.pop();
+    assert(wrongGearType.content.includes("don't own `weapon-one`"));
+    assert(!wrongGearType.components);
   } finally {
     comparePool.query = originalCompareQuery;
   }

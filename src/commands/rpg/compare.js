@@ -1,13 +1,14 @@
 'use strict';
 
 /**
- * `crd compare weapon <id> <id> [id]` / `crd compare deity <name> <name> [name]`
+ * `crd compare weapon <id> <id> [id]` / `crd compare armor <id> <id> [id]` /
+ * `crd compare deity <name> <name> [name]`
  *
- * Side-by-side compare of 2–3 OWNED weapons or deities. Ownership-gated: if any listed item
+ * Side-by-side compare of 2–3 OWNED weapons, armors, or deities. Ownership-gated: if any listed item
  * isn't owned, the whole command is rejected and the offending item(s) are named. Duplicate
  * ids/names in one call are rejected. Emoji/tier/stats/passive come from the same roster
  * columns the glossary and info commands read (weapon_roster.passive_description /
- * deity_roster.blessing_description) — single source of truth — rendered in the glossary
+ * armor_roster.passive_description / deity_roster.blessing_description) — single source of truth — rendered in the glossary
  * 3-line entry style for visual consistency.
  */
 
@@ -101,6 +102,21 @@ function weaponEntry(g) {
   return `${line1}\n${stats.join(' · ')}\n${passive}`;
 }
 
+/** 3-line entry body for an owned armor (glossary gear-entry style). */
+function armorEntry(g) {
+  const icon = emojiForDisplay(g.name, '🛡️');
+  const line1 = `${icon} **${g.name}** — +${displayEnhancement(g.enhancement)} — ${g.tier}`;
+  const stats = [
+    `HP ${Number(g.curr_hp || 0).toLocaleString()}`,
+    `DEF ${Number(g.curr_def || 0).toLocaleString()}`,
+  ];
+  const hasPassive = g.passive_name && g.passive_name.toLowerCase() !== 'none';
+  const passive = hasPassive
+    ? `-# ${g.passive_name}: ${g.passive_description || 'No passive.'}`
+    : '-# No passive.';
+  return `${line1}\n${stats.join(' · ')}\n${passive}`;
+}
+
 /** 3-line entry body for an owned deity (glossary deity-entry style, owned stats). */
 function deityEntry(d) {
   const icon = emojiForDisplay(d.name, '🕯️');
@@ -121,20 +137,21 @@ function deityEntry(d) {
 async function execute(message, { args }) {
   const mode = (args[0] || '').toLowerCase();
   const kind = (mode === 'weapon' || mode === 'weapons') ? 'weapon'
-    : (mode === 'deity' || mode === 'deities') ? 'deity'
-      : null;
+    : (mode === 'armor' || mode === 'armors') ? 'armor'
+      : (mode === 'deity' || mode === 'deities') ? 'deity'
+        : null;
   if (!kind) {
     return reply(message, {
-      content: 'Usage: `crd compare weapon <id> <id> [id]` or `crd compare deity <name> <name> [name]`.',
+      content: 'Usage: `crd compare weapon <id> <id> [id]`, `crd compare armor <id> <id> [id]`, or `crd compare deity <name> <name> [name]`.',
     });
   }
 
   const rest = args.slice(1).filter((a) => a && a.length);
   let requested = rest;
   let deityRows = null;
-  if (kind === 'weapon') {
+  if (kind !== 'deity') {
     if (rest.length < 2 || rest.length > 3) {
-      return reply(message, { content: `Compare 2 or 3 weapons — you listed ${rest.length}.` });
+      return reply(message, { content: `Compare 2 or 3 ${kind}s — you listed ${rest.length}.` });
     }
   } else {
     deityRows = await fetchDeityRows(message.author.id);
@@ -163,10 +180,10 @@ async function execute(message, { args }) {
   const missing = [];
   const deityByName = new Map((deityRows || []).map((row) => [normalizedName(row.name), row]));
   for (const token of requested) {
-    if (kind === 'weapon') {
+    if (kind === 'weapon' || kind === 'armor') {
       const g = await fetchGear(discordId, token.toLowerCase());
-      if (!g || g.kind !== 'weapon') { missing.push(token); continue; }
-      entries.push(weaponEntry(g));
+      if (!g || g.kind !== kind) { missing.push(token); continue; }
+      entries.push(kind === 'weapon' ? weaponEntry(g) : armorEntry(g));
     } else {
       const d = deityByName.get(normalizedName(token));
       if (!d || d.user_deity_id == null) { missing.push(token); continue; }
@@ -176,7 +193,7 @@ async function execute(message, { args }) {
 
   // Reject the whole command if any item isn't owned, naming the offenders.
   if (missing.length) {
-    const verb = kind === 'weapon' ? 'own' : 'have';
+    const verb = kind === 'deity' ? 'have' : 'own';
     const named = missing.map((m) => `\`${m}\``).join(', ');
     return reply(message, {
       content: `You don't ${verb} ${named} — comparison cancelled (you must ${verb} every ${kind} listed).`,
@@ -191,4 +208,4 @@ async function execute(message, { args }) {
   return reply(message, { components: [container], flags: MessageFlags.IsComponentsV2 });
 }
 
-module.exports = { execute, splitDeityNames, weaponEntry, deityEntry };
+module.exports = { execute, splitDeityNames, weaponEntry, armorEntry, deityEntry };
