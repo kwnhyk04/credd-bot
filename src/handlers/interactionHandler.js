@@ -18,6 +18,7 @@ const exchangeEssenceCmd = require('../commands/rpg/exchangeEssence');
 const questsCmd = require('../commands/economy/quests');
 const autoRaidCmd = require('../commands/rpg/autoRaid');
 const glossaryCmd = require('../commands/rpg/glossary');
+const duelCmd = require('../commands/rpg/duel');
 const { envBool } = require('../utils/runtimeLogs');
 const { withNetworkContext } = require('../utils/networkTelemetry');
 
@@ -29,8 +30,6 @@ const casinoButtons = casinoEnabled ? {
 
 const COLLECTOR_OWNED_BUTTONS = new Set([
   'battle_log',
-  'duel_accept',
-  'duel_decline',
 ]);
 
 /**
@@ -65,6 +64,13 @@ async function handleInteractionInner(interaction) {
   const [namespace, action] = parts;
 
   try {
+    if (isButton && (
+      namespace === 'duel'
+      || interaction.customId === 'duel_accept'
+      || interaction.customId === 'duel_decline'
+    )) {
+      if (await duelCmd.handleButtonInteraction(interaction)) return;
+    }
     // Supporter shop / collection — paginated pages + Preview button (owner-gated).
     if (namespace === 'sshop') { await skinShop.handleShopButton(interaction); return; }
     if (namespace === 'sprev') { await skinShop.handlePreviewButton(interaction); return; }
@@ -233,7 +239,8 @@ const INTERACTION_COMMANDS = {
   title: 'title', essx: 'exchange', quest: 'quests', gloss: 'glossary', araid: 'auto',
   register: 'register', boss: 'boss', bj: 'blackjack', crash: 'crash', weapons: 'bag',
   armors: 'bag', chests: 'bag', deities: 'deity', dsigil: 'deity', denhance: 'deity',
-  enhance: 'enhance', sell: 'sell', create: 'create',
+  enhance: 'enhance', sell: 'sell', create: 'create', duel: 'duel',
+  duel_accept: 'duel', duel_decline: 'duel',
 };
 
 function handleInteraction(interaction) {

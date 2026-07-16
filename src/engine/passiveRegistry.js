@@ -408,12 +408,10 @@ const PASSIVE_REGISTRY = {
   },
 
   'laevateinn_staff': (bs) => {
-    // Ignores 15% of enemy DEF and applies Burn (10% ATK per turn for 2 turns).
+    // Ignores 15% of enemy DEF. The engine applies/refreshes the 10% ATK Burn
+    // for 2 turns after each landed hit, so a skipped/evaded attack cannot burn.
     if (0.15 > bs.ignoreDefPct) bs.ignoreDefPct = 0.15;
-    if (!bs.enemyImmune('burn')) {
-      bs.applyDebuff('burn', 2, bs.playerATK * 0.10);
-      bs.log.push('🔥 Laevateinn Staff: Flickering Flame — Burn (10% ATK, 2 turns)!');
-    }
+    bs.flags.laevateinn_staff_on_hit = true;
   },
 
   'galdrastafir': chanceEnemyDebuff(0.50, 'def_down', 1, () => 0.30,
@@ -528,8 +526,7 @@ const PASSIVE_REGISTRY = {
     }
   },
 
-  // ATK +10% every turn, cap +40%. (The "gain a stack on kill" clause is inert in the
-  // engine's strictly 1v1 model — defeating the enemy ends the battle.)
+  // ATK +10% every turn, cap +40%. The engine grants one immediate stack on defeat.
   'spear_of_ares': stackingAtk('spear_of_ares_stack', 0.10, 0.40),
 
   // [v5] Promoted to Supreme Light armor — reworked from "enemy miss" to a DEF shred
@@ -704,22 +701,21 @@ const PASSIVE_REGISTRY = {
   },
 
   'magwayen_soul_drain': (bs) => {
-    bs.flags.soul_drain_active = true; // engine heals 10% of each hit's damage
+    // Engine heals 15% of dealt damage and grants the 20% max-HP soul claim on defeat.
+    bs.flags.soul_drain_active = true;
   },
 
   'mandarangan_war_frenzy': (bs) => {
-    // ATK +10% every turn, capped at 50% (max stack at turn 5)
-    const stacks = Math.min(bs.currentTurn, 5);
+    // Earn +10% at each turn end. The first attack is unbuffed; after turn 5 the
+    // persistent stack has reached +50% and is visible from turn 6 onward.
+    const stacks = Math.min(Math.max(bs.currentTurn - 1, 0), 5);
     bs.playerAtkMult += stacks * 0.10;
   },
 
   'apolaki_solar_burn': (bs) => {
     // Each attack applies Burn = 10% ATK that resolves on the enemy's next turn then
-    // expires (1 tick); every hit refreshes it (highest-value wins in the engine).
-    if (!bs.enemyImmune('burn')) {
-      bs.applyDebuff('burn', 1, bs.playerATK * 0.10);
-      bs.log.push('☀️ Apolaki: Solar Burn — Enemy scorched (10% ATK Burn)!');
-    }
+    // expires (1 tick); every landed hit refreshes it in the engine.
+    bs.flags.apolaki_on_hit = true;
   },
 
   'mayari_lunar_veil': (bs) => {
@@ -748,13 +744,8 @@ const PASSIVE_REGISTRY = {
     // (unchanged from the old chanceFlag — draw order is stable).
     bs.flags.evade_chance_used = (bs.flags.evade_chance_used || 0) + 0.20;
     bs.flags.amihan_evade_check = bs.rng() < 0.20;
-    if (bs.flags.amihan_evade_check) bs.log.push('💨 Amihan: Tailwind — Attack evaded!');
-    // A successful evade (engine latch from the previous incoming attack) grants +20% ATK.
-    if (bs.flags.amihan_evade_bonus_pending) {
-      bs.flags.amihan_evade_bonus_pending = false;
-      bs.playerAtkMult += 0.20;
-      bs.log.push('💨 Amihan: Tailwind — Evade momentum! ATK +20%!');
-    }
+    // The engine records each actual evade and consumes all +20% stacks on her next
+    // real attack, including one later in this same round.
   },
 
   'habagat_monsoon_fury': chanceRider(0.25, 0.50,
@@ -764,9 +755,9 @@ const PASSIVE_REGISTRY = {
     (heal) => `🌱 Lakapati: Abundance — Regenerated ${heal} HP!`),
 
   'idiyanale_persistence': (bs) => {
-    // Every 3rd turn: this round's attack deals +75% more damage (mitigated ATK lane)
-    if (bs.currentTurn % 3 === 0) {
-      bs.playerAtkMult += 0.75;
+    // Every 3rd turn arms +75% for the next actual attack. It remains queued through CC.
+    if (bs.currentTurn % 3 === 0 && !bs.flags.idiyanale_attack_bonus_pending) {
+      bs.flags.idiyanale_attack_bonus_pending = 0.75;
       bs.log.push('⚙️ Idiyanale: Persistence — Next attack +75% damage!');
     }
   },
@@ -787,14 +778,9 @@ const PASSIVE_REGISTRY = {
   },
 
   'thor_mjolnirs_wrath': (bs) => {
-    // 30% chance each attack: Stun 1 turn + Paralyze 3 turns. While paralyzed the enemy
-    // takes 20% Thor-ATK damage each turn (thor_paralyze DOT) and has a 10% chance to skip
-    // (both resolved by the engine). Single draw before any gate (stream stability).
-    if (bs.rng() < 0.30) {
-      if (!bs.enemyImmune('stun')) bs.applyDebuff('stun', 1);
-      bs.applyDebuff('thor_paralyze', 3, bs.playerATK * 0.20);
-      bs.log.push('⚡ Thor: Mjolnir\'s Wrath — Enemy Stunned & Paralyzed (3 turns)!');
-    }
+    // The engine rolls 30% after each landed attack, then applies Stun + 3-turn
+    // Paralyze (20% base ATK DOT, 10% action-skip roll). No attack means no proc.
+    bs.flags.thor_on_hit = true;
   },
 
   'freya_valkyries_embrace': (bs) => {
@@ -826,27 +812,15 @@ const PASSIVE_REGISTRY = {
   },
 
   'skadi_winters_hunt': (bs) => {
-    // 30% chance each turn to Freeze (enemy skips its next turn). When the Freeze wears off
-    // the engine applies Frostbite (+50% damage taken). Single draw before the gate.
-    if (bs.rng() < 0.30 && !bs.enemyImmune('freeze')) {
-      bs.applyDebuff('freeze', 1);
-      bs.log.push('❄️ Skadi: Winter\'s Hunt — Enemy Frozen!');
-    }
+    // The engine rolls 30% after each landed attack. Freeze gates the next action;
+    // when it expires the engine applies one turn of +50% Frostbite damage taken.
+    bs.flags.skadi_on_hit = true;
   },
 
   'surt_muspells_flame': (bs) => {
-    // Every attack adds a 5% ATK/turn Burn stack (2 ticks), accumulating up to 30% ATK/turn.
-    // The stack lives in a flag and grows monotonically, so the engine's highest-value-wins
-    // burn refresh preserves the accumulated total. +50% bonus damage vs an already-burning
-    // enemy (mitigated ATK lane).
-    if (bs.enemyImmune('burn')) return;
-    if (bs.flags.enemy_is_burning) {
-      bs.playerAtkMult += 0.50;
-      bs.log.push('🔥 Surt: Muspell\'s Flame — +50% vs a burning enemy!');
-    }
-    bs.flags.surt_burn_stack = Math.min((bs.flags.surt_burn_stack || 0) + 0.05, 0.30);
-    bs.applyDebuff('burn', 2, bs.playerATK * bs.flags.surt_burn_stack);
-    bs.log.push(`🔥 Surt: Muspell's Flame — Burn ${Math.round(bs.flags.surt_burn_stack * 100)}% ATK/turn!`);
+    // The engine adds one 5% Burn stack per landed hit (2 turns, cap 30%) and
+    // evaluates +50% ATK against a live Burn immediately before each hit.
+    bs.flags.surt_on_hit = true;
   },
 
   'heimdall_eternal_vigilance': (bs) => {
@@ -880,15 +854,10 @@ const PASSIVE_REGISTRY = {
   'hel_half_dead': hpThresholdBuff(0.50, 0.30, 0.30),
 
   'mimir_runic_knowledge': (bs) => {
-    // Every 3rd turn: the next attack (this round's, passives precede actions)
-    // deals 90% more damage — applied as a mitigated ATK multiplier (+90% of the hit).
-    if (bs.currentTurn % 3 === 0) {
-      bs.flags.mimir_next_attack_bonus = 0.90;
+    // Every 3rd turn arms +90% for the next actual attack; CC cannot consume it.
+    if (bs.currentTurn % 3 === 0 && !bs.flags.mimir_attack_bonus_pending) {
+      bs.flags.mimir_attack_bonus_pending = 0.90;
       bs.log.push('📖 Mimir: Runic Knowledge — Next attack +90% damage!');
-    }
-    if (bs.flags.mimir_next_attack_bonus > 0) {
-      bs.playerAtkMult += bs.flags.mimir_next_attack_bonus; // mitigated +65% of damage dealt
-      bs.flags.mimir_next_attack_bonus = 0;
     }
   },
 
@@ -905,16 +874,18 @@ const PASSIVE_REGISTRY = {
     (heal) => `🍎 Idunn: Golden Apple — Restored ${heal} HP!`, true),
 
   'vidar_silent_vengeance': (bs) => {
-    // When hit by a crit (engine latch), the next attack auto-crits; consumes latch.
-    // Also: the first time HP drops below 50%, the next attack is a guaranteed crit.
+    // Received-crit and first-below-50 triggers queue one guaranteed next attack.
+    // The engine consumes the queue only when an attack actually starts.
     if (bs.flags.player_was_critted) {
-      bs.nextAttackAutoCrit = true;
-      bs.flags.player_was_critted = false;
-      bs.log.push('⚔️ Vidar: Silent Vengeance — Auto-CRIT next attack!');
+      if (!bs.flags.vidar_crit_latch_handled && !bs.flags.vidar_auto_crit_pending) {
+        bs.flags.vidar_auto_crit_pending = true;
+        bs.log.push('⚔️ Vidar: Silent Vengeance — Auto-CRIT next attack!');
+      }
+      bs.flags.vidar_crit_latch_handled = false;
     }
     if (!bs.flags.vidar_low_hp_used && bs.playerHP < bs.playerMaxHP * 0.50) {
       bs.flags.vidar_low_hp_used = true;
-      bs.nextAttackAutoCrit = true;
+      bs.flags.vidar_auto_crit_pending = true;
       bs.log.push('⚔️ Vidar: Silent Vengeance — Wounded! Guaranteed CRIT!');
     }
   },
@@ -941,19 +912,20 @@ const PASSIVE_REGISTRY = {
     bs.log.push(`⚡ Zeus: Chain Lightning — +50% damage! Enemy DEF -${shred}%!`);
   },
 
-  'ares_blood_frenzy': stackingAtk('ares_stack', 0.10, 0.50), // +10% ATK/turn, cap +50%
+  'ares_blood_frenzy': (bs) => {
+    // Earn +10% at each turn end, cap +50%; apply stacks earned on prior turns.
+    const stacks = Math.min(Math.max(bs.currentTurn - 1, 0), 5);
+    bs.playerAtkMult += stacks * 0.10;
+  },
 
   'poseidon_tidal_force': (bs) => {
-    // 30% chance each turn to Stun (1 turn) and shred enemy DEF 30% for 2 turns.
-    // Single draw before any gate (stream stability); the shred refreshes, never stacks.
-    const proc = bs.rng() < 0.30;
-    if (proc && !bs.enemyImmune('stun')) bs.applyDebuff('stun', 1);
-    if (proc && !bs.enemyImmune('def_down')) bs.applyDebuff('def_down', 2, 0.30);
-    if (proc) bs.log.push('🌊 Poseidon: Tidal Force — Enemy Stunned & DEF -30% for 2 turns!');
+    // The engine rolls 30% after each landed attack. Stun cannot refresh; the
+    // 30% DEF shred lasts 2 turns and refreshes (highest-value), never stacks.
+    bs.flags.poseidon_on_hit = true;
   },
 
   'hades_soul_harvest': (bs) => {
-    // When enemy HP < 30% (live %, shared pool % for bosses): ATK +35% latched
+    // When enemy HP < 30% (live %, shared pool % for bosses): ATK +50% latched
     if (bs.enemyHP / bs.enemyMaxHP < 0.30) {
       bs.flags.hades_harvest_active = true;
     }
@@ -967,12 +939,14 @@ const PASSIVE_REGISTRY = {
   },
 
   'hera_divine_wrath': (bs) => {
-    // DEF +30% whole battle; when hit by crit: ATK +10%, stacking up to 3× (latch not consumed)
+    // DEF +30% whole battle; each received crit grants ATK +10%, stacking up to 3×.
     bs.playerDefMult += 0.30;
     if (!bs.flags.hera_stacks) bs.flags.hera_stacks = 0;
-    if (bs.flags.player_was_critted && bs.flags.hera_stacks < 3) {
-      bs.flags.hera_stacks += 1;
-      bs.log.push(`👑 Hera: Divine Wrath — Crit received! ATK stack ${bs.flags.hera_stacks}/3!`);
+    const receivedCrits = Math.max(0, Number(bs.flags.player_crits_received) || 0);
+    const gained = Math.min(receivedCrits, 3 - bs.flags.hera_stacks);
+    if (gained > 0) {
+      bs.flags.hera_stacks += gained;
+      bs.log.push(`👑 Hera: Divine Wrath — ${gained} crit${gained === 1 ? '' : 's'} received! ATK stack ${bs.flags.hera_stacks}/3!`);
     }
     if (bs.flags.hera_stacks > 0) {
       bs.playerAtkMult += bs.flags.hera_stacks * 0.10;
@@ -981,22 +955,22 @@ const PASSIVE_REGISTRY = {
 
   'athena_aegis_shield': (bs) => {
     // First 2 hits received reduced 40% — engine owns the absorb counter (cap 2).
-    // Afterward, incoming damage is reduced by 10% for the rest of the battle.
+    // The engine applies the permanent 10% reduction immediately from hit 3 onward.
     if (!bs.flags.athena_hits_absorbed) bs.flags.athena_hits_absorbed = 0;
     bs.flags.athena_shield_active = bs.flags.athena_hits_absorbed < 2;
-    if (bs.flags.athena_hits_absorbed >= 2) bs.bonusIncomingDmgMult -= 0.10;
   },
 
   'apollo_solar_radiance': constantSelfBuff(0.25, 0, 0),
 
   'artemis_huntress_precision': (bs) => {
-    // First attack each battle auto-crits; every 3rd turn auto-crit
-    if (!bs.flags.artemis_first_used) {
-      bs.flags.artemis_first_used = true;
-      bs.nextAttackAutoCrit = true;
+    // First actual attack auto-crits; afterward every 3rd turn queues an auto-crit.
+    // A skipped turn leaves the guarantee pending.
+    if (!bs.flags.artemis_first_used && !bs.flags.artemis_auto_crit_pending) {
+      bs.flags.artemis_auto_crit_pending = true;
+      bs.flags.artemis_first_attack_pending = true;
       bs.log.push('🏹 Artemis: Huntress Precision — First attack auto-CRIT!');
-    } else if (bs.currentTurn % 3 === 0) {
-      bs.nextAttackAutoCrit = true;
+    } else if (bs.flags.artemis_first_used && bs.currentTurn % 3 === 0 && !bs.flags.artemis_auto_crit_pending) {
+      bs.flags.artemis_auto_crit_pending = true;
       bs.log.push('🏹 Artemis: Huntress Precision — Auto-CRIT this turn!');
     }
   },

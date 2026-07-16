@@ -144,7 +144,10 @@ const REQUIRED_COLUMNS = {
     'metadata',
     'expires_at',
   ],
-  active_duels: ['duel_id', 'lock_token', 'challenger_id', 'opponent_id', 'duel_type', 'stake', 'status', 'expires_at'],
+  active_duels: [
+    'duel_id', 'lock_token', 'challenger_id', 'opponent_id', 'duel_type', 'stake',
+    'status', 'message_id', 'created_at', 'expires_at',
+  ],
   active_duel_participants: ['discord_id', 'duel_id', 'lock_token', 'role', 'expires_at'],
   daily_quests: ['id', 'discord_id', 'quest_type', 'target_count', 'current_count', 'reward_credux', 'completed', 'quest_date'],
   weekly_quests: ['id', 'discord_id', 'quest_type', 'target_count', 'current_count', 'reward_credux', 'reward_valor', 'completed', 'quest_week'],

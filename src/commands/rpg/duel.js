@@ -4,8 +4,8 @@
  * `crd duel @user` — auto-PvP (Master §14, Phase 7).
  *
  * Challenge flow: challenge embed → only the challenged user can Accept/Decline
- * (60s window, collector-based like battleRender's Battle Log) → on Accept the
- * battle starts immediately, no pre-battle overview. Same engine as raids
+ * (60s window, globally routed with a persisted DB lock) → on Accept the battle
+ * starts immediately, no pre-battle overview. Same engine as raids
  * (mode 'duel': both sides run weapon+deity passives, instakill disabled,
  * 50/50 first-attack roll); fighter 2's card renders MIRRORED.
  *
@@ -27,6 +27,8 @@ const { resolveSkin } = require('../../engine/skinResolver');
 const {
   acquireDuelLock,
   attachDuelMessage,
+  cancelPendingDuel,
+  findDuelByMessage,
   markDuelRunning,
   markDuelSettling,
   releaseDuelLock,
@@ -34,12 +36,14 @@ const {
 const { isBanned } = require('../../handlers/middleware');
 const { progressQuests } = require('../../utils/questProgress');
 const { registerMemorySource } = require('../../utils/memoryRegistry');
-const { withNetworkContext } = require('../../utils/networkTelemetry');
 
 const CHALLENGE_WINDOW_MS = 60_000;
 const MAX_DUEL_LEVEL = 50; // [Jun-2026 §3] current max combat level
 const WAGER_CAP = 50_000;          // [v5 §4.1] max Credux staked per wager duel
 const BESTOW_DAILY_CAP = 1_000_000; // [v5 §4.1] wager winnings share the bestow daily cap
+const DUEL_ID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+const duelButtonPattern = new RegExp(`^duel:(accept|decline):(${DUEL_ID_PATTERN})(?::(\\d{1,2}))?$`, 'i');
+const duelExpiryCollectors = new Map();
 let activeDuelCollectors = 0;
 
 function reply(message, content) {
@@ -79,6 +83,92 @@ async function acknowledgeButton(interaction) {
   } catch (err) {
     if (isUnknownInteraction(err)) return false;
     throw err;
+  }
+}
+
+/** Parse legacy exact ids plus session-qualified ids from an in-progress rollout. */
+function parseDuelButtonId(customId) {
+  if (customId === 'duel_accept') return { action: 'accept', duelId: null, duelLevel: null };
+  if (customId === 'duel_decline') return { action: 'decline', duelId: null, duelLevel: null };
+  const match = duelButtonPattern.exec(String(customId || ''));
+  if (!match) return null;
+  const rawLevel = Number(match[3] || 0);
+  if (!Number.isInteger(rawLevel) || rawLevel < 0 || rawLevel > MAX_DUEL_LEVEL) return null;
+  return {
+    action: match[1].toLowerCase(),
+    duelId: match[2].toLowerCase(),
+    duelLevel: rawLevel || null,
+  };
+}
+
+function legacyDuelLevel(interaction) {
+  const description = interaction.message?.embeds?.[0]?.description || '';
+  const match = /Both fight at \*\*Level (\d{1,2})\*\*/i.exec(description);
+  const level = Number(match?.[1]);
+  return Number.isInteger(level) && level >= 1 && level <= MAX_DUEL_LEVEL ? level : null;
+}
+
+function challengeEmbed(interaction, duelType) {
+  const existing = interaction.message?.embeds?.[0];
+  if (existing) return EmbedBuilder.from(existing);
+  return new EmbedBuilder()
+    .setColor(0xf0b232)
+    .setTitle(duelType === 'wager' ? '💰 Wager Duel' : '⚔️ Duel Challenge');
+}
+
+function stopDuelExpiry(duelId) {
+  const collector = duelExpiryCollectors.get(duelId);
+  if (collector && !collector.ended) collector.stop('settled');
+}
+
+/**
+ * Keep the normal 60-second expiry UI without making button delivery depend on
+ * this process-local collector. A conditional DB delete prevents an old process
+ * from expiring a duel another process already accepted.
+ */
+function watchDuelExpiry({ challengeMsg, embed, duelLock, targetId, wager = false }) {
+  const collector = challengeMsg.createMessageComponentCollector({
+    filter: () => false,
+    time: CHALLENGE_WINDOW_MS,
+  });
+  duelExpiryCollectors.set(duelLock.duelId, collector);
+  activeDuelCollectors += 1;
+
+  collector.once('end', (_collected, reason) => {
+    activeDuelCollectors = Math.max(0, activeDuelCollectors - 1);
+    if (duelExpiryCollectors.get(duelLock.duelId) === collector) {
+      duelExpiryCollectors.delete(duelLock.duelId);
+    }
+    if (reason === 'settled') return;
+    cancelPendingDuel(duelLock)
+      .then((expired) => {
+        if (!expired) return;
+        const description = wager
+          ? `⌛ The wager to ${mention(targetId)} expired.`
+          : `⌛ The challenge to ${mention(targetId)} expired.`;
+        return challengeMsg.edit({
+          embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6).setDescription(description)],
+          components: [],
+        });
+      })
+      .catch((err) => console.error('[duel expiry]', err.message));
+  });
+}
+
+async function persistDuelChallenge({ duelLock, challengeMsg, embed, wager = false }) {
+  try {
+    if (await attachDuelMessage(duelLock, challengeMsg.id)) return true;
+    throw new Error('Duel lock disappeared before its message could be attached');
+  } catch (err) {
+    console.error(`[${wager ? 'wager' : 'duel'} lock] message attach:`, err.message);
+    await safeReleaseDuelLock(duelLock);
+    await challengeMsg.edit({
+      embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6).setDescription(
+        `${wager ? 'Wager' : 'Duel'} cancelled — the challenge could not be activated.`
+      )],
+      components: [],
+    }).catch(() => {});
+    return false;
   }
 }
 
@@ -222,6 +312,214 @@ async function commitWagerResult(challengerId, opponentId, winnerId, stake) {
   }
 }
 
+async function notifyButtonUser(interaction, content) {
+  await interaction.followUp({ content, flags: MessageFlags.Ephemeral }).catch(() => {});
+}
+
+function expiredDescription(session) {
+  return session.duelType === 'wager'
+    ? `⌛ The wager to ${mention(session.opponentId)} expired.`
+    : `⌛ The challenge to ${mention(session.opponentId)} expired.`;
+}
+
+/**
+ * Global, DB-backed duel component handler. Unlike a message collector, this
+ * remains routable after a restart and uses markDuelRunning/cancelPendingDuel as
+ * the atomic winner when two bot processes briefly overlap during a deploy.
+ */
+async function handleButtonInteraction(interaction, services = {}) {
+  const button = parseDuelButtonId(interaction.customId);
+  if (!button) return false;
+  if (!(await acknowledgeButton(interaction))) return true;
+  const findSession = services.findDuelByMessage || findDuelByMessage;
+  const cancelPending = services.cancelPendingDuel || cancelPendingDuel;
+  const checkLiveBattle = services.inLiveBattle || inLiveBattle;
+  const claimRunning = services.markDuelRunning || markDuelRunning;
+
+  let session;
+  try {
+    session = await findSession({
+      messageId: interaction.message?.id,
+      duelId: button.duelId,
+      pendingWindowMs: CHALLENGE_WINDOW_MS,
+    });
+  } catch (err) {
+    console.error('[duel button lookup]', err);
+    await notifyButtonUser(interaction, 'Could not load this duel challenge. Please try again.');
+    return true;
+  }
+
+  if (!session) {
+    await interaction.editReply({ components: [] }).catch(() => {});
+    await notifyButtonUser(interaction, 'This duel challenge is no longer active.');
+    return true;
+  }
+
+  const duelLock = { duelId: session.duelId, lockToken: session.lockToken };
+  const embed = challengeEmbed(interaction, session.duelType);
+  const isWager = session.duelType === 'wager';
+
+  if (interaction.user.id !== session.opponentId) {
+    await notifyButtonUser(interaction, 'Only the challenged player can respond.');
+    return true;
+  }
+
+  if (session.status !== 'pending') {
+    stopDuelExpiry(session.duelId);
+    await notifyButtonUser(interaction, 'This duel challenge has already been handled.');
+    return true;
+  }
+
+  try {
+    if (!session.lockFresh || !session.challengeFresh) {
+      const expired = await cancelPending(duelLock);
+      stopDuelExpiry(session.duelId);
+      if (expired) {
+        await interaction.editReply({
+          embeds: [embed.setColor(0x95a5a6).setDescription(expiredDescription(session))],
+          components: [],
+        });
+      } else {
+        await notifyButtonUser(interaction, 'This duel challenge has already been handled.');
+      }
+      return true;
+    }
+
+    if (button.action === 'decline') {
+      const declined = await cancelPending(duelLock);
+      if (!declined) {
+        stopDuelExpiry(session.duelId);
+        await notifyButtonUser(interaction, 'This duel challenge has already been handled.');
+        return true;
+      }
+      stopDuelExpiry(session.duelId);
+      await interaction.editReply({
+        embeds: [embed.setColor(0xf23f43).setDescription(
+          isWager
+            ? `🏃 ${mention(session.opponentId)} declined the wager.`
+            : `🏃 ${mention(session.opponentId)} declined the duel.`
+        )],
+        components: [],
+      });
+      return true;
+    }
+
+    const [challengerBusy, opponentBusy] = await Promise.all([
+      checkLiveBattle(session.challengerId),
+      checkLiveBattle(session.opponentId),
+    ]);
+    if (challengerBusy || opponentBusy) {
+      const cancelled = await cancelPending(duelLock);
+      if (!cancelled) {
+        stopDuelExpiry(session.duelId);
+        await notifyButtonUser(interaction, 'This duel challenge has already been handled.');
+        return true;
+      }
+      stopDuelExpiry(session.duelId);
+      const busyId = challengerBusy ? session.challengerId : session.opponentId;
+      await interaction.editReply({
+        embeds: [embed.setColor(0x95a5a6).setDescription(
+          isWager
+            ? '💰 Wager cancelled — a duelist is mid-battle.'
+            : `⚔️ Duel cancelled — ${mention(busyId)} is mid-battle.`
+        )],
+        components: [],
+      });
+      return true;
+    }
+
+    const running = await claimRunning(duelLock, { pendingWindowMs: CHALLENGE_WINDOW_MS });
+    if (!running.ok) {
+      stopDuelExpiry(session.duelId);
+      if (running.reason === 'expired') {
+        const expired = await cancelPending(duelLock);
+        if (expired) {
+          await interaction.editReply({
+            embeds: [embed.setColor(0x95a5a6).setDescription(expiredDescription(session))],
+            components: [],
+          });
+          return true;
+        }
+      }
+      await notifyButtonUser(interaction, 'This duel challenge has already been handled.');
+      return true;
+    }
+  } catch (err) {
+    console.error('[duel button claim]', err);
+    await notifyButtonUser(interaction, 'Could not process this duel response. Please try again.');
+    return true;
+  }
+
+  stopDuelExpiry(session.duelId);
+  const channel = interaction.message?.channel || interaction.channel;
+  const duelLevel = isWager
+    ? null
+    : (button.duelLevel ?? (button.duelId == null ? legacyDuelLevel(interaction) : null));
+
+  try {
+    await interaction.editReply({
+      embeds: [embed.setColor(0x43d675).setDescription(
+        isWager
+          ? `💰 ${mention(session.opponentId)} accepts! The duel begins...`
+          : `⚔️ ${mention(session.opponentId)} accepts! The duel begins...`
+      )],
+      components: [],
+    });
+
+    const fighterOptions = duelLevel == null ? {} : { levelOverride: duelLevel };
+    const [p1, p2] = await Promise.all([
+      buildPlayerFighter(pool, session.challengerId, fighterOptions),
+      buildPlayerFighter(pool, session.opponentId, fighterOptions),
+    ]);
+    if (!p1 || !p2) {
+      await interaction.editReply({
+        embeds: [embed.setColor(0x95a5a6).setDescription(
+          `${isWager ? 'Wager' : 'Duel'} cancelled — a duelist no longer has a character.`
+        )],
+        components: [],
+      });
+      return true;
+    }
+
+    const sim = resolveBattle(p1, p2, { mode: 'duel', seed: Date.now() >>> 0 });
+    await markDuelSettling(duelLock).catch((err) => {
+      console.warn(`[${isWager ? 'wager' : 'duel'} lock] settling:`, err.message);
+    });
+
+    let notices;
+    if (isWager) {
+      const stake = Number(session.stake);
+      if (!Number.isSafeInteger(stake) || stake <= 0) throw new Error('Invalid persisted wager stake');
+      const winnerId = sim.winner === 'a' ? session.challengerId : session.opponentId;
+      const { moved } = await commitWagerResult(
+        session.challengerId, session.opponentId, winnerId, stake
+      );
+      notices = [moved > 0
+        ? `💰 ${mention(winnerId)} wins **${moved.toLocaleString()} Credux**!`
+        : `💰 ${mention(winnerId)} wins — but the daily cap left no Credux to transfer.`];
+    } else {
+      notices = await commitDuelResult(session.challengerId, session.opponentId, sim);
+    }
+
+    let battleSkinPath = null;
+    try {
+      battleSkinPath = (await resolveSkin(pool, session.challengerId, 'battle')).path;
+    } catch (err) {
+      console.warn(`[${isWager ? 'wager' : 'duel'}] battle skin resolution:`, err.message);
+    }
+    if (!channel) throw new Error('Duel interaction channel is unavailable');
+    await runBattle(channel, {
+      mode: 'duel', sim, notices, battleSkinPath, ownerId: session.challengerId,
+    });
+  } catch (err) {
+    console.error(`[${isWager ? 'wager' : 'duel'}]`, err);
+    await channel?.send(`Something went wrong running the ${isWager ? 'wager' : 'duel'}.`).catch(() => {});
+  } finally {
+    await safeReleaseDuelLock(duelLock);
+  }
+  return true;
+}
+
 // ── crd duel wager @user <amount> ──────────────────────────────────────────
 async function runWager(message, challenger, target, stake) {
   if (await inLiveBattle(challenger.id)) {
@@ -258,8 +556,10 @@ async function runWager(message, challenger, target, stake) {
     .setDescription(
       `${mention(challenger)} stakes **${stake.toLocaleString()} Credux** against ${mention(target)}!\n` +
       '-# Winner takes the stake (shares the 1M/day cap). No rating. 60s to respond.'
-    );
+  );
   const row = new ActionRowBuilder().addComponents(
+    // Keep the exact legacy ids during rollout: older processes ignore these,
+    // allowing the DB-backed router on the new process to acknowledge them.
     new ButtonBuilder().setCustomId('duel_accept').setLabel('Accept').setEmoji('💰').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId('duel_decline').setLabel('Decline').setEmoji('🏃').setStyle(ButtonStyle.Danger),
   );
@@ -273,108 +573,8 @@ async function runWager(message, challenger, target, stake) {
     await safeReleaseDuelLock(duelLock);
     throw err;
   }
-  await attachDuelMessage(duelLock, challengeMsg.id).catch((err) => {
-    console.warn('[wager lock] message attach:', err.message);
-  });
-
-  const collector = challengeMsg.createMessageComponentCollector({ time: CHALLENGE_WINDOW_MS });
-  activeDuelCollectors += 1;
-  let settled = false;
-  collector.on('collect', (i) => withNetworkContext({ command: 'duel' }, async () => {
-    try {
-      if (i.user.id !== target.id) {
-        await i.reply({ content: 'Only the challenged player can respond.', flags: MessageFlags.Ephemeral })
-          .catch((err) => {
-            if (!isUnknownInteraction(err)) throw err;
-          });
-        return;
-      }
-      if (settled) { await acknowledgeButton(i); return; }
-      if (!(await acknowledgeButton(i))) {
-        await safeReleaseDuelLock(duelLock);
-        collector.stop('stale-interaction');
-        return;
-      }
-      settled = true;
-      collector.stop('settled');
-
-      if (i.customId === 'duel_decline') {
-        await i.editReply({
-          embeds: [EmbedBuilder.from(embed).setColor(0xf23f43).setDescription(`🏃 ${mention(target)} declined the wager.`)],
-          components: [],
-        });
-        await safeReleaseDuelLock(duelLock);
-        return;
-      }
-      const [cBusy, tBusy] = await Promise.all([inLiveBattle(challenger.id), inLiveBattle(target.id)]);
-      if (cBusy || tBusy) {
-        await i.editReply({
-          embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6).setDescription('💰 Wager cancelled — a duelist is mid-battle.')],
-          components: [],
-        });
-        await safeReleaseDuelLock(duelLock);
-        return;
-      }
-      const running = await markDuelRunning(duelLock);
-      if (!running.ok) {
-        await i.editReply({
-          embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6).setDescription('Wager cancelled - the duel challenge expired.')],
-          components: [],
-        });
-        await safeReleaseDuelLock(duelLock);
-        return;
-      }
-      try {
-        await i.editReply({
-        embeds: [EmbedBuilder.from(embed).setColor(0x43d675).setDescription(`💰 ${mention(target)} accepts! The duel begins...`)],
-        components: [],
-        });
-
-      const [p1, p2] = await Promise.all([
-        buildPlayerFighter(pool, challenger.id),
-        buildPlayerFighter(pool, target.id),
-      ]);
-      if (!p1 || !p2) { await challengeMsg.channel.send('Wager cancelled — a duelist no longer has a character.'); return; }
-
-      const sim = resolveBattle(p1, p2, { mode: 'duel', seed: Date.now() >>> 0 });
-      const winnerId = sim.winner === 'a' ? challenger.id : target.id;
-      await markDuelSettling(duelLock).catch((err) => console.warn('[wager lock] settling:', err.message));
-      const { moved } = await commitWagerResult(challenger.id, target.id, winnerId, stake);
-      const winnerMention = mention(winnerId);
-      const stakeLine = moved > 0
-        ? `💰 ${winnerMention} wins **${moved.toLocaleString()} Credux**!`
-        : `💰 ${winnerMention} wins — but the daily cap left no Credux to transfer.`;
-
-      let battleSkinPath = null;
-      try {
-        battleSkinPath = (await resolveSkin(pool, challenger.id, 'battle')).path;
-      } catch (err) {
-        console.warn('[wager] skin resolution:', err.message);
-      }
-      await runBattle(challengeMsg.channel, { mode: 'duel', sim, notices: [stakeLine], battleSkinPath, ownerId: challenger.id });
-      } finally {
-        await safeReleaseDuelLock(duelLock);
-      }
-    } catch (err) {
-      if (isUnknownInteraction(err)) {
-        await safeReleaseDuelLock(duelLock);
-        collector.stop('stale-interaction');
-        return;
-      }
-      await safeReleaseDuelLock(duelLock);
-      console.error('[wager]', err);
-      await challengeMsg.channel.send('Something went wrong running the wager.').catch(() => {});
-    }
-  }));
-  collector.on('end', (_c, reason) => {
-    activeDuelCollectors = Math.max(0, activeDuelCollectors - 1);
-    if (reason === 'settled') return;
-    safeReleaseDuelLock(duelLock);
-    challengeMsg.edit({
-      embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6).setDescription(`⌛ The wager to ${mention(target)} expired.`)],
-      components: [],
-    }).catch(() => {});
-  });
+  if (!(await persistDuelChallenge({ duelLock, challengeMsg, embed, wager: true }))) return;
+  watchDuelExpiry({ challengeMsg, embed, duelLock, targetId: target.id, wager: true });
 }
 
 async function execute(message) {
@@ -460,130 +660,8 @@ async function execute(message) {
       await safeReleaseDuelLock(duelLock);
       throw err;
     }
-    await attachDuelMessage(duelLock, challengeMsg.id).catch((err) => {
-      console.warn('[duel lock] message attach:', err.message);
-    });
-
-    const collector = challengeMsg.createMessageComponentCollector({ time: CHALLENGE_WINDOW_MS });
-    activeDuelCollectors += 1;
-    let settled = false;
-
-    collector.on('collect', (i) => withNetworkContext({ command: 'duel' }, async () => {
-      try {
-        if (i.user.id !== target.id) {
-          await i.reply({ content: 'Only the challenged player can respond.', flags: MessageFlags.Ephemeral })
-            .catch((err) => {
-              if (!isUnknownInteraction(err)) throw err;
-            });
-          return;
-        }
-        if (settled) { await acknowledgeButton(i); return; }
-        if (!(await acknowledgeButton(i))) {
-          await safeReleaseDuelLock(duelLock);
-          collector.stop('stale-interaction');
-          return;
-        }
-        settled = true;
-        collector.stop('settled');
-
-        if (i.customId === 'duel_decline') {
-          await i.editReply({
-            embeds: [EmbedBuilder.from(embed).setColor(0xf23f43)
-              .setDescription(`🏃 ${mention(target)} declined the duel.`)],
-            components: [],
-          });
-          await safeReleaseDuelLock(duelLock);
-          return;
-        }
-
-        // re-check the conflict gate at accept time — either party may have
-        // started a raid/boss attack during the challenge window
-        const [cBusy, tBusy] = await Promise.all([
-          inLiveBattle(challenger.id), inLiveBattle(target.id),
-        ]);
-        if (cBusy || tBusy) {
-          const busyMention = mention(cBusy ? challenger : target);
-          await i.editReply({
-            embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6)
-              .setDescription(`⚔️ Duel cancelled — ${busyMention} is mid-battle.`)],
-            components: [],
-          });
-          await safeReleaseDuelLock(duelLock);
-          return;
-        }
-        // accept → battle starts immediately (no pre-battle overview, §14). The
-        const running = await markDuelRunning(duelLock);
-        if (!running.ok) {
-          await i.editReply({
-            embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6)
-              .setDescription('Duel cancelled - the challenge expired.')],
-            components: [],
-          });
-          await safeReleaseDuelLock(duelLock);
-          return;
-        }
-        // duel_challenges / duel_wins quest progress is committed in commitDuelResult.
-        try {
-          await i.editReply({
-          embeds: [EmbedBuilder.from(embed).setColor(0x43d675)
-            .setDescription(`⚔️ ${mention(target)} accepts! The duel begins...`)],
-          components: [],
-        });
-
-        // [Jun-2026 §3] when a level was given, recompute BOTH sides' class-stat component at N
-        // (weapon + deity curr stats still apply as owned; nothing persisted).
-        const [p1, p2] = await Promise.all([
-          buildPlayerFighter(pool, challenger.id, { levelOverride: duelLevel }),
-          buildPlayerFighter(pool, target.id, { levelOverride: duelLevel }),
-        ]);
-        if (!p1 || !p2) {
-          await challengeMsg.channel.send('Duel cancelled — a duelist no longer has a character.');
-          return;
-        }
-
-        const sim = resolveBattle(p1, p2, { mode: 'duel', seed: Date.now() >>> 0 });
-        await markDuelSettling(duelLock).catch((err) => console.warn('[duel lock] settling:', err.message));
-        const notices = await commitDuelResult(challenger.id, target.id, sim);
-        // A duel has one shared message, so its visual theme belongs to the
-        // challenger who opened it; both combatants still render in that skin's slots.
-        let battleSkinPath = null;
-        try {
-          battleSkinPath = (await resolveSkin(pool, challenger.id, 'battle')).path;
-        } catch (err) {
-          console.warn('[duel] battle skin resolution:', err.message);
-        }
-        await runBattle(challengeMsg.channel, {
-          mode: 'duel', sim, notices, battleSkinPath, ownerId: challenger.id,
-        });
-        } finally {
-          await safeReleaseDuelLock(duelLock);
-        }
-      } catch (err) {
-        if (isUnknownInteraction(err)) {
-          await safeReleaseDuelLock(duelLock);
-          collector.stop('stale-interaction');
-          return;
-        }
-        await safeReleaseDuelLock(duelLock);
-        console.error('[duel]', err);
-        // commit precedes render: a failure before COMMIT changed nothing; a
-        // render failure after COMMIT already recorded the result.
-        await challengeMsg.channel
-          .send('Something went wrong running the duel.')
-          .catch(() => {});
-      }
-    }));
-
-    collector.on('end', (_collected, reason) => {
-      activeDuelCollectors = Math.max(0, activeDuelCollectors - 1);
-      if (reason === 'settled') return;
-      safeReleaseDuelLock(duelLock);
-      challengeMsg.edit({
-        embeds: [EmbedBuilder.from(embed).setColor(0x95a5a6)
-          .setDescription(`⌛ The challenge to ${mention(target)} expired.`)],
-        components: [],
-      }).catch(() => {});
-    });
+    if (!(await persistDuelChallenge({ duelLock, challengeMsg, embed }))) return;
+    watchDuelExpiry({ challengeMsg, embed, duelLock, targetId: target.id });
   } catch (err) {
     console.error('[duel]', err);
     return reply(message, 'Duel failed — nothing was changed.').catch(() => {});
@@ -595,4 +673,8 @@ registerMemorySource('collectors.duel', () => ({
   lifetimeMs: CHALLENGE_WINDOW_MS,
 }));
 
-module.exports = { execute };
+module.exports = {
+  execute,
+  handleButtonInteraction,
+  parseDuelButtonId,
+};

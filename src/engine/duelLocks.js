@@ -66,25 +66,70 @@ async function acquireDuelLock({
 }
 
 async function attachDuelMessage(lock, messageId) {
-  if (!lock?.duelId || !lock?.lockToken || !messageId) return;
-  await pool.query(
+  if (!lock?.duelId || !lock?.lockToken || !messageId) return false;
+  const result = await pool.query(
     `UPDATE active_duels
         SET message_id = $3
       WHERE duel_id = $1 AND lock_token = $2`,
     [lock.duelId, lock.lockToken, messageId]
   );
+  return result.rowCount === 1;
 }
 
-async function markDuelRunning(lock) {
+/**
+ * Resolve the persisted challenge behind a Discord message. Session-qualified
+ * buttons may include a duel id; message-only lookup keeps the legacy button ids
+ * usable across restarts and rolling deploys.
+ */
+async function findDuelByMessage({ messageId, duelId = null, pendingWindowMs = null }, db = pool) {
+  if (!messageId) return null;
+  const result = await db.query(
+    `SELECT duel_id AS "duelId",
+            lock_token AS "lockToken",
+            challenger_id AS "challengerId",
+            opponent_id AS "opponentId",
+            duel_type AS "duelType",
+            stake,
+            status,
+            created_at AS "createdAt",
+            expires_at > NOW() AS "lockFresh",
+            ($3::bigint IS NULL OR
+              created_at + ($3::text || ' milliseconds')::interval > NOW()) AS "challengeFresh"
+       FROM active_duels
+      WHERE message_id = $1
+        AND ($2::uuid IS NULL OR duel_id = $2::uuid)
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [messageId, duelId, pendingWindowMs]
+  );
+  return result.rows[0] || null;
+}
+
+/** Atomically remove a challenge only while it is still pending. */
+async function cancelPendingDuel(lock, db = pool) {
+  if (!lock?.duelId || !lock?.lockToken) return false;
+  const result = await db.query(
+    `DELETE FROM active_duels
+      WHERE duel_id = $1 AND lock_token = $2 AND status = 'pending'
+      RETURNING duel_id`,
+    [lock.duelId, lock.lockToken]
+  );
+  return result.rowCount === 1;
+}
+
+async function markDuelRunning(lock, { pendingWindowMs = null } = {}) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const cur = await client.query(
-      `SELECT status, expires_at > NOW() AS fresh
+      `SELECT status,
+              expires_at > NOW() AS "lockFresh",
+              ($3::bigint IS NULL OR
+                created_at + ($3::text || ' milliseconds')::interval > NOW()) AS "challengeFresh"
          FROM active_duels
         WHERE duel_id = $1 AND lock_token = $2
         FOR UPDATE`,
-      [lock.duelId, lock.lockToken]
+      [lock.duelId, lock.lockToken, pendingWindowMs]
     );
     if (cur.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -95,7 +140,7 @@ async function markDuelRunning(lock) {
       await client.query('ROLLBACK');
       return { ok: false, reason: 'not_pending' };
     }
-    if (!row.fresh) {
+    if (!row.lockFresh || !row.challengeFresh) {
       await client.query('ROLLBACK');
       return { ok: false, reason: 'expired' };
     }
@@ -146,7 +191,9 @@ module.exports = {
   RUNNING_DUEL_LOCK_MINUTES,
   acquireDuelLock,
   attachDuelMessage,
+  cancelPendingDuel,
   cleanupExpiredDuelLocks,
+  findDuelByMessage,
   markDuelRunning,
   markDuelSettling,
   releaseDuelLock,

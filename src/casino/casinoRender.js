@@ -22,7 +22,7 @@ const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard')
 const { attachmentFromOptimizedImage } = require('../utils/imageOutput');
 const { tagDiscordAttachmentBuffer } = require('../utils/networkTelemetry');
 const { COLORS } = canvas;
-const { SLOT_FACE_INDEX } = require('./payoutTables');
+const { SLOT_FACE_INDEX, CRASH_MAX_PUSHES } = require('./payoutTables');
 const { BACK_FILE, blackjackValue } = require('./cardDeck');
 
 const ACCENT = {
@@ -335,10 +335,13 @@ async function buildSlot({ phase, uid, bet, outcome, balance }) {
 }
 
 /* ───────────────────────── CRASH ───────────────────────── */
-function crashButtons(uid, canCashOut) {
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`crash:push:${uid}`).setLabel('Push').setEmoji('⬆️').setStyle(ButtonStyle.Primary),
-  );
+function crashButtons(uid, canCashOut, canPush = true) {
+  const row = new ActionRowBuilder();
+  if (canPush) {
+    row.addComponents(
+      new ButtonBuilder().setCustomId(`crash:push:${uid}`).setLabel('Push').setEmoji('⬆️').setStyle(ButtonStyle.Primary),
+    );
+  }
   if (canCashOut) row.addComponents(new ButtonBuilder().setCustomId(`crash:cashout:${uid}`).setLabel('Cash Out').setEmoji('💰').setStyle(ButtonStyle.Success));
   return row;
 }
@@ -358,9 +361,14 @@ async function buildCrash({ uid, bet, session, balance }) {
 
   const components = [c];
   if (active) {
+    const maxed = session.push >= CRASH_MAX_PUSHES;
     c.addSeparatorComponents(sep).addTextDisplayComponents((td) => td.setContent(
-      session.push === 0 ? '-# Press **Push** to begin the ascension.' : '-# **Push** for more, or **Cash Out** to bank it.'));
-    components.push(crashButtons(uid, session.push >= 1));
+      session.push === 0
+        ? '-# Press **Push** to begin the ascension.'
+        : maxed
+          ? `-# Maximum step ${CRASH_MAX_PUSHES} reached — **Cash Out** to bank it.`
+          : '-# **Push** for more, or **Cash Out** to bank it.'));
+    components.push(crashButtons(uid, session.push >= 1, !maxed));
   } else {
     const kind = crashed ? 'loss' : 'win';
     const extra = cashed ? `You ascended to ${session.multiplier}×` : `The ascension collapsed at ${session.crashPoint}×`;
@@ -391,5 +399,5 @@ function prewarm() {
 
 module.exports = {
   buildCoin, buildDice, buildBaccarat, buildBlackjack, buildSlot, buildCrash,
-  WAIT, prewarm, ACCENT,
+  crashButtons, WAIT, prewarm, ACCENT,
 };

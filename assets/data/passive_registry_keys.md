@@ -45,14 +45,14 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `arrow_of_eros` — Love's Arrow: 30% chance to deal +45% bonus ATK.
 - `cretan_bow` — Hunter's Focus: ATK +4% every turn, stacking up to 20%.
 - `juru_pakal` — Bloodhunter: Deals 30% more damage to bleeding enemies.
-- `gram` — Dragonbane: Ignores 20% of enemy DEF.
-- `tyrfing` — Cursed Edge: ATK +10% every turn, stacking up to 30%.
+- `gram` — Dragonbane: Ignores 25% of enemy DEF. Deals +30% bonus damage to enemies above 80% HP.
+- `tyrfing` — Cursed Edge: ATK +10% every turn, stacking up to +30%. Once the enemy drops below 30% HP, the curse takes hold: your attacks can no longer miss or be evaded.
 - `laevateinn_sword` — Sundering Flame: Reduces enemy DEF by 10% every turn, stacking up to 30%.
 - `jarngreipr` — Thunder Grip: Stunning an enemy triggers Bash for +60% bonus damage.
 - `gridr_iron_gloves` — Ironhide: 20% chance to ignore incoming damage entirely.
 - `alans_reversed_hands` — Untouchable: Immune to all status effects.
 - `knuckle_charm_anting_anting` — Death Charm: 5% chance to instantly kill the opponent (Bosses excluded).
-- `laevateinn_staff` — Flickering Flame: Attacks ignore 15% of enemy DEF.
+- `laevateinn_staff` — Flickering Flame: Attacks ignore 15% of enemy DEF and apply Burn equal to 10% of ATK for 2 turns.
 - `galdrastafir` — Runebreaker: 50% chance to reduce enemy DEF by 30% for 1 turn.
 - `babaylans_ritual_staff` — Sacred Cleansing: Cleanses all debuffs every turn; whenever a cleanse removes at least one debuff, grants +100% ATK for 1 turn.
 - `badiang_stalk` — Venom Burst: 30% chance to Rupture for 10% of the enemy's max HP (blocked by all bosses).
@@ -62,11 +62,11 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `gusisnautar` — Hemorrhaging Shot: 50% chance to Hemorrhage for 10% of the enemy's max HP for 1 turn, with -15% DEF while it lasts (blocked by all bosses).
 - `freyrs_arrow` — Auto-Fire: 50% chance to auto-fire for 100% ATK damage.
 - `harpe` — Gorgon Slayer: Ignores 30% of enemy DEF.
-- `sword_of_damocles` — Impending Doom: ATK +5% every turn, stacking up to +100%; in exchange, takes 5% more damage.
+- `sword_of_damocles` — Impending Doom: ATK +5% every turn, stacking up to +100%. While any stacks are active, you take +10% damage.
 - `labrys` — Double Strike: Every 3rd turn, the attack hits twice; the second hit deals 70% ATK and both can CRIT.
 - `hephaestus_hammer` — Forged Armor: DEF +20% for the whole battle; every 4th turn, lands a 150% ATK forge strike.
 - `caduceus` — Herald's Touch: Every 3rd turn, cleanses all debuffs and restores 8% max HP.
-- `spear_of_ares` — Bloodlust: ATK +8% every 2 turns, stacking up to 40%.
+- `spear_of_ares` — Bloodlust: ATK +10% every turn, stacking up to +40%. Whenever you defeat an enemy, immediately gain a stack.
 - `helm_of_darkness` — Invisibility: [v5 Supreme armor] 30% chance each turn to reduce enemy DEF by 50% for 2 turns.
 - `aegis` — Medusa's Gaze: [v5 Supreme armor] 50% chance on hit to add a Stone stack; at 3 stacks, stuns for 1 turn, then resets.
 - `apollos_silver_bow` — Unerring Arrow: Ignores 25% of enemy DEF; every 4th turn, the attack is a guaranteed CRIT.
@@ -94,46 +94,46 @@ new and defensive:
 ## DEITY blessings (deity_roster.blessing_key)
 
 - `bathala_divine_vessel` — Divine Vessel: All stats +20% for the first 3 turns.
-- `sidapa_deaths_reprieve` — Death's Reprieve: Once per battle, survive lethal damage at 1 HP.
-- `magwayen_soul_drain` — Soul Drain: Each attack steals 10% of the damage dealt as HP.
-- `mandarangan_war_frenzy` — War Frenzy: ATK +10% every turn, up to 30% (reached by turn 3).
-- `apolaki_solar_burn` — Solar Burn: Every 3rd turn, ignites the enemy with flat Burn (15% ATK per turn for 2 turns).
-- `mayari_lunar_veil` — Lunar Veil: While HP is below 50%, DEF +30%.
-- `dian_masalanta_devotion` — Devotion: While HP is below 30%, ATK +25%.
-- `amihan_tailwind` — Tailwind: 20% chance to evade any incoming attack.
-- `habagat_monsoon_fury` — Monsoon Fury: Every turn, a 25% chance to unleash a storm strike for +50% bonus ATK.
+- `sidapa_deaths_reprieve` — Death's Reprieve: Once per battle, the first lethal hit leaves Sidapa at 1 HP. He then heals 30% max HP and gains +50% ATK for the rest of the battle.
+- `magwayen_soul_drain` — Soul Drain: Heals 15% of all damage dealt. When an enemy is defeated, recover 20% max HP as their soul is claimed.
+- `mandarangan_war_frenzy` — War Frenzy: End of each turn: +10% ATK, stacking up to +50% (reached turn 5). Stacks persist all battle.
+- `apolaki_solar_burn` — Solar Burn: Each of Apolaki's attacks applies Burn to the enemy equal to 10% of Apolaki's ATK. The Burn deals its damage at the end of the enemy's next turn, then expires. Each hit refreshes it.
+- `mayari_lunar_veil` — Lunar Veil: While below 50% HP, DEF +30% and reflect 15% of damage taken.
+- `dian_masalanta_devotion` — Devotion: While below 50% HP, ATK +30% and heal 4% max HP each turn.
+- `amihan_tailwind` — Tailwind: 20% chance to evade any incoming attack. Each successful evade grants +20% ATK to her next attack.
+- `habagat_monsoon_fury` — Monsoon Fury: At the start of each turn, 25% chance to empower this turn's attack, causing it to deal +50% bonus damage.
 - `lakapati_abundance` — Abundance: Regenerates 3% max HP at the start of each turn.
-- `idiyanale_persistence` — Persistence: Every 5 turns, the next attack deals double damage.
+- `idiyanale_persistence` — Persistence: Every 3rd turn, the next attack deals +75% more damage.
 - `odin_all_fathers_wisdom` — All-Father's Wisdom: On every even turn (2, 4, 6…), takes 50% reduced damage.
-- `thor_mjolnirs_wrath` — Mjolnir's Wrath: Every 3rd turn, deals +50% bonus ATK and stuns the enemy for 1 turn.
-- `freya_valkyries_embrace` — Valkyrie's Embrace: Once per battle, at 40% HP or below, restores 20% max HP and grants +15% ATK for 2 turns.
-- `loki_illusory_double` — Illusory Double: 20% chance each turn to evade an attack and counter for 50% ATK.
-- `tyr_oathkeeper` — Oathkeeper: DEF +20% for the whole battle; while HP is below 50%, reflects 15% of incoming damage.
-- `skadi_winters_hunt` — Winter's Hunt: Every 3rd turn, gains +40% ATK and applies Freeze (the enemy skips its next turn).
-- `surt_muspells_flame` — Muspell's Flame: Every attack applies flat Burn (25% ATK per turn for 2 turns); Burn deals +50% against already-burning enemies.
-- `heimdall_eternal_vigilance` — Eternal Vigilance: The first hit taken each battle is reduced by 50%.
-- `baldur_invulnerability` — Invulnerability: Once per battle, on the first turn Baldur is debuffed or drops below 50% HP, removes all debuffs and restores 10% max HP.
-- `hel_half_dead` — Half-Dead: While HP is below 50%, DEF +15% and ATK +15%.
-- `mimir_runic_knowledge` — Runic Knowledge: Every 4 turns, the next attack deals 65% more damage.
-- `freyr_harvest_bounty` — Harvest Bounty: Restores 5% max HP every 2 turns.
+- `thor_mjolnirs_wrath` — Mjolnir's Wrath: Each attack has a 30% chance to Stun the enemy (skips its next turn) and applies Paralyze for 3 turns. While paralyzed, the enemy takes paralysis damage equal to 20% of Thor's ATK each turn and has a 10% chance per turn to skip that turn.
+- `freya_valkyries_embrace` — Valkyrie's Embrace: ATK +30% for the whole battle. Once per battle, at 40% HP or below, restore 20% max HP.
+- `loki_illusory_double` — Illusory Double: 25% chance each turn to evade an attack and counter for 50% ATK.
+- `tyr_oathkeeper` — Oathkeeper: DEF +30% for the whole battle; while below 50% HP, reflects 20% of incoming damage.
+- `skadi_winters_hunt` — Winter's Hunt: Each turn, Skadi's attack has a 30% chance to Freeze the enemy (skips its next turn). After the Freeze ends, the enemy suffers Frostbite, taking +50% damage from all sources for 1 turn.
+- `surt_muspells_flame` — Muspell's Flame: Every attack applies Burn equal to 5% of ATK per turn for 2 turns. Burn stacks with each hit, up to a maximum of 30% ATK per turn. Against an already-burning enemy, attacks deal +50% bonus damage.
+- `heimdall_eternal_vigilance` — Eternal Vigilance: The first hit taken each battle is reduced by 50%. For the rest of the battle, damage from incoming critical hits is reduced by 30%.
+- `baldur_invulnerability` — Invulnerability: Once per battle, the first time Baldur is debuffed or drops below 50% HP, remove all debuffs, restore 15% max HP, and reduce damage taken by 50% for 1 turn.
+- `hel_half_dead` — Half-Dead: While below 50% HP, ATK +30% and DEF +30%.
+- `mimir_runic_knowledge` — Runic Knowledge: Every 3rd turn, the next attack deals +90% more damage.
+- `freyr_harvest_bounty` — Harvest Bounty: Restores 6% max HP every 2 turns.
 - `njord_seas_favor` — Sea's Favor: 15% chance each turn to reduce incoming damage by 30%.
-- `bragi_battle_hymn` — Battle Hymn: Every 3 turns, grants +8% ATK for 2 turns.
-- `idunn_golden_apple` — Golden Apple: Once per battle, at 50% HP or below, restores 15% max HP.
-- `vidar_silent_vengeance` — Silent Vengeance: When hit by a critical, the next attack automatically crits in return.
-- `magni_might_of_magni` — Might of Magni: ATK +5% for every 10% of HP lost, up to 25%.
+- `bragi_battle_hymn` — Battle Hymn: ATK +15% for the whole battle.
+- `idunn_golden_apple` — Golden Apple: Once per battle, at 50% HP or below, restore 15% max HP.
+- `vidar_silent_vengeance` — Silent Vengeance: When hit by a critical, Vidar's next attack is a guaranteed critical. The first time he drops below 50% HP, his next attack also crits.
+- `magni_might_of_magni` — Might of Magni: +5% ATK for every 10% max HP missing, up to +25%.
 - `zeus_thunder_sovereign` — Thunder Sovereign: Every 3rd turn, deals +80% bonus ATK and reduces enemy DEF by 20% for 1 turn.
-- `ares_blood_frenzy` — Blood Frenzy: ATK +8% every 2 turns, stacking up to 40% (reached by turn 10).
-- `poseidon_tidal_force` — Tidal Force: Every 4 turns, deals +60% bonus ATK with a 40% chance to stun for 1 turn.
-- `hades_soul_harvest` — Soul Harvest: While the enemy's HP is below 30%, ATK +35% for the rest of the battle.
-- `hera_divine_wrath` — Divine Wrath: When hit by a critical, gains +10% DEF and +10% ATK, stacking up to 3 times.
-- `athena_aegis_shield` — Aegis Shield: The first 2 hits taken each battle are reduced by 40%.
-- `apollo_solar_radiance` — Solar Radiance: ATK +20% for the whole battle.
-- `artemis_huntress_precision` — Huntress Precision: The first attack each battle always crits; afterward, every 4 turns the next attack automatically crits.
-- `hephaestus_forged_armor` — Forged Armor: DEF +20% for the whole battle; when HP drops below 50%, ATK +15%.
-- `aphrodite_enchanting_aura` — Enchanting Aura: 20% chance each turn to charm the enemy, making it skip its attack.
-- `persephone_cycle_of_renewal` — Cycle of Renewal: Once per battle, when HP drops below 50%, restores 20% max HP.
+- `ares_blood_frenzy` — Blood Frenzy: At the end of each turn, gain +10% ATK, stacking up to +50%.
+- `poseidon_tidal_force` — Tidal Force: Each attack has a 30% chance to Stun the enemy (skips its next turn) and shred its DEF by 30% for 2 turns. The shred refreshes on each proc but does not stack.
+- `hades_soul_harvest` — Soul Harvest: While the enemy is below 30% HP, ATK +50% for the rest of the battle.
+- `hera_divine_wrath` — Divine Wrath: DEF +30% for the whole battle. When hit by a critical, gain +10% ATK, stacking up to 3 times.
+- `athena_aegis_shield` — Aegis Shield: The first 2 hits taken each battle are reduced by 40%. Afterward, incoming damage is reduced by 10% for the rest of the battle.
+- `apollo_solar_radiance` — Solar Radiance: ATK +25% for the whole battle.
+- `artemis_huntress_precision` — Huntress Precision: The first attack each battle always crits; afterward, every 3rd turn the next attack automatically crits.
+- `hephaestus_forged_armor` — Forged Armor: DEF +25% for the whole battle; while below 50% HP, ATK +20%.
+- `aphrodite_enchanting_aura` — Enchanting Aura: 25% chance each turn to Charm the enemy, making it skip its attack.
+- `persephone_cycle_of_renewal` — Cycle of Renewal: Once per battle, when HP drops below 50%, restore 15% max HP.
 - `dionysus_drunken_haze` — Drunken Haze: 30% chance each turn to make the enemy attack itself for 30% of its own ATK.
-- `nike_wings_of_victory` — Wings of Victory: ATK +25% for the whole battle.
+- `nike_wings_of_victory` — Wings of Victory: ATK +15% for the whole battle.
 
 ## ECHO blessings (active_echo_deity_id via ECHO_BLESSING_KEY_MAP)
 

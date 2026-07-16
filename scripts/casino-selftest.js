@@ -54,6 +54,7 @@ const baccarat = require('../src/casino/baccarat');
 const slotMachine = require('../src/casino/slotMachine');
 const blackjack = require('../src/casino/blackjack');
 const crash = require('../src/casino/crash');
+const casinoRender = require('../src/casino/casinoRender');
 const cardDeck = require('../src/casino/cardDeck');
 const betGuard = require('../src/casino/betGuard');
 
@@ -182,7 +183,30 @@ const N = 300_000;
   ok('crash: extend mult push 8 = 19.51', payouts.crashMultiplier(8) === 19.51, `got ${payouts.crashMultiplier(8)}`);
   ok('crash: chance push 7 = 32', payouts.crashChance(7) === 32);
   ok('crash: chance push 8 = 34', payouts.crashChance(8) === 34);
-  ok('crash: chance caps at 75', payouts.crashChance(28) === 74 && payouts.crashChance(29) === 75);
+  ok('crash: final gameplay push 10 chance = 38', payouts.crashChance(10) === 38);
+  ok('crash: gameplay cap is 10 pushes', payouts.CRASH_MAX_PUSHES === 10);
+  ok('crash: formula cap remains 75 but is unreachable in gameplay', payouts.crashChance(28) === 74 && payouts.crashChance(29) === 75);
+
+  let chanceCalls = 0;
+  const survive = makeRng((n) => {
+    if (n === 10_000) chanceCalls += 1;
+    return n === 10_000 ? 9999 : 0;
+  });
+  const maxed = crash.create(100, survive);
+  for (let push = 1; push <= payouts.CRASH_MAX_PUSHES; push += 1) crash.pushNext(maxed);
+  const callsAtTen = chanceCalls;
+  const blockedEleventh = crash.pushNext(maxed);
+  ok('crash: surviving push 10 leaves session active for cashout',
+    maxed.state === 'active' && maxed.push === 10 && maxed.multiplier === payouts.crashMultiplier(10));
+  ok('crash: forged 11th push is blocked without another risk roll',
+    blockedEleventh.maxed === true && maxed.push === 10 && chanceCalls === callsAtTen);
+
+  const stepNineIds = casinoRender.crashButtons('tester', true, true).toJSON().components.map((button) => button.custom_id);
+  const stepTenIds = casinoRender.crashButtons('tester', true, false).toJSON().components.map((button) => button.custom_id);
+  ok('crash: before step 10 UI offers Push and Cash Out',
+    stepNineIds.includes('crash:push:tester') && stepNineIds.includes('crash:cashout:tester'));
+  ok('crash: step 10 UI offers Cash Out only',
+    stepTenIds.length === 1 && stepTenIds[0] === 'crash:cashout:tester');
 })();
 
 /* ─────────────────── 4. SLOT lose-branch never three-of-a-kind ─────────────────── */

@@ -17,6 +17,16 @@ const { buildDeityInfoPayload, attemptDeityEnhance } = require('../src/commands/
 const { buildInfoPayload } = require('../src/commands/rpg/equipment');
 const { detectImageFormat, validateGeneratedImageBuffer } = require('../src/utils/imageOutput');
 const { battleFrameCacheParts, battleResultCacheParts } = require('../src/engine/battleRender');
+const { handleButtonInteraction, parseDuelButtonId } = require('../src/commands/rpg/duel');
+const { cancelPendingDuel, findDuelByMessage } = require('../src/engine/duelLocks');
+const {
+  execute: executeCompare, splitDeityNames, weaponEntry, deityEntry,
+} = require('../src/commands/rpg/compare');
+const { groupSummonResults } = require('../src/engine/renderSummon');
+const { emoji } = require('../src/utils/emojis');
+const {
+  DEITY_UPDATES, WEAPON_UPDATES, validateDefinitions,
+} = require('./update-final-passive-descriptions');
 
 const player = (over = {}) => ({
   name: 'Hero', kind: 'player', class: 'Test', classPassive: null,
@@ -310,6 +320,282 @@ async function main() {
   assert(gearJson.includes('Owner: <@123>'));
   assert(!gearJson.includes('**Enhancement**'));
   assert(!gearJson.includes("Ignored's"));
+
+  const rosterNames = ['Apolaki', 'Dian Masalanta', 'Mayari', 'Thor'];
+  assert.deepEqual(
+    splitDeityNames(['Dian', 'Masalanta', 'Mayari', 'Apolaki'], rosterNames),
+    { ok: true, names: ['Dian Masalanta', 'Mayari', 'Apolaki'] },
+  );
+  assert.deepEqual(
+    splitDeityNames(['Dian', 'Masalanta,', 'Mayari'], rosterNames),
+    { ok: true, names: ['Dian Masalanta', 'Mayari'] },
+  );
+  assert.equal(splitDeityNames(['Unknown', 'Mayari'], rosterNames).ok, false);
+  assert.equal(splitDeityNames(['Mayari'], rosterNames).ok, false);
+
+  const compareWeapon = weaponEntry({
+    name: 'Tyrfing', enhancement: 8, tier: 'Mythic', curr_atk: 1234, crit: 12.5,
+    bonus_dmg_pct: 0, passive_name: 'Cursed Edge', passive_description: 'DB weapon description',
+  });
+  assert(compareWeapon.includes('Tyrfing'));
+  assert(compareWeapon.includes('+7'));
+  assert(compareWeapon.includes('DB weapon description'));
+  const compareDeity = deityEntry({
+    name: 'Dian Masalanta', mythology: 'Philippine', tier: 'Mythic', base_hp: 100,
+    base_atk: 50, base_def: 25, blessing_name: 'Devotion',
+    blessing_description: 'DB deity description', sigils: 3, ascended: false, enhancement: 0,
+  });
+  assert(compareDeity.includes('Dian Masalanta'));
+  assert(compareDeity.includes('3/10'));
+  assert(compareDeity.includes('DB deity description'));
+
+  const comparePool = require('../src/db/pool');
+  const originalCompareQuery = comparePool.query;
+  const compareRows = [
+    {
+      deity_id: 1, name: 'Dian Masalanta', mythology: 'Philippine', tier: 'Mythic',
+      base_hp: 100, base_atk: 50, base_def: 25, blessing_name: 'Devotion',
+      blessing_description: 'DB Dian description', user_deity_id: 11, sigils: 3,
+      ascended: false, enhancement: 1,
+    },
+    {
+      deity_id: 2, name: 'Mayari', mythology: 'Philippine', tier: 'Legendary',
+      base_hp: 110, base_atk: 45, base_def: 30, blessing_name: 'Lunar Veil',
+      blessing_description: 'DB Mayari description', user_deity_id: 12, sigils: 10,
+      ascended: true, enhancement: 1,
+    },
+    {
+      deity_id: 3, name: 'Apolaki', mythology: 'Philippine', tier: 'Epic',
+      base_hp: 90, base_atk: 55, base_def: 20, blessing_name: 'Solar Burn',
+      blessing_description: 'DB Apolaki description', user_deity_id: null, sigils: null,
+      ascended: null, enhancement: null,
+    },
+  ];
+  const compareReplies = [];
+  const compareMessage = {
+    author: { id: '123' },
+    async reply(payload) { compareReplies.push(payload); return payload; },
+  };
+  try {
+    comparePool.query = async (sql, params) => {
+      assert(sql.includes('FROM deity_roster'));
+      assert.deepEqual(params, ['123']);
+      return { rows: compareRows };
+    };
+    await executeCompare(compareMessage, {
+      args: ['deity', 'Dian', 'Masalanta', 'Dian', 'Masalanta'],
+    });
+    assert(compareReplies.pop().content.includes('Duplicate deity'));
+
+    await executeCompare(compareMessage, {
+      args: ['deity', 'Dian', 'Masalanta', 'Apolaki'],
+    });
+    const ownershipRejected = compareReplies.pop();
+    assert(ownershipRejected.content.includes("don't have `Apolaki`"));
+    assert(!ownershipRejected.components);
+
+    await executeCompare(compareMessage, {
+      args: ['deity', 'Dian', 'Masalanta', 'Mayari'],
+    });
+    const comparison = compareReplies.pop();
+    assert.equal(comparison.flags, 32768);
+    assert.equal(comparison.components.length, 1);
+    const comparisonJson = JSON.stringify(comparison.components[0].toJSON());
+    assert(comparisonJson.includes('Dian Masalanta'));
+    assert(comparisonJson.includes('Mayari'));
+    assert(comparisonJson.includes('DB Dian description'));
+    assert(comparisonJson.includes('DB Mayari description'));
+
+    await executeCompare(compareMessage, {
+      args: ['weapon', 'same-id', 'same-id'],
+    });
+    assert(compareReplies.pop().content.includes('Duplicate weapon'));
+  } finally {
+    comparePool.query = originalCompareQuery;
+  }
+
+  const duplicateSummonLine = groupSummonResults([
+    { name: 'Mayari', rarity: 'Awakened', isNew: false, essence: 6 },
+    { name: 'Mayari', rarity: 'Awakened', isNew: false, essence: 6 },
+  ]);
+  assert(duplicateSummonLine.includes('**Mayari** x2'));
+  assert(duplicateSummonLine.includes(`${emoji('mythic_essence')} essence +12`));
+  const newSummonLine = groupSummonResults([
+    { name: 'Apolaki', rarity: 'Undying', isNew: true, essence: 0 },
+  ]);
+  assert(newSummonLine.includes('New'));
+  assert(newSummonLine.includes(`${emoji('legendary_essence')} essence +0`));
+
+  validateDefinitions();
+  assert.equal(DEITY_UPDATES.length, 38);
+  assert.equal(WEAPON_UPDATES.length, 5);
+  assert.equal(WEAPON_UPDATES.find((entry) => entry.requestedName === 'Laevateinn').name, 'Laevateinn Staff');
+  const passiveData = fs.readFileSync(path.join(__dirname, '..', 'assets', 'data', 'passive_registry_keys.md'), 'utf8');
+  const passiveSql = fs.readFileSync(path.join(__dirname, 'final-passive-description-updates.sql'), 'utf8');
+  const passiveLineByKey = new Map(
+    [...passiveData.matchAll(/^- `([^`]+)` — ([^\r\n]+)$/gm)].map((match) => [match[1], match[2]]),
+  );
+  assert.equal((passiveSql.match(/^\s+\('deity',/gm) || []).length, 38);
+  assert.equal((passiveSql.match(/^\s+\('weapon',/gm) || []).length, 5);
+  const sqlLiteral = (value) => String(value).replace(/'/g, "''");
+  for (const [rosterType, updates] of [['deity', DEITY_UPDATES], ['weapon', WEAPON_UPDATES]]) {
+    for (const entry of updates) {
+      assert.equal(typeof PASSIVES[entry.key], 'function', `passiveRegistry.js missing ${entry.key} for ${entry.name}`);
+      assert(
+        passiveLineByKey.get(entry.key)?.endsWith(entry.description),
+        `passive_registry_keys.md key ${entry.key} does not carry the final text for ${entry.name}`,
+      );
+      const sqlTuple = `('${rosterType}', '${sqlLiteral(entry.name)}', '${sqlLiteral(entry.key)}', '${sqlLiteral(entry.description)}')`;
+      assert(
+        passiveSql.includes(sqlTuple),
+        `final-passive-description-updates.sql is missing the exact ${rosterType} row for ${entry.name}`,
+      );
+    }
+  }
+
+  const duelId = '123e4567-e89b-42d3-a456-426614174000';
+  assert.deepEqual(parseDuelButtonId(`duel:accept:${duelId}:50`), {
+    action: 'accept', duelId, duelLevel: 50,
+  });
+  assert.deepEqual(parseDuelButtonId(`duel:decline:${duelId}:0`), {
+    action: 'decline', duelId, duelLevel: null,
+  });
+  assert.deepEqual(parseDuelButtonId('duel_accept'), {
+    action: 'accept', duelId: null, duelLevel: null,
+  });
+  assert.equal(parseDuelButtonId(`duel:accept:${duelId}:51`), null);
+  assert.equal(parseDuelButtonId('duel:accept:not-a-uuid:0'), null);
+
+  const buttonCalls = [];
+  const declineInteraction = {
+    customId: 'duel_decline',
+    deferred: false,
+    replied: false,
+    user: { id: 'opponent' },
+    message: {
+      id: 'message-1',
+      embeds: [{ title: '⚔️ Duel Challenge', description: '<@challenger> challenges <@opponent>!' }],
+    },
+    async deferUpdate() {
+      buttonCalls.push('defer');
+      this.deferred = true;
+    },
+    async editReply(payload) {
+      buttonCalls.push('edit');
+      this.edited = payload;
+    },
+    async followUp(payload) {
+      buttonCalls.push('followUp');
+      this.followedUp = payload;
+    },
+  };
+  const handledDecline = await handleButtonInteraction(declineInteraction, {
+    async findDuelByMessage(query) {
+      buttonCalls.push('lookup');
+      assert.deepEqual(query, {
+        messageId: 'message-1', duelId: null, pendingWindowMs: 60_000,
+      });
+      return {
+        duelId,
+        lockToken: 'lock',
+        challengerId: 'challenger',
+        opponentId: 'opponent',
+        duelType: 'casual',
+        status: 'pending',
+        lockFresh: true,
+        challengeFresh: true,
+      };
+    },
+    async cancelPendingDuel() {
+      buttonCalls.push('cancel');
+      return true;
+    },
+  });
+  assert.equal(handledDecline, true);
+  assert.deepEqual(buttonCalls, ['defer', 'lookup', 'cancel', 'edit']);
+  assert.deepEqual(declineInteraction.edited.components, []);
+  assert(declineInteraction.edited.embeds[0].data.description.includes('declined the duel'));
+
+  const acceptCalls = [];
+  const acceptInteraction = {
+    customId: 'duel_accept',
+    deferred: false,
+    replied: false,
+    user: { id: 'opponent' },
+    message: { id: 'message-1', embeds: [{ title: '⚔️ Duel Challenge' }] },
+    async deferUpdate() {
+      acceptCalls.push('defer');
+      this.deferred = true;
+    },
+    async editReply(payload) {
+      acceptCalls.push('edit');
+      this.edited = payload;
+    },
+    async followUp(payload) {
+      acceptCalls.push('followUp');
+      this.followedUp = payload;
+    },
+  };
+  await handleButtonInteraction(acceptInteraction, {
+    async findDuelByMessage(query) {
+      acceptCalls.push('lookup');
+      assert.equal(query.duelId, null);
+      return {
+        duelId,
+        lockToken: 'lock',
+        challengerId: 'challenger',
+        opponentId: 'opponent',
+        duelType: 'casual',
+        status: 'pending',
+        lockFresh: true,
+        challengeFresh: true,
+      };
+    },
+    async inLiveBattle(id) {
+      acceptCalls.push(`live:${id}`);
+      return false;
+    },
+    async markDuelRunning() {
+      acceptCalls.push('claim');
+      return { ok: false, reason: 'not_pending' };
+    },
+  });
+  assert.deepEqual(acceptCalls, [
+    'defer', 'lookup', 'live:challenger', 'live:opponent', 'claim', 'followUp',
+  ]);
+  assert(acceptInteraction.followedUp.content.includes('already been handled'));
+
+  let lookupCall;
+  const persistedDuel = { duelId, lockToken: 'lock', status: 'pending' };
+  const foundDuel = await findDuelByMessage({
+    messageId: 'message-1', duelId, pendingWindowMs: 60_000,
+  }, {
+    async query(sql, params) {
+      lookupCall = { sql, params };
+      return { rows: [persistedDuel] };
+    },
+  });
+  assert.strictEqual(foundDuel, persistedDuel);
+  assert.deepEqual(lookupCall.params, ['message-1', duelId, 60_000]);
+  assert(lookupCall.sql.includes('message_id = $1'));
+  assert(lookupCall.sql.includes('challengeFresh'));
+
+  let cancelCall;
+  assert.equal(await cancelPendingDuel({ duelId, lockToken: 'lock' }, {
+    async query(sql, params) {
+      cancelCall = { sql, params };
+      return { rowCount: 1 };
+    },
+  }), true);
+  assert.deepEqual(cancelCall.params, [duelId, 'lock']);
+  assert(cancelCall.sql.includes("status = 'pending'"));
+
+  const duelSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'commands', 'rpg', 'duel.js'), 'utf8');
+  assert(duelSource.includes('filter: () => false'));
+  assert(duelSource.includes("setCustomId('duel_accept')"));
+
+  const interactionSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'handlers', 'interactionHandler.js'), 'utf8');
+  assert(interactionSource.includes('duelCmd.handleButtonInteraction(interaction)'));
 
   console.log('REQUESTED PATCH SELFTEST: passed');
 }

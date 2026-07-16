@@ -28,18 +28,61 @@ function reply(message, payload) {
   return message.reply({ ...payload, allowedMentions: { repliedUser: false, parse: [] } });
 }
 
-/** deity_roster ⟕ user_deities for one name; ud.* is null when the caller doesn't own it. */
-async function fetchDeityRow(discordId, name) {
+/** All roster deities ⟕ the caller's copies; ud.* is null when one is not owned. */
+async function fetchDeityRows(discordId) {
   const { rows } = await pool.query(
     `SELECT dr.deity_id, dr.name, dr.mythology, dr.tier, dr.base_hp, dr.base_atk, dr.base_def,
             dr.blessing_name, dr.blessing_description,
             ud.user_deity_id, ud.sigils, ud.ascended, ud.enhancement
        FROM deity_roster dr
        LEFT JOIN user_deities ud ON ud.deity_id = dr.deity_id AND ud.discord_id = $1
-      WHERE LOWER(dr.name) = LOWER($2)`,
-    [discordId, name],
+      ORDER BY dr.name`,
+    [discordId],
   );
-  return rows[0] || null;
+  return rows;
+}
+
+function normalizedName(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * Resolve 2–3 deity names from whitespace-tokenized prefix args. Dynamic programming is
+ * needed for roster names such as "Dian Masalanta"; comma-separated names are accepted as
+ * an explicit disambiguation form too.
+ */
+function splitDeityNames(tokens, rosterNames) {
+  const canonical = new Map(rosterNames.map((name) => [normalizedName(name), name]));
+  const joined = tokens.join(' ').trim();
+  if (!joined) return { ok: false, reason: 'count' };
+
+  if (joined.includes(',')) {
+    const parts = joined.split(',').map((part) => part.trim()).filter(Boolean);
+    if (parts.length < 2 || parts.length > 3) return { ok: false, reason: 'count' };
+    const names = parts.map((part) => canonical.get(normalizedName(part)) || null);
+    return names.every(Boolean)
+      ? { ok: true, names }
+      : { ok: false, reason: 'unresolved' };
+  }
+
+  const words = tokens
+    .map((token) => String(token).replace(/^["']+|["']+$/g, '').trim())
+    .filter(Boolean);
+  const solutions = [];
+  const visit = (start, names) => {
+    if (names.length > 3 || solutions.length > 1) return;
+    if (start === words.length) {
+      if (names.length >= 2) solutions.push(names);
+      return;
+    }
+    for (let end = words.length; end > start; end -= 1) {
+      const match = canonical.get(normalizedName(words.slice(start, end).join(' ')));
+      if (match) visit(end, [...names, match]);
+    }
+  };
+  visit(0, []);
+  if (solutions.length === 1) return { ok: true, names: solutions[0] };
+  return { ok: false, reason: solutions.length > 1 ? 'ambiguous' : 'unresolved' };
 }
 
 /** 3-line entry body for an owned weapon (glossary gear-entry style). */
@@ -87,13 +130,27 @@ async function execute(message, { args }) {
   }
 
   const rest = args.slice(1).filter((a) => a && a.length);
-  if (rest.length < 2 || rest.length > 3) {
-    return reply(message, { content: `Compare 2 or 3 ${kind}s — you listed ${rest.length}.` });
+  let requested = rest;
+  let deityRows = null;
+  if (kind === 'weapon') {
+    if (rest.length < 2 || rest.length > 3) {
+      return reply(message, { content: `Compare 2 or 3 weapons — you listed ${rest.length}.` });
+    }
+  } else {
+    deityRows = await fetchDeityRows(message.author.id);
+    const parsed = splitDeityNames(rest, deityRows.map((row) => row.name));
+    if (!parsed.ok) {
+      const hint = parsed.reason === 'ambiguous'
+        ? 'That deity list is ambiguous; separate the exact names with commas.'
+        : 'Could not resolve 2 or 3 exact deity names. Multi-word names such as `Dian Masalanta` are supported.';
+      return reply(message, { content: hint });
+    }
+    requested = parsed.names;
   }
 
   // Reject duplicates (case-insensitive) before any DB work.
   const seen = new Set();
-  for (const token of rest) {
+  for (const token of requested) {
     const norm = token.toLowerCase();
     if (seen.has(norm)) {
       return reply(message, { content: `Duplicate ${kind} \`${token}\` — list each ${kind} only once.` });
@@ -104,13 +161,14 @@ async function execute(message, { args }) {
   const discordId = message.author.id;
   const entries = [];
   const missing = [];
-  for (const token of rest) {
+  const deityByName = new Map((deityRows || []).map((row) => [normalizedName(row.name), row]));
+  for (const token of requested) {
     if (kind === 'weapon') {
       const g = await fetchGear(discordId, token.toLowerCase());
       if (!g || g.kind !== 'weapon') { missing.push(token); continue; }
       entries.push(weaponEntry(g));
     } else {
-      const d = await fetchDeityRow(discordId, token);
+      const d = deityByName.get(normalizedName(token));
       if (!d || d.user_deity_id == null) { missing.push(token); continue; }
       entries.push(deityEntry(d));
     }
@@ -133,4 +191,4 @@ async function execute(message, { args }) {
   return reply(message, { components: [container], flags: MessageFlags.IsComponentsV2 });
 }
 
-module.exports = { execute };
+module.exports = { execute, splitDeityNames, weaponEntry, deityEntry };

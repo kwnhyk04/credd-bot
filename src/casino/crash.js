@@ -6,15 +6,15 @@
  * Each push: roll the crash chance FIRST (crashChance(push)); crash → lose the
  * already-debited bet, and the crash point shown is that push's multiplier; survive → lock
  * crashMultiplier(push) as the safe cash-out value. Crash chance is 20% at push 1 and +2%
- * each push (push2 22%, push3 24%…), capped at 75% (reached at push 29). Beyond push 6 the
- * multiplier extends per payoutTables (×1.45/push).
+ * each push (push2 22%, push3 24%…). Push 10 is the final attempt; after surviving it the
+ * player can only cash out. Beyond push 6 the multiplier extends per payoutTables (×1.45/push).
  *
  * PURE: owns no Map, no DB, no Discord; takes an injectable rng. The command layer owns the
  * per-user session Map, the Push/Cash Out buttons, the 60s auto-cash-out timer, and the
  * money path (bet debited up front; full payout credited on resolution).
  */
 
-const { crashChance, crashMultiplier } = require('./payoutTables');
+const { crashChance, crashMultiplier, CRASH_MAX_PUSHES } = require('./payoutTables');
 const { rng: defaultRng } = require('./rng');
 
 /** Create a fresh crash session. Bet is debited up front by the command layer. */
@@ -33,6 +33,9 @@ function create(bet, rng = defaultRng) {
 /** Attempt the next push. Returns { crashed, push, multiplier }. */
 function pushNext(s) {
   if (s.state !== 'active') return { crashed: s.state === 'crashed', push: s.push, multiplier: s.multiplier };
+  if (s.push >= CRASH_MAX_PUSHES) {
+    return { crashed: false, maxed: true, push: s.push, multiplier: s.multiplier };
+  }
   const n = s.push + 1;
   const chance = crashChance(n);
   if (s.rng.chance(chance)) {
@@ -44,7 +47,7 @@ function pushNext(s) {
   }
   s.push = n;
   s.multiplier = crashMultiplier(n);
-  return { crashed: false, push: n, multiplier: s.multiplier };
+  return { crashed: false, maxed: n >= CRASH_MAX_PUSHES, push: n, multiplier: s.multiplier };
 }
 
 /** Cash out at the current safe multiplier. Returns the gross payout. */

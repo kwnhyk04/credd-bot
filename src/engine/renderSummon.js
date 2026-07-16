@@ -389,15 +389,13 @@ function groupSummonResults(results) {
     groups.set(key, entry);
   }
   return [...groups.values()].map((g) => {
-    // Essence only accrues on duplicates; show the essence tier emoji + tally when any was
-    // earned, and keep New / New xN for first-time pulls (which grant no essence).
+    // Essence only accrues on duplicates, but every result line shows the matching essence
+    // currency and the amount granted (including +0 for a first-time pull).
     const segs = [];
     if (g.newCount) segs.push(`New${g.newCount > 1 ? ` x${g.newCount}` : ''}`);
-    if (g.essence) {
-      const essenceEmoji = emoji(ALIAS_TO_ESSENCE[g.rarity] ?? 'epic_essence');
-      segs.push(`${essenceEmoji} essence +${g.essence.toLocaleString()}`);
-    }
-    const status = segs.join(' + ') || 'Owned';
+    const essenceEmoji = emoji(ALIAS_TO_ESSENCE[g.rarity] ?? 'epic_essence');
+    segs.push(`${essenceEmoji} essence +${g.essence.toLocaleString()}`);
+    const status = segs.join(' + ');
     const count = g.pulls > 1 ? ` x${g.pulls}` : '';
     const tierSymbol = RARITY_SYMBOLS[g.rarity] ?? '◆';
     return `${emojiForDisplay(g.name, 'Deity')} **${g.name}**${count} — ${tierSymbol} ${g.rarity} — ${status}`;
@@ -529,5 +527,6 @@ module.exports = {
   buildResultMessage,
   flipGifExists,
   summonFlipEmoji,
+  groupSummonResults,
   RARITY_SYMBOLS,
 };

@@ -36,15 +36,17 @@ const SLOT_LADDER = [
 
 /**
  * Crash progression (Master §24). Rows 1–6 are LOCKED published values used verbatim.
- *   crash chance = min(75, 20 + 2·(push−1))  → push1 20%, push2 22%, push3 24%, … cap 75% at push29
+ *   crash chance = min(75, 20 + 2·(push−1))  → push1 20%, push2 22%, … push10 38%
  *   cash-out mult = round2( 9.28 · 1.45^(push-6) )  → push7 ≈13.46×, push8 ≈19.52×, …
- * The ×1.45 geometric step reproduces the published rows; rows 1–6 are returned exactly.
+ * Gameplay ends after surviving push 10, so the formula's 75% ceiling is unreachable. The
+ * ×1.45 geometric step reproduces the published rows; rows 1–6 are returned exactly.
  */
 const CRASH_MULT_TABLE = { 1: 1.45, 2: 2.10, 3: 3.05, 4: 4.42, 5: 6.40, 6: 9.28 };
 const CRASH_STEP = 1.45;
 const CRASH_CHANCE_FIRST = 20;
 const CRASH_CHANCE_STEP = 2;
 const CRASH_CHANCE_MAX = 75;
+const CRASH_MAX_PUSHES = 10;
 
 /** Crash chance (%) rolled when ATTEMPTING the given push number. */
 function crashChance(push) {
@@ -77,6 +79,7 @@ module.exports = {
   CRASH_CHANCE_FIRST,
   CRASH_CHANCE_STEP,
   CRASH_CHANCE_MAX,
+  CRASH_MAX_PUSHES,
   crashChance,
   crashMultiplier,
   maxBet,

@@ -487,11 +487,201 @@ section('4. Targeted scenarios');
   check('Surt stacks Burn and bonuses vs burning', hasEvent(allEvents(sim), 'Burn') && hasEvent(allEvents(sim), '+50% vs a burning enemy'));
 }
 
+// Attack-bound passives must not apply from the passive phase while their owner is CC-skipped.
+{
+  const cases = [
+    [{ deityBlessingKey: 'apolaki_solar_burn' }, 'Apolaki: Solar Burn'],
+    [{ deityBlessingKey: 'thor_mjolnirs_wrath' }, "Thor: Mjolnir's Wrath"],
+    [{ deityBlessingKey: 'skadi_winters_hunt' }, "Skadi: Winter's Hunt"],
+    [{ deityBlessingKey: 'surt_muspells_flame' }, "Surt: Muspell's Flame"],
+    [{ deityBlessingKey: 'poseidon_tidal_force' }, 'Poseidon: Tidal Force'],
+    [{ weaponPassiveKey: 'laevateinn_staff' }, 'Laevateinn Staff: Flickering Flame'],
+  ];
+  for (const [passive, marker] of cases) {
+    const sim = resolveBattle(
+      player({ ...passive, classPassive: null, atk: 10, hp: 100000, def: 0, crit: 0 }),
+      player({
+        name: 'Stunner', class: 'Fighter', classPassive: 'stun', atk: 10,
+        hp: 100000, def: 0, crit: 0, specialFlags: { first_strike: true },
+      }),
+      { mode: 'duel', rng: () => 0 }
+    );
+    const r2 = roundEvents(sim, 2);
+    check(`on-hit timing: ${marker} does not fire while owner is stunned`,
+      hasEvent(r2, 'Hero is unable to act') && !hasEvent(r2, marker), r2.join(' | '));
+  }
+}
+
+// "Next attack" bonuses stay queued through a skipped cadence turn and apply on r4.
+{
+  const queuedBattle = (deityBlessingKey) => resolveBattle(
+    player({ deityBlessingKey, classPassive: null, atk: 100, hp: 100000, def: 0, crit: 0 }),
+    player({
+      name: 'Stunner', class: 'Fighter', classPassive: 'stun', atk: 1,
+      hp: 100000, def: 0, crit: 0, specialFlags: { first_strike: true },
+    }),
+    { mode: 'duel', rng: () => 0 }
+  );
+  const base = queuedBattle('none');
+  const baseR4 = dmgOf(roundEvents(base, 4), 'Hero attacks');
+  const idiyanale = queuedBattle('idiyanale_persistence');
+  const mimir = queuedBattle('mimir_runic_knowledge');
+  check('Idiyanale queued r3 bonus survives stun and lands on r4',
+    hasEvent(roundEvents(idiyanale, 3), 'Idiyanale: Persistence')
+      && dmgOf(roundEvents(idiyanale, 4), 'Hero attacks') > baseR4 * 1.6);
+  check('Mimir queued r3 bonus survives stun and lands on r4',
+    hasEvent(roundEvents(mimir, 3), 'Mimir: Runic Knowledge')
+      && dmgOf(roundEvents(mimir, 4), 'Hero attacks') > baseR4 * 1.8);
+
+  const artemis = queuedBattle('artemis_huntress_precision');
+  check('Artemis r3 auto-crit survives stun and lands on r4',
+    hasEvent(roundEvents(artemis, 4), 'Hero attacks')
+      && hasEvent(roundEvents(artemis, 4), '(CRIT!)'));
+
+  const vidar = resolveBattle(
+    player({ deityBlessingKey: 'vidar_silent_vengeance', classPassive: null, atk: 100, hp: 100000, def: 0, crit: 0 }),
+    player({
+      name: 'Critter', class: 'Knight', classPassive: null, atk: 10,
+      hp: 100000, def: 0, crit: 100, specialFlags: { first_strike: true },
+    }),
+    { mode: 'duel', rng: () => 0 }
+  );
+  check('Vidar returns a received crit on his same-round next attack',
+    hasEvent(roundEvents(vidar, 1), 'Vidar: Silent Vengeance')
+      && roundEvents(vidar, 1).some((event) => event.includes('Hero attacks') && event.includes('(CRIT!)')));
+}
+
+// Surt says each hit: Labrys' second hit on r3 must add a second Burn stack.
+{
+  const sim = resolveBattle(
+    player({ weaponPassiveKey: 'labrys', deityBlessingKey: 'surt_muspells_flame', classPassive: null, atk: 10, hp: 100000, def: 0, crit: 0 }),
+    mob({ hp: 100000, atk: 0, def: 0, crit: 0 }),
+    { mode: 'raid', rng: () => 0 }
+  );
+  const r3 = roundEvents(sim, 3);
+  check('Surt adds one Burn stack per landed Labrys hit',
+    hasEvent(r3, 'Burn 15% ATK/turn') && hasEvent(r3, 'Burn 20% ATK/turn'), r3.join(' | '));
+}
+
+// Hera gains one stack for every critical hit, including multiple hits in one enemy action.
+{
+  const sim = resolveBattle(
+    player({ deityBlessingKey: 'hera_divine_wrath', classPassive: null, atk: 10, hp: 100000, def: 0, crit: 0 }),
+    mob({
+      hp: 100000, atk: 10, def: 0, crit: 100,
+      specialFlags: { first_strike: true, multi_attack: 3, multi_attack_pct: 0.10 },
+    }),
+    { mode: 'raid', rng: () => 0 }
+  );
+  check('Hera counts all three received crits in one action',
+    hasEvent(roundEvents(sim, 2), '3 crits received') && hasEvent(roundEvents(sim, 2), 'stack 3/3'),
+    roundEvents(sim, 2).join(' | '));
+}
+
+// Explicit end-of-turn stacks: turn 1 is unbuffed; five completed turns yield +50%.
+{
+  const run = (deityBlessingKey) => resolveBattle(
+    player({ deityBlessingKey, classPassive: null, atk: 100, hp: 100000, def: 0, crit: 0 }),
+    mob({ hp: 100000, atk: 0, def: 0, crit: 0 }),
+    { mode: 'raid', rng: () => 0 }
+  );
+  const base = run('none');
+  for (const [name, key] of [
+    ['Mandarangan', 'mandarangan_war_frenzy'],
+    ['Ares', 'ares_blood_frenzy'],
+  ]) {
+    const sim = run(key);
+    check(`${name} end-turn stack leaves turn 1 unbuffed`,
+      dmgOf(roundEvents(sim, 1), 'Hero attacks') === dmgOf(roundEvents(base, 1), 'Hero attacks'));
+    check(`${name} reaches +50% after five completed turns`,
+      dmgOf(roundEvents(sim, 6), 'Hero attacks') > dmgOf(roundEvents(base, 6), 'Hero attacks') * 1.45);
+  }
+}
+
+// Athena's permanent 10% guard starts immediately on hit 3, even in one multi-hit action.
+{
+  const sim = resolveBattle(
+    player({ deityBlessingKey: 'athena_aegis_shield', classPassive: null, hp: 100000, def: 0, crit: 0 }),
+    mob({
+      hp: 100000, atk: 100, def: 0, crit: 0,
+      specialFlags: { first_strike: true, multi_attack: 3, multi_attack_pct: 1 },
+    }),
+    { mode: 'raid', rng: () => 0 }
+  );
+  const incoming = roundEvents(sim, 1)
+    .filter((event) => event.includes('Dummy strikes'))
+    .map((event) => Number(/\*\*(\d+) DMG\*\*/.exec(event)?.[1]));
+  check('Athena reduces hits 1–2 by 40%, then hit 3 by 10%',
+    incoming.length === 3 && incoming[0] === incoming[1] && incoming[2] > incoming[1],
+    JSON.stringify(incoming));
+}
+
+// Final passive completion: Magwayen claims 20% max HP on defeat (in addition to her
+// 15% damage drain), and Spear of Ares grants its immediate defeat stack.
+{
+  const rolls = [0.99, 0.99, 0.99, 0.5, 0.5]; // mob first; both hits non-crit, pinned variance
+  const magwayen = resolveBattle(
+    player({ classPassive: null, deityBlessingKey: 'magwayen_soul_drain', atk: 1000, hp: 1000, def: 0, crit: 0 }),
+    mob({ atk: 400, hp: 100, def: 0, crit: 0 }),
+    { mode: 'raid', rng: scripted(rolls) }
+  );
+  check('Magwayen defeat heal claims 20% max HP',
+    magwayen.winner === 'a' && hasEvent(allEvents(magwayen), 'claims the fallen soul') && magwayen.a.hp > 600,
+    `hp=${magwayen.a.hp}; ${allEvents(magwayen).join(' | ')}`);
+
+  const spear = resolveBattle(
+    player({ classPassive: null, weaponPassiveKey: 'spear_of_ares', atk: 1000, hp: 1000, def: 0, crit: 0 }),
+    mob({ atk: 400, hp: 100, def: 0, crit: 0 }),
+    { mode: 'raid', rng: scripted(rolls) }
+  );
+  check('Spear of Ares grants an immediate stack on defeat',
+    spear.winner === 'a' && hasEvent(allEvents(spear), 'Defeat grants an immediate ATK stack'));
+}
+
+// Tyrfing's low-HP curse bypasses player evasion as well as mob evasion. Round 1 lowers
+// Amihan below 30%; round 2 forces Tailwind's evade roll, which Tyrfing must override.
+{
+  const sim = resolveBattle(
+    player({ classPassive: null, weaponPassiveKey: 'tyrfing', atk: 71, hp: 1000, def: 0, crit: 0 }),
+    player({ name: 'Amihan', classPassive: null, deityBlessingKey: 'amihan_tailwind', atk: 0, hp: 100, def: 0, crit: 0 }),
+    { mode: 'duel', rng: scripted([
+      0.0,
+      0.99, 0.99, 0.99, 0.5, 0.5,
+      0.99, 0.99, 0.0, 0.5,
+    ]) }
+  );
+  const r2 = roundEvents(sim, 2);
+  check('Tyrfing curse bypasses PvP Tailwind evade below 30% HP',
+    sim.winner === 'a'
+      && hasEvent(r2, 'curse takes hold')
+      && !hasEvent(r2, 'evades the attack (Tailwind)')
+      && hasEvent(r2, 'attacks'),
+    r2.join(' | '));
+
+  const missBypass = resolveBattle(
+    player({ classPassive: null, weaponPassiveKey: 'tyrfing', atk: 1, hp: 1000, def: 0, crit: 0 }),
+    mob({
+      hp: 100, poolHp: 20, poolMaxHp: 100, atk: 0, def: 0, crit: 0,
+      skillKey: 'santelmo_will_o_wisp',
+    }),
+    { mode: 'raid', rng: () => 0 }
+  );
+  check('Tyrfing curse bypasses an armed Miss debuff',
+    hasEvent(roundEvents(missBypass, 2), 'Tyrfing curse overcomes Miss')
+      && hasEvent(roundEvents(missBypass, 2), 'Hero attacks'),
+    roundEvents(missBypass, 2).join(' | '));
+}
+
 // — R2 + [Jun-2026 §2]: Fighter class stun 1/2 turns gates the mob's NEXT turn(s),
-//   refresh-don't-extend. The stun is applied on the player's r1 hit, so the mob still
+//   and cannot re-proc while active. The stun is applied on the player's r1 hit, so the mob still
 //   ACTS r1 (directional CC never cancels an action already due) and is gated AFTER. —
 {
   const mkF = () => player({ class: 'Fighter', classPassive: 'stun' });
+  // A failed opening roll must stay failed — there is no first-turn forced proc.
+  const noOpeningStun = resolveBattle(mkF(), mob({ hp: 100000 }),
+    { seed: 1, rng: scripted([0.0, 0.99, 0.99]) });
+  check('R2: turn-1 roll obeys probability (no forced opening stun)',
+    !hasEvent(roundEvents(noOpeningStun, 1), 'stuns') && hasEvent(roundEvents(noOpeningStun, 1), 'strikes'));
   // 2-turn stun on the 10% band (r1 stunPre < 0.10): mob acts r1, then skips r2+r3, acts r4.
   // Minimal script (order, r1 critPre 0.99, r1 stunPre 0.05); fallback 0.5 means no further stuns.
   const s2 = resolveBattle(mkF(), mob({ hp: 100000 }),
@@ -500,16 +690,49 @@ section('4. Targeted scenarios');
   check('R2: 2-turn stun — mob skips r2', hasEvent(roundEvents(s2, 2), 'unable to act'));
   check('R2: 2-turn stun — mob skips r3', hasEvent(roundEvents(s2, 3), 'unable to act'));
   check('R2: mob acts round 4', hasEvent(roundEvents(s2, 4), 'strikes'));
-  // re-proc a 2-turn stun in r2 (player's r2 hit) → refresh to max(remaining,2)=2 → still
-  // skips r2+r3, acts r4 (extend semantics would stack to 3 and delay to r5).
-  const sR = resolveBattle(mkF(), mob({ hp: 100000 }),
-    { seed: 1, rng: scripted([0.0, 0.99, 0.05, 0.5, 0.99, 0.5, /* r2 */ 0.99, 0.05]) });
-  check('R2 refresh: skips r3', hasEvent(roundEvents(sR, 3), 'unable to act'));
-  check('R2 refresh-not-extend: acts r4', hasEvent(roundEvents(sR, 4), 'strikes'));
-  // 1-turn band (0.10 ≤ r < 0.35): mob acts r1, skips r2, acts r3.
+  // Force every stun pre-roll to proc. While the first stun is active (r2/r3), no new stun
+  // is logged or refreshed; the post-expiry immunity then guarantees the mob's r4 action.
+  const guarded = resolveBattle(mkF(), mob({ hp: 100000 }), { seed: 1, rng: () => 0 });
+  const firstFour = [1, 2, 3, 4].flatMap((round) => roundEvents(guarded, round));
+  check('R2 guard: active stun cannot re-proc or refresh',
+    firstFour.filter((event) => event.includes('stuns')).length === 1,
+    firstFour.join(' | '));
+  check('R2 guard: post-stun immunity guarantees a free r4 action', hasEvent(roundEvents(guarded, 4), 'strikes'));
+  let forcedWorst = 0, forcedStreak = 0, forcedFreeActions = 0;
+  for (const battleRound of guarded.rounds) {
+    if (hasEvent(battleRound.events, 'Dummy is unable to act')) {
+      forcedStreak += 1;
+      forcedWorst = Math.max(forcedWorst, forcedStreak);
+    } else {
+      forcedStreak = 0;
+      if (hasEvent(battleRound.events, 'Dummy strikes')) forcedFreeActions += 1;
+    }
+  }
+  check('R2 guard: forced-proc stream cannot create unlimited stun',
+    forcedWorst <= 2 && forcedFreeActions >= 1,
+    `worst=${forcedWorst}, freeActions=${forcedFreeActions}`);
+  // The central guard also blocks another source from refreshing Fighter's active stun.
+  const mixedStuns = resolveBattle(
+    player({ class: 'Fighter', classPassive: 'stun', deityBlessingKey: 'poseidon_tidal_force', atk: 5 }),
+    mob({ hp: 100000 }),
+    { seed: 1, rng: () => 0 }
+  );
+  const mixedFirstFour = [1, 2, 3, 4].flatMap((round) => roundEvents(mixedStuns, round));
+  check('R2 guard: Poseidon cannot refresh a Fighter stun',
+    mixedFirstFour.filter((event) => event.includes('blow stuns')).length === 1
+      && hasEvent(roundEvents(mixedStuns, 4), 'strikes'),
+    mixedFirstFour.join(' | '));
+  // 1-turn band (0.10 ≤ r < 0.25): mob acts r1, skips r2, acts r3.
   const s1 = resolveBattle(mkF(), mob({ hp: 100000 }),
     { seed: 1, rng: scripted([0.0, 0.99, 0.20]) });
   check('R2: 1-turn stun - skips r2 only', hasEvent(roundEvents(s1, 1), 'strikes') && hasEvent(roundEvents(s1, 2), 'unable to act') && hasEvent(roundEvents(s1, 3), 'strikes'));
+  // Dizzy's former 50% value governed its miss PROC chance. A 0.20 roll used to miss;
+  // under the new 15% chance it must attack normally.
+  const dizzyNerf = resolveBattle(mkF(), mob({ hp: 100000 }),
+    { seed: 1, rng: scripted([0.0, 0.99, 0.20, 0.5, 0.20, 0.99, 0.5]) });
+  check('Fighter Dizzy miss chance is 15% (0.20 no longer misses)',
+    hasEvent(roundEvents(dizzyNerf, 1), 'overcomes Dizzy')
+      && !hasEvent(roundEvents(dizzyNerf, 1), 'misses its attack due to Dizzy'));
   // stun-immune boss: no stun ever, mob acts round 1
   const sImm = resolveBattle(mkF(), mob({ hp: 100000, immunityTags: ['stun'] }),
     { seed: 1, rng: scripted([0.0, 0.99, 0.05]) });
@@ -519,7 +742,7 @@ section('4. Targeted scenarios');
 // — Fighter stun: proc-rate sim (~N seeded battles) + anti-lock guard —
 // Round 1 is a clean Bernoulli draw of the stun band: the target is never already-stunned
 // nor in the post-stun immunity window on turn 1, so the guard never interferes and the
-// observed round-1 rate equals the raw pre-roll bands (25% 1-turn, 10% 2-turn).
+// observed round-1 rate equals the raw pre-roll bands (15% 1-turn, 10% 2-turn).
 {
   const N = 4000;
   let band1 = 0, band2 = 0;
@@ -534,8 +757,8 @@ section('4. Targeted scenarios');
     else if (hasEvent(r1, 'for 1 turn!')) band1 += 1;
   }
   const p1 = band1 / N, p2 = band2 / N;
-  console.log(`   proc-rate over ${N} battles (round 1): 1-turn=${(p1 * 100).toFixed(1)}% (exp 25%), 2-turn=${(p2 * 100).toFixed(1)}% (exp 10%)`);
-  check('stun 1-turn band ≈ 25%', Math.abs(p1 - 0.25) < 0.03, `got ${(p1 * 100).toFixed(1)}%`);
+  console.log(`   proc-rate over ${N} battles (round 1): 1-turn=${(p1 * 100).toFixed(1)}% (exp 15%), 2-turn=${(p2 * 100).toFixed(1)}% (exp 10%)`);
+  check('stun 1-turn band ≈ 15%', Math.abs(p1 - 0.15) < 0.03, `got ${(p1 * 100).toFixed(1)}%`);
   check('stun 2-turn band ≈ 10%', Math.abs(p2 - 0.10) < 0.03, `got ${(p2 * 100).toFixed(1)}%`);
 
   // Anti-lock: a max-duration 2-turn stun skips 2 rounds, then the 1-round immunity window
