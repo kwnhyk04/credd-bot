@@ -107,17 +107,21 @@ const BLEED_MAX_STACKS = 10;
 const KNIGHT_OUTGOING_BONUS = 0.30;
 
 const SKIP_TAGS = ['stun', 'paralyze', 'freeze', 'petrify', 'charm', 'confuse', 'miss'];
-const DOT_TAGS = ['bleed', 'burn', 'hp_pct_dot'];
+// thor_paralyze is a DOT (Thor's Mjolnir's Wrath) with a separate 10%/turn partial-skip
+// rolled in act() — deliberately NOT a SKIP_TAG (those are a guaranteed 100% skip).
+const DOT_TAGS = ['bleed', 'burn', 'hp_pct_dot', 'thor_paralyze'];
 const DOT_DEATH_TEXT = {
   bleed: 'bleeding',
   burn: 'burning',
   hp_pct_dot: 'rot',
+  thor_paralyze: 'paralysis',
 };
 
 const ACTION_TAG_LABELS = {
   bleed: 'Bleed', burn: 'Burn', hp_pct_dot: 'Rot', stun: 'Stun', freeze: 'Freeze',
   paralyze: 'Paralyze', petrify: 'Petrify', charm: 'Charm', confuse: 'Confuse',
   miss: 'Miss', def_down: 'DEF Down', atk_down: 'ATK Down', crit_down: 'CRIT Down',
+  thor_paralyze: 'Paralysis', frostbite: 'Frostbite',
 };
 
 function actionState(side) {
@@ -444,7 +448,7 @@ function resolveBattle(a, b, opts = {}) {
   const applyHitToDefender = (S, O, dmg, info = {}) => {
     if (O.kind === 'mob') {
       // mob defenses live on the attacking player's flags (mob skills run there)
-      if (S.flags.sigbin_evade_check) {
+      if (S.flags.sigbin_evade_check && !S.flags.tyrfing_no_miss) {
         shared.events.push(`👤 ${O.name} evades the attack!`);
         return { applied: 0, negated: true };
       }
@@ -454,6 +458,8 @@ function resolveBattle(a, b, opts = {}) {
         S.flags.dwarf_shield_active = false;
         if (absorbed > 0) shared.events.push(`⛏️ ${O.name}'s Stone Skin absorbs ${absorbed} damage!`);
       }
+      // Skadi: Frostbite amplifies all incoming damage on the frozen-then-thawed enemy.
+      if (findDebuff(O, 'frostbite')) dmg *= 1.5;
       damage(O, dmg);
       checkDeaths('attack');
       return { applied: Math.floor(dmg), negated: false };
@@ -463,6 +469,7 @@ function resolveBattle(a, b, opts = {}) {
     const F = O.flags;
     if (F.amihan_evade_check) {
       shared.events.push(`💨 ${O.name} evades the attack (Tailwind)!`);
+      F.amihan_evade_bonus_pending = true; // +20% ATK on her next attack (read in the registry)
       return { applied: 0, negated: true };
     }
     if (F.loki_evade_check) {
@@ -497,6 +504,10 @@ function resolveBattle(a, b, opts = {}) {
       F.heimdall_first_hit_used = true;
       F.heimdall_first_hit_available = false;
       shared.events.push(`👁️ Heimdall negates 50% of the first hit on ${O.name}!`);
+    } else if (info.crit && F.heimdall_crit_guard) {
+      // For the rest of the battle (after the first hit), incoming crits are cut by 30%.
+      dmg *= 0.70;
+      shared.events.push(`👁️ Heimdall blunts a critical hit on ${O.name} (-30%)!`);
     }
     if (F.athena_shield_active && (F.athena_hits_absorbed || 0) < 2) {
       dmg *= 0.6;
@@ -535,15 +546,19 @@ function resolveBattle(a, b, opts = {}) {
       F.odin_prevented_damage = (F.odin_prevented_damage || 0) + prevented;
     }
 
-    // sidapa lethal reprieve (once per battle)
+    // sidapa lethal reprieve (once per battle): survive at 1 HP, then heal 30% max HP
+    // and gain +50% ATK for the rest of the battle (folded into effATK by the registry).
     if (dmg >= O.hp && F.sidapa_reprieve_available && !F.sidapa_reprieve_used) {
       F.sidapa_reprieve_used = true;
       F.sidapa_reprieve_available = false;
       const applied = O.hp - 1;
       setHp(O, 1);
+      const revive = Math.floor(O.maxHp * 0.30);
+      setHp(O, Math.min(1 + revive, O.maxHp));
+      F.sidapa_atk_bonus = 0.50;
       O.tookHitThisRound = true;
       if (info.crit) F.player_was_critted = true;
-      shared.events.push(`🌙 Sidapa's Death's Reprieve! ${O.name} survives at 1 HP!`);
+      shared.events.push(`🌙 Sidapa's Death's Reprieve! ${O.name} survives, heals ${revive} HP, ATK +50%!`);
       return { applied, negated: false };
     }
 
@@ -557,6 +572,7 @@ function resolveBattle(a, b, opts = {}) {
     let reflectPct = 0;
     if (F.enderby_reflect_check) reflectPct += 0.30;
     if (F.tyr_reflect > 0) reflectPct += F.tyr_reflect;
+    if (F.mayari_reflect > 0) reflectPct += F.mayari_reflect;
     if (F.mail_brokkr_reflect > 0) reflectPct += F.mail_brokkr_reflect; // [v5] Mail of Brokkr 15%
     if (F.rune_thorns_reflect > 0) reflectPct += F.rune_thorns_reflect; // [v5 Phase 2] Thorns rune
     if (reflectPct > 0 && dmg > 0) {
@@ -673,7 +689,7 @@ function resolveBattle(a, b, opts = {}) {
       // per-instance heals
       if (res.applied > 0) {
         if (S.flags.japanese_bo_active) heal(S, res.applied * 0.5);
-        if (S.flags.soul_drain_active) heal(S, res.applied * 0.1);
+        if (S.flags.soul_drain_active) heal(S, res.applied * 0.15);
         if (S.flags.echo_soul_drain_active) heal(S, res.applied * 0.05);
         if (S.flags.rune_lifesteal_pct > 0) heal(S, res.applied * S.flags.rune_lifesteal_pct);
       }
@@ -773,6 +789,7 @@ function resolveBattle(a, b, opts = {}) {
     const skipTags = S.debuffs.filter((d) => SKIP_TAGS.includes(d.tag) && d.armed);
     if (skipTags.length > 0) {
       const hadStun = skipTags.some((d) => d.tag === 'stun');
+      const hadFreeze = skipTags.some((d) => d.tag === 'freeze');
       for (const d of skipTags) d.turnsLeft -= 1;
       S.debuffs = S.debuffs.filter((d) => d.turnsLeft > 0);
       // On the round a stun wears off, grant a 1-round immunity window so the Fighter
@@ -780,7 +797,19 @@ function resolveBattle(a, b, opts = {}) {
       if (hadStun && !S.debuffs.some((d) => d.tag === 'stun')) {
         S.flags.stun_immune_until = shared.round + 1;
       }
+      // Skadi: when a Freeze wears off the victim is left Frostbitten (+50% damage taken).
+      // turnsLeft 2 so it reliably covers the next round's incoming attack ("1 turn").
+      if (hadFreeze && !S.debuffs.some((d) => d.tag === 'freeze')) {
+        addDebuff(S, 'frostbite', 2);
+        shared.events.push(`🧊 ${S.name} is Frostbitten — takes +50% damage!`);
+      }
       shared.events.push(`⏸️ ${S.name} is unable to act (${skipTags.map((d) => d.tag).join(', ')})!`);
+      return;
+    }
+    // Thor: while Paralyzed (a DOT tag), a 10% chance each turn to skip the action. The
+    // draw is taken only while the debuff is present (conditional, like Dizzy above).
+    if (S.debuffs.some((d) => d.tag === 'thor_paralyze') && rng() < 0.10) {
+      shared.events.push(`⚡ ${S.name} is paralyzed and cannot move!`);
       return;
     }
     if (S.flags.dizzy_pending) {
@@ -960,7 +989,7 @@ function resolveBattle(a, b, opts = {}) {
         if (tick > 0) {
           damage(side, tick);
           const name = combatantName(side);
-          shared.events.push(`🩸 ${name} suffers ${tick} ${d.tag === 'burn' ? 'Burn' : d.tag === 'bleed' ? 'Bleed' : 'Rot'} damage!`);
+          shared.events.push(`🩸 ${name} suffers ${tick} ${ACTION_TAG_LABELS[d.tag] || 'DOT'} damage!`);
           if (checkDeaths('dot')) {
             shared.events.push(`💀 ${name} died from ${DOT_DEATH_TEXT[d.tag] || 'damage'}!`);
             break;

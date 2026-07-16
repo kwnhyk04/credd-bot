@@ -353,7 +353,21 @@ const PASSIVE_REGISTRY = {
     }
   },
 
-  'tyrfing': stackingAtk('tyrfing_stack', 0.10, 0.30),
+  'tyrfing': (bs) => {
+    // ATK +10%/turn stacking to +30%. Once the enemy drops below 30% HP the curse takes
+    // hold: attacks can no longer miss or be evaded (engine reads tyrfing_no_miss, sticky).
+    if (!bs.flags.tyrfing_stack) bs.flags.tyrfing_stack = 0;
+    if (bs.flags.tyrfing_stack < 0.30) {
+      bs.flags.tyrfing_stack = Math.min(bs.flags.tyrfing_stack + 0.10, 0.30);
+    }
+    bs.playerAtkMult += bs.flags.tyrfing_stack;
+    if (bs.enemyHP < bs.enemyMaxHP * 0.30) {
+      if (!bs.flags.tyrfing_no_miss) {
+        bs.log.push('🗡️ Tyrfing: Cursed Edge — The curse takes hold; attacks cannot miss!');
+      }
+      bs.flags.tyrfing_no_miss = true;
+    }
+  },
 
   'laevateinn_sword': (bs) => {
     // Enemy DEF -10%/turn stacking to 30%. ONE def_down source whose value is the
@@ -680,10 +694,13 @@ const PASSIVE_REGISTRY = {
   },
 
   'sidapa_deaths_reprieve': (bs) => {
-    // Once per battle: survive lethal damage at 1 HP (engine consumes on lethal hit)
+    // Once per battle: survive lethal damage at 1 HP (engine consumes on lethal hit),
+    // then heal 30% max HP and gain +50% ATK for the rest of the battle. The engine sets
+    // sidapa_atk_bonus on the reprieve; fold it into effATK here each subsequent round.
     if (!bs.flags.sidapa_reprieve_used) {
       bs.flags.sidapa_reprieve_available = true;
     }
+    if (bs.flags.sidapa_atk_bonus > 0) bs.playerAtkMult += bs.flags.sidapa_atk_bonus;
   },
 
   'magwayen_soul_drain': (bs) => {
@@ -697,14 +714,23 @@ const PASSIVE_REGISTRY = {
   },
 
   'apolaki_solar_burn': (bs) => {
-    // Every 3rd turn: Burn 15% ATK flat for 2 turns
-    if (bs.currentTurn % 3 === 0 && !bs.enemyImmune('burn')) {
-      bs.applyDebuff('burn', 2, bs.playerATK * 0.15);
-      bs.log.push('☀️ Apolaki: Solar Burn — Enemy ignited! 15% ATK Burn for 2 turns!');
+    // Each attack applies Burn = 10% ATK that resolves on the enemy's next turn then
+    // expires (1 tick); every hit refreshes it (highest-value wins in the engine).
+    if (!bs.enemyImmune('burn')) {
+      bs.applyDebuff('burn', 1, bs.playerATK * 0.10);
+      bs.log.push('☀️ Apolaki: Solar Burn — Enemy scorched (10% ATK Burn)!');
     }
   },
 
-  'mayari_lunar_veil': hpThresholdBuff(0.50, 0, 0.30),
+  'mayari_lunar_veil': (bs) => {
+    // While HP < 50%: DEF +30% and reflect 15% of incoming damage (engine reads mayari_reflect).
+    if (bs.playerHP < bs.playerMaxHP * 0.50) {
+      bs.playerDefMult += 0.30;
+      bs.flags.mayari_reflect = 0.15;
+    } else {
+      bs.flags.mayari_reflect = 0;
+    }
+  },
 
   'dian_masalanta_devotion': (bs) => {
     // While HP < 50%: ATK +30% and heal 4% max HP each turn
@@ -723,6 +749,12 @@ const PASSIVE_REGISTRY = {
     bs.flags.evade_chance_used = (bs.flags.evade_chance_used || 0) + 0.20;
     bs.flags.amihan_evade_check = bs.rng() < 0.20;
     if (bs.flags.amihan_evade_check) bs.log.push('💨 Amihan: Tailwind — Attack evaded!');
+    // A successful evade (engine latch from the previous incoming attack) grants +20% ATK.
+    if (bs.flags.amihan_evade_bonus_pending) {
+      bs.flags.amihan_evade_bonus_pending = false;
+      bs.playerAtkMult += 0.20;
+      bs.log.push('💨 Amihan: Tailwind — Evade momentum! ATK +20%!');
+    }
   },
 
   'habagat_monsoon_fury': chanceRider(0.25, 0.50,
@@ -754,14 +786,16 @@ const PASSIVE_REGISTRY = {
     }
   },
 
-  'thor_mjolnirs_wrath': everyNthRider(3, 0.50, null, (bs) => {
-    if (!bs.enemyImmune('stun')) {
-      bs.applyDebuff('stun', 1);
-      bs.log.push('⚡ Thor: Mjolnir\'s Wrath — +50% ATK + Enemy Stunned!');
-    } else {
-      bs.log.push('⚡ Thor: Mjolnir\'s Wrath — +50% ATK!');
+  'thor_mjolnirs_wrath': (bs) => {
+    // 30% chance each attack: Stun 1 turn + Paralyze 3 turns. While paralyzed the enemy
+    // takes 20% Thor-ATK damage each turn (thor_paralyze DOT) and has a 10% chance to skip
+    // (both resolved by the engine). Single draw before any gate (stream stability).
+    if (bs.rng() < 0.30) {
+      if (!bs.enemyImmune('stun')) bs.applyDebuff('stun', 1);
+      bs.applyDebuff('thor_paralyze', 3, bs.playerATK * 0.20);
+      bs.log.push('⚡ Thor: Mjolnir\'s Wrath — Enemy Stunned & Paralyzed (3 turns)!');
     }
-  }),
+  },
 
   'freya_valkyries_embrace': (bs) => {
     // ATK +30% whole battle; once/battle at ≤40% HP: restore 20% max HP
@@ -791,33 +825,38 @@ const PASSIVE_REGISTRY = {
     bs.flags.tyr_reflect = bs.playerHP < bs.playerMaxHP * 0.50 ? 0.20 : 0;
   },
 
-  'skadi_winters_hunt': everyNthRider(3, 0.40, null, (bs) => {
-    if (!bs.enemyImmune('freeze')) {
+  'skadi_winters_hunt': (bs) => {
+    // 30% chance each turn to Freeze (enemy skips its next turn). When the Freeze wears off
+    // the engine applies Frostbite (+50% damage taken). Single draw before the gate.
+    if (bs.rng() < 0.30 && !bs.enemyImmune('freeze')) {
       bs.applyDebuff('freeze', 1);
-      bs.log.push('❄️ Skadi: Winter\'s Hunt — +40% ATK + Enemy Frozen!');
-    } else {
-      bs.log.push('❄️ Skadi: Winter\'s Hunt — +40% ATK!');
-    }
-  }),
-
-  'surt_muspells_flame': (bs) => {
-    // Every attack applies Burn (25% ATK, 2 ticks); +50% bonus vs already-burning
-    if (!bs.enemyImmune('burn')) {
-      const burnDmg = bs.playerATK * 0.25;
-      if (bs.flags.enemy_is_burning) {
-        // +50% of the burn value as bonus hit damage (= +12.5% ATK), now mitigated
-        bs.playerAtkMult += 0.25 * 0.50;
-        bs.log.push('🔥 Surt: Muspell\'s Flame — Burn refreshed! +50% bonus vs burning!');
-      }
-      bs.applyDebuff('burn', 2, burnDmg);
+      bs.log.push('❄️ Skadi: Winter\'s Hunt — Enemy Frozen!');
     }
   },
 
+  'surt_muspells_flame': (bs) => {
+    // Every attack adds a 5% ATK/turn Burn stack (2 ticks), accumulating up to 30% ATK/turn.
+    // The stack lives in a flag and grows monotonically, so the engine's highest-value-wins
+    // burn refresh preserves the accumulated total. +50% bonus damage vs an already-burning
+    // enemy (mitigated ATK lane).
+    if (bs.enemyImmune('burn')) return;
+    if (bs.flags.enemy_is_burning) {
+      bs.playerAtkMult += 0.50;
+      bs.log.push('🔥 Surt: Muspell\'s Flame — +50% vs a burning enemy!');
+    }
+    bs.flags.surt_burn_stack = Math.min((bs.flags.surt_burn_stack || 0) + 0.05, 0.30);
+    bs.applyDebuff('burn', 2, bs.playerATK * bs.flags.surt_burn_stack);
+    bs.log.push(`🔥 Surt: Muspell's Flame — Burn ${Math.round(bs.flags.surt_burn_stack * 100)}% ATK/turn!`);
+  },
+
   'heimdall_eternal_vigilance': (bs) => {
-    // First hit taken each battle negated by 50% — engine consumes on that hit
+    // First hit taken each battle negated by 50% — engine consumes on that hit. Afterward,
+    // incoming critical hits are reduced by 30% for the rest of the battle (engine reads
+    // heimdall_crit_guard once the first hit is spent).
     if (!bs.flags.heimdall_first_hit_used) {
       bs.flags.heimdall_first_hit_available = true;
     }
+    bs.flags.heimdall_crit_guard = true;
   },
 
   'baldur_invulnerability': (bs) => {

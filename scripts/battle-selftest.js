@@ -462,6 +462,29 @@ section('4. Targeted scenarios');
   check('non-stun skip-CC is delayed to target next turn',
     hasEvent(r3, 'Skadi: Winter') && hasEvent(r3, 'Dummy strikes') && !hasEvent(r3, 'Dummy is unable to act') && hasEvent(r4, 'Dummy is unable to act (freeze)'),
     `r3=${r3.join(' | ')} r4=${r4.join(' | ')}`);
+  // [balance] Skadi frostbite: a thawing Freeze leaves the enemy Frostbitten (+50% damage).
+  check('Skadi applies Frostbite when a Freeze thaws', hasEvent(allEvents(sim), 'Frostbitten'));
+}
+
+// [balance] Thor Mjolnir's Wrath: 30% proc → Stun + a 3-turn Paralyze DOT (20% ATK/turn).
+{
+  const sim = resolveBattle(
+    player({ deityBlessingKey: 'thor_mjolnirs_wrath', atk: 100, hp: 100000, def: 10, crit: 0 }),
+    mob({ name: 'Dummy', atk: 1, hp: 100000, def: 0, crit: 0 }),
+    { mode: 'raid', rng: () => 0 }
+  );
+  check('Thor procs Stun + Paralyze', hasEvent(allEvents(sim), 'Stunned & Paralyzed'));
+  check('Thor Paralyze deals DOT damage', hasEvent(allEvents(sim), 'Paralysis damage'));
+}
+
+// [balance] Surt Muspell's Flame: Burn stacks 5%→30% ATK/turn; +50% vs an already-burning foe.
+{
+  const sim = resolveBattle(
+    player({ deityBlessingKey: 'surt_muspells_flame', atk: 100, hp: 100000, def: 10, crit: 0 }),
+    mob({ name: 'Dummy', atk: 1, hp: 100000, def: 0, crit: 0 }),
+    { mode: 'raid', rng: () => 0 }
+  );
+  check('Surt stacks Burn and bonuses vs burning', hasEvent(allEvents(sim), 'Burn') && hasEvent(allEvents(sim), '+50% vs a burning enemy'));
 }
 
 // — R2 + [Jun-2026 §2]: Fighter class stun 1/2 turns gates the mob's NEXT turn(s),
