@@ -302,6 +302,7 @@ function resolveBattle(a, b, opts = {}) {
   // ── debuff helpers (§13.1: refresh don't stack/extend; highest value wins) ─
   const findDebuff = (side, tag) => side.debuffs.find((d) => d.tag === tag);
   const debuffValue = (side, tag) => { const d = findDebuff(side, tag); return d ? d.value : 0; };
+  const frostbiteDamage = (side, amount) => findDebuff(side, 'frostbite') ? amount * 1.5 : amount;
   const addDebuff = (side, tag, turns, value = 0) => {
     // Stuns never refresh while active, regardless of source. Once a stun expires,
     // every source also respects the one-round recovery window. Keeping this in the
@@ -516,7 +517,7 @@ function resolveBattle(a, b, opts = {}) {
         if (absorbed > 0) shared.events.push(`⛏️ ${O.name}'s Stone Skin absorbs ${absorbed} damage!`);
       }
       // Skadi: Frostbite amplifies all incoming damage on the frozen-then-thawed enemy.
-      if (findDebuff(O, 'frostbite')) dmg *= 1.5;
+      dmg = frostbiteDamage(O, dmg);
       damage(O, dmg);
       checkDeaths('attack');
       return { applied: Math.floor(dmg), negated: false };
@@ -533,8 +534,9 @@ function resolveBattle(a, b, opts = {}) {
       shared.events.push(`🃏 ${O.name} evades the attack (Illusory Double)!`);
       const counter = Math.max(0, Math.floor(F.loki_counter_dmg || 0));
       if (counter > 0) {
-        damage(S, counter);
-        shared.events.push(`🃏 Loki's counter strikes ${S.name} for ${counter} DMG!`);
+        const appliedCounter = Math.floor(frostbiteDamage(S, counter));
+        damage(S, appliedCounter);
+        shared.events.push(`🃏 Loki's counter strikes ${S.name} for ${appliedCounter} DMG!`);
         checkDeaths('counter');
       }
       return { applied: 0, negated: true };
@@ -551,6 +553,9 @@ function resolveBattle(a, b, opts = {}) {
       shared.events.push(`🪽 ${O.name} evades the attack (Chooser's Grace)!`);
       return { applied: 0, negated: true };
     }
+
+    // Frostbite applies to player targets too (duels), before their reductions.
+    dmg = frostbiteDamage(O, dmg);
 
     // [v5] post-DEF baseline for the combined damage-reduction floor (computed below).
     const postDefDmg = dmg;
@@ -639,8 +644,9 @@ function resolveBattle(a, b, opts = {}) {
     if (reflectPct > 0 && dmg > 0) {
       const refl = Math.floor(dmg * reflectPct);
       if (refl > 0) {
-        damage(S, refl);
-        shared.events.push(`🔁 ${O.name} reflects ${refl} damage back at ${S.name}!`);
+        const appliedReflect = Math.floor(frostbiteDamage(S, refl));
+        damage(S, appliedReflect);
+        shared.events.push(`🔁 ${O.name} reflects ${appliedReflect} damage back at ${S.name}!`);
         checkDeaths('reflect');
       }
     }
@@ -865,7 +871,7 @@ function resolveBattle(a, b, opts = {}) {
     if (S.flags.rupture_check) {
       S.flags.rupture_check = false;
       if (!O.isBoss && !sideImmune(O, 'hp_pct_dot')) {
-        const burst = Math.floor(O.maxHp * (S.flags.rupture_pct || 0));
+        const burst = Math.floor(frostbiteDamage(O, O.maxHp * (S.flags.rupture_pct || 0)));
         damage(O, burst);
         shared.events.push(`🌿 Rupture bursts ${O.name} for ${burst} DMG!`);
         if (checkDeaths('rupture')) return;
@@ -874,7 +880,7 @@ function resolveBattle(a, b, opts = {}) {
     if (S.flags.hemorrhage_check) {
       S.flags.hemorrhage_check = false;
       if (!O.isBoss && !sideImmune(O, 'hp_pct_dot')) {
-        const burst = Math.floor(O.maxHp * (S.flags.hemorrhage_pct || 0));
+        const burst = Math.floor(frostbiteDamage(O, O.maxHp * (S.flags.hemorrhage_pct || 0)));
         damage(O, burst);
         shared.events.push(`🏹 Hemorrhage tears ${O.name} for ${burst} DMG!`);
         if (checkDeaths('hemorrhage')) return;
@@ -1133,6 +1139,7 @@ function resolveBattle(a, b, opts = {}) {
         let tick = d.tag === 'hp_pct_dot'
           ? Math.floor(side.maxHp * d.value)
           : Math.floor(d.value);
+        tick = Math.floor(frostbiteDamage(side, tick));
         // [v5 Phase 2] Warding rune reduces incoming DOT damage on the bearer.
         if (side.flags.rune_warding_pct > 0) tick = Math.floor(tick * (1 - side.flags.rune_warding_pct));
         if (tick > 0) {

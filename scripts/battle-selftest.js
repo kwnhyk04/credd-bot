@@ -472,6 +472,34 @@ section('4. Targeted scenarios');
     `r3=${r3.join(' | ')} r4=${r4.join(' | ')}`);
   // [balance] Skadi frostbite: a thawing Freeze leaves the enemy Frostbitten (+50% damage).
   check('Skadi applies Frostbite when a Freeze thaws', hasEvent(allEvents(sim), 'Frostbitten'));
+
+  const skadiUser = () => player({
+    deityBlessingKey: 'skadi_winters_hunt', classPassive: null,
+    atk: 100, hp: 100000, def: 0, crit: 0, specialFlags: { first_strike: true },
+  });
+  const proc = resolveBattle(skadiUser(), mob({ atk: 0, hp: 100000, def: 0 }),
+    { mode: 'raid', rng: () => 0.299 });
+  const noProc = resolveBattle(skadiUser(), mob({ atk: 0, hp: 100000, def: 0 }),
+    { mode: 'raid', rng: () => 0.30 });
+  check('Skadi proc boundary is exactly 30% of landed user attacks',
+    hasEvent(roundEvents(proc, 1), "Skadi: Winter's Hunt") &&
+      !hasEvent(roundEvents(noProc, 1), "Skadi: Winter's Hunt"));
+
+  const frostbiteDuel = resolveBattle(
+    player({
+      deityBlessingKey: 'skadi_winters_hunt', weaponPassiveKey: 'laevateinn_staff',
+      classPassive: null, atk: 100, hp: 100000, def: 0, crit: 0,
+      specialFlags: { first_strike: true },
+    }),
+    player({ name: 'Target', classPassive: null, atk: 0, hp: 100000, def: 0, crit: 0 }),
+    { mode: 'duel', rng: () => 0 }
+  );
+  check('Skadi Frostbite amplifies player-target attack damage by 50%',
+    dmgOf(roundEvents(frostbiteDuel, 3), 'Hero attacks') === 135,
+    roundEvents(frostbiteDuel, 3).join(' | '));
+  check('Skadi Frostbite amplifies DOT damage from all combat sources by 50%',
+    hasEvent(roundEvents(frostbiteDuel, 2), 'suffers 15 Burn damage'),
+    roundEvents(frostbiteDuel, 2).join(' | '));
 }
 
 // [balance] Thor Mjolnir's Wrath: 30% proc → Stun + a 3-turn Paralyze DOT (20% ATK/turn).
@@ -483,6 +511,42 @@ section('4. Targeted scenarios');
   );
   check('Thor procs Stun + Paralyze', hasEvent(allEvents(sim), 'Stunned & Paralyzed'));
   check('Thor Paralyze deals DOT damage', hasEvent(allEvents(sim), 'Paralysis damage'));
+
+  const thorUser = () => player({
+    deityBlessingKey: 'thor_mjolnirs_wrath', weaponPassiveKey: 'mjolnir',
+    classPassive: null, atk: 100, hp: 100000, def: 0, crit: 0,
+    specialFlags: { first_strike: true },
+  });
+  const proc = resolveBattle(thorUser(), mob({ atk: 0, hp: 100000, def: 0 }),
+    { mode: 'raid', rng: () => 0.299 });
+  const noProc = resolveBattle(thorUser(), mob({ atk: 0, hp: 100000, def: 0 }),
+    { mode: 'raid', rng: () => 0.30 });
+  check('Thor proc boundary is exactly 30% of landed user attacks',
+    hasEvent(roundEvents(proc, 1), "Thor: Mjolnir's Wrath") &&
+      !hasEvent(roundEvents(noProc, 1), "Thor: Mjolnir's Wrath"));
+  check('Thor Paralyze uses 20% user base ATK, not the buffed effective ATK',
+    dmgOf(roundEvents(proc, 1), 'Hero attacks') > 100 &&
+      hasEvent(roundEvents(proc, 1), 'suffers 20 Paralysis damage'),
+    roundEvents(proc, 1).join(' | '));
+}
+
+// Apolaki Solar Burn is attached to landed user attacks and snapshots 10% base ATK.
+{
+  const sim = resolveBattle(
+    player({
+      deityBlessingKey: 'apolaki_solar_burn', weaponPassiveKey: 'mjolnir',
+      classPassive: null, atk: 100, hp: 100000, def: 0, crit: 0,
+      specialFlags: { first_strike: true },
+    }),
+    mob({ atk: 0, hp: 100000, def: 0 }),
+    { mode: 'raid', rng: () => 0.5 }
+  );
+  check('Apolaki Burn is applied by the user landed attack',
+    hasEvent(roundEvents(sim, 1), 'Apolaki: Solar Burn'));
+  check('Apolaki Burn uses 10% user base ATK, not the buffed effective ATK',
+    dmgOf(roundEvents(sim, 1), 'Hero attacks') === 130 &&
+      hasEvent(roundEvents(sim, 1), 'suffers 10 Burn damage'),
+    roundEvents(sim, 1).join(' | '));
 }
 
 // [balance] Surt Muspell's Flame: Burn stacks 5%→30% ATK/turn; +50% vs an already-burning foe.
@@ -517,6 +581,22 @@ section('4. Targeted scenarios');
     const r2 = roundEvents(sim, 2);
     check(`on-hit timing: ${marker} does not fire while owner is stunned`,
       hasEvent(r2, 'Hero is unable to act') && !hasEvent(r2, marker), r2.join(' | '));
+  }
+  for (const [passive, marker] of cases) {
+    const sim = resolveBattle(
+      player({
+        ...passive, classPassive: null, atk: 10, hp: 100000, def: 0, crit: 0,
+        specialFlags: { first_strike: true },
+      }),
+      player({
+        name: 'Evader', deityBlessingKey: 'amihan_tailwind', classPassive: null,
+        atk: 0, hp: 100000, def: 0, crit: 0,
+      }),
+      { mode: 'duel', rng: () => 0 }
+    );
+    const r1 = roundEvents(sim, 1);
+    check(`on-hit timing: ${marker} does not fire when the user attack is evaded`,
+      hasEvent(r1, 'evades the attack') && !hasEvent(r1, marker), r1.join(' | '));
   }
 }
 
@@ -900,12 +980,41 @@ section('4. Targeted scenarios');
 
 // — Sidapa: survive lethal at 1 HP exactly once —
 {
-  const mkS = () => player({ hp: 10, deityBlessingKey: 'sidapa_deaths_reprieve' });
-  const sim = resolveBattle(mkS(), mob({ hp: 100000, atk: 10000 }),
-    { seed: 1, rng: scripted([0.0, 0.99, 0.5, 0.99, 0.5, /* r2 */ 0.99, 0.5, 0.99, 0.5]) });
-  check('Sidapa reprieve fires round 1', hasEvent(roundEvents(sim, 1), "Death's Reprieve"));
+  const sim = resolveBattle(
+    player({
+      hp: 100, atk: 100, def: 0, crit: 0, classPassive: null,
+      deityBlessingKey: 'sidapa_deaths_reprieve', specialFlags: { first_strike: true },
+    }),
+    mob({ hp: 100000, atk: 10000, def: 0 }),
+    { mode: 'raid', rng: () => 0.5 }
+  );
+  check('Sidapa reprieve fires on the user first lethal hit and heals 30% user max HP',
+    hasEvent(roundEvents(sim, 1), "Death's Reprieve") && hasEvent(roundEvents(sim, 1), 'heals 30 HP'));
+  check('Sidapa grants the user +50% ATK for the rest of battle',
+    dmgOf(roundEvents(sim, 2), 'Hero attacks') === 150,
+    roundEvents(sim, 2).join(' | '));
   check('Sidapa: second lethal kills (once per battle)', sim.winner === 'b' && sim.rounds.length === 2,
     `winner=${sim.winner} rounds=${sim.rounds.length}`);
+}
+
+// Baldur triggers strictly below 50% user HP, heals from user max HP, and guards one turn.
+{
+  const baldurUser = () => player({
+    hp: 100, atk: 0, def: 0, crit: 0, classPassive: null,
+    deityBlessingKey: 'baldur_invulnerability', specialFlags: { first_strike: true },
+  });
+  const atHalf = resolveBattle(baldurUser(), mob({ hp: 100000, atk: 50, def: 0 }),
+    { mode: 'raid', rng: () => 0.5 });
+  const belowHalf = resolveBattle(baldurUser(), mob({ hp: 100000, atk: 51, def: 0 }),
+    { mode: 'raid', rng: () => 0.5 });
+  check('Baldur does not trigger at exactly 50% user HP',
+    !hasEvent(allEvents(atHalf), 'Baldur: Invulnerability'));
+  check('Baldur triggers below 50%, heals 15% user max HP, and halves one incoming hit',
+    hasEvent(roundEvents(belowHalf, 2), 'Healed 15 HP') &&
+      dmgOf(roundEvents(belowHalf, 2), 'Dummy strikes') === 25,
+    roundEvents(belowHalf, 2).join(' | '));
+  check('Baldur triggers only once per battle',
+    allEvents(belowHalf).filter((event) => event.includes('Baldur: Invulnerability')).length === 1);
 }
 
 // — Mantle of Bathala: +5% HP/DEF per turn, hard-capped at +50% —

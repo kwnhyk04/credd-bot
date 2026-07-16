@@ -432,6 +432,7 @@ async function main() {
   assert.equal(WEAPON_UPDATES.find((entry) => entry.requestedName === 'Laevateinn').name, 'Laevateinn Staff');
   const passiveData = fs.readFileSync(path.join(__dirname, '..', 'assets', 'data', 'passive_registry_keys.md'), 'utf8');
   const passiveSql = fs.readFileSync(path.join(__dirname, 'final-passive-description-updates.sql'), 'utf8');
+  const userWordingSql = fs.readFileSync(path.join(__dirname, 'update-user-passive-descriptions.sql'), 'utf8');
   const passiveLineByKey = new Map(
     [...passiveData.matchAll(/^- `([^`]+)` — ([^\r\n]+)$/gm)].map((match) => [match[1], match[2]]),
   );
@@ -451,6 +452,22 @@ async function main() {
         `final-passive-description-updates.sql is missing the exact ${rosterType} row for ${entry.name}`,
       );
     }
+  }
+  const userWordedKeys = new Set([
+    'sidapa_deaths_reprieve',
+    'skadi_winters_hunt',
+    'thor_mjolnirs_wrath',
+    'apolaki_solar_burn',
+    'baldur_invulnerability',
+  ]);
+  assert.equal((userWordingSql.match(/^UPDATE deity_roster$/gm) || []).length, 5);
+  assert(!userWordingSql.includes('UPDATE weapon_roster'));
+  for (const entry of DEITY_UPDATES.filter((candidate) => userWordedKeys.has(candidate.key))) {
+    assert(
+      userWordingSql.includes(`SET blessing_description = '${sqlLiteral(entry.description)}'`) &&
+        userWordingSql.includes(`AND blessing_key = '${entry.key}';`),
+      `update-user-passive-descriptions.sql is missing ${entry.name}`,
+    );
   }
 
   const duelId = '123e4567-e89b-42d3-a456-426614174000';

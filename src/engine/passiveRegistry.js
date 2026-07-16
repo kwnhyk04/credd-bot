@@ -834,10 +834,10 @@ const PASSIVE_REGISTRY = {
   },
 
   'baldur_invulnerability': (bs) => {
-    // Once/battle, first turn debuffed OR below 50% HP: cleanse, heal 15% max HP,
+    // Once/battle, first turn debuffed OR strictly below 50% HP: cleanse, heal 15% max HP,
     // and reduce damage taken by 50% for 1 turn.
     if (!bs.flags.baldur_used &&
-        (bs.hasPlayerDebuff('any') || bs.playerHP <= bs.playerMaxHP * 0.50)) {
+        (bs.hasPlayerDebuff('any') || bs.playerHP < bs.playerMaxHP * 0.50)) {
       bs.flags.baldur_used = true;
       bs.clearPlayerDebuffs();
       const heal = Math.floor(bs.playerMaxHP * 0.15);
