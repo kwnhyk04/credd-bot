@@ -344,7 +344,14 @@ const PASSIVE_REGISTRY = {
   'juru_pakal': bonusVsState('enemy_is_bleeding', 0.30,
     '⚔️ Juru Pakal: Bloodhunter — +30% vs bleeding enemy!'),
 
-  'gram': flatPierce(0.20),
+  'gram': (bs) => {
+    // Ignores 25% of enemy DEF; +30% damage to enemies above 80% HP (mitigated ATK lane).
+    if (0.25 > bs.ignoreDefPct) bs.ignoreDefPct = 0.25;
+    if (bs.enemyHP > bs.enemyMaxHP * 0.80) {
+      bs.playerAtkMult += 0.30;
+      bs.log.push('⚔️ Gram: Dragonbane — +30% vs a healthy foe (>80% HP)!');
+    }
+  },
 
   'tyrfing': stackingAtk('tyrfing_stack', 0.10, 0.30),
 
@@ -386,7 +393,14 @@ const PASSIVE_REGISTRY = {
     }
   },
 
-  'laevateinn_staff': flatPierce(0.15),
+  'laevateinn_staff': (bs) => {
+    // Ignores 15% of enemy DEF and applies Burn (10% ATK per turn for 2 turns).
+    if (0.15 > bs.ignoreDefPct) bs.ignoreDefPct = 0.15;
+    if (!bs.enemyImmune('burn')) {
+      bs.applyDebuff('burn', 2, bs.playerATK * 0.10);
+      bs.log.push('🔥 Laevateinn Staff: Flickering Flame — Burn (10% ATK, 2 turns)!');
+    }
+  },
 
   'galdrastafir': chanceEnemyDebuff(0.50, 'def_down', 1, () => 0.30,
     '🪄 Galdrastafir: Runebreaker — Enemy DEF -30%!'),
@@ -463,13 +477,13 @@ const PASSIVE_REGISTRY = {
   'harpe': flatPierce(0.30),
 
   'sword_of_damocles': (bs) => {
-    // ATK +5%/turn stacking to +100%; constant +5% damage taken
+    // ATK +5%/turn stacking to +100%; while any stacks are active, +10% damage taken
     if (!bs.flags.damocles_stack) bs.flags.damocles_stack = 0;
     if (bs.flags.damocles_stack < 1.00) {
       bs.flags.damocles_stack = Math.min(bs.flags.damocles_stack + 0.05, 1.00);
     }
     bs.playerAtkMult += bs.flags.damocles_stack;
-    bs.bonusIncomingDmgMult += 0.05;
+    if (bs.flags.damocles_stack > 0) bs.bonusIncomingDmgMult += 0.10;
   },
 
   'labrys': (bs) => {
@@ -500,7 +514,9 @@ const PASSIVE_REGISTRY = {
     }
   },
 
-  'spear_of_ares': stackingAtk('spear_of_ares_stack', 0.08, 0.40, 2),
+  // ATK +10% every turn, cap +40%. (The "gain a stack on kill" clause is inert in the
+  // engine's strictly 1v1 model — defeating the enemy ends the battle.)
+  'spear_of_ares': stackingAtk('spear_of_ares_stack', 0.10, 0.40),
 
   // [v5] Promoted to Supreme Light armor — reworked from "enemy miss" to a DEF shred
   // (matches the v5 armor_roster seed): 30% chance each turn → enemy DEF -50% for 2 turns.
@@ -675,8 +691,8 @@ const PASSIVE_REGISTRY = {
   },
 
   'mandarangan_war_frenzy': (bs) => {
-    // ATK +10% every turn, capped at 30% (max stack at turn 3)
-    const stacks = Math.min(bs.currentTurn, 3);
+    // ATK +10% every turn, capped at 50% (max stack at turn 5)
+    const stacks = Math.min(bs.currentTurn, 5);
     bs.playerAtkMult += stacks * 0.10;
   },
 
@@ -690,7 +706,15 @@ const PASSIVE_REGISTRY = {
 
   'mayari_lunar_veil': hpThresholdBuff(0.50, 0, 0.30),
 
-  'dian_masalanta_devotion': hpThresholdBuff(0.30, 0.25, 0),
+  'dian_masalanta_devotion': (bs) => {
+    // While HP < 50%: ATK +30% and heal 4% max HP each turn
+    if (bs.playerHP < bs.playerMaxHP * 0.50) {
+      bs.playerAtkMult += 0.30;
+      const heal = Math.floor(bs.playerMaxHP * 0.04);
+      bs.playerHP = Math.min(bs.playerHP + heal, bs.playerMaxHP);
+      bs.log.push(`💖 Dian Masalanta: Devotion — ATK +30%, regenerated ${heal} HP!`);
+    }
+  },
 
   'amihan_tailwind': (bs) => {
     // 20% evade. [v5] Registers its chance into the shared evade budget so the
@@ -708,10 +732,10 @@ const PASSIVE_REGISTRY = {
     (heal) => `🌱 Lakapati: Abundance — Regenerated ${heal} HP!`),
 
   'idiyanale_persistence': (bs) => {
-    // Every 5 turns: this round's attack deals double damage
-    if (bs.currentTurn % 5 === 0) {
-      bs.nextAttackDouble = true;
-      bs.log.push('⚙️ Idiyanale: Persistence — Next attack deals double damage!');
+    // Every 3rd turn: this round's attack deals +75% more damage (mitigated ATK lane)
+    if (bs.currentTurn % 3 === 0) {
+      bs.playerAtkMult += 0.75;
+      bs.log.push('⚙️ Idiyanale: Persistence — Next attack +75% damage!');
     }
   },
 
@@ -740,25 +764,21 @@ const PASSIVE_REGISTRY = {
   }),
 
   'freya_valkyries_embrace': (bs) => {
-    // Once/battle at ≤40% HP: heal 20% max HP + ATK +15% for 2 turns
+    // ATK +30% whole battle; once/battle at ≤40% HP: restore 20% max HP
+    bs.playerAtkMult += 0.30;
     if (!bs.flags.freya_embrace_used && bs.playerHP <= bs.playerMaxHP * 0.40) {
       bs.flags.freya_embrace_used = true;
       const heal = Math.floor(bs.playerMaxHP * 0.20);
       bs.playerHP = Math.min(bs.playerHP + heal, bs.playerMaxHP);
-      bs.flags.freya_atk_buff_turns = 2;
-      bs.log.push(`🌸 Freya: Valkyrie's Embrace — Healed ${heal} HP! ATK +15% for 2 turns!`);
-    }
-    if (bs.flags.freya_atk_buff_turns > 0) {
-      bs.playerAtkMult += 0.15;
-      bs.flags.freya_atk_buff_turns -= 1;
+      bs.log.push(`🌸 Freya: Valkyrie's Embrace — ATK +30%! Healed ${heal} HP!`);
     }
   },
 
   'loki_illusory_double': (bs) => {
-    // 20% chance each turn: evade an attack and counter for 50% ATK (rider)
+    // 25% chance each turn: evade an attack and counter for 50% ATK (rider)
     // [v5] Registers its chance into the shared evade budget (40% total cap).
-    bs.flags.evade_chance_used = (bs.flags.evade_chance_used || 0) + 0.20;
-    bs.flags.loki_evade_check = bs.rng() < 0.20;
+    bs.flags.evade_chance_used = (bs.flags.evade_chance_used || 0) + 0.25;
+    bs.flags.loki_evade_check = bs.rng() < 0.25;
     if (bs.flags.loki_evade_check) {
       bs.flags.loki_counter_dmg = Math.floor(bs.playerATK * 0.50);
       bs.log.push('🃏 Loki: Illusory Double — Attack evaded! Counter incoming!');
@@ -766,9 +786,9 @@ const PASSIVE_REGISTRY = {
   },
 
   'tyr_oathkeeper': (bs) => {
-    // DEF +20% all battle; while HP < 50%, reflect 15% of incoming
-    bs.playerDefMult += 0.20;
-    bs.flags.tyr_reflect = bs.playerHP < bs.playerMaxHP * 0.50 ? 0.15 : 0;
+    // DEF +30% all battle; while HP < 50%, reflect 20% of incoming
+    bs.playerDefMult += 0.30;
+    bs.flags.tyr_reflect = bs.playerHP < bs.playerMaxHP * 0.50 ? 0.20 : 0;
   },
 
   'skadi_winters_hunt': everyNthRider(3, 0.40, null, (bs) => {
@@ -801,25 +821,31 @@ const PASSIVE_REGISTRY = {
   },
 
   'baldur_invulnerability': (bs) => {
-    // Once/battle, first turn debuffed OR below 50% HP: cleanse + heal 10% max HP
+    // Once/battle, first turn debuffed OR below 50% HP: cleanse, heal 15% max HP,
+    // and reduce damage taken by 50% for 1 turn.
     if (!bs.flags.baldur_used &&
         (bs.hasPlayerDebuff('any') || bs.playerHP <= bs.playerMaxHP * 0.50)) {
       bs.flags.baldur_used = true;
       bs.clearPlayerDebuffs();
-      const heal = Math.floor(bs.playerMaxHP * 0.10);
+      const heal = Math.floor(bs.playerMaxHP * 0.15);
       bs.playerHP = Math.min(bs.playerHP + heal, bs.playerMaxHP);
-      bs.log.push(`✨ Baldur: Invulnerability — Debuffs cleansed! Healed ${heal} HP!`);
+      bs.flags.baldur_dr_turns = 1;
+      bs.log.push(`✨ Baldur: Invulnerability — Debuffs cleansed! Healed ${heal} HP! 50% damage reduction!`);
+    }
+    if (bs.flags.baldur_dr_turns > 0) {
+      bs.bonusIncomingDmgMult -= 0.50;
+      bs.flags.baldur_dr_turns -= 1;
     }
   },
 
-  'hel_half_dead': hpThresholdBuff(0.50, 0.15, 0.15),
+  'hel_half_dead': hpThresholdBuff(0.50, 0.30, 0.30),
 
   'mimir_runic_knowledge': (bs) => {
-    // Every 4 turns: the next attack (this round's, passives precede actions)
-    // deals 65% more damage — applied as a mitigated ATK multiplier (+65% of the hit).
-    if (bs.currentTurn % 4 === 0) {
-      bs.flags.mimir_next_attack_bonus = 0.65;
-      bs.log.push('📖 Mimir: Runic Knowledge — Next attack +65% damage!');
+    // Every 3rd turn: the next attack (this round's, passives precede actions)
+    // deals 90% more damage — applied as a mitigated ATK multiplier (+90% of the hit).
+    if (bs.currentTurn % 3 === 0) {
+      bs.flags.mimir_next_attack_bonus = 0.90;
+      bs.log.push('📖 Mimir: Runic Knowledge — Next attack +90% damage!');
     }
     if (bs.flags.mimir_next_attack_bonus > 0) {
       bs.playerAtkMult += bs.flags.mimir_next_attack_bonus; // mitigated +65% of damage dealt
@@ -827,34 +853,30 @@ const PASSIVE_REGISTRY = {
     }
   },
 
-  'freyr_harvest_bounty': regenSelf(2, 0.05,
+  'freyr_harvest_bounty': regenSelf(2, 0.06,
     (heal) => `🌾 Freyr: Harvest Bounty — Restored ${heal} HP!`),
 
   'njord_seas_favor': chanceFlag(0.15, 'njord_block_check',
     '🌊 Njord: Sea\'s Favor — Incoming damage reduced by 30%!',
     (bs) => { bs.flags.njord_block_pct = 0.30; }),
 
-  'bragi_battle_hymn': (bs) => {
-    // Every 3 turns: ATK +8% for 2 turns (windowed buff)
-    if (bs.currentTurn % 3 === 0) {
-      bs.flags.bragi_buff_turns = 2;
-      bs.log.push('🎵 Bragi: Battle Hymn — ATK +8% for 2 turns!');
-    }
-    if (bs.flags.bragi_buff_turns > 0) {
-      bs.playerAtkMult += 0.08;
-      bs.flags.bragi_buff_turns -= 1;
-    }
-  },
+  'bragi_battle_hymn': constantSelfBuff(0.15, 0, 0), // ATK +15% for the whole battle
 
   'idunn_golden_apple': oncePerBattleHeal('idunn_used', 0.50, 0.15,
     (heal) => `🍎 Idunn: Golden Apple — Restored ${heal} HP!`, true),
 
   'vidar_silent_vengeance': (bs) => {
-    // When hit by a crit (engine latch), the next attack auto-crits; consumes latch
+    // When hit by a crit (engine latch), the next attack auto-crits; consumes latch.
+    // Also: the first time HP drops below 50%, the next attack is a guaranteed crit.
     if (bs.flags.player_was_critted) {
       bs.nextAttackAutoCrit = true;
       bs.flags.player_was_critted = false;
       bs.log.push('⚔️ Vidar: Silent Vengeance — Auto-CRIT next attack!');
+    }
+    if (!bs.flags.vidar_low_hp_used && bs.playerHP < bs.playerMaxHP * 0.50) {
+      bs.flags.vidar_low_hp_used = true;
+      bs.nextAttackAutoCrit = true;
+      bs.log.push('⚔️ Vidar: Silent Vengeance — Wounded! Guaranteed CRIT!');
     }
   },
 
@@ -880,16 +902,16 @@ const PASSIVE_REGISTRY = {
     bs.log.push(`⚡ Zeus: Chain Lightning — +50% damage! Enemy DEF -${shred}%!`);
   },
 
-  'ares_blood_frenzy': stackingAtk('ares_stack', 0.08, 0.40, 2),
+  'ares_blood_frenzy': stackingAtk('ares_stack', 0.10, 0.50), // +10% ATK/turn, cap +50%
 
-  'poseidon_tidal_force': everyNthRider(4, 0.60, null, (bs) => {
-    if (bs.rng() < 0.40 && !bs.enemyImmune('stun')) {
-      bs.applyDebuff('stun', 1);
-      bs.log.push('🌊 Poseidon: Tidal Force — +60% ATK + Enemy Stunned!');
-    } else {
-      bs.log.push('🌊 Poseidon: Tidal Force — +60% ATK!');
-    }
-  }),
+  'poseidon_tidal_force': (bs) => {
+    // 30% chance each turn to Stun (1 turn) and shred enemy DEF 30% for 2 turns.
+    // Single draw before any gate (stream stability); the shred refreshes, never stacks.
+    const proc = bs.rng() < 0.30;
+    if (proc && !bs.enemyImmune('stun')) bs.applyDebuff('stun', 1);
+    if (proc && !bs.enemyImmune('def_down')) bs.applyDebuff('def_down', 2, 0.30);
+    if (proc) bs.log.push('🌊 Poseidon: Tidal Force — Enemy Stunned & DEF -30% for 2 turns!');
+  },
 
   'hades_soul_harvest': (bs) => {
     // When enemy HP < 30% (live %, shared pool % for bosses): ATK +35% latched
@@ -897,58 +919,60 @@ const PASSIVE_REGISTRY = {
       bs.flags.hades_harvest_active = true;
     }
     if (bs.flags.hades_harvest_active) {
-      bs.playerAtkMult += 0.35;
+      bs.playerAtkMult += 0.50;
       if (!bs.flags.hades_harvest_logged) {
         bs.flags.hades_harvest_logged = true;
-        bs.log.push('💀 Hades: Soul Harvest — Enemy HP critical! ATK +35% for battle!');
+        bs.log.push('💀 Hades: Soul Harvest — Enemy HP critical! ATK +50% for battle!');
       }
     }
   },
 
   'hera_divine_wrath': (bs) => {
-    // When hit by crit: DEF +10% and ATK +10%, stacking up to 3× (latch not consumed)
+    // DEF +30% whole battle; when hit by crit: ATK +10%, stacking up to 3× (latch not consumed)
+    bs.playerDefMult += 0.30;
     if (!bs.flags.hera_stacks) bs.flags.hera_stacks = 0;
     if (bs.flags.player_was_critted && bs.flags.hera_stacks < 3) {
       bs.flags.hera_stacks += 1;
-      bs.log.push(`👑 Hera: Divine Wrath — Crit received! Stack ${bs.flags.hera_stacks}/3 — DEF+10%, ATK+10%!`);
+      bs.log.push(`👑 Hera: Divine Wrath — Crit received! ATK stack ${bs.flags.hera_stacks}/3!`);
     }
     if (bs.flags.hera_stacks > 0) {
       bs.playerAtkMult += bs.flags.hera_stacks * 0.10;
-      bs.playerDefMult += bs.flags.hera_stacks * 0.10;
     }
   },
 
   'athena_aegis_shield': (bs) => {
-    // First 2 hits received reduced 40% — engine owns the absorb counter (cap 2)
+    // First 2 hits received reduced 40% — engine owns the absorb counter (cap 2).
+    // Afterward, incoming damage is reduced by 10% for the rest of the battle.
     if (!bs.flags.athena_hits_absorbed) bs.flags.athena_hits_absorbed = 0;
     bs.flags.athena_shield_active = bs.flags.athena_hits_absorbed < 2;
+    if (bs.flags.athena_hits_absorbed >= 2) bs.bonusIncomingDmgMult -= 0.10;
   },
 
-  'apollo_solar_radiance': constantSelfBuff(0.20, 0, 0),
+  'apollo_solar_radiance': constantSelfBuff(0.25, 0, 0),
 
   'artemis_huntress_precision': (bs) => {
-    // First attack each battle auto-crits; every 4 turns auto-crit
+    // First attack each battle auto-crits; every 3rd turn auto-crit
     if (!bs.flags.artemis_first_used) {
       bs.flags.artemis_first_used = true;
       bs.nextAttackAutoCrit = true;
       bs.log.push('🏹 Artemis: Huntress Precision — First attack auto-CRIT!');
-    } else if (bs.currentTurn % 4 === 0) {
+    } else if (bs.currentTurn % 3 === 0) {
       bs.nextAttackAutoCrit = true;
       bs.log.push('🏹 Artemis: Huntress Precision — Auto-CRIT this turn!');
     }
   },
 
   'hephaestus_forged_armor': (bs) => {
-    // DEF +20% all battle; HP < 50%: ATK +15%
-    bs.playerDefMult += 0.20;
+    // DEF +25% all battle; HP < 50%: ATK +20%
+    bs.playerDefMult += 0.25;
     if (bs.playerHP < bs.playerMaxHP * 0.50) {
-      bs.playerAtkMult += 0.15;
+      bs.playerAtkMult += 0.20;
     }
   },
 
   'aphrodite_enchanting_aura': (bs) => {
-    // 20% chance each turn to charm the enemy (skips its attack via the debuff)
-    const proc = bs.rng() < 0.20;
+    // 25% chance each turn to charm the enemy (skips its attack via the debuff)
+    const proc = bs.rng() < 0.25;
     bs.flags.aphrodite_charm_check = false;
     if (proc && !bs.enemyImmune('charm')) {
       bs.flags.aphrodite_charm_check = true;
@@ -957,7 +981,7 @@ const PASSIVE_REGISTRY = {
     }
   },
 
-  'persephone_cycle_of_renewal': oncePerBattleHeal('persephone_used', 0.50, 0.20,
+  'persephone_cycle_of_renewal': oncePerBattleHeal('persephone_used', 0.50, 0.15,
     (heal) => `🌸 Persephone: Cycle of Renewal — Restored ${heal} HP!`),
 
   'dionysus_drunken_haze': (bs) => {
@@ -969,7 +993,7 @@ const PASSIVE_REGISTRY = {
     }
   },
 
-  'nike_wings_of_victory': constantSelfBuff(0.25, 0, 0),
+  'nike_wings_of_victory': constantSelfBuff(0.15, 0, 0),
 
   // ── ECHO BLESSINGS — Greek ──────────────────────────────────────────────
 

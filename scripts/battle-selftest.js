@@ -210,24 +210,28 @@ section('4. Targeted scenarios');
   check('round 2 not marked CRIT', !hasEvent(roundEvents(sim, 2), '(CRIT!)'));
 }
 
-// — Idiyanale double is a GUARANTEED crit-level hit that TAKES the damage% rider:
-//   ×2.0 base + damage%. So plain → ×2.0; Supreme 50% + double → ×2.5. Fires every 5th turn. —
+// — Idiyanale: every 3rd turn the attack deals +75% more damage via the effATK lane
+//   (playerAtkMult). Isolated by comparing turn-3 damage WITH vs WITHOUT the blessing at
+//   the same seed — turns 1–2 are identical, so the defender-stack state at turn 3 matches
+//   and the only delta is the +75% effATK → i3 = 1.75 × a3. —
 {
   const script = [0.0]; // order → A first
-  for (let r = 0; r < 5; r++) script.push(0.99, 0.5, 0.99, 0.5); // critPre(no), Avar(1.0), mobCrit(no), mobVar
-  // plain player: the round-5 attack is ×2.0 (crit-level base, no rider), tagged (Double!)
-  const simA = resolveBattle(player({ crit: 0, deityBlessingKey: 'idiyanale_persistence', hp: 1000000 }),
-    mob({ hp: 1000000, atk: 1 }), { seed: 1, rng: scripted(script) });
-  const base = dmgOf(roundEvents(simA, 1), 'attacks');
-  const r5 = dmgOf(roundEvents(simA, 5), 'attacks');
-  check('Idiyanale round 5 marked Double', hasEvent(roundEvents(simA, 5), 'Double'));
-  check('Idiyanale double = 2× a normal hit', Math.abs(r5 - base * 2) <= 1, `got ${r5} vs ${base * 2}`);
-  // Supreme 50% STACKS with the double → ×2.5 (2.0 + 0.5), proportional to the ×1.5 normal.
-  const simB = resolveBattle(player({ crit: 0, bonusDmgPct: 50, deityBlessingKey: 'idiyanale_persistence', hp: 1000000 }),
-    mob({ hp: 1000000, atk: 1 }), { seed: 1, rng: scripted(script) });
-  const b1 = dmgOf(roundEvents(simB, 1), 'attacks'); // ×1.5 (normal + 50%)
-  const b5 = dmgOf(roundEvents(simB, 5), 'attacks'); // ×2.5 (double 2.0 + 50%)
-  check('Supreme + double stacks to ×2.5', Math.abs(b5 - Math.floor((b1 / 1.5) * 2.5)) <= 1, `got ${b5} vs ${Math.floor((b1 / 1.5) * 2.5)}`);
+  for (let r = 0; r < 5; r++) script.push(0.99, 0.5, 0.99, 0.5); // critPre(no), Avar, mobCrit(no), mobVar
+  const mk = (over) => resolveBattle(
+    player({ crit: 0, hp: 1000000, ...over }),
+    mob({ hp: 1000000, atk: 1, def: 0 }), { seed: 1, rng: scripted(script) });
+  const baseline = mk({});
+  const idi = mk({ deityBlessingKey: 'idiyanale_persistence' });
+  const a1 = dmgOf(roundEvents(baseline, 1), 'attacks');
+  const i1 = dmgOf(roundEvents(idi, 1), 'attacks');
+  const a3 = dmgOf(roundEvents(baseline, 3), 'attacks');
+  const i3 = dmgOf(roundEvents(idi, 3), 'attacks');
+  check('Idiyanale fires on the 3rd turn', hasEvent(roundEvents(idi, 3), 'Idiyanale: Persistence'));
+  check('Idiyanale does NOT fire on turn 5 (every-3 cadence)', !hasEvent(roundEvents(idi, 5), 'Idiyanale: Persistence'));
+  check('Idiyanale leaves turn 1 unchanged (no rider yet)', i1 === a1, `idi ${i1} base ${a1}`);
+  // Damage has a flat term on top of effATK, so the +75% effATK rider reads below ×1.75 in
+  // final damage; assert it is clearly boosted vs the no-rider turn-3 hit.
+  check('Idiyanale boosts turn 3 well above the no-rider hit', i3 > Math.round(a3 * 1.4), `idi ${i3} base ${a3}`);
 }
 
 // — [v4.4] Unified damage %: the weapon's durable bonusDmgPct and a procced source
@@ -427,19 +431,23 @@ section('4. Targeted scenarios');
     ev.join(' | '));
 }
 
-// Poseidon Tidal Force applies after the attack for turn flow: proc on turn 4,
-// target loses its next turn (turn 5), not the current turn.
+// Poseidon Tidal Force: 30% chance each turn to Stun (1 turn) + shred enemy DEF 30% for
+// 2 turns. The stun is directional CC (applied in the passive phase) → it gates the
+// target's NEXT turn, not the current one. Forced proc (rng 0): stun lands turn 1, the
+// mob still acts turn 1, then is gated turn 2.
 {
   const sim = resolveBattle(
     player({ deityBlessingKey: 'poseidon_tidal_force', atk: 20, hp: 100000, def: 10, crit: 0 }),
     mob({ name: 'Dummy', atk: 1, hp: 100000, def: 0, crit: 0 }),
     { mode: 'raid', rng: () => 0 }
   );
-  const r4 = roundEvents(sim, 4);
-  const r5 = roundEvents(sim, 5);
-  check('Poseidon stun is delayed to target next turn',
-    hasEvent(r4, 'Poseidon: Tidal Force') && hasEvent(r4, 'Dummy strikes') && !hasEvent(r4, 'Dummy is unable to act') && hasEvent(r5, 'Dummy is unable to act'),
-    `r4=${r4.join(' | ')} r5=${r5.join(' | ')}`);
+  const r1 = roundEvents(sim, 1);
+  const r2 = roundEvents(sim, 2);
+  check('Poseidon procs stun + DEF -30% shred',
+    hasEvent(r1, 'Poseidon: Tidal Force') && hasEvent(r1, 'DEF -30%'), r1.join(' | '));
+  check('Poseidon stun is directional (mob acts turn 1, gated turn 2)',
+    hasEvent(r1, 'Dummy strikes') && !hasEvent(r1, 'Dummy is unable to act') && hasEvent(r2, 'Dummy is unable to act'),
+    `r1=${r1.join(' | ')} r2=${r2.join(' | ')}`);
 }
 
 // The same directional timing applies to all skip-CC tags, not only stun.
