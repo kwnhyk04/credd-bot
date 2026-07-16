@@ -8,11 +8,13 @@
  * baccarat commission, no real-payout shaving. `payout` is always the GROSS returned to
  * the player (stake included); net profit on a win is `payout - bet`.
  *
- * Max bets: 150,000 for every game EXCEPT crash = 25,000.
+ * Max bet: 500,000 for every game (crash included — no longer a lower exception).
  */
 
-const MAX_BET_DEFAULT = 150_000;
-const MAX_BET_CRASH   = 25_000;
+const MAX_BET = 500_000;
+// Back-compat aliases — both now resolve to the single unified ceiling.
+const MAX_BET_DEFAULT = MAX_BET;
+const MAX_BET_CRASH   = MAX_BET;
 
 /** Even-money games: a win returns 2× the stake. */
 const EVEN_MONEY = 2;
@@ -34,8 +36,7 @@ const SLOT_LADDER = [
 
 /**
  * Crash progression (Master §24). Rows 1–6 are LOCKED published values used verbatim.
- * Beyond push 6 the curve EXTENDS:
- *   crash chance = min(75, 15 + 5·push)   → push7 50%, push8 55%, … capped at 75%
+ *   crash chance = min(75, 20 + 2·(push−1))  → push1 20%, push2 22%, push3 24%, … cap 75% at push29
  *   cash-out mult = round2( 9.28 · 1.45^(push-6) )  → push7 ≈13.46×, push8 ≈19.52×, …
  * The ×1.45 geometric step reproduces the published rows; rows 1–6 are returned exactly.
  */
@@ -58,12 +59,13 @@ function crashMultiplier(push) {
   return Math.round(extended * 100) / 100;
 }
 
-/** Max bet for a game key (crash is the only exception). */
-function maxBet(game) {
-  return game === 'crash' ? MAX_BET_CRASH : MAX_BET_DEFAULT;
+/** Max bet for a game key (unified — same ceiling for every game, crash included). */
+function maxBet(_game) {
+  return MAX_BET;
 }
 
 module.exports = {
+  MAX_BET,
   MAX_BET_DEFAULT,
   MAX_BET_CRASH,
   EVEN_MONEY,

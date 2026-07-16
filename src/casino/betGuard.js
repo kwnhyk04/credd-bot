@@ -47,11 +47,20 @@ function parseBet(token) {
  */
 function validateBet(game, token, balance) {
   if (token == null || token === '') {
-    return { ok: false, error: 'Enter a bet — e.g. `' + exampleFor(game) + '`.' };
+    return { ok: false, error: 'Enter a bet — e.g. `' + exampleFor(game) + '` (or `max`).' };
+  }
+  const cap = maxBet(game);
+  // `max` → bet the ceiling, or the whole balance when it's smaller. Still subject to the
+  // must-have-credux check: a zero/negative balance rejects just like a numeric over-bet.
+  if (String(token).trim().toLowerCase() === 'max') {
+    const amount = Math.min(Number(balance) || 0, cap);
+    if (amount <= 0) {
+      return { ok: false, error: `You don't have enough Credux. Your balance is **${Number(balance || 0).toLocaleString()}**.` };
+    }
+    return { ok: true, amount };
   }
   const amount = parseBet(token);
   if (amount == null) return { ok: false, error: 'Your bet must be a positive whole number of Credux.' };
-  const cap = maxBet(game);
   if (amount > cap) {
     return { ok: false, error: `The maximum bet for this game is **${cap.toLocaleString()}** Credux.` };
   }

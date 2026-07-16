@@ -5,8 +5,9 @@
  *
  * Each push: roll the crash chance FIRST (crashChance(push)); crash → lose the
  * already-debited bet, and the crash point shown is that push's multiplier; survive → lock
- * crashMultiplier(push) as the safe cash-out value. Beyond push 6 the curve extends per
- * payoutTables (chance +5%/push capped at 75%, multiplier ×1.45/push).
+ * crashMultiplier(push) as the safe cash-out value. Crash chance is 20% at push 1 and +2%
+ * each push (push2 22%, push3 24%…), capped at 75% (reached at push 29). Beyond push 6 the
+ * multiplier extends per payoutTables (×1.45/push).
  *
  * PURE: owns no Map, no DB, no Discord; takes an injectable rng. The command layer owns the
  * per-user session Map, the Push/Cash Out buttons, the 60s auto-cash-out timer, and the

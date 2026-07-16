@@ -634,7 +634,14 @@ function resolveBattle(a, b, opts = {}) {
       if (mainHit && !res.negated) {
         if (S.flags.crossbow_pierce) S.flags.crossbow_pierce = false;
         if (S.classPassive === 'stun' && S.stunPreRoll > 0 && !sideImmune(O, 'stun')) {
-          if (O.kind !== 'player' || !O.statusImmune) {
+          // Stun-lock guard: a new Fighter stun cannot be applied while the target is
+          // already stunned (blocks the Math.max refresh that would extend the lock), nor
+          // during the 1-round immunity window after a stun wears off (set in act() on
+          // expiry). This is Fighter-class-only — weapon/deity stun sources are untouched,
+          // since none of them can chain at the class passive's per-round proc rate.
+          const alreadyStunned = O.debuffs.some((d) => d.tag === 'stun');
+          const stunImmune = O.flags.stun_immune_until != null && shared.round <= O.flags.stun_immune_until;
+          if ((O.kind !== 'player' || !O.statusImmune) && !alreadyStunned && !stunImmune) {
             const stunned = addDebuff(O, 'stun', S.stunPreRoll);
             if (stunned) {
               shared.events.push(`👊 ${S.name}'s blow stuns ${O.name} for ${S.stunPreRoll} turn${S.stunPreRoll > 1 ? 's' : ''}!`);
@@ -642,7 +649,7 @@ function resolveBattle(a, b, opts = {}) {
               const bashResult = applyHitToDefender(S, O, bash, { crit: false });
               shared.events.push(`💥 ${S.name} follows with Bash for **${bashResult.applied} DMG**!`);
               O.flags.dizzy_pending = true;
-              shared.events.push(`💫 ${O.name} is Dizzy; its next attack has a 50% miss chance.`);
+              shared.events.push(`💫 ${O.name} is Dizzy; its next attack has a 15% miss chance.`);
               if (result) return;
             }
           }
@@ -765,14 +772,20 @@ function resolveBattle(a, b, opts = {}) {
     // skip-CC applied during this round gates the recipient's next turn.
     const skipTags = S.debuffs.filter((d) => SKIP_TAGS.includes(d.tag) && d.armed);
     if (skipTags.length > 0) {
+      const hadStun = skipTags.some((d) => d.tag === 'stun');
       for (const d of skipTags) d.turnsLeft -= 1;
       S.debuffs = S.debuffs.filter((d) => d.turnsLeft > 0);
+      // On the round a stun wears off, grant a 1-round immunity window so the Fighter
+      // class passive can't immediately re-chain it (see the stun-lock guard above).
+      if (hadStun && !S.debuffs.some((d) => d.tag === 'stun')) {
+        S.flags.stun_immune_until = shared.round + 1;
+      }
       shared.events.push(`⏸️ ${S.name} is unable to act (${skipTags.map((d) => d.tag).join(', ')})!`);
       return;
     }
     if (S.flags.dizzy_pending) {
       S.flags.dizzy_pending = false;
-      if (rng() < 0.50) {
+      if (rng() < 0.15) {
         shared.events.push(`💫 ${S.name} misses its attack due to Dizzy!`);
         return;
       }

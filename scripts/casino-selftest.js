@@ -308,10 +308,10 @@ function assertSettlement(name, { game, bet, payout, before }) {
 /* ─────────────────── 6. BET GUARDS ─────────────────── */
 (function betGuards() {
   const bal = 1_000_000;
-  ok('guard: over-max 150k rejected', !betGuard.validateBet('coin_toss', '150001', bal).ok);
-  ok('guard: 150k accepted', betGuard.validateBet('coin_toss', '150000', bal).ok);
-  ok('guard: crash over-max 25k rejected', !betGuard.validateBet('crash', '25001', bal).ok);
-  ok('guard: crash 25k accepted', betGuard.validateBet('crash', '25000', bal).ok);
+  ok('guard: over-max 500k rejected', !betGuard.validateBet('coin_toss', '500001', bal).ok);
+  ok('guard: 500k accepted', betGuard.validateBet('coin_toss', '500000', bal).ok);
+  ok('guard: crash over-max 500k rejected', !betGuard.validateBet('crash', '500001', bal).ok);
+  ok('guard: crash 500k accepted (unified cap)', betGuard.validateBet('crash', '500000', bal).ok);
   ok('guard: over-balance rejected', !betGuard.validateBet('coin_toss', '2000', 1000).ok);
   ok('guard: zero rejected', !betGuard.validateBet('coin_toss', '0', bal).ok);
   ok('guard: negative rejected', !betGuard.validateBet('coin_toss', '-5', bal).ok);
@@ -319,6 +319,14 @@ function assertSettlement(name, { game, bet, payout, before }) {
   ok('guard: empty rejected', !betGuard.validateBet('coin_toss', '', bal).ok);
   ok('guard: commas tolerated', betGuard.validateBet('coin_toss', '1,000', bal).ok);
   ok('guard: parseBet strips commas', betGuard.parseBet('12,345') === 12345);
+  // `max` keyword: bets the cap when balance covers it, else the whole balance.
+  const maxRich = betGuard.validateBet('coin_toss', 'max', 600_000);
+  ok('guard: max @600k balance → 500k', maxRich.ok && maxRich.amount === 500_000, `got ${maxRich.amount}`);
+  const maxPoor = betGuard.validateBet('coin_toss', 'max', 300_000);
+  ok('guard: max @300k balance → 300k', maxPoor.ok && maxPoor.amount === 300_000, `got ${maxPoor.amount}`);
+  ok('guard: MAX (case-insensitive) accepted', betGuard.validateBet('dice_roll', 'MAX', 50_000).amount === 50_000);
+  ok('guard: max @0 balance rejected (must have credux)', !betGuard.validateBet('coin_toss', 'max', 0).ok);
+  ok('guard: crash max respects unified 500k cap', betGuard.validateBet('crash', 'max', 900_000).amount === 500_000);
 })();
 
 /* ─────── 7. REAL SETTLEMENT PATH ([item 1] wins MUST credit Credux, all six games) ─────── */

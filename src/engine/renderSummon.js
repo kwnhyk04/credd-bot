@@ -389,12 +389,18 @@ function groupSummonResults(results) {
     groups.set(key, entry);
   }
   return [...groups.values()].map((g) => {
-    const status = [
-      g.newCount ? `New${g.newCount > 1 ? ` x${g.newCount}` : ''}` : null,
-      g.essence ? `Essence +${g.essence.toLocaleString()}` : null,
-    ].filter(Boolean).join(' + ') || 'Owned';
+    // Essence only accrues on duplicates; show the essence tier emoji + tally when any was
+    // earned, and keep New / New xN for first-time pulls (which grant no essence).
+    const segs = [];
+    if (g.newCount) segs.push(`New${g.newCount > 1 ? ` x${g.newCount}` : ''}`);
+    if (g.essence) {
+      const essenceEmoji = emoji(ALIAS_TO_ESSENCE[g.rarity] ?? 'epic_essence');
+      segs.push(`${essenceEmoji} essence +${g.essence.toLocaleString()}`);
+    }
+    const status = segs.join(' + ') || 'Owned';
     const count = g.pulls > 1 ? ` x${g.pulls}` : '';
-    return `${emojiForDisplay(g.name, 'Deity')} **${g.name}**${count} - ${g.rarity} - ${status}`;
+    const tierSymbol = RARITY_SYMBOLS[g.rarity] ?? '◆';
+    return `${emojiForDisplay(g.name, 'Deity')} **${g.name}**${count} — ${tierSymbol} ${g.rarity} — ${status}`;
   }).join('\n');
 }
 

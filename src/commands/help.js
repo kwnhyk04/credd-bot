@@ -84,6 +84,7 @@ const CATEGORIES = [
       { canonical: 'open', cmd: 'crd open [chest] (o)', desc: 'Open a chest or relic' },
       { canonical: 'equip', cmd: 'crd equip [id] (eq)', desc: 'Equip a weapon or armor' },
       { canonical: 'equipment', cmd: 'crd equipment info [id] (ei)', desc: 'Weapon/armor info card' },
+      { canonical: 'compare', cmd: 'crd compare weapon/deity <a> <b> [c] (cmp)', desc: 'Compare 2–3 owned weapons or deities', prefixOnly: true },
       { canonical: 'enhance', cmd: 'crd enhance [id] (enh)', desc: 'Enhance gear' },
       { canonical: 'lock', cmd: 'crd lock / unlock [id] (lk/ulk)', desc: 'Lock or unlock gear' },
       { canonical: 'sell', cmd: 'crd sell [id | tier | all]', desc: 'Sell gear' },

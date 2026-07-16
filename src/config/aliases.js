@@ -42,6 +42,7 @@ module.exports = {
   enh: 'enhance',
   lk: 'lock',
   ulk: 'unlock',
+  cmp: 'compare',
   // Runes / sockets (Phase 2)
   es: 'essence shop',
   ex: 'exchange',

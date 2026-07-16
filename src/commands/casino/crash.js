@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * `crd crash <amount>` — The Ascension. Max bet 25,000.
+ * `crd crash <amount>` — The Ascension. Max bet 500,000 (accepts `max`).
  *
  * Stateful push-your-luck: the bet is DEBITED up front, the pure session lives in a per-user
  * Map (ONE active crash per user), the full payout is CREDITED on resolution. Each push rolls

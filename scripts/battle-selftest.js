@@ -485,6 +485,48 @@ section('4. Targeted scenarios');
   check('R2: stun negated vs stun-immune', hasEvent(roundEvents(sImm, 1), 'strikes'));
 }
 
+// — Fighter stun: proc-rate sim (~N seeded battles) + anti-lock guard —
+// Round 1 is a clean Bernoulli draw of the stun band: the target is never already-stunned
+// nor in the post-stun immunity window on turn 1, so the guard never interferes and the
+// observed round-1 rate equals the raw pre-roll bands (25% 1-turn, 10% 2-turn).
+{
+  const N = 4000;
+  let band1 = 0, band2 = 0;
+  for (let s = 1; s <= N; s += 1) {
+    const sim = resolveBattle(
+      player({ class: 'Fighter', classPassive: 'stun', atk: 10 }),
+      mob({ hp: 1_000_000, def: 0 }),
+      { seed: s }
+    );
+    const r1 = roundEvents(sim, 1);
+    if (hasEvent(r1, 'for 2 turns!')) band2 += 1;
+    else if (hasEvent(r1, 'for 1 turn!')) band1 += 1;
+  }
+  const p1 = band1 / N, p2 = band2 / N;
+  console.log(`   proc-rate over ${N} battles (round 1): 1-turn=${(p1 * 100).toFixed(1)}% (exp 25%), 2-turn=${(p2 * 100).toFixed(1)}% (exp 10%)`);
+  check('stun 1-turn band ≈ 25%', Math.abs(p1 - 0.25) < 0.03, `got ${(p1 * 100).toFixed(1)}%`);
+  check('stun 2-turn band ≈ 10%', Math.abs(p2 - 0.10) < 0.03, `got ${(p2 * 100).toFixed(1)}%`);
+
+  // Anti-lock: a max-duration 2-turn stun skips 2 rounds, then the 1-round immunity window
+  // guarantees a free action → the mob can never be skip-locked for 3+ consecutive rounds.
+  // Scan every seed for the worst streak; before the fix this ran unbounded.
+  let worstOverall = 0;
+  for (let s = 1; s <= 200; s += 1) {
+    const longSim = resolveBattle(
+      player({ class: 'Fighter', classPassive: 'stun', atk: 5 }),
+      mob({ hp: 5_000_000, def: 0 }),
+      { seed: s }
+    );
+    let streak = 0;
+    for (const r of longSim.rounds) {
+      if (hasEvent(r.events, 'unable to act')) { streak += 1; worstOverall = Math.max(worstOverall, streak); }
+      else streak = 0;
+    }
+  }
+  console.log(`   worst consecutive stun-skip streak across 200 battles: ${worstOverall} rounds`);
+  check('anti-lock: mob never skip-locked 3+ consecutive rounds', worstOverall < 3, `streak ${worstOverall}`);
+}
+
 // — R8: def_down sources combine highest-wins —
 {
   // Laevateinn and Zeus remain highest-wins rather than combining multiplicatively.
