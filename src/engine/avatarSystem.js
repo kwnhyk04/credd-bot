@@ -8,7 +8,7 @@ const {
   MessageFlags,
 } = require('discord.js');
 const { CLASSES, CLASS_NAMES } = require('../config/classes');
-const { DEV_ACCOUNT_IDS } = require('../config/cosmetics');
+const { DEV_ACCOUNT_IDS, TESTER_AVATAR_VARIANTS } = require('../config/cosmetics');
 const { assetPath } = require('../utils/assets');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { envBool, performanceLog } = require('../utils/runtimeLogs');
@@ -137,6 +137,7 @@ function seedRows() {
       }
     }
   }
+  rows.push(...TESTER_AVATAR_VARIANTS.map((row) => ({ ...row })));
   return rows;
 }
 
@@ -493,4 +494,5 @@ module.exports = {
   resolveAvatarImagePath,
   resolveDefaultClassAvatarPath,
   resolveStatsAvatar,
+  seedRows,
 };

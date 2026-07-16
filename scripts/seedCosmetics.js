@@ -18,7 +18,7 @@ const path = require('path');
 const pool = require('../src/db/pool');
 const {
   SKINS_DIR, DIRS, BASE_ROWS, TOKEN_COSTS, PRICE_OVERRIDES, SET_FILES,
-  parseStoreBasename, displayNameFromTokens, skinCode,
+  TESTER_PROFILE_VARIANTS, parseStoreBasename, displayNameFromTokens, skinCode,
 } = require('../src/config/cosmetics');
 
 // List the basenames (with ext) of regular files directly under a skins-relative dir.
@@ -111,6 +111,14 @@ function nonStoreEntries() {
     }
   } catch { /* no testers dir */ }
   return out;
+}
+
+function r2OnlyTesterProfileEntries() {
+  return TESTER_PROFILE_VARIANTS.map((variant) => {
+    const entry = { ...variant };
+    delete entry.layout_source_filename;
+    return entry;
+  });
 }
 
 function buildEntries() {
@@ -223,6 +231,10 @@ function buildEntries() {
   // ── Non-store sets (founder / tester default / per-tester customs) ─────────
   entries.push(...nonStoreEntries());
 
+  // R2-only tester variants are explicit catalog rows: they may not exist in a
+  // GitHub checkout, but must remain active when the catalog is reseeded.
+  entries.push(...r2OnlyTesterProfileEntries());
+
   // ── [Patch 2 §2.1] Class default BATTLE skins — synthetic rows NOT derived
   // from disk (assets live on R2). Mirrors patch2-classbattle-backfill.sql so
   // the deactivation pass below never flips them off on a reseed. Bases sit at
@@ -311,9 +323,18 @@ async function main() {
     for (const id of tdirs) {
       const res = await client.query(
         `INSERT INTO equipped_skins (discord_id, category, cosmetic_id, override_path, updated_at)
-           SELECT $1, c.category, c.cosmetic_id, NULL, NOW()
-             FROM cosmetic_catalog c
-            WHERE c.is_active = true AND c.cosmetic_key LIKE $2
+           SELECT $1, selected.category, selected.cosmetic_id, NULL, NOW()
+             FROM (
+               SELECT DISTINCT ON (c.category) c.category, c.cosmetic_id
+                 FROM cosmetic_catalog c
+                WHERE c.is_active = true AND c.cosmetic_key LIKE $2
+                ORDER BY c.category,
+                         CASE
+                           WHEN c.cosmetic_key = 'tester_' || $1 || '_' || c.category THEN 0
+                           ELSE 1
+                         END,
+                         c.cosmetic_key
+             ) selected
          ON CONFLICT (discord_id, category) DO NOTHING`,
         [id, `tester_${id}_%`]
       );
@@ -342,4 +363,6 @@ async function main() {
   }
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { buildEntries, r2OnlyTesterProfileEntries };

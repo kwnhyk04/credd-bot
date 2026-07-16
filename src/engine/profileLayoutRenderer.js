@@ -13,6 +13,7 @@ const { resolveName } = require('../utils/emojis');
 const { formatIntegerEnUS: fmt } = require('../utils/textFormat');
 const { SUPPORTER_BADGE_HEIGHT } = require('../config/cosmetics');
 const { badgeRect } = require('./identityLayout');
+const { profileSkinLayoutPath } = require('./profileLayoutAliases');
 const { envPositiveInt } = require('../utils/runtimeLogs');
 const { registerMemorySource } = require('../utils/memoryRegistry');
 const { encodeCanvas } = require('../utils/canvasEncode');
@@ -32,7 +33,7 @@ for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
 }
 
 function layoutPathFor(skinPath) {
-  return skinPath.replace(/\.[^.]+$/, '.layout.json');
+  return profileSkinLayoutPath(skinPath, 'profile');
 }
 
 function hasProfileLayout(skinPath) {

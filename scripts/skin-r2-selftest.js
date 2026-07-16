@@ -103,7 +103,16 @@ global.fetch = async (input, init = {}) => {
 const {
   assetPath,
   loadCachedImage,
+  localAssetPath,
 } = require('../src/utils/assets');
+const {
+  TESTER_AVATAR_VARIANTS,
+  TESTER_PROFILE_VARIANTS,
+} = require('../src/config/cosmetics');
+const { buildEntries: buildCosmeticEntries } = require('./seedCosmetics');
+const { seedRows: buildAvatarEntries } = require('../src/engine/avatarSystem');
+const { layoutPathFor: profileLayoutPathFor } = require('../src/engine/profileLayoutRenderer');
+const { layoutPathFor: statsLayoutPathFor } = require('../src/engine/statsLayoutRenderer');
 const {
   resolveSkin,
   resolveStatsSkin,
@@ -218,6 +227,62 @@ function battleSim() {
 }
 
 async function main() {
+  const profileVariant = TESTER_PROFILE_VARIANTS.find(
+    (entry) => entry.cosmetic_key === 'tester_1444953283306328075_profile2'
+  );
+  assert.ok(profileVariant, 'tester profile2 config must be registered');
+  const seededProfiles = buildCosmeticEntries().filter(
+    (entry) => entry.cosmetic_key === profileVariant.cosmetic_key
+  );
+  assert.equal(seededProfiles.length, 1, 'tester profile2 must have exactly one catalog seed row');
+  assert.deepEqual(
+    {
+      category: seededProfiles[0].category,
+      tier: seededProfiles[0].tier,
+      tokenCost: seededProfiles[0].token_cost,
+      topLabel: seededProfiles[0].has_top_label,
+      display: seededProfiles[0].display_filename,
+      render: seededProfiles[0].render_filename,
+      skinCode: seededProfiles[0].skin_code,
+    },
+    {
+      category: 'profile',
+      tier: 'believer',
+      tokenCost: 0,
+      topLabel: true,
+      display: 'testers/tester_profile2.png',
+      render: 'testers/tester_profile2.png',
+      skinCode: 'pt5p2',
+    }
+  );
+
+  const profile2Url = assetPath(`skins/${profileVariant.render_filename}`);
+  const sourceBase = `skins/${profileVariant.layout_source_filename}`.replace(/\.png$/, '');
+  assert.equal(
+    profileLayoutPathFor(profile2Url),
+    expectedUrl(`${sourceBase}.layout.json`),
+    'crd profile must reuse the existing tester profile layout'
+  );
+  assert.equal(
+    statsLayoutPathFor(profile2Url),
+    expectedUrl(`${sourceBase}.stats.layout.json`),
+    'crd stats must reuse the existing tester stats layout'
+  );
+  assert.equal(
+    profileLayoutPathFor(localAssetPath(`skins/${profileVariant.render_filename}`)),
+    localAssetPath(`${sourceBase}.layout.json`),
+    'local alignment tools must reuse the local tester layout path'
+  );
+
+  const avatarSeeds = new Map(buildAvatarEntries().map((entry) => [entry.avatar_key, entry]));
+  for (const expected of TESTER_AVATAR_VARIANTS) {
+    assert.deepEqual(
+      avatarSeeds.get(expected.avatar_key),
+      expected,
+      `${expected.avatar_key} must remain in the avatar catalog seed`
+    );
+  }
+
   const localOnlyPath = path.join(process.cwd(), 'assets', 'skins', ...OVERRIDE_FOLDER.split('/'));
   assert.equal(fs.existsSync(localOnlyPath), false, 'R2-only fixture must not exist under local assets');
 

@@ -118,6 +118,50 @@ const SET_FILES = {
   summon: ['ember_spark_flip.webp', 'summon.gif', 'summon.webp', 'founder_summon.webp'],
 };
 
+// R2-only tester catalog additions. The cosmetic key keeps profile2 scoped to
+// its tester account, while the layout source reuses that tester's existing
+// `crd profile` and `crd stats` coordinate configs with the new background art.
+const TESTER_PROFILE_VARIANTS = Object.freeze([
+  Object.freeze({
+    cosmetic_key: 'tester_1444953283306328075_profile2',
+    category: 'profile',
+    tier: 'believer',
+    display_name: 'Tester Profile 2',
+    token_cost: 0,
+    is_base: false,
+    has_top_label: true,
+    display_filename: 'testers/tester_profile2.png',
+    render_filename: 'testers/tester_profile2.png',
+    victory_filename: null,
+    defeated_filename: null,
+    skin_code: 'pt5p2',
+    layout_source_filename: 'testers/1444953283306328075/profile.png',
+  }),
+]);
+
+// Grant-only tester avatar additions. These remain outside the supporter shop
+// (`style=tester`, zero cost) and use their stored R2 paths directly.
+const TESTER_AVATAR_VARIANTS = Object.freeze([
+  Object.freeze({
+    avatar_key: 'tester_fighter_female',
+    display_name: 'Tester Female Avatar',
+    class_name: 'Fighter',
+    gender: 'female',
+    style: 'tester',
+    token_cost: 0,
+    asset_path: 'skins/testers/avatars/fighter_female.png',
+  }),
+  Object.freeze({
+    avatar_key: 'tester_mage_female',
+    display_name: 'Tester Female Avatar',
+    class_name: 'Mage',
+    gender: 'female',
+    style: 'tester',
+    token_cost: 0,
+    asset_path: 'skins/testers/avatars/mage_female.png',
+  }),
+]);
+
 // Display title-casing: apostrophes + a couple of asset-filename typo fixes so the storefront
 // reads cleanly without renaming art on disk.
 const APOSTROPHE = { champions: "Champion's" };
@@ -221,6 +265,8 @@ module.exports = {
   DIRS,
   BASE_ROWS,
   SET_FILES,
+  TESTER_PROFILE_VARIANTS,
+  TESTER_AVATAR_VARIANTS,
   displayNameFromTokens,
   parseStoreBasename,
   skinCode,

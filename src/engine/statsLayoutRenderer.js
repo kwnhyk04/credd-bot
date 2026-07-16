@@ -18,6 +18,7 @@ const { registerMemorySource } = require('../utils/memoryRegistry');
 const { encodeCanvas } = require('../utils/canvasEncode');
 const { SUPPORTER_BADGE_HEIGHT } = require('../config/cosmetics');
 const { containRect, badgeRect } = require('./identityLayout');
+const { profileSkinLayoutPath } = require('./profileLayoutAliases');
 const {
   assetSource,
   assetExistsSync,
@@ -34,7 +35,7 @@ for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
 }
 
 function layoutPathFor(skinPath) {
-  return skinPath.replace(/\.[^.]+$/, '.stats.layout.json');
+  return profileSkinLayoutPath(skinPath, 'stats');
 }
 
 function hasStatsLayout(skinPath) {
