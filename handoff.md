@@ -1626,6 +1626,7 @@ Functional commit sequence:
 2. `e11654e` — `fix: render directly equipped avatars`
 3. `35c1e58` — `fix: shift tester2 profile avatar left`
 4. `30bf9b9` — `fix: finalize Loki illusory double`
+5. `9000c48` — `test: support CRLF in boss image assertion`
 
 Tester avatar and profile work:
 
@@ -1651,6 +1652,6 @@ Validation and handoff state:
 1. `npm run selftest:skin-r2` passed after the avatar resolver and every tester2 layout correction.
 2. `npm run selftest:patch` passed after the avatar and Loki changes.
 3. JavaScript syntax checks, JSON coordinate validation, staged-diff inspection, and `git diff --check` passed.
-4. The battle suite completed at 261 passed and 1 failed. The only failure remains the previously documented `surviving boss attacks keep the Canvas status image` assertion; all new Loki cases passed.
+4. The battle suite now completes at 262 passed and 0 failed. The final failure was a false negative in the `surviving boss attacks keep the Canvas status image` source assertion: its function extractor accepted LF only, while the committed Windows file used CRLF. The extractor now accepts both line endings and continues to verify the same Canvas status-image behavior.
 5. The final tester2 profile was rendered from the authoritative R2 skin/layout using a Discord avatar source and visually verified before commit.
 6. Existing ignored local assets, caches, previews, dependencies, environment files, and credentials were not staged. Nothing in this commit sequence was pushed.
