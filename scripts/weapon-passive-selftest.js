@@ -13,6 +13,12 @@ const fs = require('fs');
 const path = require('path');
 const PASSIVES = require('../src/engine/passiveRegistry');
 const { resolveBattle } = require('../src/engine/battleEngine');
+const {
+  EFFECT_CATEGORY,
+  effectCategory,
+  isStatusEffect,
+  removeEffectsByCategory,
+} = require('../src/engine/combatEffects');
 
 const ROOT = path.join(__dirname, '..');
 const passiveText = fs.readFileSync(
@@ -73,12 +79,21 @@ function makeBs(overrides = {}) {
       return true;
     },
     applyPlayerDebuff(tag, turns, value = 0) {
-      if (!bs.playerStatusImmune) playerDebuffs.push({ tag, turns, value });
+      if (bs.playerStatusImmune && isStatusEffect(tag)) return false;
+      playerDebuffs.push({ tag, category: effectCategory(tag), turns, value });
+      return true;
     },
     hasPlayerDebuff: (tag) => tag === 'any'
       ? playerDebuffs.length > 0
       : playerDebuffs.some((d) => d.tag === tag),
-    clearPlayerDebuffs: () => { playerDebuffs.length = 0; },
+    clearPlayerStatusEffects: () => removeEffectsByCategory(
+      playerDebuffs,
+      [EFFECT_CATEGORY.STATUS],
+    ),
+    clearPlayerDebuffs: () => removeEffectsByCategory(
+      playerDebuffs,
+      [EFFECT_CATEGORY.STATUS, EFFECT_CATEGORY.DOT],
+    ),
     onAttack: (fn) => attackHooks.push(fn),
     onLandedHit: (fn) => landedHitHooks.push(fn),
     attackHooks,
@@ -154,7 +169,7 @@ for (const [key, [chance, bonus]] of Object.entries(ATTACK_RIDERS)) {
 }
 
 const LANDED_DEBUFFS = {
-  cutlass: [0.10, 'bleed', 2, 100],
+  cutlass: [0.10, 'bleed', 2, 5],
   war_club: [0.10, 'stun', 1, 0],
   // On-hit stat shreds use two internal ticks so one effective turn remains after
   // the engine's end-of-proc-round decrement.
@@ -254,7 +269,7 @@ audit('pata', () => {
   invoke('pata', bs);
   assert.equal(bs.enemyDebuffs.length, 0);
   land(bs);
-  assert.deepEqual(bs.enemyDebuffs[0], { tag: 'bleed', turns: 2, value: 30 });
+  assert.deepEqual(bs.enemyDebuffs[0], { tag: 'bleed', turns: 2, value: 5 });
 });
 
 audit('japanese_bo', () => {
@@ -313,7 +328,7 @@ audit('scandinavian_glacial_wooden_bow', () => {
 audit('thyrsus', () => {
   const bs = makeBs({ rng: () => 0 });
   invoke('thyrsus', bs);
-  assert.deepEqual(bs.enemyDebuffs[0], { tag: 'bleed', turns: 2, value: 30 });
+  assert.deepEqual(bs.enemyDebuffs[0], { tag: 'bleed', turns: 2, value: 5 });
   const boundary = makeBs({ rng: () => 0.20 });
   invoke('thyrsus', boundary);
   assert.equal(boundary.enemyDebuffs.length, 0);
@@ -354,9 +369,13 @@ audit('jarngreipr', () => {
 });
 
 audit('alans_reversed_hands', () => {
-  const bs = makeBs();
+  const bs = makeBs({ playerDebuffs: [
+    { tag: 'stun', category: EFFECT_CATEGORY.STATUS },
+    { tag: 'burn', category: EFFECT_CATEGORY.DOT },
+  ] });
   invoke('alans_reversed_hands', bs);
   assert.equal(bs.playerStatusImmune, true);
+  assert.deepEqual(bs.playerDebuffs.map((d) => d.tag), ['burn']);
 });
 
 audit('knuckle_charm_anting_anting', () => {
@@ -381,13 +400,28 @@ audit('laevateinn_staff', () => {
 });
 
 audit('babaylans_ritual_staff', () => {
-  const bs = makeBs({ playerDebuffs: [{ tag: 'burn' }] });
+  const bs = makeBs({
+    playerDebuffs: [
+      { tag: 'stun', category: EFFECT_CATEGORY.STATUS },
+      { tag: 'burn', category: EFFECT_CATEGORY.DOT },
+    ],
+    flags: { positive_buff: true },
+    rng: () => 0.49,
+  });
   invoke('babaylans_ritual_staff', bs);
   assert.equal(bs.playerDebuffs.length, 0);
   close(bs.playerAtkMult, 1, 'Babaylan non-empty cleanse bonus');
-  const clean = makeBs();
+  assert.equal(bs.flags.positive_buff, true);
+  const clean = makeBs({ rng: () => 0.49 });
   invoke('babaylans_ritual_staff', clean);
   close(clean.playerAtkMult, 0, 'Babaylan empty cleanse');
+  const failedRoll = makeBs({
+    playerDebuffs: [{ tag: 'burn', category: EFFECT_CATEGORY.DOT }],
+    rng: () => 0.50,
+  });
+  invoke('babaylans_ritual_staff', failedRoll);
+  assert.equal(failedRoll.playerDebuffs.length, 1);
+  close(failedRoll.playerAtkMult, 0, 'Babaylan exact boundary does not cleanse');
 });
 
 audit('badiang_stalk', () => {

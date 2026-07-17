@@ -92,6 +92,15 @@
 
 const PASSIVE_REGISTRY = require('./passiveRegistry');
 const { CRIT_MULT, OVERCHARGE_MULT, hitMultiplier } = require('../config/combat');
+const {
+  EFFECT_CATEGORY,
+  EFFECT_DEFINITIONS,
+  CANONICAL_ON_HIT_EFFECTS,
+  effectCategory,
+  isStatusEffect,
+  isRecurringDamageEffect,
+  removeEffectsByCategory,
+} = require('./combatEffects');
 
 const MAX_ROUNDS = 50;
 const SUDDEN_DEATH_FROM = 30;     // player sides lose 10% max HP at end of every round ≥ 30 (mobs/bosses exempt)
@@ -108,27 +117,31 @@ const BLEED_MAX_STACKS = 10;
 const KNIGHT_OUTGOING_BONUS = 0.30;
 
 const SKIP_TAGS = ['stun', 'paralyze', 'freeze', 'petrify', 'charm', 'confuse', 'miss'];
-// thor_paralyze is a DOT (Thor's Mjolnir's Wrath) with a separate 10%/turn partial-skip
-// rolled in act() — deliberately NOT a SKIP_TAG (those are a guaranteed 100% skip).
-const DOT_TAGS = ['bleed', 'burn', 'hp_pct_dot', 'thor_paralyze'];
+// Thor uses separate linked status and DOT IDs so status immunity never blocks damage.
+const DOT_TAGS = Object.keys(EFFECT_DEFINITIONS).filter(isRecurringDamageEffect);
 const DOT_DEATH_TEXT = {
   bleed: 'bleeding',
   burn: 'burning',
   hp_pct_dot: 'rot',
-  thor_paralyze: 'paralysis',
+  thor_paralyze_dot: 'paralysis',
 };
 
 const ACTION_TAG_LABELS = {
   bleed: 'Bleed', burn: 'Burn', hp_pct_dot: 'Rot', stun: 'Stun', freeze: 'Freeze',
   paralyze: 'Paralyze', petrify: 'Petrify', charm: 'Charm', confuse: 'Confuse',
   miss: 'Miss', def_down: 'DEF Down', atk_down: 'ATK Down', crit_down: 'CRIT Down',
-  thor_paralyze: 'Paralysis', frostbite: 'Frostbite',
+  thor_paralyze: 'Paralyze', thor_paralyze_dot: 'Paralysis', frostbite: 'Frostbite',
 };
 
 function actionState(side) {
   return {
     hp: side.hp,
-    debuffs: side.debuffs.map((d) => ({ tag: d.tag, turnsLeft: d.turnsLeft, value: d.value })),
+    debuffs: side.debuffs.map((d) => ({
+      tag: d.tag,
+      category: d.category,
+      turnsLeft: d.turnsLeft,
+      value: d.value,
+    })),
   };
 }
 
@@ -306,6 +319,8 @@ function resolveBattle(a, b, opts = {}) {
   const debuffValue = (side, tag) => { const d = findDebuff(side, tag); return d ? d.value : 0; };
   const frostbiteDamage = (side, amount) => findDebuff(side, 'frostbite') ? amount * 1.5 : amount;
   const addDebuff = (side, tag, turns, value = 0) => {
+    const category = effectCategory(tag);
+    if (!category) throw new Error(`Unknown combat effect ID: ${tag}`);
     // Stuns never refresh while active, regardless of source. Once a stun expires,
     // every source also respects the one-round recovery window. Keeping this in the
     // central debuff path prevents Fighter + stun-deity combinations from bypassing
@@ -335,10 +350,11 @@ function resolveBattle(a, b, opts = {}) {
     if (ex) {
       ex.turnsLeft = Math.max(ex.turnsLeft, turns);
       ex.value = Math.max(ex.value, value);
+      ex.category = category;
     } else {
       // Skip-CC applied this round is directional and gates the recipient's next
       // turn. It arms at round start, so it never cancels an action already due.
-      side.debuffs.push({ tag, turnsLeft: turns, value, armed: false });
+      side.debuffs.push({ tag, category, turnsLeft: turns, value, armed: false });
     }
     return true;
   };
@@ -348,7 +364,7 @@ function resolveBattle(a, b, opts = {}) {
     return side.immunityTags.includes('all_debuffs') || side.immunityTags.includes(tag);
   };
   const debuffImmune = (side, tag) =>
-    sideImmune(side, tag) || (side.kind === 'player' && side.statusImmune);
+    sideImmune(side, tag) || (side.kind === 'player' && side.statusImmune && isStatusEffect(tag));
   const tryApplyDebuff = (side, tag, turns, value = 0) => {
     if (debuffImmune(side, tag)) return false;
     return addDebuff(side, tag, turns, value);
@@ -402,12 +418,13 @@ function resolveBattle(a, b, opts = {}) {
     },
     enemyImmune: (tag) => debuffImmune(opp, tag),
     applyDebuff: (tag, turns, value = 0) => tryApplyDebuff(opp, tag, turns, value),
-    applyPlayerDebuff: (tag, turns, value = 0) => {
-      if (self.statusImmune) return;
-      addDebuff(self, tag, turns, value);
-    },
+    applyPlayerDebuff: (tag, turns, value = 0) => tryApplyDebuff(self, tag, turns, value),
     hasPlayerDebuff: (tag) => (tag === 'any' ? self.debuffs.length > 0 : !!findDebuff(self, tag)),
-    clearPlayerDebuffs: () => { self.debuffs.length = 0; },
+    clearPlayerStatusEffects: () => removeEffectsByCategory(self.debuffs, [EFFECT_CATEGORY.STATUS]),
+    clearPlayerDebuffs: () => removeEffectsByCategory(
+      self.debuffs,
+      [EFFECT_CATEGORY.STATUS, EFFECT_CATEGORY.DOT],
+    ),
   });
 
   const PA = makePerspective(A, B);
@@ -699,22 +716,32 @@ function resolveBattle(a, b, opts = {}) {
         shared.events.push('🔥 Laevateinn Staff: Flickering Flame — Burn (10% ATK, 2 turns)!');
       }
     }
-    if (S.flags.apolaki_on_hit) {
-      if (tryApplyDebuff(O, 'burn', 1, S.atk * 0.10)) {
+    const apolaki = CANONICAL_ON_HIT_EFFECTS.apolaki;
+    if (S.flags[apolaki.flag]) {
+      if (tryApplyDebuff(O, apolaki.tag, apolaki.turns, S.atk * apolaki.atkPctPerHit)) {
         shared.events.push('☀️ Apolaki: Solar Burn — Enemy scorched (10% ATK Burn)!');
       }
     }
-    if (S.flags.surt_on_hit) {
-      const nextStack = Math.min((S.flags.surt_burn_stack || 0) + 0.05, 0.30);
-      if (tryApplyDebuff(O, 'burn', 2, S.atk * nextStack)) {
+    const surt = CANONICAL_ON_HIT_EFFECTS.surt;
+    if (S.flags[surt.flag]) {
+      const nextStack = Math.min(
+        (S.flags.surt_burn_stack || 0) + surt.atkPctPerHit,
+        surt.maxAtkPct,
+      );
+      if (tryApplyDebuff(O, surt.tag, surt.turns, S.atk * nextStack)) {
         S.flags.surt_burn_stack = nextStack;
         shared.events.push(`🔥 Surt: Muspell's Flame — Burn ${Math.round(nextStack * 100)}% ATK/turn!`);
       }
     }
     if (S.flags.thor_on_hit && rng() < 0.30) {
       const stunned = tryApplyDebuff(O, 'stun', 1);
-      const paralyzed = tryApplyDebuff(O, 'thor_paralyze', 3, S.atk * 0.20);
-      const effects = [stunned ? 'Stunned' : '', paralyzed ? 'Paralyzed (3 turns)' : ''].filter(Boolean);
+      const paralyzed = tryApplyDebuff(O, 'thor_paralyze', 3);
+      const paralysisDot = tryApplyDebuff(O, 'thor_paralyze_dot', 3, S.atk * 0.20);
+      const effects = [
+        stunned ? 'Stunned' : '',
+        paralyzed ? 'Paralyzed (3 turns)' : '',
+        !paralyzed && paralysisDot ? 'Paralysis damage (3 turns)' : '',
+      ].filter(Boolean);
       if (effects.length) shared.events.push(`⚡ Thor: Mjolnir's Wrath — Enemy ${effects.join(' & ')}!`);
     }
     if (S.flags.skadi_on_hit && rng() < 0.30) {
@@ -913,14 +940,25 @@ function resolveBattle(a, b, opts = {}) {
       // Requires the swordsman to actually act — a skip-CC'd turn never reaches here.
       // The per-attack rng draw is KEPT (consumed, unused) for draw-order stream stability
       // now that the value is deterministic.
-      if (S.classPassive === 'bleed' && !res.negated && !sideImmune(O, 'bleed')) {
-        if (O.kind !== 'player' || !O.statusImmune) {
-          rng(); // reserved draw — stream stability (bleed value is deterministic now)
-          const ex = findDebuff(O, 'bleed');
-          const stacks = Math.min(BLEED_MAX_STACKS, (ex && ex.stacks ? ex.stacks : 0) + 1);
-          const value = stacks * BLEED_PCT_PER_STACK * S.atk;
-          if (ex) { ex.turnsLeft = 2; ex.value = Math.max(ex.value, value); ex.stacks = stacks; }
-          else O.debuffs.push({ tag: 'bleed', turnsLeft: 2, value, stacks, armed: false });
+      if (S.classPassive === 'bleed' && !res.negated && !debuffImmune(O, 'bleed')) {
+        rng(); // reserved draw — stream stability (bleed value is deterministic now)
+        const ex = findDebuff(O, 'bleed');
+        const stacks = Math.min(BLEED_MAX_STACKS, (ex && ex.stacks ? ex.stacks : 0) + 1);
+        const value = stacks * BLEED_PCT_PER_STACK * S.atk;
+        if (ex) {
+          ex.turnsLeft = 2;
+          ex.value = Math.max(ex.value, value);
+          ex.stacks = stacks;
+          ex.category = EFFECT_CATEGORY.DOT;
+        } else {
+          O.debuffs.push({
+            tag: 'bleed',
+            category: EFFECT_CATEGORY.DOT,
+            turnsLeft: 2,
+            value,
+            stacks,
+            armed: false,
+          });
         }
       }
       if (mainHit) {
@@ -1048,8 +1086,8 @@ function resolveBattle(a, b, opts = {}) {
       shared.events.push(`⏸️ ${S.name} is unable to act (${skipTags.map((d) => d.tag).join(', ')})!`);
       return;
     }
-    // Thor: while Paralyzed (a DOT tag), a 10% chance each turn to skip the action. The
-    // draw is taken only while the debuff is present (conditional, like Dizzy above).
+    // Thor's linked Paralyze status controls the 10% action-skip chance while its
+    // separate DOT continues independently through status immunity and cleansing.
     if (S.debuffs.some((d) => d.tag === 'thor_paralyze') && rng() < 0.10) {
       shared.events.push(`⚡ ${S.name} is paralyzed and cannot move!`);
       return;
@@ -1173,7 +1211,11 @@ function resolveBattle(a, b, opts = {}) {
   const snapSide = (side) => ({
     hp: side.hp,
     maxHp: side.maxHp,
-    debuffs: side.debuffs.map((d) => ({ tag: d.tag, turnsLeft: d.turnsLeft })),
+    debuffs: side.debuffs.map((d) => ({
+      tag: d.tag,
+      category: d.category,
+      turnsLeft: d.turnsLeft,
+    })),
   });
   let lastActions = {
     a: { title: 'Ready', detail: 'Awaiting first action' },

@@ -8,7 +8,7 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 ## WEAPON passives (weapon_roster.passive_key)
 
 - `none` — (shared no-op)
-- `cutlass` — Serrated Edge: 10% chance to apply flat Bleed on hit.
+- `cutlass` — Serrated Edge: Each landed hit has a 10% chance to apply Bleed equal to 5% of the user's base ATK per turn for 2 turns.
 - `kampilan` — Opening Strike: The first hit deals +20% ATK.
 - `war_club` — Concussive Blow: 10% chance to stun the enemy for 1 turn.
 - `bone_crusher` — Opening Strike: The first hit deals +20% ATK.
@@ -22,7 +22,7 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `gladius` — Brutal Swing: 30% chance to deal +50% bonus ATK.
 - `scimitar` — Rising Slash: ATK +3% every turn, stacking up to 15%.
 - `roman_cestus` — Executioner: Deals 50% more damage to stunned enemies.
-- `pata` — Rending Claws: Applies flat Bleed on hit (30% ATK per turn for 2 turns).
+- `pata` — Rending Claws: Every landed hit applies Bleed equal to 5% of the user's base ATK per turn for 2 turns.
 - `bagh_nakh` — Frenzied Claws: ATK +5% every turn, stacking up to 25%.
 - `japanese_bo` — Vital Siphon: 25% chance to heal for 50% of the damage dealt.
 - `english_quarterstaff` — Sweeping Strike: 20% chance to deal +50% bonus ATK.
@@ -39,7 +39,7 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `caestus` — Hammer Fists: 35% chance to deal +40% bonus ATK.
 - `myrmex` — Predator's Grip: Deals 40% more damage to stunned enemies.
 - `dory` — Phalanx Momentum: ATK +6% every 2 turns, stacking up to 18%.
-- `thyrsus` — Maddening Touch: 20% chance each turn to apply flat Bleed (ATK×0.30 per turn for 2 turns).
+- `thyrsus` — Maddening Touch: Each turn has a 20% chance to apply Bleed equal to 5% of the user's base ATK per turn for 2 turns.
 - `dipylon_shield` — Hoplite Wall: DEF +20% for the first 3 turns.
 - `pelte` — Deflection: 15% chance to block 25% of incoming damage.
 - `arrow_of_eros` — Love's Arrow: 30% chance to deal +45% bonus ATK.
@@ -50,11 +50,11 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `laevateinn_sword` — Sundering Flame: Reduces enemy DEF by 10% every turn, stacking up to 30%.
 - `jarngreipr` — Thunder Grip: Stunning an enemy triggers Bash for +60% bonus damage.
 - `gridr_iron_gloves` — Ironhide: 20% chance to ignore incoming damage entirely.
-- `alans_reversed_hands` — Untouchable: Immune to all status effects.
+- `alans_reversed_hands` — Untouchable: Immune to all status effects. Does not prevent damage-over-time effects.
 - `knuckle_charm_anting_anting` — Death Charm: 5% chance to instantly kill the opponent (Bosses excluded).
 - `laevateinn_staff` — Flickering Flame: Attacks ignore 15% of enemy DEF and apply Burn equal to 10% of ATK for 2 turns.
 - `galdrastafir` — Runebreaker: 50% chance to reduce enemy DEF by 30% for 1 turn.
-- `babaylans_ritual_staff` — Sacred Cleansing: Cleanses all debuffs every turn; whenever a cleanse removes at least one debuff, grants +100% ATK for 1 turn.
+- `babaylans_ritual_staff` — Sacred Cleansing: Each turn has a 50% chance to remove all status and damage-over-time debuffs. If at least one debuff is removed, grants +100% ATK for 1 turn.
 - `badiang_stalk` — Venom Burst: 30% chance to Rupture for 10% of the enemy's max HP (blocked by all bosses).
 - `shield_of_the_valkyrie` — Valkyrie's Resolve: Each hit taken grants +5% DEF and +5% ATK, stacking up to 30% each.
 - `skjaldmaer` — Shieldmaiden's Guard: 15% chance to ignore incoming damage entirely.
@@ -97,7 +97,7 @@ new and defensive:
 - `sidapa_deaths_reprieve` — Death's Reprieve: Once per battle, the first lethal hit leaves the user at 1 HP. The user then heals 30% max HP and gains +50% ATK for the rest of the battle.
 - `magwayen_soul_drain` — Soul Drain: Heals 15% of all damage dealt. When an enemy is defeated, recover 20% max HP as their soul is claimed.
 - `mandarangan_war_frenzy` — War Frenzy: End of each turn: +10% ATK, stacking up to +50% (reached turn 5). Stacks persist all battle.
-- `apolaki_solar_burn` — Solar Burn: Each attack applies Burn to the enemy equal to 10% of the user's base ATK. The Burn deals its damage at the end of the enemy's next turn, then expires. Each hit refreshes it.
+- `apolaki_solar_burn` — Solar Burn: Every landed hit applies Burn equal to 10% of the user's base ATK. The Burn deals 1 tick, then expires; later landed hits refresh it.
 - `mayari_lunar_veil` — Lunar Veil: While below 50% HP, DEF +30% and reflect 15% of damage taken.
 - `dian_masalanta_devotion` — Devotion: While below 50% HP, ATK +30% and heal 4% max HP each turn.
 - `amihan_tailwind` — Tailwind: 20% chance to evade any incoming attack. Each successful evade grants +20% ATK to her next attack.
@@ -110,7 +110,7 @@ new and defensive:
 - `loki_illusory_double` — Illusory Double: 25% chance each turn to evade an attack and counter for 100% ATK.
 - `tyr_oathkeeper` — Oathkeeper: DEF +30% for the whole battle; while below 50% HP, reflects 20% of incoming damage.
 - `skadi_winters_hunt` — Winter's Hunt: Each turn, the user's attack has a 30% chance to Freeze the enemy (skips its next turn). After the Freeze ends, the enemy suffers Frostbite, taking +50% damage from all sources for 1 turn.
-- `surt_muspells_flame` — Muspell's Flame: Every attack applies Burn equal to 5% of ATK per turn for 2 turns. Burn stacks with each hit, up to a maximum of 30% ATK per turn. Against an already-burning enemy, attacks deal +50% bonus damage.
+- `surt_muspells_flame` — Muspell's Flame: Every landed hit adds Burn equal to 5% of the user's base ATK per turn for 2 turns, stacking up to 30%. Against an already-burning enemy, attacks deal +50% bonus damage.
 - `heimdall_eternal_vigilance` — Eternal Vigilance: The first hit taken each battle is reduced by 50%. For the rest of the battle, damage from incoming critical hits is reduced by 30%.
 - `baldur_invulnerability` — Invulnerability: Once per battle, the first time the user is debuffed or drops below 50% HP, remove all debuffs, restore 15% max HP, and reduce damage taken by 50% for 1 turn.
 - `hel_half_dead` — Half-Dead: While below 50% HP, ATK +30% and DEF +30%.
@@ -152,7 +152,7 @@ new and defensive:
 - `echo_njord` — Echo · Njord: 10% chance each turn to reduce incoming damage by 20%.
 - `echo_freya` — Echo · Freya: While HP is below 40%, DEF +20%.
 - `echo_tyr` — Echo · Tyr: DEF +10% for the whole battle.
-- `echo_surt` — Echo · Surt: Every 3 turns, applies flat Burn (10% ATK per turn for 2 turns).
+- `echo_surt` — Echo · Surt: Inherits Muspell's Flame exactly: every landed hit adds 5% base ATK Burn for 2 turns, stacking up to 30%.
 - `echo_hel` — Echo · Hel: While HP is below 50%, ATK +8% and DEF +8%.
 - `echo_mimir` — Echo · Mimir: Every 5 turns, gains +30% ATK for that turn.
 - `echo_idiyanale` — Echo · Idiyanale: Every 6 turns, the next attack deals double damage.
@@ -162,7 +162,7 @@ new and defensive:
 - `echo_magwayen` — Echo · Magwayen: Each attack steals 5% of the damage dealt as HP.
 - `echo_dian_masalanta` — Echo · Dian Masalanta: While HP is below 30%, ATK +12%.
 - `echo_mayari` — Echo · Mayari: While HP is below 50%, DEF +15%.
-- `echo_apolaki` — Echo · Apolaki: Every 4 turns, applies flat Burn (8% ATK per turn for 2 turns).
+- `echo_apolaki` — Echo · Apolaki: Inherits Solar Burn exactly: every landed hit applies 10% base ATK Burn for 1 tick.
 
 ## MOB / BOSS skills (mob_roster.skill_key)
 
@@ -189,10 +189,10 @@ new and defensive:
 - `satyr_wild_revelry` — Wild Revelry: 25% chance each turn to reduce the player's ATK by 15% for 1 turn.
 - `harpy_swooping_talons` — Swooping Talons: Every 3rd turn, deals 150% ATK and reduces the player's DEF by 10% for 1 turn.
 - `skeleton_warrior_undying_resolve` — Undying Resolve: While its HP is below 30%, DEF +25% for the rest of the battle.
-- `lamia_serpent_bite` — Serpent Bite: 30% chance on hit to apply flat Bleed (ATK×0.35 per turn for 2 turns).
+- `lamia_serpent_bite` — Serpent Bite: 30% chance on hit to apply Bleed equal to 15% of the enemy's ATK per turn for 2 turns.
 - `minotaur_labyrinth_charge` — Labyrinth Charge: Every 3 turns, deals 180% ATK — or 220% ATK if the player's HP is above 70%.
 - `cyclops_boulder_throw` — Boulder Throw: Every 4 turns, deals 160% ATK and stuns for 1 turn.
-- `chimera_tri_form_assault` — Tri-Form Assault: Rotates each attack — Lion Claw (140% ATK) → Goat Ram (DEF -20%) → Serpent Bite (Burn, ATK×0.30 per turn for 2 turns).
+- `chimera_tri_form_assault` — Tri-Form Assault: Rotates each phase — Lion Claw (140% ATK) → Goat Ram (DEF -20%) → Serpent Bite (Burn equal to 20% of enemy ATK per turn for 2 turns).
 - `none` — (shared no-op)
 - `hydra_regen` — Regeneration: Regenerates 5% max HP every 3rd turn (local instance; only NET damage commits to the shared pool).
 - `stone_stare` — Stone Stare: Every 3rd turn, petrifies the player for 1 turn, then resets the counter.

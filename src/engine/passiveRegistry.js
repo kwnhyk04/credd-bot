@@ -33,6 +33,8 @@
  * docs/phase6_registry_audit.md.
  */
 
+const { CANONICAL_ON_HIT_EFFECTS } = require('./combatEffects');
+
 // ───────────────────────────────────────────────────────────────────────────
 // Archetype factories
 // ───────────────────────────────────────────────────────────────────────────
@@ -102,6 +104,16 @@ const chanceLandedHitDebuff = (chance, tag, turns, valueFn, label) => (bs) => {
   bs.onLandedHit(() => {
     if (proc && !bs.enemyImmune(tag)) {
       if (bs.applyDebuff(tag, turns, valueFn ? valueFn(bs) : 0)) bs.log.push(label);
+    }
+  });
+};
+
+/** Roll and apply only after a hit lands. */
+const chancePerLandedHitDebuff = (chance, tag, turns, valueFn, label) => (bs) => {
+  bs.onLandedHit(() => {
+    if (bs.rng() < chance && !bs.enemyImmune(tag)
+        && bs.applyDebuff(tag, turns, valueFn ? valueFn(bs) : 0)) {
+      bs.log.push(label);
     }
   });
 };
@@ -205,23 +217,40 @@ const regenEnemy = (everyN, pct, labelFn) => (bs) => {
 /** Mob skill: chance → apply player debuff(s). specs: [{tag, turns, value|valueFn}] */
 const chancePlayerDebuff = (chance, specs, label) => (bs) => {
   const proc = bs.rng() < chance;
-  if (proc && !bs.playerStatusImmune) {
+  if (proc) {
+    let applied = false;
     for (const s of specs) {
-      bs.applyPlayerDebuff(s.tag, s.turns, s.valueFn ? s.valueFn(bs) : (s.value || 0));
+      applied = bs.applyPlayerDebuff(
+        s.tag,
+        s.turns,
+        s.valueFn ? s.valueFn(bs) : (s.value || 0),
+      ) || applied;
     }
-    bs.log.push(label);
+    if (applied) bs.log.push(label);
   }
 };
 
 /** Mob skill: every Nth round → apply player debuff(s). */
 const everyNthPlayerDebuff = (n, specs, label) => (bs) => {
-  if (bs.currentTurn % n === 0 && !bs.playerStatusImmune) {
+  if (bs.currentTurn % n === 0) {
+    let applied = false;
     for (const s of specs) {
-      bs.applyPlayerDebuff(s.tag, s.turns, s.valueFn ? s.valueFn(bs) : (s.value || 0));
+      applied = bs.applyPlayerDebuff(
+        s.tag,
+        s.turns,
+        s.valueFn ? s.valueFn(bs) : (s.value || 0),
+      ) || applied;
     }
-    bs.log.push(label);
+    if (applied) bs.log.push(label);
   }
 };
+
+const canonicalOnHitEffect = (effect) => (bs) => {
+  bs.flags[effect.flag] = true;
+};
+
+const apolakiSolarBurn = canonicalOnHitEffect(CANONICAL_ON_HIT_EFFECTS.apolaki);
+const surtMuspellsFlame = canonicalOnHitEffect(CANONICAL_ON_HIT_EFFECTS.surt);
 
 /** Mob skill: every Nth round → the enemy attack deals pct× ATK as its TOTAL damage
  *  (mitigated by the player's DEF). pct is the whole multiplier, like a crit: "200% ATK"
@@ -246,8 +275,8 @@ const PASSIVE_REGISTRY = {
 
   // ── WEAPON PASSIVES — Rare ───────────────────────────────────────────────
 
-  'cutlass': chanceLandedHitDebuff(0.10, 'bleed', 2, (bs) => bs.playerATK,
-    '🗡️ Cutlass: Serrated Edge — Bleed applied!'),
+  'cutlass': chancePerLandedHitDebuff(0.10, 'bleed', 2, (bs) => bs.playerATK * 0.05,
+    '🗡️ Cutlass: Serrated Edge — Bleed applied (5% ATK for 2 turns)!'),
 
   'kampilan': firstHitBonus('kampilan_used', 0.20,
     '⚔️ Kampilan: Opening Strike — +20% ATK bonus!'),
@@ -300,8 +329,8 @@ const PASSIVE_REGISTRY = {
   'roman_cestus': bonusVsState('enemy_is_stunned', 0.50,
     '👊 Roman Cestus: Executioner — +50% vs stunned!'),
 
-  'pata': onHitEnemyDot('bleed', 0.30,
-    '🗡️ Pata: Rending Claws — Bleed applied (30% ATK)!'),
+  'pata': onHitEnemyDot('bleed', 0.05,
+    '🗡️ Pata: Rending Claws — Bleed applied (5% ATK for 2 turns)!'),
 
   'bagh_nakh': stackingAtk('bagh_nakh_stack', 0.05, 0.25),
 
@@ -363,8 +392,8 @@ const PASSIVE_REGISTRY = {
 
   'dory': stackingAtk('dory_stack', 0.06, 0.18, 2),
 
-  'thyrsus': chanceEnemyDebuff(0.20, 'bleed', 2, (bs) => bs.playerATK * 0.30,
-    '🪄 Thyrsus: Maddening Touch — Bleed applied (30% ATK)!'),
+  'thyrsus': chanceEnemyDebuff(0.20, 'bleed', 2, (bs) => bs.playerATK * 0.05,
+    '🪄 Thyrsus: Maddening Touch — Bleed applied (5% ATK for 2 turns)!'),
 
   'dipylon_shield': timedSelfBuff(3, 0, 0.20),
 
@@ -435,8 +464,8 @@ const PASSIVE_REGISTRY = {
     '👊 Gridr Iron Gloves: Ironhide — Ignored incoming damage!'),
 
   'alans_reversed_hands': (bs) => {
-    // Immune to all status effects — engine + applyPlayerDebuff both honor this
     bs.playerStatusImmune = true;
+    bs.clearPlayerStatusEffects();
   },
 
   'knuckle_charm_anting_anting': (bs) => {
@@ -462,11 +491,8 @@ const PASSIVE_REGISTRY = {
     '🪄 Galdrastafir: Runebreaker — Enemy DEF -30%!'),
 
   'babaylans_ritual_staff': (bs) => {
-    // Auto-cleanse every turn; +100% ATK (1 turn) ONLY if the cleanse actually
-    // removed ≥1 debuff (R9). An empty cleanse grants nothing.
-    const hadDebuff = bs.hasPlayerDebuff('any');
-    bs.clearPlayerDebuffs();
-    if (hadDebuff) {
+    const removedCount = bs.rng() < 0.50 ? bs.clearPlayerDebuffs() : 0;
+    if (removedCount > 0) {
       bs.flags.babaylan_cleansed_this_turn = true;
       bs.playerAtkMult += 1.00;
       bs.log.push('🪄 Babaylan\'s Ritual Staff: Sacred Cleansing — Debuffs cleansed! ATK +100% this turn!');
@@ -766,11 +792,7 @@ const PASSIVE_REGISTRY = {
     bs.playerAtkMult += stacks * 0.10;
   },
 
-  'apolaki_solar_burn': (bs) => {
-    // Each attack applies Burn = 10% ATK that resolves on the enemy's next turn then
-    // expires (1 tick); every landed hit refreshes it in the engine.
-    bs.flags.apolaki_on_hit = true;
-  },
+  'apolaki_solar_burn': apolakiSolarBurn,
 
   'mayari_lunar_veil': (bs) => {
     // While HP < 50%: DEF +30% and reflect 15% of incoming damage (engine reads mayari_reflect).
@@ -871,11 +893,7 @@ const PASSIVE_REGISTRY = {
     bs.flags.skadi_on_hit = true;
   },
 
-  'surt_muspells_flame': (bs) => {
-    // The engine adds one 5% Burn stack per landed hit (2 turns, cap 30%) and
-    // evaluates +50% ATK against a live Burn immediately before each hit.
-    bs.flags.surt_on_hit = true;
-  },
+  'surt_muspells_flame': surtMuspellsFlame,
 
   'heimdall_eternal_vigilance': (bs) => {
     // First hit taken each battle negated by 50% — engine consumes on that hit. Afterward,
@@ -1140,12 +1158,7 @@ const PASSIVE_REGISTRY = {
 
   'echo_tyr': constantSelfBuff(0, 0.10, 0),
 
-  'echo_surt': (bs) => {
-    if (bs.currentTurn % 3 === 0 && !bs.enemyImmune('burn')) {
-      bs.applyDebuff('burn', 2, bs.playerATK * 0.10);
-      bs.log.push('🔥 Echo · Surt: Muspell\'s Flame — Burn applied! 10% ATK for 2 turns!');
-    }
-  },
+  'echo_surt': surtMuspellsFlame,
 
   'echo_hel': hpThresholdBuff(0.50, 0.08, 0.08),
 
@@ -1179,12 +1192,7 @@ const PASSIVE_REGISTRY = {
 
   'echo_mayari': hpThresholdBuff(0.50, 0, 0.15),
 
-  'echo_apolaki': (bs) => {
-    if (bs.currentTurn % 4 === 0 && !bs.enemyImmune('burn')) {
-      bs.applyDebuff('burn', 2, bs.playerATK * 0.08);
-      bs.log.push('☀️ Echo · Apolaki: Solar Burn — Burn applied! 8% ATK for 2 turns!');
-    }
-  },
+  'echo_apolaki': apolakiSolarBurn,
 
   // ── MOB / BOSS SKILLS — Philippine ───────────────────────────────────────
 
@@ -1300,9 +1308,7 @@ const PASSIVE_REGISTRY = {
   'harpy_swooping_talons': everyNthEnemyNuke(3, 1.50,
     '🦅 Harpy: Swooping Talons — 150% ATK! Your DEF -10%!',
     (bs) => {
-      if (!bs.playerStatusImmune) {
-        bs.applyPlayerDebuff('def_down', 1, 0.10);
-      }
+      bs.applyPlayerDebuff('def_down', 1, 0.10);
     }),
 
   'skeleton_warrior_undying_resolve': (bs) => {
@@ -1320,8 +1326,8 @@ const PASSIVE_REGISTRY = {
   },
 
   'lamia_serpent_bite': chancePlayerDebuff(0.30,
-    [{ tag: 'bleed', turns: 2, valueFn: (bs) => bs.enemyATK * 0.35 }],
-    '🐍 Lamia: Serpent Bite — Bleed applied! (35% ATK for 2 turns)'),
+    [{ tag: 'bleed', turns: 2, valueFn: (bs) => bs.enemyATK * 0.15 }],
+    '🐍 Lamia: Serpent Bite — Bleed applied! (15% enemy ATK for 2 turns)'),
 
   'minotaur_labyrinth_charge': everyNthEnemyNuke(3,
     (bs) => (bs.playerHP > bs.playerMaxHP * 0.70 ? 2.20 : 1.80),
@@ -1330,9 +1336,7 @@ const PASSIVE_REGISTRY = {
   'cyclops_boulder_throw': everyNthEnemyNuke(4, 1.60,
     '🗿 Cyclops: Boulder Throw — 160% ATK + Player Stunned!',
     (bs) => {
-      if (!bs.playerStatusImmune) {
-        bs.applyPlayerDebuff('stun', 1);
-      }
+      bs.applyPlayerDebuff('stun', 1);
     }),
 
   'chimera_tri_form_assault': (bs) => {
@@ -1342,15 +1346,13 @@ const PASSIVE_REGISTRY = {
       bs.flags.enemy_atk_mult = (bs.flags.enemy_atk_mult || 1.0) * 1.40; // 140% ATK total (mitigated)
       bs.log.push('🦁 Chimera: Lion Claw — 140% ATK!');
     } else if (phase === 1) {
-      if (!bs.playerStatusImmune) {
-        bs.applyPlayerDebuff('def_down', 1, 0.20);
+      if (bs.applyPlayerDebuff('def_down', 1, 0.20)) {
+        bs.log.push('🐐 Chimera: Goat Ram — Your DEF -20%!');
       }
-      bs.log.push('🐐 Chimera: Goat Ram — Your DEF -20%!');
     } else {
-      if (!bs.playerStatusImmune) {
-        bs.applyPlayerDebuff('burn', 2, bs.enemyATK * 0.30);
+      if (bs.applyPlayerDebuff('burn', 2, bs.enemyATK * 0.20)) {
+        bs.log.push('🐍 Chimera: Serpent Bite — Burn! 20% enemy ATK for 2 turns!');
       }
-      bs.log.push('🐍 Chimera: Serpent Bite — Burn! 30% ATK for 2 turns!');
     }
   },
 

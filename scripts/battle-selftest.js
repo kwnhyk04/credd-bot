@@ -25,6 +25,13 @@ const ROOT = path.join(__dirname, '..');
 const { resolveBattle, rngOf } = require(path.join(ROOT, 'src', 'engine', 'battleEngine'));
 const PASSIVE_REGISTRY = require(path.join(ROOT, 'src', 'engine', 'passiveRegistry'));
 const {
+  EFFECT_CATEGORY,
+  EFFECT_DEFINITIONS,
+  CANONICAL_ON_HIT_EFFECTS,
+  effectCategory,
+  removeEffectsByCategory,
+} = require(path.join(ROOT, 'src', 'engine', 'combatEffects'));
+const {
   computeClassBattleStats, assemblePlayerStats, computeMobStats, computeBossStats,
 } = require(path.join(ROOT, 'src', 'engine', 'statAssembly'));
 const { applyCombatExp, EXP_REQUIRED, MAX_COMBAT_LEVEL } = require(path.join(ROOT, 'src', 'config', 'combatExp'));
@@ -129,6 +136,105 @@ section('3. Determinism — 100 seeds, identical sims');
 
 // ════════════════════════════════════════════════════════════════════════════
 section('4. Targeted scenarios');
+
+// Explicit negative-effect metadata and category-scoped removal.
+{
+  const expectedStatus = [
+    'stun', 'freeze', 'petrify', 'paralyze', 'thor_paralyze', 'dizzy', 'miss',
+    'frostbite', 'charm', 'confuse', 'atk_down', 'def_down', 'crit_down',
+  ];
+  const expectedDots = ['bleed', 'burn', 'venom', 'poison', 'hp_pct_dot', 'thor_paralyze_dot'];
+  check('all audited status IDs have explicit status metadata',
+    expectedStatus.every((id) => effectCategory(id) === EFFECT_CATEGORY.STATUS));
+  check('all audited DOT IDs have explicit DOT metadata',
+    expectedDots.every((id) => effectCategory(id) === EFFECT_CATEGORY.DOT));
+  check('every combat effect definition has a valid category',
+    Object.values(EFFECT_DEFINITIONS).every((effect) =>
+      effect.category === EFFECT_CATEGORY.STATUS || effect.category === EFFECT_CATEGORY.DOT));
+
+  const statusOnly = [
+    { tag: 'stun', category: EFFECT_CATEGORY.STATUS },
+    { tag: 'burn', category: EFFECT_CATEGORY.DOT },
+  ];
+  const statusRemoved = removeEffectsByCategory(statusOnly, [EFFECT_CATEGORY.STATUS]);
+  check('generic status cleanse removes Stun but not Burn',
+    statusRemoved === 1 && statusOnly.length === 1 && statusOnly[0].tag === 'burn');
+
+  const allDebuffs = [
+    { tag: 'stun', category: EFFECT_CATEGORY.STATUS },
+    { tag: 'burn', category: EFFECT_CATEGORY.DOT },
+  ];
+  const allRemoved = removeEffectsByCategory(
+    allDebuffs,
+    [EFFECT_CATEGORY.STATUS, EFFECT_CATEGORY.DOT],
+  );
+  check('all-debuff cleanse removes status and DOT effects',
+    allRemoved === 2 && allDebuffs.length === 0);
+}
+
+// Canonical and Echo deity keys share the same handler and immutable values.
+{
+  check('Echo Apolaki reuses the canonical handler',
+    PASSIVE_REGISTRY.echo_apolaki === PASSIVE_REGISTRY.apolaki_solar_burn);
+  check('Echo Surt reuses the canonical handler',
+    PASSIVE_REGISTRY.echo_surt === PASSIVE_REGISTRY.surt_muspells_flame);
+  check('Apolaki canonical values are centralized',
+    Object.isFrozen(CANONICAL_ON_HIT_EFFECTS.apolaki)
+      && CANONICAL_ON_HIT_EFFECTS.apolaki.atkPctPerHit === 0.10
+      && CANONICAL_ON_HIT_EFFECTS.apolaki.turns === 1);
+  check('Surt canonical values are centralized and capped',
+    Object.isFrozen(CANONICAL_ON_HIT_EFFECTS.surt)
+      && CANONICAL_ON_HIT_EFFECTS.surt.atkPctPerHit === 0.05
+      && CANONICAL_ON_HIT_EFFECTS.surt.maxAtkPct === 0.30
+      && CANONICAL_ON_HIT_EFFECTS.surt.turns === 2);
+
+  for (const [name, canonicalKey, echoKey] of [
+    ['Apolaki', 'apolaki_solar_burn', 'echo_apolaki'],
+    ['Surt', 'surt_muspells_flame', 'echo_surt'],
+  ]) {
+    const canonical = resolveBattle(
+      player({ atk: 100, hp: 10000, deityBlessingKey: canonicalKey }),
+      mob({ atk: 10, hp: 5000 }),
+      { mode: 'raid', seed: 919 },
+    );
+    const echo = resolveBattle(
+      player({ atk: 100, hp: 10000, echoBlessingKey: echoKey }),
+      mob({ atk: 10, hp: 5000 }),
+      { mode: 'raid', seed: 919 },
+    );
+    check(`Echo ${name} battle behavior equals canonical behavior`,
+      JSON.stringify(echo.rounds) === JSON.stringify(canonical.rounds)
+        && JSON.stringify(echo.totals) === JSON.stringify(canonical.totals));
+  }
+}
+
+// Enemy DOT passives snapshot the enemy's ATK at their corrected percentages.
+{
+  const applied = [];
+  const bs = {
+    currentTurn: 1,
+    enemyATK: 200,
+    playerStatusImmune: false,
+    flags: {},
+    log: [],
+    rng: () => 0,
+    applyPlayerDebuff(tag, turns, value) {
+      applied.push({ tag, turns, value });
+      return true;
+    },
+  };
+  PASSIVE_REGISTRY.lamia_serpent_bite(bs);
+  check('Lamia Serpent Bite uses 15% enemy ATK',
+    applied.length === 1 && applied[0].tag === 'bleed'
+      && applied[0].turns === 2 && applied[0].value === 30);
+
+  applied.length = 0;
+  bs.currentTurn = 3;
+  PASSIVE_REGISTRY.chimera_tri_form_assault(bs);
+  check('Chimera Serpent Phase uses 20% enemy ATK',
+    applied.length === 1 && applied[0].tag === 'burn'
+      && applied[0].turns === 2 && applied[0].value === 40);
+}
 
 // — v5 uncapped CRIT / class stats —
 {
@@ -408,13 +514,13 @@ section('4. Targeted scenarios');
 // DOT now ticks right after the affected side acts, before the opponent can attack.
 {
   const sim = resolveBattle(
-    player({ name: 'TestUser', hp: 100, def: 0, atk: 1, crit: 0 }),
+    player({ name: 'TestUser', hp: 50, def: 0, atk: 1, crit: 0 }),
     mob({ name: 'Lamia', atk: 400, skillKey: 'lamia_serpent_bite', hp: 3000 }),
     { mode: 'raid', rng: () => 0 }
   );
   const ev = roundEvents(sim, 1);
   const iAttack = ev.findIndex((e) => e.includes('TestUser attacks'));
-  const iBleed = ev.findIndex((e) => e.includes('TestUser suffers 140 Bleed damage'));
+  const iBleed = ev.findIndex((e) => e.includes('TestUser suffers 60 Bleed damage'));
   const iDeath = ev.findIndex((e) => e.includes('TestUser died from bleeding'));
   const iMob = ev.findIndex((e) => e.includes('Lamia strikes'));
   check('DOT after affected action can end fight before opponent attack',
@@ -602,7 +708,13 @@ section('4. Targeted scenarios');
     mob({ name: 'Dummy', atk: 1, hp: 100000, def: 0, crit: 0 }),
     { mode: 'raid', rng: () => 0 }
   );
-  check('Surt stacks Burn and bonuses vs burning', hasEvent(allEvents(sim), 'Burn') && hasEvent(allEvents(sim), '+50% vs a burning enemy'));
+  const stackPcts = allEvents(sim)
+    .map((event) => /Muspell's Flame — Burn (\d+)% ATK\/turn/.exec(event))
+    .filter(Boolean)
+    .map((match) => Number(match[1]));
+  check('Surt stacks Burn and bonuses vs burning',
+    stackPcts.includes(30) && Math.max(...stackPcts) === 30
+      && hasEvent(allEvents(sim), '+50% vs a burning enemy'));
 }
 
 // Attack-bound passives must not apply from the passive phase while their owner is CC-skipped.
@@ -942,8 +1054,11 @@ section('4. Targeted scenarios');
   const clean = resolveBattle(mkB(), mob({ hp: 100000 }), { mode: 'raid', seed: 3 });
   check('R9: empty cleanse grants no ATK buff', !hasEvent(allEvents(clean), 'ATK +100%'));
   // lamia bleed lands r1 (mob skill runs after the cleanse) → cleansed r2 → buff fires r2
-  const sim = resolveBattle(mkB(), mob({ hp: 100000, skillKey: 'lamia_serpent_bite' }),
-    { seed: 1, rng: scripted([0.0, 0.99, /* lamia */ 0.01, 0.5, 0.99, 0.5, /* r2 */ 0.99, /* lamia r2 */ 0.99, 0.5]) });
+  const sim = resolveBattle(
+    mkB(),
+    mob({ hp: 100000, skillKey: 'lamia_serpent_bite' }),
+    { seed: 1, rng: () => 0 },
+  );
   check('R9: bleed applied r1', hasEvent(roundEvents(sim, 1), 'Serpent Bite'));
   check('R9: cleanse + buff fires r2', hasEvent(roundEvents(sim, 2), 'ATK +100%'));
 }
@@ -1148,6 +1263,22 @@ section('4. Targeted scenarios');
   check('duel: challenger damage tracked', sim.totals.damageDealtToEnemy > 0, JSON.stringify(sim.totals));
   check('duel: opponent damage tracked', sim.totals.damageDealtToPlayer > 0, JSON.stringify(sim.totals));
   check('playerFirst exposed as boolean', typeof sim.playerFirst === 'boolean');
+}
+
+// Alan's status immunity does not prevent DOT applications or damage.
+{
+  const attacker = player({
+    name: 'ApolakiUser', atk: 100, hp: 10000, def: 0, crit: 0,
+    deityBlessingKey: 'apolaki_solar_burn',
+  });
+  const alan = player({
+    name: 'Alan', atk: 1, hp: 10000, def: 0, crit: 0,
+    weaponPassiveKey: 'alans_reversed_hands',
+  });
+  const sim = resolveBattle(attacker, alan, { mode: 'duel', rng: () => 0.5 });
+  check('Alan does not block Burn DOT',
+    hasEvent(allEvents(sim), 'Apolaki: Solar Burn')
+      && hasEvent(allEvents(sim), 'Alan suffers 10 Burn damage'));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
