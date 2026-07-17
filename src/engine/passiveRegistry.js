@@ -849,12 +849,12 @@ const PASSIVE_REGISTRY = {
   },
 
   'loki_illusory_double': (bs) => {
-    // 25% chance each turn: evade an attack and counter for 50% ATK (rider)
+    // 25% chance each turn: evade one attack and counter for 100% base ATK (rider).
     // [v5] Registers its chance into the shared evade budget (40% total cap).
     bs.flags.evade_chance_used = (bs.flags.evade_chance_used || 0) + 0.25;
     bs.flags.loki_evade_check = bs.rng() < 0.25;
     if (bs.flags.loki_evade_check) {
-      bs.flags.loki_counter_dmg = Math.floor(bs.playerATK * 0.50);
+      bs.flags.loki_counter_dmg = Math.floor(bs.playerATK);
       bs.log.push('🃏 Loki: Illusory Double — Attack evaded! Counter incoming!');
     }
   },

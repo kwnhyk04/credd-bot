@@ -107,7 +107,7 @@ new and defensive:
 - `odin_all_fathers_wisdom` — All-Father's Wisdom: On every even turn (2, 4, 6…), takes 50% reduced damage.
 - `thor_mjolnirs_wrath` — Mjolnir's Wrath: Each attack has a 30% chance to Stun the enemy (skips its next turn) and applies Paralyze for 3 turns. While paralyzed, the enemy takes paralysis damage equal to 20% of the user's base ATK each turn and has a 10% chance per turn to skip that turn.
 - `freya_valkyries_embrace` — Valkyrie's Embrace: ATK +30% for the whole battle. Once per battle, at 40% HP or below, restore 20% max HP.
-- `loki_illusory_double` — Illusory Double: 25% chance each turn to evade an attack and counter for 50% ATK.
+- `loki_illusory_double` — Illusory Double: 25% chance each turn to evade an attack and counter for 100% ATK.
 - `tyr_oathkeeper` — Oathkeeper: DEF +30% for the whole battle; while below 50% HP, reflects 20% of incoming damage.
 - `skadi_winters_hunt` — Winter's Hunt: Each turn, the user's attack has a 30% chance to Freeze the enemy (skips its next turn). After the Freeze ends, the enemy suffers Frostbite, taking +50% damage from all sources for 1 turn.
 - `surt_muspells_flame` — Muspell's Flame: Every attack applies Burn equal to 5% of ATK per turn for 2 turns. Burn stacks with each hit, up to a maximum of 30% ATK per turn. Against an already-burning enemy, attacks deal +50% bonus damage.

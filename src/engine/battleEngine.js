@@ -565,6 +565,10 @@ function resolveBattle(a, b, opts = {}) {
     if (F.loki_evade_check && !S.flags.tyrfing_no_miss) {
       shared.events.push(`🃏 ${O.name} evades the attack (Illusory Double)!`);
       const counter = Math.max(0, Math.floor(F.loki_counter_dmg || 0));
+      // Illusory Double evades one attack per successful turn roll. Consume it
+      // before countering so multi-hit attackers do not trigger unlimited counters.
+      F.loki_evade_check = false;
+      F.loki_counter_dmg = 0;
       if (counter > 0) {
         const appliedCounter = Math.floor(frostbiteDamage(S, counter));
         damage(S, appliedCounter);

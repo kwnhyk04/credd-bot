@@ -439,6 +439,52 @@ section('4. Targeted scenarios');
     ev.join(' | '));
 }
 
+// Loki Illusory Double: exact 25% turn roll, one attack evaded, then a 100% base-ATK
+// counter. A multi-hit action consumes the proc on its first hit instead of countering
+// every sub-hit.
+{
+  const attacker = () => player({
+    name: 'Attacker', classPassive: null, atk: 40, hp: 100000, def: 0, crit: 0,
+    specialFlags: { first_strike: true },
+  });
+  const loki = () => player({
+    name: 'Loki User', classPassive: null, deityBlessingKey: 'loki_illusory_double',
+    atk: 100, hp: 100000, def: 0, crit: 0,
+  });
+  const proc = resolveBattle(attacker(), loki(), {
+    mode: 'duel',
+    rng: scripted([0.99, 0.99, 0.249, 0.5]),
+  });
+  const noProc = resolveBattle(attacker(), loki(), {
+    mode: 'duel',
+    rng: scripted([0.99, 0.99, 0.25, 0.5]),
+  });
+  check('Loki proc boundary is exactly 25% each turn',
+    hasEvent(roundEvents(proc, 1), 'evades the attack (Illusory Double)')
+      && !hasEvent(roundEvents(noProc, 1), 'evades the attack (Illusory Double)'));
+  check('Loki counter deals 100% of the user base ATK',
+    hasEvent(roundEvents(proc, 1), "Loki's counter strikes Attacker for 100 DMG"),
+    roundEvents(proc, 1).join(' | '));
+
+  const multi = resolveBattle(
+    player({
+      name: 'Loki User', classPassive: null, deityBlessingKey: 'loki_illusory_double',
+      atk: 100, hp: 1000, def: 0, crit: 0,
+    }),
+    mob({
+      name: 'Hydra', atk: 100, hp: 1000, def: 0, crit: 0,
+      specialFlags: { first_strike: true, multi_attack: 2, multi_attack_pct: 1 },
+    }),
+    { mode: 'raid', rng: scripted([0.99, 0, 0.99, 0.5, 0.99, 0.5]) },
+  );
+  const multiEvents = roundEvents(multi, 1);
+  check('Loki consumes Illusory Double after one hit and one counter',
+    multiEvents.filter((event) => event.includes("Loki's counter strikes")).length === 1
+      && multiEvents.filter((event) => event.includes('Hydra strikes') && event.includes('(evaded)')).length === 1
+      && hasEvent(multiEvents, '(hit 2/2) for **100 DMG**'),
+    multiEvents.join(' | '));
+}
+
 // Poseidon Tidal Force: 30% chance each turn to Stun (1 turn) + shred enemy DEF 30% for
 // 2 turns. The stun is directional CC (applied in the passive phase) → it gates the
 // target's NEXT turn, not the current one. Forced proc (rng 0): stun lands turn 1, the

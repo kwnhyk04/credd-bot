@@ -27,7 +27,7 @@ VALUES
     ('deity', 'Idiyanale', 'idiyanale_persistence', 'Every 3rd turn, the next attack deals +75% more damage.'),
     ('deity', 'Lakapati', 'lakapati_abundance', 'Regenerates 3% max HP at the start of each turn.'),
     ('deity', 'Freya', 'freya_valkyries_embrace', 'ATK +30% for the whole battle. Once per battle, at 40% HP or below, restore 20% max HP.'),
-    ('deity', 'Loki', 'loki_illusory_double', '25% chance each turn to evade an attack and counter for 50% ATK.'),
+    ('deity', 'Loki', 'loki_illusory_double', '25% chance each turn to evade an attack and counter for 100% ATK.'),
     ('deity', 'Skadi', 'skadi_winters_hunt', 'Each turn, the user''s attack has a 30% chance to Freeze the enemy (skips its next turn). After the Freeze ends, the enemy suffers Frostbite, taking +50% damage from all sources for 1 turn.'),
     ('deity', 'Surt', 'surt_muspells_flame', 'Every attack applies Burn equal to 5% of ATK per turn for 2 turns. Burn stacks with each hit, up to a maximum of 30% ATK per turn. Against an already-burning enemy, attacks deal +50% bonus damage.'),
     ('deity', 'Thor', 'thor_mjolnirs_wrath', 'Each attack has a 30% chance to Stun the enemy (skips its next turn) and applies Paralyze for 3 turns. While paralyzed, the enemy takes paralysis damage equal to 20% of the user''s base ATK each turn and has a 10% chance per turn to skip that turn.'),
