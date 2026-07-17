@@ -66,11 +66,13 @@ function estimateUrlBytes(url) {
 }
 
 function forgetMemory(key) {
+  // Touch timestamps exist for keys that were never (or are no longer) in
+  // `memory` — DB hits also touch — so clear them unconditionally.
+  lastTouched.delete(key);
   const entry = memory.get(key);
   if (!entry) return;
   memory.delete(key);
   memoryBytes = Math.max(0, memoryBytes - (typeof entry === 'string' ? estimateUrlBytes(entry) : entry.bytes));
-  lastTouched.delete(key);
 }
 
 function remember(key, url) {
@@ -88,6 +90,22 @@ function touchThrottleMs() {
   return Math.floor(envNumber('CANVAS_CACHE_TOUCH_THROTTLE_MS', 300_000, { min: 0, max: 86_400_000 }));
 }
 
+function pruneLastTouched(now, throttleMs) {
+  if (lastTouched.size <= MEMORY_MAX) return;
+  // Stale prune: a timestamp past the throttle window no longer suppresses
+  // anything, so removing it is semantically identical to keeping it.
+  for (const [staleKey, ts] of lastTouched) {
+    if (throttleMs <= 0 || now - ts >= throttleMs) lastTouched.delete(staleKey);
+  }
+  // Hard cap: evict oldest entries until within bound. Insertion order equals
+  // timestamp order (touch() re-inserts on write). Evicting a fresh entry only
+  // permits one extra last_used_at DB touch for that key; the canvas `memory`
+  // cache is never modified here.
+  while (lastTouched.size > MEMORY_MAX) {
+    lastTouched.delete(lastTouched.keys().next().value);
+  }
+}
+
 function touch(key, logContext = {}) {
   const now = Date.now();
   const throttleMs = touchThrottleMs();
@@ -101,7 +119,11 @@ function touch(key, logContext = {}) {
     });
     return;
   }
+  // Delete-then-set keeps Map insertion order aligned with timestamp order,
+  // which pruneLastTouched relies on for oldest-first eviction.
+  lastTouched.delete(key);
   lastTouched.set(key, now);
+  pruneLastTouched(now, throttleMs);
   pool.query('UPDATE canvas_cache SET last_used_at = NOW() WHERE cache_key = $1', [key])
     .catch(() => {});
 }
@@ -294,4 +316,7 @@ module.exports = {
   sweepCanvasCache,
   verifyCanvasCacheReady,
   getCanvasCacheStats,
+  // Selftest-only hook (scripts/lifecycle-guard-selftest.js): lets the
+  // lastTouched prune bound be exercised without a database or R2.
+  __test: { touch, lastTouched, MEMORY_MAX },
 };
