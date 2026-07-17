@@ -13,12 +13,15 @@ const LAYOUT_SUFFIX = Object.freeze({
   stats: '.stats.layout.json',
 });
 
-const LAYOUT_SOURCE_BY_SKIN = new Map(
-  TESTER_PROFILE_VARIANTS.map((variant) => [
-    `skins/${variant.render_filename}`.toLowerCase(),
-    `skins/${variant.layout_source_filename}`,
+const LAYOUT_SOURCE_BY_KIND = Object.freeze(Object.fromEntries(
+  Object.keys(LAYOUT_SUFFIX).map((kind) => [
+    kind,
+    new Map(TESTER_PROFILE_VARIANTS.map((variant) => [
+      `skins/${variant.render_filename}`.toLowerCase(),
+      `skins/${variant[`${kind}_layout_source_filename`] || variant.layout_source_filename}`,
+    ])),
   ])
-);
+));
 
 function fallbackLayoutPath(skinPath, suffix) {
   return String(skinPath || '').replace(/\.[^./?#]+(?=([?#]|$))/, suffix);
@@ -34,7 +37,7 @@ function profileSkinLayoutPath(skinPath, kind) {
 
   try {
     const skinAssetKey = relativeAssetPath(skinPath).replace(/\\/g, '/');
-    const layoutSource = LAYOUT_SOURCE_BY_SKIN.get(skinAssetKey.toLowerCase()) || skinAssetKey;
+    const layoutSource = LAYOUT_SOURCE_BY_KIND[kind].get(skinAssetKey.toLowerCase()) || skinAssetKey;
     const layoutAssetKey = layoutSource.replace(/\.[^./]+$/, suffix);
     return isRemoteSource(skinPath) ? assetPath(layoutAssetKey) : localAssetPath(layoutAssetKey);
   } catch {

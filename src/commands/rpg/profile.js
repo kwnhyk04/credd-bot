@@ -28,7 +28,8 @@ const {
 // Bump when renderProfile output changes visually (busts every cached profile card).
 // 4: §2.5 — supporter badge below the Title.
 // 5: shared supporter badge dimensions and identity-stack spacing.
-const PROFILE_RENDER_REV = 7;
+// 8: dedicated, centered tester2 profile layout.
+const PROFILE_RENDER_REV = 8;
 const PROFILE_IMAGE_OPTIONS = Object.freeze({
   maxWidth: Math.floor(envNumber('PROFILE_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 })),
 });

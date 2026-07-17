@@ -36,10 +36,11 @@ const STATS_IMAGE_OPTIONS = Object.freeze({
 });
 
 /**
- * `crd profile [@user]` / `crd stats [@user]` — full Canvas profile card.
+ * `crd stats [@user]` — full Canvas stats card.
  * Totals come through assemblePlayerStats — the SAME path the battle engine uses —
- * so the displayed numbers match what actually fights. Display name + avatar are read
- * from the target's Discord member/user, not the DB. With no mention, shows your own.
+ * so the displayed numbers match what actually fights. The display name comes from the
+ * target's Discord member/user; the character image comes from equipped_avatars.
+ * With no mention, shows your own.
  */
 async function execute(message) {
   // Target: a mentioned/option user, else the author. Member gives the server nickname.
@@ -48,8 +49,6 @@ async function execute(message) {
     isOther,
     discordId,
     displayName,
-    avatarUrl,
-    fallbackAvatarUrl,
   } = resolveProfileTarget(message);
   const [characterResult, raidStreakResult, rankedResult] = await Promise.all([
     pool.query(
@@ -183,8 +182,6 @@ async function execute(message) {
   const data = {
     displayName,
     discordId,
-    avatarUrl,
-    fallbackAvatarUrl,
 
     believerLevel: r.believer_level,
     believerTitle: believerTitle(r.believer_level),

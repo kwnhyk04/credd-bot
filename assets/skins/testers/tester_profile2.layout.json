@@ -1,0 +1,173 @@
+{
+  "canvas": {
+    "w": 1536,
+    "h": 1024
+  },
+  "icons_dir": "assets/cache/emojis",
+  "top_label": {
+    "enabled": true,
+    "x": 1380,
+    "y": 321,
+    "anchor": "right",
+    "font": "DejaVu Sans",
+    "weight": "bold",
+    "size": 18,
+    "color": "#6d8ef2",
+    "uppercase": true,
+    "max_width": 260
+  },
+  "avatar": {
+    "x": 229,
+    "y": 290,
+    "size": 250,
+    "radius": 24,
+    "outline": "#6d8ef2",
+    "outline_width": 3,
+    "glow": {
+      "color": "#6d8ef2",
+      "alpha": 0.55,
+      "blur": 24
+    }
+  },
+  "name": {
+    "x": 1033,
+    "y": 321,
+    "anchor": "center",
+    "font": "Segoe Script",
+    "weight": "bold",
+    "size": 44,
+    "color": "#FFFFFF",
+    "max_width": 700
+  },
+  "title": {
+    "x": 354,
+    "y": 638,
+    "anchor": "center",
+    "font": "Segoe Script",
+    "weight": "normal",
+    "size": 18,
+    "color": "#6d8ef2",
+    "max_width": 420
+  },
+  "tier_line": {
+    "x": 1033,
+    "y": 372,
+    "anchor": "center",
+    "font": "DejaVu Sans",
+    "weight": "bold",
+    "size": 23,
+    "color": "#6d8ef2",
+    "max_width": 700
+  },
+  "exp_text": {
+    "x": 1033,
+    "y": 413,
+    "anchor": "center",
+    "font": "DejaVu Sans",
+    "weight": "normal",
+    "size": 17,
+    "color": "#D2D5DB",
+    "max_width": 700
+  },
+  "exp_bar": {
+    "x": 683,
+    "y": 434,
+    "w": 700,
+    "h": 14,
+    "radius": 7,
+    "fill": "#6d8ef2",
+    "track": "rgba(255,255,255,0.14)"
+  },
+  "class": {
+    "x": 354,
+    "y": 580,
+    "anchor": "center",
+    "font": "Perpetua",
+    "weight": "bold italic",
+    "size": 24,
+    "color": "#FFFFFF",
+    "max_width": 316
+  },
+  "combat_exp": {
+    "x": 354,
+    "y": 610,
+    "anchor": "center",
+    "font": "DejaVu Sans",
+    "weight": "normal",
+    "size": 15,
+    "color": "#C4C8D0",
+    "icon": "combat_exp.png",
+    "icon_size": 22,
+    "icon_gap": 9,
+    "max_width": 316
+  },
+  "record_label": {
+    "x": 1033,
+    "y": 600,
+    "anchor": "center",
+    "font": "Perpetua",
+    "weight": "bold",
+    "size": 17,
+    "color": "#9298A4"
+  },
+  "record": {
+    "y": 624,
+    "box_w": 116,
+    "box_h": 56,
+    "gap": 22,
+    "radius": 8,
+    "box_fill": "rgba(7,10,17,0.74)",
+    "box_outline": "rgba(240,184,74,0.34)",
+    "label_font": "DejaVu Sans",
+    "label_weight": "bold",
+    "label_size": 8,
+    "label_color": "#9298A4",
+    "value_font": "DejaVu Sans",
+    "value_weight": "bold",
+    "value_size": 17,
+    "value_color": "#F2C45F",
+    "cols": [
+      {
+        "key": "raids",
+        "x": 735,
+        "label": "RAIDS"
+      },
+      {
+        "key": "raidsWon",
+        "x": 854,
+        "label": "RAID WINS"
+      },
+      {
+        "key": "raidStreak",
+        "x": 973,
+        "label": "RAID STREAK"
+      },
+      {
+        "key": "duels",
+        "x": 1093,
+        "label": "DUELS"
+      },
+      {
+        "key": "duelWins",
+        "x": 1212,
+        "label": "DUEL WINS"
+      },
+      {
+        "key": "duelStreak",
+        "x": 1331,
+        "label": "DUEL STREAK"
+      }
+    ]
+  },
+  "quote": {
+    "x": 1033,
+    "y": 712,
+    "anchor": "center",
+    "font": "DejaVu Sans",
+    "weight": "normal",
+    "size": 15,
+    "color": "#AEB3BC",
+    "italic": true,
+    "max_width": 700
+  }
+}

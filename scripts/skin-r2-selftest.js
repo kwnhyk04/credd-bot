@@ -257,22 +257,34 @@ async function main() {
   );
 
   const profile2Url = assetPath(`skins/${profileVariant.render_filename}`);
-  const sourceBase = `skins/${profileVariant.layout_source_filename}`.replace(/\.png$/, '');
+  const profileSourceBase = `skins/${profileVariant.layout_source_filename}`.replace(/\.png$/, '');
+  const statsSourceBase = `skins/${profileVariant.stats_layout_source_filename}`.replace(/\.png$/, '');
   assert.equal(
     profileLayoutPathFor(profile2Url),
-    expectedUrl(`${sourceBase}.layout.json`),
-    'crd profile must reuse the existing tester profile layout'
+    expectedUrl(`${profileSourceBase}.layout.json`),
+    'crd profile must use the dedicated tester2 profile layout'
   );
   assert.equal(
     statsLayoutPathFor(profile2Url),
-    expectedUrl(`${sourceBase}.stats.layout.json`),
+    expectedUrl(`${statsSourceBase}.stats.layout.json`),
     'crd stats must reuse the existing tester stats layout'
   );
   assert.equal(
     profileLayoutPathFor(localAssetPath(`skins/${profileVariant.render_filename}`)),
-    localAssetPath(`${sourceBase}.layout.json`),
-    'local alignment tools must reuse the local tester layout path'
+    localAssetPath(`${profileSourceBase}.layout.json`),
+    'local alignment tools must use the dedicated tester2 layout path'
   );
+  const profile2Layout = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'assets', `${profileSourceBase}.layout.json`),
+    'utf8'
+  ));
+  assert.equal(
+    profile2Layout.avatar.x + profile2Layout.avatar.size / 2,
+    profile2Layout.class.x,
+    'tester2 Discord avatar and class line must share the left-panel center'
+  );
+  assert.equal(profile2Layout.avatar.y, 290, 'tester2 Discord avatar must remain vertically centered');
+  assert.equal(profile2Layout.combat_exp.y, 610, 'tester2 combat EXP must remain aligned below the avatar');
 
   const avatarSeeds = new Map(buildAvatarEntries().map((entry) => [entry.avatar_key, entry]));
   for (const expected of TESTER_AVATAR_VARIANTS) {

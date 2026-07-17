@@ -135,7 +135,8 @@ const TESTER_PROFILE_VARIANTS = Object.freeze([
     victory_filename: null,
     defeated_filename: null,
     skin_code: 'pt5p2',
-    layout_source_filename: 'testers/1444953283306328075/profile.png',
+    layout_source_filename: 'testers/tester_profile2.png',
+    stats_layout_source_filename: 'testers/1444953283306328075/profile.png',
   }),
 ]);
 

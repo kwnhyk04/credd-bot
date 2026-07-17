@@ -25,6 +25,11 @@ assets/*
 !assets/data/**
 !assets/fonts/
 !assets/fonts/**
+!assets/skins/
+assets/skins/*
+!assets/skins/testers/
+assets/skins/testers/*
+!assets/skins/testers/tester_profile2.layout.json
 
 # Generated skin-alignment artifacts (scripts/alignSkins.js, scripts/skinPreview.js)
 tmp/
@@ -43,6 +48,7 @@ handoff.md
 !scripts/canvas-cache-schema.sql
 !scripts/avatar-system-schema.sql
 !scripts/avatar-dev-owner-grants.sql
+!scripts/repair-tester-avatar-assignments.sql
 !scripts/deity-passive-description-update.sql
 !scripts/migrations/*.sql
 
