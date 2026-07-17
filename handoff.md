@@ -1655,3 +1655,19 @@ Validation and handoff state:
 4. The battle suite now completes at 262 passed and 0 failed. The final failure was a false negative in the `surviving boss attacks keep the Canvas status image` source assertion: its function extractor accepted LF only, while the committed Windows file used CRLF. The extractor now accepts both line endings and continues to verify the same Canvas status-image behavior.
 5. The final tester2 profile was rendered from the authoritative R2 skin/layout using a Discord avatar source and visually verified before commit.
 6. Existing ignored local assets, caches, previews, dependencies, environment files, and credentials were not staged. Nothing in this commit sequence was pushed.
+
+## Session 2026-07-17/18 — Production memory follow-up (post-audit residual)
+
+Railway RSS remained 670-850 MB after the 2026-07-16 audit build deployed. Production root cause is UNDETERMINED pending telemetry; see docs/production-memory-followup-2026-07-17.md for the full evidence classification, threshold-gated env experiments (MALLOC_ARENA_MAX=2, NODE_OPTIONS=--max-old-space-size=512, jemalloc — none applied), and the 24 h Railway monitoring procedure.
+
+Code shipped (behavior-preserving, one commit each):
+1. canvasCache.js — lastTouched Map bounded: unconditional delete in forgetMemory, stale prune past the touch-throttle window, hard cap at MEMORY_MAX (5000) evicting oldest timestamps; canvas URL cache untouched. (Confirmed unbounded-growth defect.)
+2. Schedulers (battleReaper, bossScheduler, resetScheduler, seasonScheduler) — restart-safe guards: one timer, one stable stop fn, idempotent stop, start-after-stop creates exactly one new timer. Latent-bug insurance; call sites unchanged.
+3. blackjack.js / crash.js — session wraps store channel + messageId instead of the full Discord Message; timeout edits via channel.messages.edit(id, payload) (same REST route/payload). Rules, payouts, cooldowns, text unchanged.
+4. Telemetry: COMMAND_MEMORY_LOGS / CACHE_METRICS_LOGS / NETWORK_USAGE_LOGS sub-gates (default to RESOURCE_LOGS -> output unchanged), heapLimit (V8 heap_size_limit MB) added to [resource] summary+details, .env.example documented.
+5. New scripts/analyze-resource-logs.js — parses [resource] lines from Railway logs, prints RSS decomposition table + trend verdict + which experiment threshold is met.
+6. New scripts/lifecycle-guard-selftest.js (selftest:lifecycle, wired into selftest:full) — 17 checks: lastTouched bound + throttle preservation, scheduler start/stop contract for all four schedulers, casino wraps hold ids not Message objects.
+
+Validation: selftest:full green (0 failures; help 183/183, casino 182/182, lifecycle 17/17, schema pass); memory soaks + preflight run this session (results in terminal log). docs/ and handoff.md remain gitignored per repo policy.
+
+Validation addendum (2026-07-18): selftest:full green; casino soak 134 MB pass; integrated soak 165 MB idle pass; preflight pass. selftest:memory (profile/stats soak) FAILS at 506-512 MB idle with V8 external pinned at 360-365 MB — verified PRE-EXISTING: identical failure at main HEAD, d8bfd15, and the audit-fix commit f3fc615 with this session's changes stashed; selftest script unchanged since f3fc615; sharp/canvas binaries predate the audit. Not caused by, and not fixed by, this session. Documented as the top evidence-supported lead for the production residual (local idle ~512 MB parallels Railway 670-850 MB) in docs/production-memory-followup-2026-07-17.md, with the proposed investigation plan. Per scope instruction, no fix was attempted.
