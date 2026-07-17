@@ -70,24 +70,54 @@ async function main() {
   // cache clear fires 1s after the last render, and V8's external-pressure GC
   // collects the canvas wrappers shortly after idle begins. A snapshot taken at
   // exactly 1000ms races both mechanisms and can read the pre-release plateau
-  // (~505 MB / 365 MB external) that fully collapses ~1.5s later. Poll until
-  // RSS stabilizes (or 15s worst case), then judge steady state.
+  // (~505 MB / 365 MB external) that fully collapses ~1.5s later. A sample is
+  // settled when renderer-owned external memory has returned to a small
+  // baseline OR RSS is under the target — RSS alone is not portable because
+  // some allocators retain freed pages. Two consecutive settled samples are
+  // required so a single transient reading cannot pass; never observing two
+  // within 15s always fails, independent of the final memory values.
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const isSettled = (row) => row.externalMb < 10 || row.rssMb < 350;
   await sleep(1000);
   let idle = snapshot('idle-1s');
   const settleStarted = Date.now();
-  while (idle.rssMb > 350 && Date.now() - settleStarted < 15_000) {
-    await sleep(500);
+  let consecutiveSettledSamples = 0;
+  while (Date.now() - settleStarted < 15_000) {
     idle = snapshot('idle-settling');
+    if (isSettled(idle)) {
+      consecutiveSettledSamples += 1;
+    } else {
+      consecutiveSettledSamples = 0;
+    }
+    if (consecutiveSettledSamples >= 2) {
+      break;
+    }
+    await sleep(500);
   }
+  const externalSettled = idle.externalMb < 10;
+  const rssSettled = idle.rssMb < 350;
+  const timedOut = consecutiveSettledSamples < 2;
+  const settleReason =
+    timedOut
+      ? 'timeout'
+      : externalSettled && rssSettled
+        ? 'external+rss'
+        : externalSettled
+          ? 'external'
+          : 'rss';
   idle.phase = 'idle-settled';
   idle.settleMs = 1000 + (Date.now() - settleStarted);
+  idle.settleReason = settleReason;
+  idle.timedOut = timedOut;
   const growthMb = idle.rssMb - repeated.rssMb;
   if (growthMb > 160) {
     throw new Error(`RSS kept growing after warm-up by ${growthMb} MB`);
   }
-  if (idle.rssMb > 350) {
-    throw new Error(`Steady-state RSS exceeded the 350 MB target: ${idle.rssMb} MB`);
+  if (timedOut) {
+    throw new Error(
+      `Idle settle timed out after ${idle.settleMs} ms without two consecutive settled samples `
+      + `(settled = external < 10 MB or RSS < 350 MB): rss ${idle.rssMb} MB, external ${idle.externalMb} MB`
+    );
   }
   let collected = idle;
   if (typeof global.gc === 'function') {
@@ -114,6 +144,8 @@ async function main() {
     reachableGeneratedBuffers: collected.reachableGeneratedBuffers ?? null,
     targetRssMb: 350,
     warmGrowthMb: growthMb,
+    settleReason: idle.settleReason,
+    settleMs: idle.settleMs,
   }));
 }
 
