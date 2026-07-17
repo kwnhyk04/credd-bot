@@ -17,8 +17,8 @@
     "max_width": 260
   },
   "avatar": {
-    "x": 229,
-    "y": 290,
+    "x": 220,
+    "y": 260,
     "size": 250,
     "radius": 24,
     "outline": "#6d8ef2",
@@ -80,7 +80,7 @@
   },
   "class": {
     "x": 354,
-    "y": 580,
+    "y": 550,
     "anchor": "center",
     "font": "Perpetua",
     "weight": "bold italic",
@@ -90,7 +90,7 @@
   },
   "combat_exp": {
     "x": 354,
-    "y": 610,
+    "y": 580,
     "anchor": "center",
     "font": "DejaVu Sans",
     "weight": "normal",

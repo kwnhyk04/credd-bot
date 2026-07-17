@@ -29,7 +29,8 @@ const {
 // 4: §2.5 — supporter badge below the Title.
 // 5: shared supporter badge dimensions and identity-stack spacing.
 // 8: dedicated, centered tester2 profile layout.
-const PROFILE_RENDER_REV = 8;
+// 9: tester2 avatar optical x alignment.
+const PROFILE_RENDER_REV = 9;
 const PROFILE_IMAGE_OPTIONS = Object.freeze({
   maxWidth: Math.floor(envNumber('PROFILE_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 })),
 });

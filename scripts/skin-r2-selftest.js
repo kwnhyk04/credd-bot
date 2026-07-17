@@ -283,11 +283,11 @@ async function main() {
   ));
   assert.equal(
     profile2Layout.avatar.x + profile2Layout.avatar.size / 2,
-    profile2Layout.class.x,
-    'tester2 Discord avatar and class line must share the left-panel center'
+    profile2Layout.class.x - 9,
+    'tester2 Discord avatar must retain its optical left-panel offset'
   );
-  assert.equal(profile2Layout.avatar.y, 290, 'tester2 Discord avatar must remain vertically centered');
-  assert.equal(profile2Layout.combat_exp.y, 610, 'tester2 combat EXP must remain aligned below the avatar');
+  assert.equal(profile2Layout.avatar.y, 260, 'tester2 Discord avatar must retain its original vertical position');
+  assert.equal(profile2Layout.combat_exp.y, 580, 'tester2 combat EXP must retain its original vertical position');
 
   const avatarSeeds = new Map(buildAvatarEntries().map((entry) => [entry.avatar_key, entry]));
   for (const expected of TESTER_AVATAR_VARIANTS) {
