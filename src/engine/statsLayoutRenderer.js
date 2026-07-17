@@ -18,7 +18,7 @@ const { registerMemorySource } = require('../utils/memoryRegistry');
 const { encodeCanvas } = require('../utils/canvasEncode');
 const { SUPPORTER_BADGE_HEIGHT } = require('../config/cosmetics');
 const { containRect, badgeRect } = require('./identityLayout');
-const { profileSkinLayoutPath } = require('./profileLayoutAliases');
+const { profileSkinLayoutPath, profileSkinLayoutOverrides } = require('./profileLayoutAliases');
 const {
   assetSource,
   assetExistsSync,
@@ -617,11 +617,22 @@ function reflowStatsText(layout) {
   };
 }
 
+function applyLayoutOverrides(layout, overrides) {
+  if (!overrides) return layout;
+  return Object.fromEntries(Object.entries({ ...layout, ...overrides }).map(([key, value]) => [
+    key,
+    layout[key] && overrides[key] ? { ...layout[key], ...overrides[key] } : value,
+  ]));
+}
+
 async function renderStatsLayoutImage(d, options = {}) {
   const skinPath = options.skinPath || d.skinPath;
   const configPath = options.layoutPath || layoutPathFor(skinPath);
   const rawLayout = await loadLayout(configPath);
-  const layout = reflowStatsText(rawLayout);
+  const layout = reflowStatsText(applyLayoutOverrides(
+    rawLayout,
+    profileSkinLayoutOverrides(skinPath, 'stats')
+  ));
   const images = await loadRenderImages(d, skinPath, options);
   if (!images.skin) throw new Error(`Skin image unavailable: ${skinPath}`);
   const view = buildView(d);

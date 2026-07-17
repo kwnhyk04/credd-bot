@@ -116,6 +116,7 @@ const {
 } = require('../src/engine/avatarSystem');
 const { layoutPathFor: profileLayoutPathFor } = require('../src/engine/profileLayoutRenderer');
 const { layoutPathFor: statsLayoutPathFor } = require('../src/engine/statsLayoutRenderer');
+const { profileSkinLayoutOverrides } = require('../src/engine/profileLayoutAliases');
 const {
   resolveSkin,
   resolveStatsSkin,
@@ -271,6 +272,16 @@ async function main() {
     statsLayoutPathFor(profile2Url),
     expectedUrl(`${statsSourceBase}.stats.layout.json`),
     'crd stats must reuse the existing tester stats layout'
+  );
+  assert.deepEqual(
+    profileSkinLayoutOverrides(profile2Url, 'stats'),
+    {
+      avatar: { x: 220 },
+      record_label: { y: 670 },
+      record: { y: 694 },
+      quote: { y: 770 },
+    },
+    'crd stats must apply tester2 geometry corrections over the shared R2 layout'
   );
   assert.equal(
     profileLayoutPathFor(localAssetPath(`skins/${profileVariant.render_filename}`)),

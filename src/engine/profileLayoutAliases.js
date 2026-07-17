@@ -45,4 +45,23 @@ function profileSkinLayoutPath(skinPath, kind) {
   }
 }
 
-module.exports = { profileSkinLayoutPath };
+/**
+ * Return a shallow, per-section layout patch for an explicit skin variant.
+ * This keeps R2-owned shared layouts reusable while allowing one variant to
+ * correct its panel geometry without requiring another R2 JSON asset.
+ */
+function profileSkinLayoutOverrides(skinPath, kind) {
+  if (!skinPath || !LAYOUT_SUFFIX[kind]) return null;
+
+  try {
+    const skinAssetKey = relativeAssetPath(skinPath).replace(/\\/g, '/').toLowerCase();
+    const variant = TESTER_PROFILE_VARIANTS.find((entry) => (
+      `skins/${entry.render_filename}`.toLowerCase() === skinAssetKey
+    ));
+    return variant?.[`${kind}_layout_overrides`] || null;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { profileSkinLayoutPath, profileSkinLayoutOverrides };

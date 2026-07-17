@@ -137,6 +137,14 @@ const TESTER_PROFILE_VARIANTS = Object.freeze([
     skin_code: 'pt5p2',
     layout_source_filename: 'testers/tester_profile2.png',
     stats_layout_source_filename: 'testers/1444953283306328075/profile.png',
+    // Applied over the reused R2 stats layout. The left identity column is
+    // centered in its frame and the record/quote clear the lower ornament.
+    stats_layout_overrides: Object.freeze({
+      avatar: Object.freeze({ x: 220 }),
+      record_label: Object.freeze({ y: 670 }),
+      record: Object.freeze({ y: 694 }),
+      quote: Object.freeze({ y: 770 }),
+    }),
   }),
 ]);
 
