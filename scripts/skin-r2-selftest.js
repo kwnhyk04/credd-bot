@@ -278,9 +278,11 @@ async function main() {
     {
       avatar: { x: 220 },
       right_panel_x_offset: 24,
-      record_label: { y: 704 },
-      record: { y: 730 },
-      quote: { y: 790 },
+      stats_label: { y: 570 },
+      stats: { y: 606 },
+      record_label: { y: 654 },
+      record: { y: 680 },
+      quote: { y: 740 },
     },
     'crd stats must apply tester2 geometry corrections over the shared R2 layout'
   );

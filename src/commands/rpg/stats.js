@@ -26,7 +26,7 @@ const { SUPPORTER_BADGE_DIR, SUPPORTER_BADGE_FILE } = require('../../config/cosm
 // 9: §1.3 — busts cards cached while an equipped avatar's art was missing on R2.
 // 10: §2.5 — supporter badge below the Title.
 // 11: shared supporter badge dimensions + name clamp to panel.
-const STATS_RENDER_REV = 15;
+const STATS_RENDER_REV = 16;
 const STATS_IMAGE_OPTIONS = Object.freeze({
   quality: 50,
   maxWidth: Math.floor(envNumber('STATS_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 })),
