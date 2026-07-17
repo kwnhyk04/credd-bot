@@ -110,7 +110,10 @@ const {
   TESTER_PROFILE_VARIANTS,
 } = require('../src/config/cosmetics');
 const { buildEntries: buildCosmeticEntries } = require('./seedCosmetics');
-const { seedRows: buildAvatarEntries } = require('../src/engine/avatarSystem');
+const {
+  resolveStatsAvatar,
+  seedRows: buildAvatarEntries,
+} = require('../src/engine/avatarSystem');
 const { layoutPathFor: profileLayoutPathFor } = require('../src/engine/profileLayoutRenderer');
 const { layoutPathFor: statsLayoutPathFor } = require('../src/engine/statsLayoutRenderer');
 const {
@@ -294,6 +297,28 @@ async function main() {
       `${expected.avatar_key} must remain in the avatar catalog seed`
     );
   }
+  const directEquipPath = 'skins/testers/manual/avatar.png';
+  const directEquipDb = {
+    async query(sql) {
+      assert.match(sql, /FROM equipped_avatars ea/);
+      assert.doesNotMatch(sql, /user_avatars/);
+      return {
+        rows: [{
+          avatar_id: 103,
+          avatar_key: 'tester_manual',
+          class_name: 'Mage',
+          gender: 'female',
+          style: 'tester',
+          asset_path: directEquipPath,
+        }],
+      };
+    },
+  };
+  assert.equal(
+    await resolveStatsAvatar(directEquipDb, 'manual-admin-equipped-user', 'Mage'),
+    assetPath(directEquipPath),
+    'active class-matched equipped rows must render without a duplicate ownership row'
+  );
 
   const localOnlyPath = path.join(process.cwd(), 'assets', 'skins', ...OVERRIDE_FOLDER.split('/'));
   assert.equal(fs.existsSync(localOnlyPath), false, 'R2-only fixture must not exist under local assets');

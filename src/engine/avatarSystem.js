@@ -434,33 +434,25 @@ async function resolveStatsAvatar(pool, userId, className, logContext = {}) {
   const canonical = normalizeClass(className) || className;
   const fallback = defaultClassAvatar(canonical);
   try {
-    // Dev accounts own every avatar of their class (idempotent, class-only) so the
-    // equipped avatar resolves as owned here regardless of the env dev-unlock flag.
+    // Render active class-matched equipment because the equip command already gates user writes by ownership.
     await ensureDevAvatarOwnership(pool, userId, canonical);
     const res = await pool.query(
-      `SELECT ac.avatar_id, ac.asset_path, ac.avatar_key, ac.class_name, ac.gender, ac.style,
-              (ua.avatar_id IS NOT NULL) AS owned
+      `SELECT ac.avatar_id, ac.asset_path, ac.avatar_key, ac.class_name, ac.gender, ac.style
          FROM equipped_avatars ea
          JOIN avatar_catalog ac ON ac.avatar_id = ea.avatar_id
-         LEFT JOIN user_avatars ua
-           ON ua.discord_id = ea.discord_id
-          AND ua.avatar_id = ea.avatar_id
         WHERE ea.discord_id = $1
           AND ac.is_active = TRUE
           AND lower(ac.class_name) = lower($2)`,
       [userId, canonical]
     );
     const equipped = res.rows[0] || null;
-    const canUseEquipped = equipped && (isAvatarDevAccount(userId) || isDevAccountId(userId) || equipped.owned);
-    const selected = canUseEquipped ? equipped : fallback;
-    const avatarSource = canUseEquipped ? 'equipped-avatar' : 'class-fallback';
-    const fallbackReason = equipped && !canUseEquipped ? 'equipped-avatar-not-owned' : null;
+    const selected = equipped || fallback;
+    const avatarSource = equipped ? 'equipped-avatar' : 'class-fallback';
     performanceLog('stats avatar source', {
       ...logContext,
       avatarSource,
       avatarKey: selected.avatar_key,
       assetKey: safeAssetKey(canonicalAvatarAssetPath(selected) || selected.asset_path),
-      reason: fallbackReason,
     });
     return resolveCanonicalAvatarImagePath(selected);
   } catch (err) {
