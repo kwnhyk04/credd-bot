@@ -21,11 +21,12 @@
  *           with the draw still consumed, on a Mage's overcharge round (every 3rd) where the
  *           entire attack cannot crit — §13.1)
  *        b. class-stun pre-roll (1 draw, only if class passive is 'stun')
- *     3. passive phase (registry-internal draws, in invocation order):
+ *     3. passive phase (round-bound registry draws, in invocation order):
  *        raid/boss → A.weapon → A.deity → mob skill (all on A's perspective)
  *        duel      → first actor's weapon → deity, then second actor's weapon → deity
  *     4. actions in actor order:
- *        PLAYER attack: main-hit variance (1 draw) → [Swordsman] bleed draw (1, only
+ *        PLAYER attack: attack-start weapon draws → main-hit variance (1 draw) →
+ *        landed-hit weapon draws → [Swordsman] bleed draw (1, only
  *        when the main hit lands — RESERVED for stream stability; the bleed value is now
  *        a deterministic 3%/stack) → [labrys 2nd hit] crit (1) + variance (1) →
  *        [extra_turn] crit (1) + variance (1) + [Swordsman] bleed (1)
@@ -33,16 +34,16 @@
  *
  * ROUND PIPELINE (§35.1/§13.1, rulings R1–R9):
  *   round start → reset per-round scratch + derived flags → latch input flags
- *   (enemy_is_* / hit_received / player_was_critted) → determine skip-CC →
- *   pre-rolls (R1 latch: crit_landed_this_hit / stun_just_applied refer to THIS
- *   round's main hit) → passive phase (each passive exactly once per round; death
+ *   (enemy_is_* / player_was_critted) → determine skip-CC →
+ *   crit/class-stun pre-rolls → passive phase (each passive exactly once per round;
+ *   attack-bound work is queued for the action/landed-hit hooks; death
  *   check after every registry call) → consume hydra local regen / bathala HP flag →
  *   clear consumed latches → actions in actor order; after each side acts, its DOT
  *   ticks before the next side can act → stat-debuff expiry, sudden-death drain (round ≥ 30),
  *   snapshot per mode cadence. Hard cap round 50 (§35.3).
  *
- * LOG DISPLAY ORDER ([Jun-2026]): execution is UNCHANGED (passives resolve before the
- *   attacks to set up the hits), but each round's log is re-sequenced for readability to
+ * LOG DISPLAY ORDER ([Jun-2026]): round passives resolve before attacks; queued weapon
+ *   hooks resolve with their attack. Each round's log is re-sequenced for readability to
  *   [attacks + their own DOT] → [passive procs] → [sudden-death], so a side's proc reads
  *   as the consequence shown after its attack. Only sim.rounds[].events ordering changes.
  *
@@ -263,13 +264,14 @@ function resolveBattle(a, b, opts = {}) {
     isBoss: f.mobType === 'boss',
     debuffs: [],            // [{tag, turnsLeft, value}]
     flags: {},              // durable bs.flags.* (docs/ENGINE_HOOKS.md)
-    statusImmune: false,
+    // Alan's immunity is intrinsic and must exist before either duelist's passive
+    // phase; otherwise the first actor could land a round-1 debuff before Alan ran.
+    statusImmune: f.weaponPassiveKey === 'alans_reversed_hands'
+      || f.armorPassiveKey === 'alans_reversed_hands',
     scratch: null,          // per-round (reset before passives)
     skipped: false,         // skip-CC'd this round
     critRollValue: 1,       // pre-rolled crit draw for this round's main hit
     stunPreRoll: 0,         // Fighter class stun turns rolled for this round (0/1/2)
-    tookHitThisRound: false,
-    tookHitLastRound: false,
     bathalaExtraHp: 0,      // currently-applied Bathala HP bonus
   });
 
@@ -345,14 +347,14 @@ function resolveBattle(a, b, opts = {}) {
     if (side.isBoss && tag === 'hp_pct_dot') return true; // §35.4 auto-immunity
     return side.immunityTags.includes('all_debuffs') || side.immunityTags.includes(tag);
   };
+  const debuffImmune = (side, tag) =>
+    sideImmune(side, tag) || (side.kind === 'player' && side.statusImmune);
   const tryApplyDebuff = (side, tag, turns, value = 0) => {
-    if (sideImmune(side, tag)) return false;
-    if (side.kind === 'player' && side.statusImmune) return false;
+    if (debuffImmune(side, tag)) return false;
     return addDebuff(side, tag, turns, value);
   };
   const canApplyFighterStun = (target) => {
-    if (sideImmune(target, 'stun')) return false;
-    if (target.kind === 'player' && target.statusImmune) return false;
+    if (debuffImmune(target, 'stun')) return false;
     if (findDebuff(target, 'stun')) return false;
     return target.flags.stun_immune_until == null || shared.round > target.flags.stun_immune_until;
   };
@@ -392,7 +394,13 @@ function resolveBattle(a, b, opts = {}) {
     set nextAttackAutoCrit(v) { self.scratch.nextAttackAutoCrit = v; },
     get nextAttackDouble() { return self.scratch.nextAttackDouble; },
     set nextAttackDouble(v) { self.scratch.nextAttackDouble = v; },
-    enemyImmune: (tag) => sideImmune(opp, tag),
+    onAttack: (fn) => {
+      if (typeof fn === 'function') self.scratch.attackHooks.push(fn);
+    },
+    onLandedHit: (fn) => {
+      if (typeof fn === 'function') self.scratch.landedHitHooks.push(fn);
+    },
+    enemyImmune: (tag) => debuffImmune(opp, tag),
     applyDebuff: (tag, turns, value = 0) => tryApplyDebuff(opp, tag, turns, value),
     applyPlayerDebuff: (tag, turns, value = 0) => {
       if (self.statusImmune) return;
@@ -451,7 +459,11 @@ function resolveBattle(a, b, opts = {}) {
   const effDef = (S, O, { mainHit = false } = {}) => {
     let def = O.def;
     if (O.kind === 'player') {
-      const shred = Math.max(debuffValue(O, 'def_down'), (S.flags.zeus_def_shred_stacks || 0) * 0.05);
+      const shred = Math.max(
+        debuffValue(O, 'def_down'),
+        S.flags.laevateinn_sword_def_stack || 0,
+        (S.flags.zeus_def_shred_stacks || 0) * 0.05
+      );
       def *= Math.max(0, 1 + O.scratch.playerDefMult - shred);
     } else {
       def *= (S.flags.enemy_def_mult || 1.0);
@@ -494,6 +506,20 @@ function resolveBattle(a, b, opts = {}) {
       side.flags.vidar_crit_latch_handled = true;
     }
   };
+  const grantValkyrieResolve = (side) => {
+    if (!side.flags.valkyrie_resolve_active) return;
+    const oldDef = side.flags.valkyrie_shield_def || 0;
+    const oldAtk = side.flags.valkyrie_shield_atk || 0;
+    const nextDef = Math.min(oldDef + 0.05, 0.30);
+    const nextAtk = Math.min(oldAtk + 0.05, 0.30);
+    side.flags.valkyrie_shield_def = nextDef;
+    side.flags.valkyrie_shield_atk = nextAtk;
+    side.scratch.playerDefMult += nextDef - oldDef;
+    side.scratch.playerAtkMult += nextAtk - oldAtk;
+    if (nextDef > oldDef || nextAtk > oldAtk) {
+      shared.events.push(`🛡️ Shield of the Valkyrie: Valkyrie's Resolve — DEF +${Math.round(nextDef * 100)}%, ATK +${Math.round(nextAtk * 100)}%!`);
+    }
+  };
   const armLowHpAttackPassives = (side) => {
     if (side.deityBlessingKey === 'vidar_silent_vengeance'
         && !side.flags.vidar_low_hp_used
@@ -504,12 +530,18 @@ function resolveBattle(a, b, opts = {}) {
     }
   };
   const applyHitToDefender = (S, O, dmg, info = {}) => {
+    const prepareConfirmedHit = () => {
+      if (typeof info.prepareLandedHit !== 'function') return;
+      const prepared = info.prepareLandedHit(dmg);
+      if (Number.isFinite(prepared)) dmg = prepared;
+    };
     if (O.kind === 'mob') {
       // mob defenses live on the attacking player's flags (mob skills run there)
       if (S.flags.sigbin_evade_check && !S.flags.tyrfing_no_miss) {
         shared.events.push(`👤 ${O.name} evades the attack!`);
         return { applied: 0, negated: true };
       }
+      prepareConfirmedHit();
       if (S.flags.dwarf_shield_active) {
         const absorbed = Math.min(dmg, S.flags.dwarf_shield_cap || 0);
         dmg -= absorbed;
@@ -553,6 +585,8 @@ function resolveBattle(a, b, opts = {}) {
       shared.events.push(`🪽 ${O.name} evades the attack (Chooser's Grace)!`);
       return { applied: 0, negated: true };
     }
+
+    prepareConfirmedHit();
 
     // Frostbite applies to player targets too (duels), before their reductions.
     dmg = frostbiteDamage(O, dmg);
@@ -621,14 +655,14 @@ function resolveBattle(a, b, opts = {}) {
       const revive = Math.floor(O.maxHp * 0.30);
       setHp(O, Math.min(1 + revive, O.maxHp));
       F.sidapa_atk_bonus = 0.50;
-      O.tookHitThisRound = true;
+      grantValkyrieResolve(O);
       if (info.crit) recordReceivedCrit(O);
       shared.events.push(`🌙 Sidapa's Death's Reprieve! ${O.name} survives, heals ${revive} HP, ATK +50%!`);
       return { applied, negated: false };
     }
 
     damage(O, dmg);
-    O.tookHitThisRound = true;
+    if (O.hp > 0) grantValkyrieResolve(O);
     if (info.crit) recordReceivedCrit(O);
     if (O.hp > 0) armLowHpAttackPassives(O);
 
@@ -654,7 +688,8 @@ function resolveBattle(a, b, opts = {}) {
   };
 
   /** Resolve effects whose final text says an attack/hit applies or rolls them. */
-  const applyLandedHitPassives = (S, O) => {
+  const applyLandedHitPassives = (S, O, info = {}) => {
+    for (const hook of S.scratch.landedHitHooks) hook(info);
     if (S.flags.laevateinn_staff_on_hit) {
       if (tryApplyDebuff(O, 'burn', 2, S.atk * 0.10)) {
         shared.events.push('🔥 Laevateinn Staff: Flickering Flame — Burn (10% ATK, 2 turns)!');
@@ -695,6 +730,12 @@ function resolveBattle(a, b, opts = {}) {
 
   // ── player attack action ───────────────────────────────────────────────────
   const playerAttack = (S, O) => {
+    // These hooks run only when an action really begins. A CC skip or Dizzy miss
+    // cannot consume first-action effects, roll offensive procs, or leak a proc.
+    const attackHookEventStart = shared.events.length;
+    for (const hook of S.scratch.attackHooks) hook();
+    const attackHookEvents = shared.events.splice(attackHookEventStart);
+
     // Durable "next attack" effects are consumed only when an attack actually begins.
     // A stun, freeze, charm, or Dizzy miss therefore cannot silently discard them.
     const amihanStacks = Math.max(0, Number(S.flags.amihan_evade_bonus_stacks) || 0);
@@ -752,30 +793,61 @@ function resolveBattle(a, b, opts = {}) {
       const critLevel = critApplied || doubled; // double = guaranteed crit-level multiplier
 
       const surtVsBurning = Boolean(S.flags.surt_on_hit && findDebuff(O, 'burn'));
-      let dmg = mitigated(effAtk(S, surtVsBurning ? 0.50 : 0) * atkScale, def) * variance;
-      if (overchargeFired) {
-        // [Jun-2026] Overcharge stacks the damage-% lane ADDITIVELY onto the ×2.5 base,
-        // still with NO crit: e.g. a 200% damage-% proc → ×(2.5 + 2.0) = ×4.5. ATK-mult
-        // procs (e.g. Mjolnir) already fold in earlier through effAtk. A plain Mage
-        // (damage% 0) stays a clean ×2.5.
-        const damagePct = S.bonusDmgPct + S.scratch.damageBonusPct;
-        dmg *= OVERCHARGE_MULT + damagePct / 100;
-      } else {
-        const damagePct = S.bonusDmgPct + S.scratch.damageBonusPct;
-        dmg *= hitMultiplier(critLevel, damagePct);
-      }
+      const willFighterStun = mainHit
+        && S.classPassive === 'stun'
+        && S.stunPreRoll > 0
+        && canApplyFighterStun(O);
+      const jarngreiprEligible = willFighterStun && S.flags.jarngreipr_on_stun;
+      const thunderboltTriggered = mainHit && S.flags.thunderbolt_on_crit && critApplied;
+      const reactiveAtkMult = (surtVsBurning ? 0.50 : 0)
+        + (thunderboltTriggered ? 1.00 : 0);
+      const damagePct = S.bonusDmgPct + S.scratch.damageBonusPct;
+      const rolledDamage = (extraAtkMult) => {
+        let amount = mitigated(effAtk(S, extraAtkMult) * atkScale, def) * variance;
+        if (overchargeFired) {
+          // [Jun-2026] Overcharge stacks the damage-% lane ADDITIVELY onto the ×2.5 base,
+          // still with NO crit: e.g. a 200% damage-% proc → ×(2.5 + 2.0) = ×4.5. ATK-mult
+          // procs (e.g. Mjolnir) already fold in earlier through effAtk. A plain Mage
+          // (damage% 0) stays a clean ×2.5.
+          amount *= OVERCHARGE_MULT + damagePct / 100;
+        } else {
+          amount *= hitMultiplier(critLevel, damagePct);
+        }
+        return amount;
+      };
+      let dmg = rolledDamage(reactiveAtkMult);
+      let jarngreiprDmg = jarngreiprEligible
+        ? rolledDamage(reactiveAtkMult + 0.60)
+        : null;
       if (mainHit && S.flags.odin_foresight_bonus > 0) {
         const bonus = Math.floor(S.flags.odin_foresight_bonus);
         dmg += bonus;
+        if (jarngreiprDmg != null) jarngreiprDmg += bonus;
         S.flags.odin_foresight_bonus = 0;
         shared.events.push(`🪄 Odin: All-Father's Foresight — released ${bonus} stored damage!`);
       }
       dmg = Math.max(0, Math.floor(dmg));
+      if (jarngreiprDmg != null) {
+        jarngreiprDmg = Math.max(0, Math.floor(jarngreiprDmg));
+      }
+
+      let fighterStunResolved = false;
+      let fighterStunned = false;
+      let jarngreiprTriggered = false;
+      const prepareLandedHit = jarngreiprEligible
+        ? () => {
+          fighterStunResolved = true;
+          fighterStunned = tryApplyDebuff(O, 'stun', S.stunPreRoll);
+          jarngreiprTriggered = fighterStunned;
+          if (jarngreiprTriggered) dmg = jarngreiprDmg;
+          return dmg;
+        }
+        : null;
 
       const tag = overchargeFired ? ' *(Overcharge!)*'
         : doubled ? ' *(Double!)*'
         : critApplied ? ' *(CRIT!)*' : '';
-      const res = applyHitToDefender(S, O, dmg, { crit: critApplied });
+      const res = applyHitToDefender(S, O, dmg, { crit: critApplied, prepareLandedHit });
       shared.events.push(
         `⚔️ ${S.name} ${mainHit ? 'attacks' : 'strikes again'} for **${res.applied} DMG**` +
         `${tag}${res.negated ? ' *(evaded)*' : ''}`
@@ -783,38 +855,55 @@ function resolveBattle(a, b, opts = {}) {
       if (!res.negated && surtVsBurning) {
         shared.events.push("🔥 Surt: Muspell's Flame — +50% vs a burning enemy!");
       }
-      if (result) {
-        // Magwayen drains every landed hit, including the blow that defeats the enemy.
-        // Other on-hit riders remain below because they must not run after resolution.
-        const attackerWon = result.winner === (S === A ? 'a' : 'b');
-        if (attackerWon && res.applied > 0 && S.flags.soul_drain_active) {
-          heal(S, res.applied * 0.15);
+      if (!res.negated && thunderboltTriggered) {
+        const paralyzed = !result && tryApplyDebuff(O, 'paralyze', 1);
+        shared.events.push(`⚡ Thunderbolt of Zeus: Divine Thunder — +100% ATK${paralyzed ? ' + Paralyze' : ''}!`);
+      }
+      // Lifesteal is based on damage dealt, including a lethal blow. This must run
+      // before the result return so Japanese Bo does not lose its finishing-hit heal.
+      if (res.applied > 0 && S.hp > 0) {
+        if (S.flags.japanese_bo_active) {
+          const before = S.hp;
+          heal(S, res.applied * 0.5);
+          const restored = S.hp - before;
+          if (restored > 0) {
+            shared.events.push(`🪄 Japanese Bo: Vital Siphon — Recovered ${restored} HP!`);
+          }
         }
+        if (S.flags.soul_drain_active) heal(S, res.applied * 0.15);
+        if (S.flags.echo_soul_drain_active) heal(S, res.applied * 0.05);
+        if (S.flags.rune_lifesteal_pct > 0) heal(S, res.applied * S.flags.rune_lifesteal_pct);
+      }
+      if (result) {
         return;
       }
 
       // class on-hit effects (landed main hit only)
       if (mainHit && !res.negated) {
-        if (S.flags.crossbow_pierce) S.flags.crossbow_pierce = false;
-        if (S.classPassive === 'stun' && S.stunPreRoll > 0) {
+        if (willFighterStun) {
           // Stun-lock guard: a new Fighter stun cannot be applied while the target is
           // already stunned or during the recovery round. addDebuff() enforces the same
           // rule centrally for every other stun source, so mixed passives cannot refresh it.
-          if (canApplyFighterStun(O)) {
-            const stunned = addDebuff(O, 'stun', S.stunPreRoll);
-            if (stunned) {
-              shared.events.push(`👊 ${S.name}'s blow stuns ${O.name} for ${S.stunPreRoll} turn${S.stunPreRoll > 1 ? 's' : ''}!`);
-              const bash = Math.max(0, Math.floor(dmg * 0.50));
-              const bashResult = applyHitToDefender(S, O, bash, { crit: false });
-              shared.events.push(`💥 ${S.name} follows with Bash for **${bashResult.applied} DMG**!`);
-              O.flags.dizzy_pending = true;
-              shared.events.push(`💫 ${O.name} is Dizzy; its next attack has a 15% miss chance.`);
-              if (result) return;
+          const stunned = fighterStunResolved
+            ? fighterStunned
+            : addDebuff(O, 'stun', S.stunPreRoll);
+          if (stunned) {
+            shared.events.push(`👊 ${S.name}'s blow stuns ${O.name} for ${S.stunPreRoll} turn${S.stunPreRoll > 1 ? 's' : ''}!`);
+            if (jarngreiprTriggered) {
+              shared.events.push('⚡ Jarngreipr: Thunder Grip — Stun triggered Bash! +60% ATK!');
             }
+            const bash = Math.max(0, Math.floor(dmg * 0.50));
+            const bashResult = applyHitToDefender(S, O, bash, { crit: false });
+            shared.events.push(`💥 ${S.name} follows with Bash for **${bashResult.applied} DMG**!`);
+            O.flags.dizzy_pending = true;
+            shared.events.push(`💫 ${O.name} is Dizzy; its next attack has a 15% miss chance.`);
+            if (result) return;
           }
         }
       }
-      if (!res.negated) applyLandedHitPassives(S, O);
+      if (!res.negated) {
+        applyLandedHitPassives(S, O, { mainHit, crit: critApplied, damage: res.applied });
+      }
       // Every landed Swordsman attack adds one 3% Bleed stack and refreshes it to 2 turns.
       // Ten stacks cap the additive value at 30%; later hits only refresh the duration.
       // Requires the swordsman to actually act — a skip-CC'd turn never reaches here.
@@ -830,14 +919,10 @@ function resolveBattle(a, b, opts = {}) {
           else O.debuffs.push({ tag: 'bleed', turnsLeft: 2, value, stacks, armed: false });
         }
       }
-      // per-instance heals
-      if (res.applied > 0) {
-        if (S.flags.japanese_bo_active) heal(S, res.applied * 0.5);
-        if (S.flags.soul_drain_active) heal(S, res.applied * 0.15);
-        if (S.flags.echo_soul_drain_active) heal(S, res.applied * 0.05);
-        if (S.flags.rune_lifesteal_pct > 0) heal(S, res.applied * S.flags.rune_lifesteal_pct);
+      if (mainHit) {
+        S.flags.crossbow_pierce = false;
+        S.flags.gungnir_full_pierce = false;
       }
-      if (mainHit && S.flags.gungnir_full_pierce) S.flags.gungnir_full_pierce = false;
     };
 
     // main hit (crit pre-rolled at round start; auto-crit flags can upgrade it) —
@@ -845,6 +930,7 @@ function resolveBattle(a, b, opts = {}) {
     const mainCrit = !overchargeRound
       && ((S.critRollValue * 100 < effCritChance(S)) || S.scratch.nextAttackAutoCrit);
     doHit({ atkScale: 1, mainHit: true, critKnown: mainCrit });
+    shared.events.push(...attackHookEvents);
     if (result) return;
 
     // labrys 2nd hit (rider — both hits crit-eligible)
@@ -854,8 +940,8 @@ function resolveBattle(a, b, opts = {}) {
       if (result) return;
     }
 
-    // post-attack burst procs (resolve even if the attack was evaded — they are
-    // separate effects, not attack damage)
+    // Post-hit burst procs. Their landed-hit hooks arm these flags, so evasion and
+    // crowd-control skips cannot trigger or carry them into a later turn.
     if (S.flags.instakill_check) {
       S.flags.instakill_check = false;
       if (mode === 'duel') {
@@ -989,6 +1075,8 @@ function resolveBattle(a, b, opts = {}) {
       ignoreDefPct: 0,
       nextAttackAutoCrit: false,
       nextAttackDouble: false,
+      attackHooks: [],
+      landedHitHooks: [],
     };
     // per-round DERIVED flags the registry re-establishes every round
     side.flags.enemy_bonus_damage = 0;
@@ -999,17 +1087,19 @@ function resolveBattle(a, b, opts = {}) {
     // [v5] armor-derived per-round flags (the armor passive re-establishes them each round)
     side.flags.evade_chance_used = 0;
     side.flags.mail_brokkr_reflect = 0;
-    side.flags.salakot_negate_chance = 0;
-    side.flags.immune_cc_types = null;
+    // Static armor wards must exist before either duelist's passive runs; otherwise
+    // actor order lets an offensive passive bypass the second actor's protection.
+    const hasEquippedPassive = (key) =>
+      side.weaponPassiveKey === key || side.armorPassiveKey === key;
+    side.flags.salakot_negate_chance = hasEquippedPassive('salakot_ward') ? 0.20 : 0;
+    side.flags.immune_cc_types = hasEquippedPassive('anting_anting_sash')
+      ? ['stun', 'petrify', 'freeze']
+      : null;
     side.flags.valkyrie_evade_check = false;
     // [v5 Phase 2] socketed effect-rune per-round flags (the rune runner re-sets them).
     side.flags.rune_thorns_reflect = 0;
     side.flags.rune_warding_pct = 0;
     side.flags.rune_lifesteal_pct = 0;
-    // input latches (engine-set, read by the registry this round)
-    side.tookHitLastRound = side.tookHitThisRound;
-    side.tookHitThisRound = false;
-    side.flags.hit_received_this_turn = side.tookHitLastRound;
   };
 
   const setInputFlags = (side) => {
@@ -1173,20 +1263,12 @@ function resolveBattle(a, b, opts = {}) {
     // 2. pre-rolls (R1) — always drawn for stream stability, voided when skip-CC'd
     for (const side of order) {
       if (side.kind !== 'player') continue;
-      const O = oppOf(side);
       side.critRollValue = rng();
-      // [v4.2] a Mage's overcharge round (every 3rd) suppresses the crit entirely, so
-      // the latch reads false even though the draw is consumed (stream stability).
-      const overchargeRound = side.classPassive === 'overcharge' && round % OVERCHARGE_EVERY === 0;
-      side.flags.crit_landed_this_hit =
-        !side.skipped && !overchargeRound && side.critRollValue * 100 < effCritChance(side);
       if (side.classPassive === 'stun') {
         const r = rng();
         side.stunPreRoll = side.skipped ? 0 : (r < 0.10 ? 2 : (r < 0.25 ? 1 : 0));
-        side.flags.stun_just_applied = side.stunPreRoll > 0 && canApplyFighterStun(O);
       } else {
         side.stunPreRoll = 0;
-        side.flags.stun_just_applied = false;
       }
     }
 

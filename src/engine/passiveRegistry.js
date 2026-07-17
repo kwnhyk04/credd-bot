@@ -11,9 +11,8 @@
  *
  * RANDOMNESS: every probability check draws from bs.rng() (the engine-injected
  * seeded stream). Math.random is forbidden in this file (statically checked by the
- * selftest). Draw discipline: a chance-based passive ALWAYS draws exactly once per
- * invocation (the draw happens before any gate), so the stream position never
- * depends on battle state.
+ * selftest). Round-bound checks draw once per invocation. Attack-bound checks are
+ * queued and draw once only when their attack/landed-hit trigger actually occurs.
  *
  * Timing rules (§35.1):
  *   - bs.currentTurn = ROUND counter (the only periodic clock)
@@ -41,15 +40,23 @@
 /** Shared no-op (basic weapons, immunity-only bosses). */
 const noop = () => {};
 
-/** First player hit of the battle deals +pct of its damage (one-shot flag).
+// A stat debuff applied after a landed hit is decremented at the end of that same
+// round. Store it for two engine ticks so its user-facing one-turn window covers
+// the attacker's next action instead of expiring before it can affect damage.
+const LANDED_STAT_DEBUFF_TURNS = 2;
+
+/** First player action of the battle deals +pct of its damage (one-shot flag).
+ *  The attack hook means crowd control cannot consume the opener before an attack starts.
  *  Routed through the ATK multiplier (pre-mitigation), so the bonus is +pct of the
  *  damage actually dealt — NOT a flat ATK-fraction that bypasses the enemy's DEF. */
 const firstHitBonus = (flagKey, pct, label) => (bs) => {
-  if (!bs.flags[flagKey]) {
-    bs.flags[flagKey] = true;
-    bs.playerAtkMult += pct;
-    bs.log.push(label);
-  }
+  bs.onAttack(() => {
+    if (!bs.flags[flagKey]) {
+      bs.flags[flagKey] = true;
+      bs.playerAtkMult += pct;
+      bs.log.push(label);
+    }
+  });
 };
 
 /** chance → +pct damage this round (ATK-mult lane; mitigated — see firstHitBonus). */
@@ -58,6 +65,16 @@ const chanceRider = (chance, pct, label) => (bs) => {
     bs.playerAtkMult += pct;
     bs.log.push(label);
   }
+};
+
+/** Attack-bound chance rider: no attack means no roll, proc, or misleading log. */
+const attackChanceRider = (chance, pct, label) => (bs) => {
+  bs.onAttack(() => {
+    if (bs.rng() < chance) {
+      bs.playerAtkMult += pct;
+      bs.log.push(label);
+    }
+  });
 };
 
 /** ATK +step every everyN turns, stacking up to cap (stack persists in flags). */
@@ -72,27 +89,41 @@ const stackingAtk = (flagKey, step, cap, everyN = 1) => (bs) => {
 /** chance → apply an enemy debuff (draw always happens; immunity gated after). */
 const chanceEnemyDebuff = (chance, tag, turns, valueFn, label) => (bs) => {
   const proc = bs.rng() < chance;
-  if (proc && !bs.enemyImmune(tag)) {
-    bs.applyDebuff(tag, turns, valueFn ? valueFn(bs) : 0);
+  if (proc && !bs.enemyImmune(tag)
+      && bs.applyDebuff(tag, turns, valueFn ? valueFn(bs) : 0)) {
     bs.log.push(label);
   }
 };
 
+/** Landed-hit chance debuff: evasion and crowd-control skips cannot proc it. */
+const chanceLandedHitDebuff = (chance, tag, turns, valueFn, label) => (bs) => {
+  let proc = false;
+  bs.onAttack(() => { proc = bs.rng() < chance; });
+  bs.onLandedHit(() => {
+    if (proc && !bs.enemyImmune(tag)) {
+      if (bs.applyDebuff(tag, turns, valueFn ? valueFn(bs) : 0)) bs.log.push(label);
+    }
+  });
+};
+
 /** Apply an enemy DOT on every hit (refreshes; highest value wins in the engine). */
 const onHitEnemyDot = (tag, pct, label) => (bs) => {
-  if (!bs.enemyImmune(tag)) {
-    bs.applyDebuff(tag, 2, bs.playerATK * pct);
-    bs.log.push(label);
-  }
+  bs.onLandedHit(() => {
+    if (!bs.enemyImmune(tag) && bs.applyDebuff(tag, 2, bs.playerATK * pct)) {
+      bs.log.push(label);
+    }
+  });
 };
 
 /** +pct damage while an engine-set state flag is true (stunned/bleeding).
  *  ATK-mult lane (mitigated) — +pct of the damage dealt, not a DEF-bypassing flat add. */
 const bonusVsState = (stateFlag, pct, label) => (bs) => {
-  if (bs.flags[stateFlag]) {
-    bs.playerAtkMult += pct;
-    bs.log.push(label);
-  }
+  bs.onAttack(() => {
+    if (bs.flags[stateFlag]) {
+      bs.playerAtkMult += pct;
+      bs.log.push(label);
+    }
+  });
 };
 
 /** Permanent armor pierce (highest ignoreDefPct wins — registry only raises). */
@@ -215,19 +246,19 @@ const PASSIVE_REGISTRY = {
 
   // ── WEAPON PASSIVES — Rare ───────────────────────────────────────────────
 
-  'cutlass': chanceEnemyDebuff(0.10, 'bleed', 2, (bs) => bs.playerATK,
+  'cutlass': chanceLandedHitDebuff(0.10, 'bleed', 2, (bs) => bs.playerATK,
     '🗡️ Cutlass: Serrated Edge — Bleed applied!'),
 
   'kampilan': firstHitBonus('kampilan_used', 0.20,
     '⚔️ Kampilan: Opening Strike — +20% ATK bonus!'),
 
-  'war_club': chanceEnemyDebuff(0.10, 'stun', 1, null,
+  'war_club': chanceLandedHitDebuff(0.10, 'stun', 1, null,
     '🪓 War Club: Concussive Blow — Enemy stunned!'),
 
   'bone_crusher': firstHitBonus('bone_crusher_used', 0.20,
     '🦴 Bone Crusher: Opening Strike — +20% ATK bonus!'),
 
-  'crystal_wand': chanceRider(0.10, 0.15,
+  'crystal_wand': attackChanceRider(0.10, 0.15,
     '🔮 Crystal Wand: Arcane Surge — +15% ATK bonus hit!'),
 
   'carved_totem': firstHitBonus('carved_totem_used', 0.20,
@@ -239,17 +270,19 @@ const PASSIVE_REGISTRY = {
   'reinforced_targe': firstHitBonus('reinforced_targe_used', 0.20,
     '🛡️ Reinforced Targe: Opening Strike — +20% ATK bonus!'),
 
-  'recurve_bow': chanceRider(0.10, 0.20,
+  'recurve_bow': attackChanceRider(0.10, 0.20,
     '🏹 Recurve Bow: Precise Shot — +20% ATK bonus hit!'),
 
   'crossbow': (bs) => {
-    // First hit +20% ATK ignoring 25% DEF (engine consumes crossbow_pierce on that hit)
-    if (!bs.flags.crossbow_used) {
-      bs.flags.crossbow_used = true;
-      bs.playerAtkMult += 0.20;
-      bs.flags.crossbow_pierce = true;
-      bs.log.push('🏹 Crossbow: Piercing Opener — +20% ATK, ignores 25% DEF!');
-    }
+    // First actual attack +20% ATK ignoring 25% DEF. CC cannot split/consume the opener.
+    bs.onAttack(() => {
+      if (!bs.flags.crossbow_used) {
+        bs.flags.crossbow_used = true;
+        bs.playerAtkMult += 0.20;
+        bs.flags.crossbow_pierce = true;
+        bs.log.push('🏹 Crossbow: Piercing Opener — +20% ATK, ignores 25% DEF!');
+      }
+    });
   },
 
   // ── WEAPON PASSIVES — Mythic ─────────────────────────────────────────────
@@ -259,7 +292,7 @@ const PASSIVE_REGISTRY = {
     bs.damageBonusPct += 30;
   },
 
-  'gladius': chanceRider(0.30, 0.50,
+  'gladius': attackChanceRider(0.30, 0.50,
     '⚔️ Gladius: Brutal Swing — +50% bonus ATK!'),
 
   'scimitar': stackingAtk('scimitar_stack', 0.03, 0.15),
@@ -272,10 +305,13 @@ const PASSIVE_REGISTRY = {
 
   'bagh_nakh': stackingAtk('bagh_nakh_stack', 0.05, 0.25),
 
-  'japanese_bo': chanceFlag(0.25, 'japanese_bo_active',
-    '🪄 Japanese Bo: Vital Siphon — Will heal 50% of damage dealt!'),
+  'japanese_bo': (bs) => {
+    bs.onAttack(() => {
+      bs.flags.japanese_bo_active = bs.rng() < 0.25;
+    });
+  },
 
-  'english_quarterstaff': chanceRider(0.20, 0.50,
+  'english_quarterstaff': attackChanceRider(0.20, 0.50,
     '🪄 English Quarterstaff: Sweeping Strike — +50% bonus ATK!'),
 
   'egyptian_asa': (bs) => {
@@ -289,7 +325,7 @@ const PASSIVE_REGISTRY = {
     }
   },
 
-  'pilgrims_bordone': chanceEnemyDebuff(0.50, 'def_down', 1, () => 0.15,
+  'pilgrims_bordone': chanceLandedHitDebuff(0.50, 'def_down', LANDED_STAT_DEBUFF_TURNS, () => 0.15,
     '🪄 Pilgrim\'s Bordone: Sundering Blow — Enemy DEF -15%!'),
 
   'vatican_aspis': constantSelfBuff(0.10, 0, -0.10),
@@ -302,22 +338,24 @@ const PASSIVE_REGISTRY = {
   'holmegaard_bow': stackingAtk('holmegaard_stack', 0.03, 0.15),
 
   'scandinavian_glacial_wooden_bow': (bs) => {
-    // 10% chance take another turn (rider — engine re-runs one player attack)
-    if (bs.rng() < 0.10) {
-      bs.flags.extra_turn = true;
-      bs.log.push('🏹 Glacial Bow: Frostwind Volley — Taking another turn!');
-    }
+    // 10% chance on an actual attack to take another turn (one attack rider).
+    bs.onAttack(() => {
+      bs.flags.extra_turn = bs.rng() < 0.10;
+      if (bs.flags.extra_turn) {
+        bs.log.push('🏹 Glacial Bow: Frostwind Volley — Taking another turn!');
+      }
+    });
   },
 
-  'scythian_composite_bow': chanceRider(0.20, 0.50,
+  'scythian_composite_bow': attackChanceRider(0.20, 0.50,
     '🏹 Scythian Composite Bow: Power Draw — +50% bonus ATK!'),
 
   'xiphos': stackingAtk('xiphos_stack', 0.04, 0.20),
 
-  'kopis': chanceRider(0.25, 0.60,
+  'kopis': attackChanceRider(0.25, 0.60,
     '⚔️ Kopis: Cleaving Blow — +60% bonus ATK!'),
 
-  'caestus': chanceRider(0.35, 0.40,
+  'caestus': attackChanceRider(0.35, 0.40,
     '👊 Caestus: Hammer Fists — +40% bonus ATK!'),
 
   'myrmex': bonusVsState('enemy_is_stunned', 0.40,
@@ -334,7 +372,7 @@ const PASSIVE_REGISTRY = {
     '🛡️ Pelte: Deflection — Will block 25% incoming damage!',
     (bs) => { bs.flags.pelte_block_pct = 0.25; }),
 
-  'arrow_of_eros': chanceRider(0.30, 0.45,
+  'arrow_of_eros': attackChanceRider(0.30, 0.45,
     '🏹 Arrow of Eros: Love\'s Arrow — +45% bonus ATK!'),
 
   'cretan_bow': stackingAtk('cretan_bow_stack', 0.04, 0.20),
@@ -345,12 +383,14 @@ const PASSIVE_REGISTRY = {
     '⚔️ Juru Pakal: Bloodhunter — +30% vs bleeding enemy!'),
 
   'gram': (bs) => {
-    // Ignores 25% of enemy DEF; +30% damage to enemies above 80% HP (mitigated ATK lane).
+    // Ignores 25% of enemy DEF; actual attacks gain +30% above 80% enemy HP.
     if (0.25 > bs.ignoreDefPct) bs.ignoreDefPct = 0.25;
-    if (bs.enemyHP > bs.enemyMaxHP * 0.80) {
-      bs.playerAtkMult += 0.30;
-      bs.log.push('⚔️ Gram: Dragonbane — +30% vs a healthy foe (>80% HP)!');
-    }
+    bs.onAttack(() => {
+      if (bs.enemyHP > bs.enemyMaxHP * 0.80) {
+        bs.playerAtkMult += 0.30;
+        bs.log.push('⚔️ Gram: Dragonbane — +30% vs a healthy foe (>80% HP)!');
+      }
+    });
   },
 
   'tyrfing': (bs) => {
@@ -375,20 +415,20 @@ const PASSIVE_REGISTRY = {
     // Gated by def_down immunity; persists (does not expire each turn).
     if (!bs.flags.laevateinn_sword_def_stack) bs.flags.laevateinn_sword_def_stack = 0;
     if (!bs.enemyImmune('def_down') && bs.flags.laevateinn_sword_def_stack < 0.30) {
-      bs.flags.laevateinn_sword_def_stack = Math.min(
-        bs.flags.laevateinn_sword_def_stack + 0.10, 0.30
-      );
-      bs.log.push(`⚔️ Laevateinn Sword: Sundering Flame — Enemy DEF reduced (total -${Math.round(bs.flags.laevateinn_sword_def_stack * 100)}%)!`);
+      const nextStack = Math.min(bs.flags.laevateinn_sword_def_stack + 0.10, 0.30);
+      // Route the increment through the normal debuff gate so Alan, Salakot Ward,
+      // and mob immunities can stop it. The durable flag carries successful stacks.
+      if (bs.applyDebuff('def_down', 1, nextStack)) {
+        bs.flags.laevateinn_sword_def_stack = nextStack;
+        bs.log.push(`⚔️ Laevateinn Sword: Sundering Flame — Enemy DEF reduced (total -${Math.round(nextStack * 100)}%)!`);
+      }
     }
   },
 
   'jarngreipr': (bs) => {
-    // Stunning an enemy triggers Bash (rider). bs.flags.stun_just_applied is the
-    // engine's pre-roll latch: true when this round's class-stun lands (R1).
-    if (bs.flags.stun_just_applied && !bs.enemyImmune('stun')) {
-      bs.playerAtkMult += 0.60;
-      bs.log.push('⚡ Jarngreipr: Thunder Grip — Stun triggered Bash! +60% ATK!');
-    }
+    // The engine applies the +60% rider only when the attack really lands and its
+    // Fighter stun succeeds after all immunity/evade checks.
+    bs.flags.jarngreipr_on_stun = true;
   },
 
   'gridr_iron_gloves': chanceFlag(0.20, 'gridr_ignore_check',
@@ -400,11 +440,15 @@ const PASSIVE_REGISTRY = {
   },
 
   'knuckle_charm_anting_anting': (bs) => {
-    // 5% instant kill — engine blocks vs bosses and disables entirely in duels
-    if (bs.rng() < 0.05) {
-      bs.flags.instakill_check = true;
-      bs.log.push('💀 Knuckle Charm Anting-Anting: Death Charm — INSTANT KILL proc!');
-    }
+    // 5% on landed hit — engine blocks vs bosses and disables entirely in duels.
+    let proc = false;
+    bs.onAttack(() => { proc = bs.rng() < 0.05; });
+    bs.onLandedHit(() => {
+      bs.flags.instakill_check = proc;
+      if (bs.flags.instakill_check) {
+        bs.log.push('💀 Knuckle Charm Anting-Anting: Death Charm — INSTANT KILL proc!');
+      }
+    });
   },
 
   'laevateinn_staff': (bs) => {
@@ -414,7 +458,7 @@ const PASSIVE_REGISTRY = {
     bs.flags.laevateinn_staff_on_hit = true;
   },
 
-  'galdrastafir': chanceEnemyDebuff(0.50, 'def_down', 1, () => 0.30,
+  'galdrastafir': chanceLandedHitDebuff(0.50, 'def_down', LANDED_STAT_DEBUFF_TURNS, () => 0.30,
     '🪄 Galdrastafir: Runebreaker — Enemy DEF -30%!'),
 
   'babaylans_ritual_staff': (bs) => {
@@ -432,27 +476,25 @@ const PASSIVE_REGISTRY = {
   },
 
   'badiang_stalk': (bs) => {
-    // 30% chance Rupture: 10% enemy max HP (hp_pct_dot — auto-blocked vs all bosses)
-    const proc = bs.rng() < 0.30;
-    if (proc && !bs.enemyImmune('hp_pct_dot')) {
-      bs.flags.rupture_check = true;
-      bs.flags.rupture_pct = 0.10;
-      bs.log.push('🌿 Badiang Stalk: Venom Burst — Rupture! 10% enemy max HP!');
-    }
+    // 30% chance on landed hit: 10% enemy max HP (auto-blocked vs all bosses).
+    let proc = false;
+    bs.onAttack(() => { proc = bs.rng() < 0.30; });
+    bs.onLandedHit(() => {
+      bs.flags.rupture_check = proc && !bs.enemyImmune('hp_pct_dot');
+      if (bs.flags.rupture_check) {
+        bs.flags.rupture_pct = 0.10;
+        bs.log.push('🌿 Badiang Stalk: Venom Burst — Rupture! 10% enemy max HP!');
+      }
+    });
   },
 
   // ── WEAPON PASSIVES — Legendary Norse shields ───────────────────────────
 
   'shield_of_the_valkyrie': (bs) => {
-    // Every hit received: DEF +5% and ATK +5%, stacking to 30% each.
-    // bs.flags.hit_received_this_turn is the engine latch from the previous round.
+    // Every individual hit received: DEF +5% and ATK +5%, stacking to 30% each.
     if (!bs.flags.valkyrie_shield_def) bs.flags.valkyrie_shield_def = 0;
     if (!bs.flags.valkyrie_shield_atk) bs.flags.valkyrie_shield_atk = 0;
-    if (bs.flags.hit_received_this_turn) {
-      bs.flags.valkyrie_shield_def = Math.min(bs.flags.valkyrie_shield_def + 0.05, 0.30);
-      bs.flags.valkyrie_shield_atk = Math.min(bs.flags.valkyrie_shield_atk + 0.05, 0.30);
-      bs.log.push(`🛡️ Shield of the Valkyrie: Valkyrie's Resolve — DEF +${Math.round(bs.flags.valkyrie_shield_def * 100)}%, ATK +${Math.round(bs.flags.valkyrie_shield_atk * 100)}%!`);
-    }
+    bs.flags.valkyrie_resolve_active = true;
     bs.playerDefMult += bs.flags.valkyrie_shield_def;
     bs.playerAtkMult += bs.flags.valkyrie_shield_atk;
   },
@@ -469,19 +511,23 @@ const PASSIVE_REGISTRY = {
   },
 
   'gusisnautar': (bs) => {
-    // 50% Hemorrhage: 10% enemy max HP + DEF -15% during (hp_pct_dot — boss-blocked)
-    const proc = bs.rng() < 0.50;
-    if (proc && !bs.enemyImmune('hp_pct_dot')) {
-      bs.flags.hemorrhage_check = true;
-      bs.flags.hemorrhage_pct = 0.10;
-      if (!bs.enemyImmune('def_down')) {
-        bs.applyDebuff('def_down', 1, 0.15);
+    // 50% on landed hit: 10% enemy max HP + DEF -15% (boss-blocked).
+    let proc = false;
+    bs.onAttack(() => { proc = bs.rng() < 0.50; });
+    bs.onLandedHit(() => {
+      bs.flags.hemorrhage_check = proc && !bs.enemyImmune('hp_pct_dot');
+      if (bs.flags.hemorrhage_check) {
+        bs.flags.hemorrhage_pct = 0.10;
+        const shredded = !bs.enemyImmune('def_down')
+          && bs.applyDebuff('def_down', LANDED_STAT_DEBUFF_TURNS, 0.15);
+        bs.log.push(
+          `🏹 Gusisnautar: Hemorrhaging Shot — Hemorrhage! 10% max HP${shredded ? ' + DEF -15%' : ''}!`
+        );
       }
-      bs.log.push('🏹 Gusisnautar: Hemorrhaging Shot — Hemorrhage! 10% max HP + DEF -15%!');
-    }
+    });
   },
 
-  'freyrs_arrow': chanceRider(0.50, 1.00,
+  'freyrs_arrow': attackChanceRider(0.50, 1.00,
     '🏹 Freyr\'s Arrow: Auto-Fire — +100% ATK bonus hit!'),
 
   // ── WEAPON PASSIVES — Legendary Greek ───────────────────────────────────
@@ -499,20 +545,24 @@ const PASSIVE_REGISTRY = {
   },
 
   'labrys': (bs) => {
-    // Every 3rd turn the attack hits twice; 2nd hit 70% ATK; both can CRIT
+    // Every 3rd turn's actual attack hits twice; skipped turns cannot carry it forward.
     if (bs.currentTurn % 3 === 0) {
-      bs.flags.labrys_double_hit = true;
-      bs.flags.labrys_second_hit_pct = 0.70;
-      bs.log.push('🪓 Labrys: Double Strike — Second hit (70% ATK) triggered!');
+      bs.onAttack(() => {
+        bs.flags.labrys_double_hit = true;
+        bs.flags.labrys_second_hit_pct = 0.70;
+        bs.log.push('🪓 Labrys: Double Strike — Second hit (70% ATK) triggered!');
+      });
     }
   },
 
   'hephaestus_hammer': (bs) => {
-    // DEF +20% for the battle; every 4th turn a 150% ATK forge strike (rider)
+    // DEF +20% for the battle; every 4th actual attack gains the 150% ATK rider.
     bs.playerDefMult += 0.20;
     if (bs.currentTurn % 4 === 0) {
-      bs.playerAtkMult += 1.50;
-      bs.log.push('🔨 Hephaestus Hammer: Forged Armor — Forge Strike! +150% ATK!');
+      bs.onAttack(() => {
+        bs.playerAtkMult += 1.50;
+        bs.log.push('🔨 Hephaestus Hammer: Forged Armor — Forge Strike! +150% ATK!');
+      });
     }
   },
 
@@ -535,80 +585,84 @@ const PASSIVE_REGISTRY = {
     '🪖 Helm of Darkness: Invisibility — Enemy DEF -50% for 2 turns!'),
 
   'aegis': (bs) => {
-    // [v5] Promoted to Supreme armor — proc raised 20% → 50%.
-    // 50% chance per turn: Stone Stack; at 3 stacks stun 1 turn and reset
+    // [v5] Promoted to Supreme armor — 50% chance per landed hit to add Stone.
     if (!bs.flags.aegis_stacks) bs.flags.aegis_stacks = 0;
-    if (bs.rng() < 0.50) {
-      bs.flags.aegis_stacks += 1;
-      bs.log.push(`🛡️ Aegis: Medusa's Gaze — Stone Stack! (${bs.flags.aegis_stacks}/3)`);
-      if (bs.flags.aegis_stacks >= 3) {
-        bs.flags.aegis_stacks = 0;
-        if (!bs.enemyImmune('stun')) {
-          bs.applyDebuff('stun', 1);
-          bs.log.push('🛡️ Aegis: Medusa\'s Gaze — 3 Stacks! Enemy STUNNED!');
+    bs.onLandedHit(() => {
+      if (bs.rng() < 0.50) {
+        bs.flags.aegis_stacks += 1;
+        bs.log.push(`🛡️ Aegis: Medusa's Gaze — Stone Stack! (${bs.flags.aegis_stacks}/3)`);
+        if (bs.flags.aegis_stacks >= 3) {
+          bs.flags.aegis_stacks = 0;
+          if (!bs.enemyImmune('stun') && bs.applyDebuff('stun', 1)) {
+            bs.log.push('🛡️ Aegis: Medusa\'s Gaze — 3 Stacks! Enemy STUNNED!');
+          }
         }
       }
-    }
+    });
   },
 
   'apollos_silver_bow': (bs) => {
     // Ignores 25% DEF; every 4th turn guaranteed CRIT
     if (0.25 > bs.ignoreDefPct) bs.ignoreDefPct = 0.25;
     if (bs.currentTurn % 4 === 0) {
-      bs.nextAttackAutoCrit = true;
-      bs.log.push('🏹 Apollo\'s Silver Bow: Unerring Arrow — Guaranteed CRIT!');
+      bs.onAttack(() => {
+        bs.nextAttackAutoCrit = true;
+        bs.log.push('🏹 Apollo\'s Silver Bow: Unerring Arrow — Guaranteed CRIT!');
+      });
     }
   },
 
   // ── WEAPON PASSIVES — Supreme ────────────────────────────────────────────
 
   'mjolnir': (bs) => {
-    // [Jun-2026 §4] +30% damage every turn; every 3rd turn: +200% damage crush
-    // (ATK-mult lane, mitigated). Was +20% / every 4th.
-    bs.playerAtkMult += 0.30;
-    if (bs.currentTurn % 3 === 0) {
-      bs.playerAtkMult += 2.00;
-      bs.log.push('⚡ Mjolnir: Crushing Force — CRUSH! +200% ATK!');
-    } else {
-      bs.log.push('⚡ Mjolnir: Crushing Force — +30% ATK bonus!');
-    }
+    // [Jun-2026 §4] Actual attacks gain +30%; every 3rd gets +200% more.
+    bs.onAttack(() => {
+      bs.playerAtkMult += 0.30;
+      if (bs.currentTurn % 3 === 0) {
+        bs.playerAtkMult += 2.00;
+        bs.log.push('⚡ Mjolnir: Crushing Force — CRUSH! +200% ATK!');
+      } else {
+        bs.log.push('⚡ Mjolnir: Crushing Force — +30% ATK bonus!');
+      }
+    });
   },
 
   'gungnir': (bs) => {
-    // [v5] Never Misses — Ignores 40% of enemy DEF; 25% chance to pierce ALL DEF (zero mitigation).
+    // [v5] Ignores 40% DEF; each actual attack has a 25% full-pierce chance.
     if (0.40 > bs.ignoreDefPct) bs.ignoreDefPct = 0.40;
-    if (bs.rng() < 0.25) {
-      bs.flags.gungnir_full_pierce = true; // engine zeroes enemy DEF for this hit
-      bs.log.push('🏹 Gungnir: Never Misses — ALL DEF PIERCED!');
-    }
+    bs.onAttack(() => {
+      bs.flags.gungnir_full_pierce = bs.rng() < 0.25;
+      if (bs.flags.gungnir_full_pierce) {
+        bs.log.push('🏹 Gungnir: Never Misses — ALL DEF PIERCED!');
+      }
+    });
   },
 
   'thunderbolt_of_zeus': (bs) => {
-    // [v5] Divine Thunder — on a CRIT: +100% bonus ATK and paralyze 1 turn. Crit-gated only
-    // (the pre-roll latch crit_landed_this_hit marks this round's main hit as a crit).
-    if (bs.flags.crit_landed_this_hit) {
-      bs.playerAtkMult += 1.00;
-      if (!bs.enemyImmune('paralyze')) {
-        bs.applyDebuff('paralyze', 1);
-      }
-      bs.log.push('⚡ Thunderbolt of Zeus: Divine Thunder — +100% ATK + Paralyze!');
-    }
+    // The engine evaluates the final landed crit (including guaranteed crits and evasion)
+    // so the damage rider and Paralyze cannot trigger from a pre-roll alone.
+    bs.flags.thunderbolt_on_crit = true;
   },
 
   'trident_of_poseidon': (bs) => {
-    // [Jun-2026 §4] Every 2nd turn (was 3rd): +100% damage; 30% chance stun 1 turn (was 25%); enemy DEF -20% 1 turn
+    // [Jun-2026 §4] Every 2nd actual attack: +100%; landed hit rolls 30% stun
+    // and applies DEF -20% for 1 turn.
     if (bs.currentTurn % 2 === 0) {
-      bs.playerAtkMult += 1.00;
-      if (bs.rng() < 0.30 && !bs.enemyImmune('stun')) {
-        bs.applyDebuff('stun', 1);
-        bs.log.push('🔱 Trident of Poseidon: Tidal Wrath — +100% ATK, Stun!');
-      } else {
+      let stunProc = false;
+      bs.onAttack(() => {
+        bs.playerAtkMult += 1.00;
+        stunProc = bs.rng() < 0.30;
         bs.log.push('🔱 Trident of Poseidon: Tidal Wrath — +100% ATK!');
-      }
-      if (!bs.enemyImmune('def_down')) {
-        bs.applyDebuff('def_down', 1, 0.20);
-        bs.log.push('🔱 Trident of Poseidon: Enemy DEF -20%!');
-      }
+      });
+      bs.onLandedHit(() => {
+        const stunned = stunProc
+          && !bs.enemyImmune('stun')
+          && bs.applyDebuff('stun', 1);
+        const shredded = !bs.enemyImmune('def_down')
+          && bs.applyDebuff('def_down', LANDED_STAT_DEBUFF_TURNS, 0.20);
+        if (stunned) bs.log.push('🔱 Trident of Poseidon: Enemy Stunned!');
+        if (shredded) bs.log.push('🔱 Trident of Poseidon: Enemy DEF -20%!');
+      });
     }
   },
 

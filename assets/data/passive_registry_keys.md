@@ -18,7 +18,7 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `reinforced_targe` — Opening Strike: The first hit deals +20% ATK.
 - `recurve_bow` — Precise Shot: 10% chance to deal a +20% ATK bonus hit.
 - `crossbow` — Piercing Opener: The first hit deals +20% ATK and ignores 25% of enemy DEF.
-- `katana` — Lethal Edge: Critical hits deal +30% bonus damage on top of the ×2.0 multiplier (×2.30 total).
+- `katana` — Lethal Edge: Deals +30% damage to every attack (×1.30 on a normal hit; ×2.30 on a critical hit).
 - `gladius` — Brutal Swing: 30% chance to deal +50% bonus ATK.
 - `scimitar` — Rising Slash: ATK +3% every turn, stacking up to 15%.
 - `roman_cestus` — Executioner: Deals 50% more damage to stunned enemies.
@@ -70,10 +70,10 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `helm_of_darkness` — Invisibility: [v5 Supreme armor] 30% chance each turn to reduce enemy DEF by 50% for 2 turns.
 - `aegis` — Medusa's Gaze: [v5 Supreme armor] 50% chance on hit to add a Stone stack; at 3 stacks, stuns for 1 turn, then resets.
 - `apollos_silver_bow` — Unerring Arrow: Ignores 25% of enemy DEF; every 4th turn, the attack is a guaranteed CRIT.
-- `mjolnir` — Crushing Force: Deals +20% bonus ATK every turn; every 4th turn, lands a 200% ATK crush.
+- `mjolnir` — Crushing Force: Attacks deal +30% ATK; every 3rd turn, the attack deals an additional +200% ATK.
 - `gungnir` — Never Misses: Ignores 40% of enemy DEF; 25% chance to pierce all DEF (zero mitigation).
 - `thunderbolt_of_zeus` — Divine Thunder: on a CRIT, deal +100% bonus ATK and paralyze for 1 turn.
-- `trident_of_poseidon` — Tidal Wrath: Every 3rd turn, deals +100% bonus ATK and reduces enemy DEF by 20% for 1 turn, with a 25% chance to stun for 1 turn.
+- `trident_of_poseidon` — Tidal Wrath: Every 2nd turn, deals +100% bonus ATK and reduces enemy DEF by 20% for 1 turn, with a 30% chance to stun for 1 turn.
 
 ## ARMOR passives (armor_roster.passive_key) — [v5]
 
