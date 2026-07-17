@@ -1282,7 +1282,7 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
   check('scheduled boss progress refresh uses the coalesced status renderer',
     /refreshLiveMessageProgress/.test(scheduledRefresh)
       && !/refreshLiveMessage\(client, guildId\)/.test(scheduledRefresh));
-  const progressRefresh = /async function refreshLiveMessageProgress[\s\S]*?\n\}\n\nfunction scheduleBossLiveRefresh/.exec(bossSource)?.[0] || '';
+  const progressRefresh = /async function refreshLiveMessageProgress[\s\S]*?\r?\n\}\r?\n\r?\nfunction scheduleBossLiveRefresh/.exec(bossSource)?.[0] || '';
   check('surviving boss attacks keep the Canvas status image',
     /includeStatusImage = bossImageRefreshEnabled\(\)/.test(progressRefresh)
       && /includeStatusImage,/.test(progressRefresh)
