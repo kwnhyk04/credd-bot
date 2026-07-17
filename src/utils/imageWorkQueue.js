@@ -3,7 +3,7 @@
 const v8 = require('v8');
 const { registerMemorySource } = require('./memoryRegistry');
 
-const { envBool, envPositiveInt, performanceLog } = require('./runtimeLogs');
+const { envPositiveInt, performanceLog, commandMemoryLogsEnabled } = require('./runtimeLogs');
 const { getNetworkContext } = require('./networkTelemetry');
 
 const queue = [];
@@ -75,7 +75,7 @@ function safeErrorField(value, fallback) {
 }
 
 function logRendererMemory(event) {
-  if (!envBool('RESOURCE_LOGS', true)) return;
+  if (!commandMemoryLogsEnabled()) return;
   try {
     console.log(`[renderer-memory] ${JSON.stringify(event)}`);
   } catch {

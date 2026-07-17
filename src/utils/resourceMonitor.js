@@ -5,7 +5,10 @@ const { getAssetCacheStats } = require('./assets');
 const { getCanvasCacheStats } = require('./canvasCache');
 const { getImageWorkQueueStats } = require('./imageWorkQueue');
 const { getProfileImageCacheStats } = require('./profileImageCache');
-const { envBool, envInt, metaString } = require('./runtimeLogs');
+const {
+  envBool, envInt, metaString,
+  cacheMetricsLogsEnabled, networkUsageLogsEnabled,
+} = require('./runtimeLogs');
 const { memorySourceSnapshots } = require('./memoryRegistry');
 const { takeNetworkTelemetrySnapshot } = require('./networkTelemetry');
 const { getBattleBaseCacheStats } = require('../engine/battleLayoutRenderer');
@@ -194,6 +197,7 @@ function resourceSnapshot() {
     heapTotal: mb(mem.heapTotal),
     external: mb(mem.external),
     arrayBuffers: mb(mem.arrayBuffers),
+    heapLimit: mb(v8Stats.heap.heapSizeLimit),
     rssDelta: mb(rssDelta),
     rssPeak: mb(peakRss),
     maxRss: mb((process.resourceUsage?.().maxRSS || 0) * 1024),
@@ -239,11 +243,12 @@ function resourceSnapshot() {
 
 function logResourceSnapshot() {
   const snapshot = resourceSnapshot();
-  console.log(`[resource]${metaString(snapshot)} details=${JSON.stringify({
+  const details = {
     units: 'MB',
     memory: {
       heapUsed: snapshot.heapUsed,
       heapTotal: snapshot.heapTotal,
+      heapLimit: snapshot.heapLimit,
       rss: snapshot.rss,
       external: snapshot.external,
       arrayBuffers: snapshot.arrayBuffers,
@@ -262,17 +267,24 @@ function logResourceSnapshot() {
       limit: snapshot.queueLimit,
     },
     discord: snapshot.discord,
-    caches: snapshot.caches,
-    cacheEstimates: snapshot.cacheEstimates,
     processMemoryBytes: snapshot.processMemory,
     v8: snapshot.v8,
-    network: snapshot.network,
-    postgresNetwork: snapshot.pgNetwork,
     loadedModules: snapshot.loadedModules,
     activity: snapshot.activity,
     activeResources: snapshot.activeResources,
     resourceTypes: JSON.parse(snapshot.resourceTypes),
-  })}`);
+  };
+  // Optional sub-gates; both default to the RESOURCE_LOGS master gate, so the
+  // emitted record is unchanged unless a sub-gate is explicitly disabled.
+  if (cacheMetricsLogsEnabled()) {
+    details.caches = snapshot.caches;
+    details.cacheEstimates = snapshot.cacheEstimates;
+  }
+  if (networkUsageLogsEnabled()) {
+    details.network = snapshot.network;
+    details.postgresNetwork = snapshot.pgNetwork;
+  }
+  console.log(`[resource]${metaString(snapshot)} details=${JSON.stringify(details)}`);
   if (snapshot.rss >= 600 && !warned600) {
     console.warn(`[resource] RSS CRITICAL threshold=600MB${metaString(snapshot)}`);
     warned600 = true;

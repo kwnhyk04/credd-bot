@@ -62,12 +62,32 @@ function envBoundedInt(name, fallback, min, max) {
   return envInt(name, fallback, { min, max });
 }
 
+// Optional telemetry sub-gates. Each falls back to the RESOURCE_LOGS master
+// gate when its own variable is unset, so default log output is unchanged.
+function telemetrySubGate(name) {
+  const raw = envRaw(name);
+  if (!raw) return envBool('RESOURCE_LOGS', true);
+  return envBool(name, true);
+}
+
+function commandMemoryLogsEnabled() {
+  return telemetrySubGate('COMMAND_MEMORY_LOGS');
+}
+
+function cacheMetricsLogsEnabled() {
+  return telemetrySubGate('CACHE_METRICS_LOGS');
+}
+
+function networkUsageLogsEnabled() {
+  return telemetrySubGate('NETWORK_USAGE_LOGS');
+}
+
 function safeMeta(meta = {}) {
   const allowed = [
     'system', 'command', 'imageType', 'bytes', 'guildId', 'userId',
     'reason', 'status', 'durationMs', 'debounceMs', 'spawnId',
     'cache', 'name', 'originalBytes', 'optimizedBytes', 'format',
-    'queueWaitMs', 'renderMs', 'rss', 'heapUsed', 'heapTotal',
+    'queueWaitMs', 'renderMs', 'rss', 'heapUsed', 'heapTotal', 'heapLimit',
     'external', 'arrayBuffers', 'uptimeSec', 'userCpuMs', 'systemCpuMs',
     'entries', 'bufferEntries', 'imageEntries', 'diskHits', 'diskMisses',
     'throttleMs', 'poolKey', 'poolSize', 'candidateCount', 'count',
@@ -126,4 +146,7 @@ module.exports = {
   performanceLog,
   criticalEgressWarn,
   metaString,
+  commandMemoryLogsEnabled,
+  cacheMetricsLogsEnabled,
+  networkUsageLogsEnabled,
 };

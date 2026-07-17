@@ -3,7 +3,7 @@
 const v8 = require('v8');
 const sharp = require('sharp');
 const canvasRuntime = require('@napi-rs/canvas');
-const { envBool, envInt, envPositiveInt } = require('./runtimeLogs');
+const { envBool, envInt, envPositiveInt, commandMemoryLogsEnabled } = require('./runtimeLogs');
 const { registerMemorySource } = require('./memoryRegistry');
 
 let configured = false;
@@ -62,7 +62,7 @@ function canvasContext() {
 }
 
 function logCanvasLifecycle(record, beforeRelease, afterRelease) {
-  if (!record?.beforeCreate || !envBool('RESOURCE_LOGS', true)) return;
+  if (!record?.beforeCreate || !commandMemoryLogsEnabled()) return;
   try {
     console.log(`[renderer-memory] ${JSON.stringify({
       kind: 'canvas-lifecycle',
@@ -129,7 +129,7 @@ function installCanvasTracker() {
     : null;
 
   canvasRuntime.createCanvas = function trackedCreateCanvas(...args) {
-    const telemetryEnabled = envBool('RESOURCE_LOGS', true);
+    const telemetryEnabled = commandMemoryLogsEnabled();
     const beforeCreate = telemetryEnabled ? canvasMemoryPoint() : null;
     const canvas = state.originalCreateCanvas.apply(this, args);
     const record = {
