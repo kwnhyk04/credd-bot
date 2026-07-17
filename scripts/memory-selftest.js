@@ -66,8 +66,22 @@ async function main() {
     ));
   }
   const concurrent = snapshot('16-queued-concurrent-images');
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-  const idle = snapshot('idle-1s');
+  // Settle-poll instead of a fixed 1s sleep: the renderer's quiescent native
+  // cache clear fires 1s after the last render, and V8's external-pressure GC
+  // collects the canvas wrappers shortly after idle begins. A snapshot taken at
+  // exactly 1000ms races both mechanisms and can read the pre-release plateau
+  // (~505 MB / 365 MB external) that fully collapses ~1.5s later. Poll until
+  // RSS stabilizes (or 15s worst case), then judge steady state.
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  await sleep(1000);
+  let idle = snapshot('idle-1s');
+  const settleStarted = Date.now();
+  while (idle.rssMb > 350 && Date.now() - settleStarted < 15_000) {
+    await sleep(500);
+    idle = snapshot('idle-settling');
+  }
+  idle.phase = 'idle-settled';
+  idle.settleMs = 1000 + (Date.now() - settleStarted);
   const growthMb = idle.rssMb - repeated.rssMb;
   if (growthMb > 160) {
     throw new Error(`RSS kept growing after warm-up by ${growthMb} MB`);
