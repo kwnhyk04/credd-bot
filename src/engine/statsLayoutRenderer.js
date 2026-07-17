@@ -619,10 +619,29 @@ function reflowStatsText(layout) {
 
 function applyLayoutOverrides(layout, overrides) {
   if (!overrides) return layout;
-  return Object.fromEntries(Object.entries({ ...layout, ...overrides }).map(([key, value]) => [
+  const { right_panel_x_offset: rightPanelXOffset = 0, ...sectionOverrides } = overrides;
+  const result = Object.fromEntries(Object.entries({ ...layout, ...sectionOverrides }).map(([key, value]) => [
     key,
-    layout[key] && overrides[key] ? { ...layout[key], ...overrides[key] } : value,
+    layout[key] && sectionOverrides[key] ? { ...layout[key], ...sectionOverrides[key] } : value,
   ]));
+  if (!rightPanelXOffset) return result;
+
+  const shift = (section) => (section ? { ...section, x: (section.x || 0) + rightPanelXOffset } : section);
+  return {
+    ...result,
+    name: shift(result.name),
+    stats_label: shift(result.stats_label),
+    record_label: shift(result.record_label),
+    quote: shift(result.quote),
+    stats: result.stats && {
+      ...result.stats,
+      cols: result.stats.cols?.map((column) => ({ ...column, x: column.x + rightPanelXOffset })),
+    },
+    record: result.record && {
+      ...result.record,
+      cols: result.record.cols?.map((column) => ({ ...column, x: column.x + rightPanelXOffset })),
+    },
+  };
 }
 
 async function renderStatsLayoutImage(d, options = {}) {

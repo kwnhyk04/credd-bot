@@ -141,9 +141,10 @@ const TESTER_PROFILE_VARIANTS = Object.freeze([
     // centered in its frame and the record/quote clear the lower ornament.
     stats_layout_overrides: Object.freeze({
       avatar: Object.freeze({ x: 220 }),
-      record_label: Object.freeze({ y: 670 }),
-      record: Object.freeze({ y: 694 }),
-      quote: Object.freeze({ y: 770 }),
+      right_panel_x_offset: 24,
+      record_label: Object.freeze({ y: 704 }),
+      record: Object.freeze({ y: 730 }),
+      quote: Object.freeze({ y: 790 }),
     }),
   }),
 ]);

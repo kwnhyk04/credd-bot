@@ -277,9 +277,10 @@ async function main() {
     profileSkinLayoutOverrides(profile2Url, 'stats'),
     {
       avatar: { x: 220 },
-      record_label: { y: 670 },
-      record: { y: 694 },
-      quote: { y: 770 },
+      right_panel_x_offset: 24,
+      record_label: { y: 704 },
+      record: { y: 730 },
+      quote: { y: 790 },
     },
     'crd stats must apply tester2 geometry corrections over the shared R2 layout'
   );
