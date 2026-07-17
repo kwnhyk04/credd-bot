@@ -9,17 +9,17 @@ UPDATE deity_roster
    AND blessing_key = 'sidapa_deaths_reprieve';
 
 UPDATE deity_roster
-   SET blessing_description = 'Each attack has a 30% chance to Freeze the enemy (skips its next turn). After the Freeze ends, the enemy suffers Frostbite, taking more +50% damage for 1 turn.'
+   SET blessing_description = 'Each attack has a 30% chance to Freeze the enemy, causing it to skip its next turn. After Freeze ends, the enemy suffers Frostbite, taking 50% more damage for 1 turn.'
  WHERE name = 'Skadi'
    AND blessing_key = 'skadi_winters_hunt';
 
 UPDATE deity_roster
-   SET blessing_description = 'Each attack has a 30% chance to Stun the enemy and applies Paralyze for 3 turns. Enemy takes paralysis damage equal to 20% of the user''s base ATK each turn and has a 10% chance per turn to skip that turn.'
+   SET blessing_description = 'Each attack has a 30% chance to Stun the enemy and Paralyze it for 3 turns. While Paralyzed, the enemy takes damage equal to 20% of the user''s base ATK each turn and has a 10% chance to skip its turn.'
  WHERE name = 'Thor'
    AND blessing_key = 'thor_mjolnirs_wrath';
 
 UPDATE deity_roster
-   SET blessing_description = 'Every attack applies Burn equal to 10% of the user''s base ATK for 1 turn.'
+   SET blessing_description = 'Each attack burns the enemy for 10% of the user''s base ATK for 1 turn.'
  WHERE name = 'Apolaki'
    AND blessing_key = 'apolaki_solar_burn';
 
@@ -36,9 +36,9 @@ BEGIN
       INTO exact_matches
       FROM (VALUES
         ('Sidapa', 'sidapa_deaths_reprieve', 'Once per battle, the first lethal hit leaves the user at 1 HP. The user then heals 30% max HP and gains +50% ATK for the rest of the battle.'),
-        ('Skadi', 'skadi_winters_hunt', 'Each attack has a 30% chance to Freeze the enemy (skips its next turn). After the Freeze ends, the enemy suffers Frostbite, taking more +50% damage for 1 turn.'),
-        ('Thor', 'thor_mjolnirs_wrath', 'Each attack has a 30% chance to Stun the enemy and applies Paralyze for 3 turns. Enemy takes paralysis damage equal to 20% of the user''s base ATK each turn and has a 10% chance per turn to skip that turn.'),
-        ('Apolaki', 'apolaki_solar_burn', 'Every attack applies Burn equal to 10% of the user''s base ATK for 1 turn.'),
+        ('Skadi', 'skadi_winters_hunt', 'Each attack has a 30% chance to Freeze the enemy, causing it to skip its next turn. After Freeze ends, the enemy suffers Frostbite, taking 50% more damage for 1 turn.'),
+        ('Thor', 'thor_mjolnirs_wrath', 'Each attack has a 30% chance to Stun the enemy and Paralyze it for 3 turns. While Paralyzed, the enemy takes damage equal to 20% of the user''s base ATK each turn and has a 10% chance to skip its turn.'),
+        ('Apolaki', 'apolaki_solar_burn', 'Each attack burns the enemy for 10% of the user''s base ATK for 1 turn.'),
         ('Baldur', 'baldur_invulnerability', 'Once per battle, the first time the user is debuffed or drops below 50% HP, remove all debuffs, restore 15% max HP, and reduce damage taken by 50% for 1 turn.')
       ) AS expected(name, blessing_key, description)
       JOIN deity_roster AS roster
