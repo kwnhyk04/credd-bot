@@ -9,8 +9,15 @@ const seasonEngine = require('../engine/seasonEngine');
  * rolloverIfDue is idempotent: it only acts when the active season's window has
  * ended, so a daily tick is enough to catch a 2-month boundary.
  */
+// Restart-safe start/stop: one cron task, one stable stop function.
+let started = false;
+let task = null;
+let stopFn = null;
+
 function startSeasonScheduler() {
-  const task = cron.schedule('5 0 * * *', async () => {
+  if (started) return stopFn;
+  started = true;
+  task = cron.schedule('5 0 * * *', async () => {
     try {
       const res = await seasonEngine.rolloverIfDue(pool);
       if (res.rolled) {
@@ -21,7 +28,14 @@ function startSeasonScheduler() {
     }
   }, { timezone: 'Asia/Manila' });
   console.log('[seasonScheduler] started (daily 00:05 PHT).');
-  return () => task.stop();
+  stopFn = () => {
+    if (task) {
+      task.stop();
+      task = null;
+    }
+    started = false;
+  };
+  return stopFn;
 }
 
 module.exports = { startSeasonScheduler };

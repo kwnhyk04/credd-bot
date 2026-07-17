@@ -32,17 +32,32 @@ async function reapStaleBattles(reason = 'periodic') {
   }
 }
 
+// Restart-safe start/stop: one timer, one stable stop function.
+let started = false;
+let interval = null;
+let stopFn = null;
+
 /**
  * On startup: delete only stale active_battles rows.
  * Then start the periodic reaper.
  */
 async function startBattleReaper() {
+  if (started) return stopFn;
+  started = true;
+  stopFn = () => {
+    if (interval) {
+      clearInterval(interval);
+      interval = null;
+    }
+    started = false;
+  };
   await reapStaleBattles('startup cleanup');
+  if (!started) return stopFn; // stopped while the startup cleanup was awaiting
 
   // Periodic reaper
-  const interval = setInterval(reapStaleBattles, REAPER_INTERVAL_MS);
+  interval = setInterval(reapStaleBattles, REAPER_INTERVAL_MS);
   console.log(`[battleReaper] Periodic battle reaper started (every 1 min, threshold ${STALE_BATTLE_MINUTES} min).`);
-  return () => clearInterval(interval);
+  return stopFn;
 }
 
 module.exports = { startBattleReaper };

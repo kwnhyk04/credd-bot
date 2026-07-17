@@ -20,7 +20,14 @@ const { beginActivity } = require('../utils/networkTelemetry');
 
 const TICK_MS = 60_000;
 
+// Restart-safe start/stop: one timer, one stable stop function.
+let started = false;
+let interval = null;
+let stopFn = null;
+
 function startBossScheduler(client) {
+  if (started) return stopFn;
+  started = true;
   let ticking = false;
   const tick = async () => {
     if (ticking) return;
@@ -40,10 +47,17 @@ function startBossScheduler(client) {
     }
   };
 
-  const interval = setInterval(tick, TICK_MS);
+  interval = setInterval(tick, TICK_MS);
   tick(); // startup pass (recover overdue transitions immediately)
   console.log('[bossScheduler] Boss scheduler started (every 60s, official support server only, bosses remain until defeated).');
-  return () => clearInterval(interval);
+  stopFn = () => {
+    if (interval) {
+      clearInterval(interval);
+      interval = null;
+    }
+    started = false;
+  };
+  return stopFn;
 }
 
 module.exports = { startBossScheduler };

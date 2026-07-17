@@ -14,10 +14,17 @@ const { rollQuestsIfMissing } = require('../utils/questProgress');
  *   - daily_quests rollover: delete old quests so next command re-rolls for new day
  *     (actual quest generation happens in the daily/quests command logic in Phase 8)
  */
+// Restart-safe start/stop: one cron task, one stable stop function.
+let started = false;
+let task = null;
+let stopFn = null;
+
 function startResetScheduler() {
+  if (started) return stopFn;
+  started = true;
   // With timezone 'Asia/Manila', the cron expression is evaluated in PHT,
   // so '0 0 * * *' = 00:00 PHT (midnight). (NOT '0 16' — that would be 16:00 PHT.)
-  const task = cron.schedule('0 0 * * *', async () => {
+  task = cron.schedule('0 0 * * *', async () => {
     console.log('[resetScheduler] Running midnight PHT reset...');
     const client = await pool.connect();
     try {
@@ -71,7 +78,14 @@ function startResetScheduler() {
   });
 
   console.log('[resetScheduler] Midnight PHT reset scheduler started.');
-  return () => task.stop();
+  stopFn = () => {
+    if (task) {
+      task.stop();
+      task = null;
+    }
+    started = false;
+  };
+  return stopFn;
 }
 
 /**
