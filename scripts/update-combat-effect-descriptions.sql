@@ -18,7 +18,7 @@ BEGIN
               ('weapon', 'thyrsus', 'Each turn has a 20% chance to apply Bleed equal to 5% of the user''s base ATK per turn for 2 turns.'),
               ('weapon', 'alans_reversed_hands', 'Immune to all status effects. Does not prevent damage-over-time effects.'),
               ('weapon', 'babaylans_ritual_staff', 'Each turn has a 50% chance to remove all active debuffs, including status and damage-over-time effects. If at least one debuff is removed, gain +100% ATK for 1 turn. Positive buffs are not removed.'),
-              ('deity', 'apolaki_solar_burn', 'Every landed hit applies Burn equal to 10% of the user''s base ATK. The Burn deals 1 tick, then expires; later landed hits refresh it.'),
+              ('deity', 'apolaki_solar_burn', 'Every attack applies Burn equal to 10% of the user''s base ATK for 1 turn.'),
               ('deity', 'surt_muspells_flame', 'Every landed hit adds Burn equal to 5% of the user''s base ATK per turn for 2 turns, stacking up to 30%. Against an already-burning enemy, attacks deal +50% bonus damage.')
           ) AS updates(roster_type, registry_key, description)
          ORDER BY updates.roster_type, updates.registry_key

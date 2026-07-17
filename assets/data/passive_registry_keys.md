@@ -97,7 +97,7 @@ new and defensive:
 - `sidapa_deaths_reprieve` — Death's Reprieve: Once per battle, the first lethal hit leaves the user at 1 HP. The user then heals 30% max HP and gains +50% ATK for the rest of the battle.
 - `magwayen_soul_drain` — Soul Drain: Heals 15% of all damage dealt. When an enemy is defeated, recover 20% max HP as their soul is claimed.
 - `mandarangan_war_frenzy` — War Frenzy: End of each turn: +10% ATK, stacking up to +50% (reached turn 5). Stacks persist all battle.
-- `apolaki_solar_burn` — Solar Burn: Every landed hit applies Burn equal to 10% of the user's base ATK. The Burn deals 1 tick, then expires; later landed hits refresh it.
+- `apolaki_solar_burn` — Solar Burn: Every attack applies Burn equal to 10% of the user's base ATK for 1 turn.
 - `mayari_lunar_veil` — Lunar Veil: While below 50% HP, DEF +30% and reflect 15% of damage taken.
 - `dian_masalanta_devotion` — Devotion: While below 50% HP, ATK +30% and heal 4% max HP each turn.
 - `amihan_tailwind` — Tailwind: 20% chance to evade any incoming attack. Each successful evade grants +20% ATK to her next attack.
@@ -105,11 +105,11 @@ new and defensive:
 - `lakapati_abundance` — Abundance: Regenerates 3% max HP at the start of each turn.
 - `idiyanale_persistence` — Persistence: Every 3rd turn, the next attack deals +75% more damage.
 - `odin_all_fathers_wisdom` — All-Father's Wisdom: On every even turn (2, 4, 6…), takes 50% reduced damage.
-- `thor_mjolnirs_wrath` — Mjolnir's Wrath: Each attack has a 30% chance to Stun the enemy (skips its next turn) and applies Paralyze for 3 turns. While paralyzed, the enemy takes paralysis damage equal to 20% of the user's base ATK each turn and has a 10% chance per turn to skip that turn.
+- `thor_mjolnirs_wrath` — Mjolnir's Wrath: Each attack has a 30% chance to Stun the enemy and applies Paralyze for 3 turns. Enemy takes paralysis damage equal to 20% of the user's base ATK each turn and has a 10% chance per turn to skip that turn.
 - `freya_valkyries_embrace` — Valkyrie's Embrace: ATK +30% for the whole battle. Once per battle, at 40% HP or below, restore 20% max HP.
 - `loki_illusory_double` — Illusory Double: 25% chance each turn to evade an attack and counter for 100% ATK.
 - `tyr_oathkeeper` — Oathkeeper: DEF +30% for the whole battle; while below 50% HP, reflects 20% of incoming damage.
-- `skadi_winters_hunt` — Winter's Hunt: Each turn, the user's attack has a 30% chance to Freeze the enemy (skips its next turn). After the Freeze ends, the enemy suffers Frostbite, taking +50% damage from all sources for 1 turn.
+- `skadi_winters_hunt` — Winter's Hunt: Each attack has a 30% chance to Freeze the enemy (skips its next turn). After the Freeze ends, the enemy suffers Frostbite, taking more +50% damage for 1 turn.
 - `surt_muspells_flame` — Muspell's Flame: Every landed hit adds Burn equal to 5% of the user's base ATK per turn for 2 turns, stacking up to 30%. Against an already-burning enemy, attacks deal +50% bonus damage.
 - `heimdall_eternal_vigilance` — Eternal Vigilance: The first hit taken each battle is reduced by 50%. For the rest of the battle, damage from incoming critical hits is reduced by 30%.
 - `baldur_invulnerability` — Invulnerability: Once per battle, the first time the user is debuffed or drops below 50% HP, remove all debuffs, restore 15% max HP, and reduce damage taken by 50% for 1 turn.
