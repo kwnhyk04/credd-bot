@@ -5,6 +5,11 @@
 
 BEGIN;
 
+DO $passive_updates$
+DECLARE
+    target RECORD;
+    affected INTEGER;
+BEGIN
 CREATE TEMP TABLE _final_passive_updates (
     roster_type TEXT NOT NULL CHECK (roster_type IN ('deity', 'weapon')),
     roster_name TEXT NOT NULL,
@@ -60,11 +65,6 @@ VALUES
     ('weapon', 'Sword of Damocles', 'sword_of_damocles', 'ATK +5% every turn, stacking up to +100%. While any stacks are active, you take +10% damage.'),
     ('weapon', 'Tyrfing', 'tyrfing', 'ATK +10% every turn, stacking up to +30%. Once the enemy drops below 30% HP, the curse takes hold: your attacks can no longer miss or be evaded.');
 
-DO $passive_updates$
-DECLARE
-    target RECORD;
-    affected INTEGER;
-BEGIN
     IF (SELECT COUNT(*) FROM _final_passive_updates WHERE roster_type = 'deity') <> 38
        OR (SELECT COUNT(*) FROM _final_passive_updates WHERE roster_type = 'weapon') <> 5 THEN
         RAISE EXCEPTION 'Expected 38 deity and 5 weapon passive updates';
@@ -97,11 +97,6 @@ BEGIN
                 target.roster_type, target.roster_name, target.registry_key, affected;
         END IF;
     END LOOP;
-END
-$passive_updates$;
-
-DO $passive_verification$
-BEGIN
     IF EXISTS (
         SELECT 1
           FROM _final_passive_updates AS update_row
@@ -125,51 +120,7 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'One or more weapon passive descriptions failed exact verification';
     END IF;
-END
-$passive_verification$;
-
--- Updated rows, for review before COMMIT is returned to the client.
-SELECT 'deity' AS roster_type,
-       roster.name AS roster_name,
-       roster.blessing_key AS registry_key,
-       roster.blessing_description AS description
-  FROM deity_roster AS roster
-  JOIN _final_passive_updates AS update_row
-    ON update_row.roster_type = 'deity'
-   AND update_row.roster_name = roster.name
-   AND update_row.registry_key = roster.blessing_key
-UNION ALL
-SELECT 'weapon' AS roster_type,
-       roster.name AS roster_name,
-       roster.passive_key AS registry_key,
-       roster.passive_description AS description
-  FROM weapon_roster AS roster
-  JOIN _final_passive_updates AS update_row
-    ON update_row.roster_type = 'weapon'
-   AND update_row.roster_name = roster.name
-   AND update_row.registry_key = roster.passive_key
-ORDER BY roster_type, roster_name;
-
--- Roster entries intentionally untouched by this patch.
-SELECT 'deity' AS roster_type, roster.name AS roster_name, roster.blessing_key AS registry_key
-  FROM deity_roster AS roster
- WHERE NOT EXISTS (
-       SELECT 1
-         FROM _final_passive_updates AS update_row
-        WHERE update_row.roster_type = 'deity'
-          AND update_row.roster_name = roster.name
-          AND update_row.registry_key = roster.blessing_key
- )
-UNION ALL
-SELECT 'weapon' AS roster_type, roster.name AS roster_name, roster.passive_key AS registry_key
-  FROM weapon_roster AS roster
- WHERE NOT EXISTS (
-       SELECT 1
-         FROM _final_passive_updates AS update_row
-        WHERE update_row.roster_type = 'weapon'
-          AND update_row.roster_name = roster.name
-          AND update_row.registry_key = roster.passive_key
- )
-ORDER BY roster_type, roster_name;
+END;
+$passive_updates$;
 
 COMMIT;

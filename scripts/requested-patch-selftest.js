@@ -483,6 +483,13 @@ async function main() {
   const passiveData = fs.readFileSync(path.join(__dirname, '..', 'assets', 'data', 'passive_registry_keys.md'), 'utf8');
   const passiveSql = fs.readFileSync(path.join(__dirname, 'final-passive-description-updates.sql'), 'utf8');
   const userWordingSql = fs.readFileSync(path.join(__dirname, 'update-user-passive-descriptions.sql'), 'utf8');
+  assert(
+    passiveSql.indexOf('DO $passive_updates$') >= 0
+      && passiveSql.indexOf('DO $passive_updates$') < passiveSql.indexOf('CREATE TEMP TABLE _final_passive_updates'),
+    'final passive update must create and consume its temporary table inside one DO block',
+  );
+  assert(!passiveSql.includes('DO $passive_verification$'),
+    'final passive verification must run inside the same DO block as its temporary table');
   const passiveLineByKey = new Map(
     [...passiveData.matchAll(/^- `([^`]+)` — ([^\r\n]+)$/gm)].map((match) => [match[1], match[2]]),
   );
