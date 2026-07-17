@@ -280,9 +280,9 @@ async function main() {
       right_panel_x_offset: 24,
       stats_label: { y: 570 },
       stats: { y: 606 },
-      record_label: { y: 654 },
-      record: { y: 680 },
-      quote: { y: 740 },
+      record_label: { y: 640 },
+      record: { y: 665 },
+      quote: { y: 750 },
     },
     'crd stats must apply tester2 geometry corrections over the shared R2 layout'
   );

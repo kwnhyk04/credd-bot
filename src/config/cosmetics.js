@@ -144,9 +144,9 @@ const TESTER_PROFILE_VARIANTS = Object.freeze([
       right_panel_x_offset: 24,
       stats_label: Object.freeze({ y: 570 }),
       stats: Object.freeze({ y: 606 }),
-      record_label: Object.freeze({ y: 654 }),
-      record: Object.freeze({ y: 680 }),
-      quote: Object.freeze({ y: 740 }),
+      record_label: Object.freeze({ y: 640 }),
+      record: Object.freeze({ y: 665 }),
+      quote: Object.freeze({ y: 750 }),
     }),
   }),
 ]);
