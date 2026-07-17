@@ -67,7 +67,10 @@ async function execute(message, { args }) {
     session,
     balanceBefore: debit.before,
     held: debit.after,
-    message: null,
+    // Only ids are retained — never the full Discord Message object — so the
+    // wrap cannot pin embeds/attachments/components for the session lifetime.
+    channel: null,
+    messageId: null,
     timer: null,
     resolving: false,
     settled: false,
@@ -80,13 +83,17 @@ async function execute(message, { args }) {
       // Natural on the deal → settle and show the final card immediately.
       const after = await settleMoney(wrap);
       const fin = await render.buildBlackjack({ mode: 'final', uid, bet: v.amount, session, balance: after });
-      wrap.message = await message.reply({ ...fin, allowedMentions: { repliedUser: false } });
-      await sessionStore.attachMessage(debit.sessionId, { channelId: message.channel.id, messageId: wrap.message.id }).catch(() => {});
+      const sent = await message.reply({ ...fin, allowedMentions: { repliedUser: false } });
+      wrap.channel = sent.channel;
+      wrap.messageId = sent.id;
+      await sessionStore.attachMessage(debit.sessionId, { channelId: message.channel.id, messageId: sent.id }).catch(() => {});
       sessions.delete(uid);
     } else {
       const active = await render.buildBlackjack({ mode: 'active', uid, bet: v.amount, session, balance: debit.after });
-      wrap.message = await message.reply({ ...active, allowedMentions: { repliedUser: false } });
-      await sessionStore.attachMessage(debit.sessionId, { channelId: message.channel.id, messageId: wrap.message.id }).catch(() => {});
+      const sent = await message.reply({ ...active, allowedMentions: { repliedUser: false } });
+      wrap.channel = sent.channel;
+      wrap.messageId = sent.id;
+      await sessionStore.attachMessage(debit.sessionId, { channelId: message.channel.id, messageId: sent.id }).catch(() => {});
       armTimer(wrap);
     }
   } catch (err) {
@@ -101,7 +108,7 @@ async function handleButton(interaction, action, ownerId) {
     return interaction.reply({ content: 'This is not your game.', flags: MessageFlags.Ephemeral }).catch(() => {});
   }
   const wrap = sessions.get(ownerId);
-  if (!wrap || wrap.message?.id !== interaction.message.id) {
+  if (!wrap || wrap.messageId !== interaction.message.id) {
     return interaction.reply({ content: 'This game has already ended.', flags: MessageFlags.Ephemeral }).catch(() => {});
   }
   if (wrap.resolving) return interaction.deferUpdate().catch(() => {});
@@ -155,7 +162,8 @@ async function handleButton(interaction, action, ownerId) {
 async function autoStand(wrap) {
   if (wrap.resolving || wrap.session.state === 'done') return;
   engine.stand(wrap.session);
-  await finalize(wrap, (p) => wrap.message.edit(p));
+  // Same REST route as Message#edit (PATCH /channels/:id/messages/:id).
+  await finalize(wrap, (p) => wrap.channel.messages.edit(wrap.messageId, p));
 }
 
 /** Credit the payout once (idempotent) and write the bracketing log row. */

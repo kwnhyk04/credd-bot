@@ -67,7 +67,10 @@ async function execute(message, { args }) {
     session,
     balanceBefore: debit.before,
     held: debit.after,
-    message: null,
+    // Only ids are retained — never the full Discord Message object — so the
+    // wrap cannot pin embeds/attachments/components for the session lifetime.
+    channel: null,
+    messageId: null,
     timer: null,
     resolving: false,
     createdAt: Date.now(),
@@ -76,8 +79,10 @@ async function execute(message, { args }) {
 
   try {
     const payload = await render.buildCrash({ uid, bet: v.amount, session, balance: debit.after });
-    wrap.message = await message.reply({ ...payload, allowedMentions: { repliedUser: false } });
-    await sessionStore.attachMessage(debit.sessionId, { channelId: message.channel.id, messageId: wrap.message.id }).catch(() => {});
+    const sent = await message.reply({ ...payload, allowedMentions: { repliedUser: false } });
+    wrap.channel = sent.channel;
+    wrap.messageId = sent.id;
+    await sessionStore.attachMessage(debit.sessionId, { channelId: message.channel.id, messageId: sent.id }).catch(() => {});
     armTimer(wrap);
   } catch (err) {
     clearTimer(wrap);
@@ -91,7 +96,7 @@ async function handleButton(interaction, action, ownerId) {
     return interaction.reply({ content: 'This is not your game.', flags: MessageFlags.Ephemeral }).catch(() => {});
   }
   const wrap = sessions.get(ownerId);
-  if (!wrap || wrap.message?.id !== interaction.message.id) {
+  if (!wrap || wrap.messageId !== interaction.message.id) {
     return interaction.reply({ content: 'This game has already ended.', flags: MessageFlags.Ephemeral }).catch(() => {});
   }
   if (wrap.resolving) return interaction.deferUpdate().catch(() => {});
@@ -159,7 +164,8 @@ async function handleButton(interaction, action, ownerId) {
 async function autoCashOut(wrap) {
   if (wrap.resolving || wrap.session.state !== 'active') return;
   engine.cashOut(wrap.session);
-  await resolve(wrap, (p) => wrap.message.edit(p));
+  // Same REST route as Message#edit (PATCH /channels/:id/messages/:id).
+  await resolve(wrap, (p) => wrap.channel.messages.edit(wrap.messageId, p));
 }
 
 async function resolve(wrap, applyEdit) {
