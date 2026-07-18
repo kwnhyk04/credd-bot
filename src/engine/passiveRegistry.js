@@ -408,8 +408,8 @@ const PASSIVE_REGISTRY = {
 
   // ── WEAPON PASSIVES — Legendary PH & Norse ──────────────────────────────
 
-  'juru_pakal': bonusVsState('enemy_is_bleeding', 0.30,
-    '⚔️ Juru Pakal: Bloodhunter — +30% vs bleeding enemy!'),
+  'juru_pakal': bonusVsState('enemy_is_bleeding', 0.50,
+    '⚔️ Juru Pakal: Bloodhunter — +50% vs bleeding enemy!'),
 
   'gram': (bs) => {
     // Ignores 25% of enemy DEF; actual attacks gain +30% above 80% enemy HP.

@@ -158,7 +158,7 @@ async function gearPage(kind, page) {
     const passive = g.passive_name && g.passive_name.toLowerCase() !== 'none'
       ? `-# ${g.passive_name}: ${clip(g.passive_description)}`
       : '-# No passive.';
-    return `${icon} **${g.name}** (${g.type}) — ${g.tier}\n${statLine}\n${passive}`;
+    return `${icon} **${g.name}** — ${g.tier}\n${statLine}\n${passive}`;
   });
   return { entries, subtitle: 'Sorted by tier (highest first)', page: p, totalPages };
 }

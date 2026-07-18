@@ -44,7 +44,7 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `pelte` — Deflection: 15% chance to block 25% of incoming damage.
 - `arrow_of_eros` — Love's Arrow: 30% chance to deal +45% bonus ATK.
 - `cretan_bow` — Hunter's Focus: ATK +4% every turn, stacking up to 20%.
-- `juru_pakal` — Bloodhunter: Deals 30% more damage to bleeding enemies.
+- `juru_pakal` — Bloodhunter: Deals 50% more damage to bleeding enemies.
 - `gram` — Dragonbane: Ignores 25% of enemy DEF. Deals +30% bonus damage to enemies above 80% HP.
 - `tyrfing` — Cursed Edge: ATK +10% every turn, stacking up to +30%. Once the enemy drops below 30% HP, the curse takes hold: your attacks can no longer miss or be evaded.
 - `laevateinn_sword` — Sundering Flame: Reduces enemy DEF by 10% every turn, stacking up to 30%.

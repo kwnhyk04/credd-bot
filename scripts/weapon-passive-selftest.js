@@ -216,7 +216,7 @@ for (const [key, [, cap]] of Object.entries(STACKING_ATK)) {
 const STATE_BONUSES = {
   roman_cestus: ['enemy_is_stunned', 0.50],
   myrmex: ['enemy_is_stunned', 0.40],
-  juru_pakal: ['enemy_is_bleeding', 0.30],
+  juru_pakal: ['enemy_is_bleeding', 0.50],
 };
 for (const [key, [flag, bonus]] of Object.entries(STATE_BONUSES)) {
   audit(key, () => {
