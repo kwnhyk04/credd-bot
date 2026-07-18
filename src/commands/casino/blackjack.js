@@ -73,6 +73,7 @@ async function execute(message, { args }) {
     messageId: null,
     timer: null,
     resolving: false,
+    actionPending: false,
     settled: false,
     createdAt: Date.now(),
   };
@@ -111,10 +112,14 @@ async function handleButton(interaction, action, ownerId) {
   if (!wrap || wrap.messageId !== interaction.message.id) {
     return interaction.reply({ content: 'This game has already ended.', flags: MessageFlags.Ephemeral }).catch(() => {});
   }
-  if (wrap.resolving) return interaction.deferUpdate().catch(() => {});
+  // Claim the action synchronously before the first await so rapid/duplicate
+  // interactions cannot draw multiple cards against one visible hand state.
+  if (wrap.resolving || wrap.actionPending) return interaction.deferUpdate().catch(() => {});
+  wrap.actionPending = true;
+  clearTimer(wrap);
 
-  await interaction.deferUpdate();
   try {
+    await interaction.deferUpdate();
     const playable = await sessionStore.ensurePlayableSession({
       sessionId: wrap.sessionId,
       discordId: ownerId,
@@ -156,11 +161,19 @@ async function handleButton(interaction, action, ownerId) {
   } catch (err) {
     console.error('[blackjack] button failed:', err);
     await interaction.followUp({ content: 'Blackjack action could not finish cleanly. Check the game message or your balance before clicking again.', flags: MessageFlags.Ephemeral }).catch(() => {});
+  } finally {
+    wrap.actionPending = false;
+    if (sessions.get(ownerId) === wrap
+        && !wrap.resolving
+        && wrap.session.state === 'player'
+        && !wrap.timer) {
+      armTimer(wrap);
+    }
   }
 }
 
 async function autoStand(wrap) {
-  if (wrap.resolving || wrap.session.state === 'done') return;
+  if (wrap.resolving || wrap.actionPending || wrap.session.state === 'done') return;
   engine.stand(wrap.session);
   // Same REST route as Message#edit (PATCH /channels/:id/messages/:id).
   await finalize(wrap, (p) => wrap.channel.messages.edit(wrap.messageId, p));
@@ -219,6 +232,7 @@ function getBlackjackSessionStats() {
     entries: sessions.size,
     timers: values.filter((wrap) => Boolean(wrap.timer)).length,
     resolving: values.filter((wrap) => wrap.resolving).length,
+    actionPending: values.filter((wrap) => wrap.actionPending).length,
     oldestMs: values.length ? Date.now() - oldest : 0,
   };
 }

@@ -17,7 +17,7 @@ const {
 const pool = require('../../db/pool');
 const { resolveName } = require('../../utils/emojis');
 const { runeEmojiName, runeEmoji } = require('../../config/runes');
-const { SELL_PRICES } = require('../../config/sellPrices');
+const { sellPriceBreakdown } = require('../../config/sellPrices');
 const { assetPath, isRemoteAssetsEnabled, remoteAssetAvailable, relativeAssetPath } = require('../../utils/assets');
 const { bandwidthLog } = require('../../utils/runtimeLogs');
 const { smallDivider: sep } = require('../../utils/componentsV2');
@@ -203,7 +203,7 @@ function formatRuneSlots(sockets) {
 async function buildInfoPayload(g, gearId, ownerId, ownerDisplayName = null) {
   const hasPassive = g.passive_name && g.passive_name.toLowerCase() !== 'none';
   const sockets = await socketSlots(g);
-  const sellValue = SELL_PRICES[g.tier] || 0;
+  const sellPricing = sellPriceBreakdown(g.tier, g.enhancement);
   const loreBlock = typeof g.lore === 'string' && g.lore.trim().length > 0
     ? `*${g.lore.trim()}*`
     : 'No lore recorded yet.';
@@ -253,7 +253,11 @@ async function buildInfoPayload(g, gearId, ownerId, ownerDisplayName = null) {
     .addTextDisplayComponents((td) => td.setContent(
       `**Details**\n${ownerId ? `Owner: <@${ownerId}>\n` : ''}` +
       `${kindIcon} ID: \`${gearId}\`\n` +
-      `💰 Sell Value: ${sellValue.toLocaleString()} Credux`
+      `💰 Sell Value: ${sellPricing.total.toLocaleString()} Credux` +
+      (sellPricing.successfulCost > 0
+        ? `\n-# ${sellPricing.basePrice.toLocaleString()} base + ${sellPricing.enhancementRefund.toLocaleString()} ` +
+          `enhancement refund (30% of ${sellPricing.successfulCost.toLocaleString()})`
+        : '')
     ))
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(

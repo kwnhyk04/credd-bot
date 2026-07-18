@@ -94,6 +94,26 @@ function nextAttempt(tier, enhancement) {
   };
 }
 
+/**
+ * Sum the canonical costs of the enhancement levels the gear has successfully
+ * reached. This deliberately counts each completed level once and does not try
+ * to reconstruct failed attempts or the owner's historical spend.
+ *
+ * `enhancement` is the stored one-based value, so stored 8/display +7 sums the
+ * tier's +1 through +7 rows.
+ */
+function successfulEnhancementCost(tier, enhancement) {
+  const tierCosts = ENHANCE_COST[tier];
+  if (!tierCosts) return 0;
+  const stored = Math.max(1, Math.min(MAX_ENHANCEMENT, Math.floor(Number(enhancement) || 1)));
+  const completedLevel = stored - 1;
+  let total = 0;
+  for (let level = 1; level <= completedLevel; level += 1) {
+    total += Number(tierCosts[level]) || 0;
+  }
+  return total;
+}
+
 module.exports = {
   MAX_ENHANCEMENT,
   ENHANCEABLE_TIERS,
@@ -103,4 +123,5 @@ module.exports = {
   computeWeaponStats,
   computeArmorStats,
   nextAttempt,
+  successfulEnhancementCost,
 };

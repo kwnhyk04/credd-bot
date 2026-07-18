@@ -12,6 +12,12 @@ const { displayEnhancement, formatEnhancedName } = require('../src/utils/enhance
 const { computeDeityProgressionStats } = require('../src/engine/deityEnhancement');
 const { DEITY_ESSENCE_COST, nextDeityAttempt } = require('../src/engine/deityEnhancement');
 const { nextSigilCost } = require('../src/config/ascension');
+const {
+  ENHANCEMENT_SELL_REFUND_RATE,
+  sellPriceBreakdown,
+  computeSellPrice,
+  computeSellTotal,
+} = require('../src/config/sellPrices');
 const { syncSubscriptionEntitlementsTx } = require('../src/engine/supporterEntitlements');
 const { buildDeityInfoPayload, attemptDeityEnhance } = require('../src/commands/rpg/deity');
 const { buildInfoPayload } = require('../src/commands/rpg/equipment');
@@ -156,6 +162,34 @@ async function main() {
   assert.equal(displayEnhancement(undefined), 0);
   assert.equal(formatEnhancedName('Odin', 1), 'Odin +0');
   assert.equal(formatEnhancedName('Odin', 11), 'Odin +10');
+
+  assert.equal(ENHANCEMENT_SELL_REFUND_RATE, 0.30);
+  assert.deepEqual(sellPriceBreakdown('Common', 1), {
+    basePrice: 100, successfulCost: 0, enhancementRefund: 0, total: 100,
+  });
+  // Stored 8 means display +7: count the +1..+7 tier costs exactly once.
+  assert.deepEqual(sellPriceBreakdown('Rare', 8), {
+    basePrice: 1000, successfulCost: 132000, enhancementRefund: 39600, total: 40600,
+  });
+  assert.deepEqual(sellPriceBreakdown('Mythic', 8), {
+    basePrice: 50000, successfulCost: 582000, enhancementRefund: 174600, total: 224600,
+  });
+  assert.deepEqual(sellPriceBreakdown('Legendary', 8), {
+    basePrice: 100000, successfulCost: 1450000, enhancementRefund: 435000, total: 535000,
+  });
+  assert.deepEqual(sellPriceBreakdown('Supreme', 8), {
+    basePrice: 1000000, successfulCost: 3900000, enhancementRefund: 1170000, total: 2170000,
+  });
+  assert.equal(computeSellPrice('Supreme', 11), 4870000);
+  assert.equal(computeSellTotal([
+    { tier: 'Rare', enhancement: 8 },
+    { tier: 'Mythic', enhancement: 1 },
+    { tier: 'Common', enhancement: 1 },
+  ]), 90700);
+
+  const sellSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'commands', 'rpg', 'sell.js'), 'utf8');
+  assert(sellSource.includes('uw.weapon_id AS gear_id, uw.enhancement'));
+  assert(sellSource.includes('ua.armor_id AS gear_id, ua.enhancement'));
 
   const unascendedDeity = computeDeityProgressionStats(
     { base_atk: 100, base_hp: 200, base_def: 50 },
@@ -318,6 +352,8 @@ async function main() {
   const gearJson = JSON.stringify(gearPayload.components.map((component) => component.toJSON()));
   assert(gearJson.includes('Mail of Brokkr +10'));
   assert(gearJson.includes('Owner: <@123>'));
+  assert(gearJson.includes('Sell Value: 4,870,000 Credux'));
+  assert(gearJson.includes('3,870,000 enhancement refund'));
   assert(!gearJson.includes('**Enhancement**'));
   assert(!gearJson.includes("Ignored's"));
 

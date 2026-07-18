@@ -63,7 +63,10 @@ function stand(s) {
 function finish(s) {
   s.revealed = true;
   const pv = blackjackValue(s.player);
-  if (pv <= 21) {
+  // Opening naturals settle from the original four cards. In particular, the dealer
+  // must not draw against a player's natural 21 and manufacture an invalid push.
+  const openingNatural = isBlackjack(s.player) || isBlackjack(s.dealer);
+  if (pv <= 21 && !openingNatural) {
     while (blackjackValue(s.dealer) < DEALER_STANDS_AT) s.dealer.push(s.deck.draw());
   }
   const dv = blackjackValue(s.dealer);

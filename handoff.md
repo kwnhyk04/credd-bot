@@ -1679,3 +1679,96 @@ The profile/stats soak failure (506-512 MB idle, external 360-365 MB) was a MEAS
 Production implication: this REMOVES "profile/stats external retention" as a lead for the Railway 670-850 MB residual — the release mechanisms work when idle. Production root cause remains undetermined; the telemetry procedure and threshold-gated experiments in docs/production-memory-followup-2026-07-17.md are unchanged and still the next step.
 
 Note: unrelated uncommitted changes were present in the working tree during this session (src/engine/battleEngine.js, src/engine/passiveRegistry.js, new src/engine/combatEffects.js, battle/weapon selftests) — not part of this work, left untouched, not committed.
+
+## Session 2026-07-18 — Portable settle condition for memory selftest (Fable 5)
+
+Follow-up robustness hardening on the memory-selftest settle fix (commit 2b3fed4). The prior fix polled only until RSS < 350 MB, which is not portable: some native allocators retain freed pages, so RSS can stay elevated after all renderer-owned external memory has been released, spinning the poll to the 15s cap and failing spuriously in CI.
+
+Change (commit 1cad0ac, scripts/memory-selftest.js only): dual settle condition — a sample settles when external < 10 MB OR RSS < 350 MB. Two consecutive settled samples required so a single transient reading cannot pass. Timeout (fewer than two consecutive settled samples within 15s) always throws, independent of the final memory values. Settled snapshot and status:passed summary now report settleReason (external+rss / external / rss / timeout) and settleMs. No production code touched.
+
+Validation: selftest:memory x3 all passed — steady 135-136 MB, external 2 MB, arrayBuffers 0, reachableGeneratedBuffers 0, settleReason external+rss, settleMs ~4.1-4.6s. selftest:full green (casino 182/182, all sections green). node --check clean. git diff --check clean. Commit 1cad0ac, not pushed.
+
+Note: the unrelated battleEngine/passiveRegistry/combatEffects working-tree changes flagged in the prior entry are no longer present (handled separately outside this work).
+
+## Session 2026-07-18 — Combat Effect Categories, Passive Corrections, and SQL Dashboard Fixes
+
+**Model:** OpenAI Codex `gpt-5.6-sol` with extra-high reasoning.
+**Branch:** `main`
+**Completed:** 2026-07-18 03:16 TST
+
+This entry covers the combat and passive-description work after the tester-avatar/profile entry above. The tester profile/avatar rendering, alignment, and Loki work is already recorded in that earlier entry and was not duplicated here.
+
+Commit sequence:
+
+1. `a246c80` — `fix: categorize combat effects and correct DOT passives`
+2. `64de491` — `fix: make combat description SQL self-contained`
+3. `920f777` — `docs: align deity passive wording`
+4. `fa619cb` — `docs: simplify passive descriptions`
+5. `51835a5` — `fix: make final passive SQL dashboard-safe`
+
+Combat implementation completed:
+
+1. Added `src/engine/combatEffects.js` as the authoritative stable-ID metadata for negative combat effects. Every active negative effect now has a `status` or `dot` category.
+2. Classified Stun, Freeze, Petrify, Paralyze, Dizzy/Miss, Frostbite, Charm, Confuse, and stat reductions as `status`. Classified Bleed, Burn, Venom, Poison, Rot, and Thor's linked paralysis damage as `dot`.
+3. Frostbite remains a status effect because its current mechanic is increased incoming damage rather than recurring damage.
+4. Split Thor's mixed effect into a Paralyze status ID and linked paralysis DOT ID. Status immunity can block the action impairment without suppressing its damage-over-time component.
+5. Corrected the canonical passive values: Cutlass 10% on attack/hit for 5% ATK Bleed; Pata 5% ATK Bleed per attack; Thyrsus 20% per turn for 5% ATK Bleed; Lamia 30% for 15% enemy-ATK Bleed; Chimera Serpent phase 20% enemy-ATK Burn.
+6. Centralized Apolaki and Surt definitions. Echo Apolaki and Echo Surt now reuse the exact canonical handlers instead of old divergent every-third/every-fourth-turn hardcodes.
+7. Restricted Alan's Reversed Hands to status immunity only. It removes/blocks status effects but does not block Bleed, Burn, or other DOTs.
+8. Corrected Babaylan's Ritual Staff: each turn has a 50% cleanse check; a successful cleanse removes both status and DOT effects; +100% ATK is granted only if at least one debuff was removed; positive buffs are not represented as debuffs and remain intact.
+
+Description and SQL work completed:
+
+1. Added `scripts/update-combat-effect-descriptions.sql` for the scoped five weapon and two deity descriptions.
+2. The first version used a temporary table across dashboard statements and failed with relation-not-found errors. Commit `64de491` moved its values into one self-contained `DO` block.
+3. Updated `scripts/update-user-passive-descriptions.sql` with the five requested deity descriptions and exact verification.
+4. Simplified wording in the three SQL update files: descriptions use natural phrases such as “Each attack,” and Frostbite says “taking 50% more damage” without internal terms such as “landed hit,” “all sources,” or “+50%.” Canonical JS/registry description mirrors were kept synchronized.
+5. `scripts/final-passive-description-updates.sql` had the same temp-table dashboard failure. Commit `51835a5` now creates, consumes, and verifies all 38 deity plus 5 weapon updates inside one `DO` block, so it is safe to paste/run as a batch or as the block alone. Review-only queries that depended on the temp table after the block were removed.
+6. No production database SQL was executed by Codex. The user manually runs the SQL scripts in the dashboard.
+
+Validation:
+
+1. Full `npm.cmd run selftest:full` passed after the combat implementation: battle selftest 276 passed, weapon-passive audit passed, requested-patch passed, plus telemetry, asset-cache, R2-skin, Canvas, schema, lifecycle, help, and casino suites.
+2. `scripts/requested-patch-selftest.js` passed after each description/SQL follow-up.
+3. Added regression coverage that requires `final-passive-description-updates.sql` to declare its `DO $passive_updates$` block before creating the temporary table and forbids a separate temp-table verification block.
+4. `git diff --check` passed for each committed change.
+
+Current handoff state:
+
+1. Nothing from this combat/SQL session was pushed.
+2. `handoff.md` is intentionally being updated locally at the user's request and remains separate from the committed code work.
+3. An unrelated `scripts/memory-selftest.js` worktree modification remains outside this session and was not staged or committed here.
+
+## Session 2026-07-19 — Casino Fairness and Enhancement-Aware Gear Resale
+
+**Model:** OpenAI Codex `gpt-5` with extra-high reasoning.
+**Branch:** `main`
+**Completed:** 2026-07-19 TST
+
+This entry follows the Combat Effect Categories, Passive Corrections, and SQL Dashboard Fixes entry above. The combat implementation and description/SQL work were left unchanged.
+
+Casino implementation completed:
+
+1. Audited all casino random paths and confirmed the live casino uses the crypto-backed `crypto.randomInt` wrapper, with no `Math.random` calls in casino engines or command wrappers.
+2. Verified Crash odds by distribution: push 1 is 20%, push 2 is 22% conditional on reaching it, and cumulative crash probability by push 2 is 37.6%. The newer +2%-per-push curve was intentional and remains the active balance table.
+3. Serialized concurrent Blackjack and Crash button actions so rapid or duplicate Discord interactions cannot consume multiple hidden actions before the message refreshes. Timeout handlers now defer while an action is pending.
+4. Corrected Blackjack natural-21 settlement so the dealer cannot draw against a player natural and incorrectly manufacture a push.
+5. Added the next Crash push's exact chance and locked multiplier to the active game display for clearer odds communication.
+
+Gear resale implementation completed:
+
+1. Added the canonical successful-enhancement cost accumulator: stored enhancement 8/display +7 counts the tier's +1 through +7 costs exactly once.
+2. Revised weapon and armor resale to use `tier base sell price + floor(30% × successful enhancement costs)`. Failed attempts and historical Credux spending do not count.
+3. Applied the same calculation to single-item sales, tier/all bulk sales, confirmation-time recomputation, and equipment-info Sell Value display.
+4. Preserved tier-specific base prices and enhancement-cost tables: Common 100, Rare 1,000, Mythic 50,000, Legendary 100,000, Supreme 1,000,000.
+
+Validation:
+
+1. Full `npm.cmd run selftest:full` passed: battle 276/276, weapon passive audit passed, requested-patch passed, casino 187/187, plus telemetry, asset-cache, R2-skin, Canvas, schema, lifecycle, and help suites.
+2. Added regression coverage for casino cumulative Crash odds, overlapping action guards, Blackjack natural settlement, all tier-specific +7 resale calculations, max enhancement resale, bulk totals, and equipment-info display.
+3. `git diff --check` passed. No production database changes were executed.
+
+Current handoff state:
+
+1. The casino and gear-resale changes, their regression coverage, and this handoff entry were committed in this session and were not pushed.
+2. Existing unrelated worktree changes were preserved and were not included unless already part of the staged session scope.

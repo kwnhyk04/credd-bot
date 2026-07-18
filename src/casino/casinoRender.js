@@ -22,7 +22,9 @@ const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard')
 const { attachmentFromOptimizedImage } = require('../utils/imageOutput');
 const { tagDiscordAttachmentBuffer } = require('../utils/networkTelemetry');
 const { COLORS } = canvas;
-const { SLOT_FACE_INDEX, CRASH_MAX_PUSHES } = require('./payoutTables');
+const {
+  SLOT_FACE_INDEX, CRASH_MAX_PUSHES, crashChance, crashMultiplier,
+} = require('./payoutTables');
 const { BACK_FILE, blackjackValue } = require('./cardDeck');
 
 const ACCENT = {
@@ -362,12 +364,13 @@ async function buildCrash({ uid, bet, session, balance }) {
   const components = [c];
   if (active) {
     const maxed = session.push >= CRASH_MAX_PUSHES;
+    const nextPush = session.push + 1;
     c.addSeparatorComponents(sep).addTextDisplayComponents((td) => td.setContent(
       session.push === 0
-        ? '-# Press **Push** to begin the ascension.'
+        ? `-# **Push 1:** ${crashChance(1)}% crash chance · survive to lock **${crashMultiplier(1)}×**.`
         : maxed
           ? `-# Maximum step ${CRASH_MAX_PUSHES} reached — **Cash Out** to bank it.`
-          : '-# **Push** for more, or **Cash Out** to bank it.'));
+          : `-# **Push ${nextPush}:** ${crashChance(nextPush)}% crash chance · survive to lock **${crashMultiplier(nextPush)}×**; or **Cash Out**.`));
     components.push(crashButtons(uid, session.push >= 1, !maxed));
   } else {
     const kind = crashed ? 'loss' : 'win';

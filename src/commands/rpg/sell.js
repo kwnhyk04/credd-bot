@@ -2,7 +2,12 @@
 
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const pool = require('../../db/pool');
-const { SELL_PRICES, TIER_ALIASES, ALL_EXCLUDED_TIERS } = require('../../config/sellPrices');
+const {
+  TIER_ALIASES,
+  ALL_EXCLUDED_TIERS,
+  computeSellTotal,
+  sellPriceBreakdown,
+} = require('../../config/sellPrices');
 const { RUNE_SELL_PRICE } = require('../../config/runes');
 
 function reply(message, content) {
@@ -53,7 +58,7 @@ async function trySellRune(message, discordId, arg) {
 }
 
 function sumPrices(rows) {
-  return rows.reduce((s, r) => s + (SELL_PRICES[r.tier] || 0), 0);
+  return computeSellTotal(rows);
 }
 
 /**
@@ -63,7 +68,7 @@ function sumPrices(rows) {
  * locked MUST lock it before invoking this (lock order: users_bag → gear tables).
  * @param executor pool (read-only prompt) or in-txn client (forUpdate:true)
  * @returns {{equippedW:string|null, equippedA:string|null,
- *            rows:{gear_id:string,tier:string,kind:'weapon'|'armor'}[]}}
+ *            rows:{gear_id:string,tier:string,enhancement:number,kind:'weapon'|'armor'}[]}}
  */
 async function resolveSellSet(executor, discordId, { mode, arg, forUpdate = false }) {
   const eqRes = await executor.query(
@@ -83,7 +88,7 @@ async function resolveSellSet(executor, discordId, { mode, arg, forUpdate = fals
     else if (mode === 'tier') { params.push(arg); clause = `AND wr.tier = $${params.length}`; }
     else { params.push(ALL_EXCLUDED_TIERS); clause = `AND wr.tier <> ALL($${params.length}::text[])`; }
     const r = await executor.query(
-      `SELECT uw.weapon_id AS gear_id, wr.tier, 'weapon' AS kind
+      `SELECT uw.weapon_id AS gear_id, uw.enhancement, wr.tier, 'weapon' AS kind
          FROM user_weapons uw
          JOIN weapon_roster wr ON uw.weapon_roster_id = wr.weapon_roster_id
         WHERE uw.discord_id = $1
@@ -104,7 +109,7 @@ async function resolveSellSet(executor, discordId, { mode, arg, forUpdate = fals
     else if (mode === 'tier') { params.push(arg); clause = `AND ar.tier = $${params.length}`; }
     else { params.push(ALL_EXCLUDED_TIERS); clause = `AND ar.tier <> ALL($${params.length}::text[])`; }
     const r = await executor.query(
-      `SELECT ua.armor_id AS gear_id, ar.tier, 'armor' AS kind
+      `SELECT ua.armor_id AS gear_id, ua.enhancement, ar.tier, 'armor' AS kind
          FROM user_armors ua
          JOIN armor_roster ar ON ua.armor_roster_id = ar.armor_roster_id
         WHERE ua.discord_id = $1
@@ -142,7 +147,7 @@ async function execute(message, { args }) {
     mode = 'id'; arg = target;
   }
 
-  let count, total, descLine;
+  let count, total, descLine, priceDetail;
 
   if (mode === 'id') {
     // Rune first (own namespace, immediate sell). Then gear (weapon then armor).
@@ -180,8 +185,13 @@ async function execute(message, { args }) {
       return;
     }
     count = 1;
-    total = SELL_PRICES[g.tier] || 0;
+    const pricing = sellPriceBreakdown(g.tier, g.enhancement);
+    total = pricing.total;
     descLine = `**${g.name}** (${g.tier}) +${g.enhancement - 1}`;
+    priceDetail = pricing.successfulCost > 0
+      ? `\n-# ${pricing.basePrice.toLocaleString()} base + ${pricing.enhancementRefund.toLocaleString()} enhancement refund ` +
+        `(30% of ${pricing.successfulCost.toLocaleString()} for successful levels).`
+      : '';
   } else {
     const { rows } = await resolveSellSet(pool, discordId, { mode, arg });
     if (rows.length === 0) {
@@ -194,12 +204,14 @@ async function execute(message, { args }) {
     total = sumPrices(rows);
     const noun = count === 1 ? 'item' : 'items';
     descLine = mode === 'tier' ? `**${count}** ${arg} ${noun}` : `**${count}** ${noun}`;
+    priceDetail = '\n-# Total includes 30% of each item\'s successful enhancement-level costs.';
   }
 
   const subject = count === 1 ? 'it' : 'them';
   const content =
     `⚠️ Sell ${descLine} for **${total.toLocaleString()} Credux**? ` +
-    `This will **permanently delete** ${subject} and cannot be undone. Locked and equipped gear is excluded.`;
+    `This will **permanently delete** ${subject} and cannot be undone. Locked and equipped gear is excluded.` +
+    priceDetail;
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`sell:confirm:${mode}:${arg}:${discordId}`).setLabel('✅ Confirm').setStyle(ButtonStyle.Danger),

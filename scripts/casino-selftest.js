@@ -91,16 +91,31 @@ function deckRng(wantCards) {
   return makeRng(() => seq[i++]);
 }
 
-/* ─────────────────── 1. STATIC: no Math.random in src/casino ─────────────────── */
+/* ─────────────── 1. STATIC: no Math.random in casino engines/commands ─────────────── */
 (function staticGrep() {
-  const dir = path.join(__dirname, '..', 'src', 'casino');
+  const dirs = [
+    path.join(__dirname, '..', 'src', 'casino'),
+    path.join(__dirname, '..', 'src', 'commands', 'casino'),
+  ];
   const offenders = [];
-  for (const f of fs.readdirSync(dir)) {
-    if (!f.endsWith('.js')) continue;
-    // Match an actual invocation `Math.random(`, not the phrase in doc comments.
-    if (/Math\.random\s*\(/.test(fs.readFileSync(path.join(dir, f), 'utf8'))) offenders.push(f);
+  for (const dir of dirs) {
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith('.js')) continue;
+      // Match an actual invocation `Math.random(`, not the phrase in doc comments.
+      if (/Math\.random\s*\(/.test(fs.readFileSync(path.join(dir, f), 'utf8'))) {
+        offenders.push(path.relative(path.join(__dirname, '..'), path.join(dir, f)));
+      }
+    }
   }
-  ok('static: no Math.random in src/casino', offenders.length === 0, offenders.join(', '));
+  ok('static: no Math.random in casino engines or commands', offenders.length === 0, offenders.join(', '));
+
+  for (const file of ['blackjack.js', 'crash.js']) {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'commands', 'casino', file), 'utf8');
+    ok(`static: ${file} serializes overlapping button actions`,
+      source.includes('wrap.resolving || wrap.actionPending')
+        && source.includes('wrap.actionPending = true')
+        && source.includes('wrap.actionPending = false'));
+  }
 })();
 
 /* ─────────────────── 2. DISTRIBUTION (crypto rng, large N) ─────────────────── */
@@ -173,6 +188,25 @@ const N = 300_000;
 })();
 
 /* ─────────────────── 3. CRASH CURVE (locked table + extension formula) ─────────────────── */
+(function crashCumulativeDist() {
+  const M = 300_000;
+  let push1 = 0;
+  let byPush2 = 0;
+  for (let i = 0; i < M; i++) {
+    const s = crash.create(100, cryptoRng);
+    if (crash.pushNext(s).crashed) {
+      push1 += 1;
+      byPush2 += 1;
+    } else if (crash.pushNext(s).crashed) {
+      byPush2 += 1;
+    }
+  }
+  const expectedBy2 = 1 - (1 - payouts.crashChance(1) / 100)
+    * (1 - payouts.crashChance(2) / 100);
+  near('dist: crash cumulative by push 1', push1 / M, 0.20, 0.01);
+  near('dist: crash cumulative by push 2', byPush2 / M, expectedBy2, 0.01);
+})();
+
 (function crashCurve() {
   const table = { 1: 1.45, 2: 2.10, 3: 3.05, 4: 4.42, 5: 6.40, 6: 9.28 };
   for (const p of Object.keys(table)) {
@@ -294,6 +328,14 @@ function assertSettlement(name, { game, bet, payout, before }) {
   blackjack.stand(s);
   ok('blackjack: push returns bet', s.outcome === 'push' && s.payout === BET);
   assertSettlement('bj push', { game: 'blackjack', bet: BET, payout: s.payout, before: BEFORE });
+
+  // Player natural A,K; dealer starts 10,6. The dealer must not draw a 5 and
+  // manufacture a 21 push against the player's opening natural.
+  s = blackjack.create(BET, deckRng([
+    C('pegasus', 'a'), C('trident', 'k'), C('laurel', '10'), C('hammer', '6'), C('pegasus', '5'),
+  ]));
+  ok('blackjack: player natural settles before dealer draws',
+    s.outcome === 'win' && s.payout === 2 * BET && s.dealer.length === 2);
 
   // Crash forced crash on push 1 (loss) and forced cashout after push 1
   let cs = crash.create(BET, makeRng(() => 0)); // chance true → crash

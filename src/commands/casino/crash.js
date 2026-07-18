@@ -73,6 +73,7 @@ async function execute(message, { args }) {
     messageId: null,
     timer: null,
     resolving: false,
+    actionPending: false,
     createdAt: Date.now(),
   };
   sessions.set(uid, wrap);
@@ -99,10 +100,15 @@ async function handleButton(interaction, action, ownerId) {
   if (!wrap || wrap.messageId !== interaction.message.id) {
     return interaction.reply({ content: 'This game has already ended.', flags: MessageFlags.Ephemeral }).catch(() => {});
   }
-  if (wrap.resolving) return interaction.deferUpdate().catch(() => {});
+  // Claim the action synchronously before the first await. Discord can deliver a
+  // second click while the first database check/render is still in flight; without
+  // this guard one visible click sequence can consume multiple independent pushes.
+  if (wrap.resolving || wrap.actionPending) return interaction.deferUpdate().catch(() => {});
+  wrap.actionPending = true;
+  clearTimer(wrap);
 
-  await interaction.deferUpdate();
   try {
+    await interaction.deferUpdate();
     const playable = await sessionStore.ensurePlayableSession({
       sessionId: wrap.sessionId,
       discordId: ownerId,
@@ -157,12 +163,20 @@ async function handleButton(interaction, action, ownerId) {
   } catch (err) {
     console.error('[crash] button failed:', err);
     await interaction.followUp({ content: 'Crash action could not finish cleanly. Check the game message or your balance before clicking again.', flags: MessageFlags.Ephemeral }).catch(() => {});
+  } finally {
+    wrap.actionPending = false;
+    if (sessions.get(ownerId) === wrap
+        && !wrap.resolving
+        && wrap.session.state === 'active'
+        && !wrap.timer) {
+      armTimer(wrap);
+    }
   }
 }
 
 /** Auto-cash-out at the current safe multiplier on inactivity timeout. */
 async function autoCashOut(wrap) {
-  if (wrap.resolving || wrap.session.state !== 'active') return;
+  if (wrap.resolving || wrap.actionPending || wrap.session.state !== 'active') return;
   engine.cashOut(wrap.session);
   // Same REST route as Message#edit (PATCH /channels/:id/messages/:id).
   await resolve(wrap, (p) => wrap.channel.messages.edit(wrap.messageId, p));
@@ -208,6 +222,7 @@ function getCrashSessionStats() {
     entries: sessions.size,
     timers: values.filter((wrap) => Boolean(wrap.timer)).length,
     resolving: values.filter((wrap) => wrap.resolving).length,
+    actionPending: values.filter((wrap) => wrap.actionPending).length,
     oldestMs: values.length ? Date.now() - oldest : 0,
   };
 }
