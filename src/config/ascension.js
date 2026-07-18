@@ -16,25 +16,25 @@
  */
 
 const MAX_SIGILS = 10;
-const BASE_STAT_FRACTION = 0.50;   // unlock at 50% of base stats
-const PER_SIGIL_FRACTION = 0.05;   // +5% of base stats per Sigil
+const BASE_STAT_FRACTION = 0.5; // unlock at 50% of base stats
+const PER_SIGIL_FRACTION = 0.05; // +5% of base stats per Sigil
 
 // ── Sigil essence cost — [tier][sigil number 1..10] (§3.4) ──────────────────
 // Bands: sigils 1–3, 4–7, 8–10. Column totals: Epic 100 · Mythic 83 ·
 // Legendary 60 · Supreme 30.
 const SIGIL_ESSENCE_COST = {
-  Epic:      { 1: 5, 2: 5, 3: 5, 4: 10, 5: 10, 6: 10, 7: 10, 8: 15, 9: 15, 10: 15 },
-  Mythic:    { 1: 5, 2: 5, 3: 5, 4: 8,  5: 8,  6: 8,  7: 8,  8: 12, 9: 12, 10: 12 },
-  Legendary: { 1: 4, 2: 4, 3: 4, 4: 6,  5: 6,  6: 6,  7: 6,  8: 8,  9: 8,  10: 8 },
-  Supreme:   { 1: 2, 2: 2, 3: 2, 4: 3,  5: 3,  6: 3,  7: 3,  8: 4,  9: 4,  10: 4 },
+  Epic: { 1: 5, 2: 5, 3: 5, 4: 10, 5: 10, 6: 10, 7: 10, 8: 15, 9: 15, 10: 15 },
+  Mythic: { 1: 5, 2: 5, 3: 5, 4: 8, 5: 8, 6: 8, 7: 8, 8: 12, 9: 12, 10: 12 },
+  Legendary: { 1: 3, 2: 3, 3: 3, 4: 5, 5: 5, 6: 5, 7: 5, 8: 6, 9: 6, 10: 6 },
+  Supreme: { 1: 2, 2: 2, 3: 2, 4: 3, 5: 3, 6: 3, 7: 3, 8: 4, 9: 4, 10: 4 },
 };
 
 // ── Ascension cost — essence (deity's tier) + Credux (§3.4) ─────────────────
 const ASCENSION_COST = {
-  Epic:      { essence: 50, credux: 100_000 },
-  Mythic:    { essence: 40, credux: 250_000 },
-  Legendary: { essence: 30, credux: 500_000 },
-  Supreme:   { essence: 15, credux: 1_000_000 },
+  Epic: { essence: 50, credux: 100_000 },
+  Mythic: { essence: 40, credux: 250_000 },
+  Legendary: { essence: 20, credux: 500_000 },
+  Supreme: { essence: 15, credux: 1_000_000 },
 };
 
 /** Sigil-scaled stat multiplier for a sigil count (clamped 0..10). */
