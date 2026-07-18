@@ -1661,6 +1661,7 @@ Validation and handoff state:
 Railway RSS remained 670-850 MB after the 2026-07-16 audit build deployed. Production root cause is UNDETERMINED pending telemetry; see docs/production-memory-followup-2026-07-17.md for the full evidence classification, threshold-gated env experiments (MALLOC_ARENA_MAX=2, NODE_OPTIONS=--max-old-space-size=512, jemalloc — none applied), and the 24 h Railway monitoring procedure.
 
 Code shipped (behavior-preserving, one commit each):
+
 1. canvasCache.js — lastTouched Map bounded: unconditional delete in forgetMemory, stale prune past the touch-throttle window, hard cap at MEMORY_MAX (5000) evicting oldest timestamps; canvas URL cache untouched. (Confirmed unbounded-growth defect.)
 2. Schedulers (battleReaper, bossScheduler, resetScheduler, seasonScheduler) — restart-safe guards: one timer, one stable stop fn, idempotent stop, start-after-stop creates exactly one new timer. Latent-bug insurance; call sites unchanged.
 3. blackjack.js / crash.js — session wraps store channel + messageId instead of the full Discord Message; timeout edits via channel.messages.edit(id, payload) (same REST route/payload). Rules, payouts, cooldowns, text unchanged.
@@ -1741,7 +1742,7 @@ Current handoff state:
 
 ## Session 2026-07-19 — Casino Fairness and Enhancement-Aware Gear Resale
 
-**Model:** OpenAI Codex `gpt-5` with extra-high reasoning.
+**Model:** OpenAI Codex `gpt-5.6-sol` with extra-high reasoning.
 **Branch:** `main`
 **Completed:** 2026-07-19 TST
 
@@ -1772,3 +1773,30 @@ Current handoff state:
 
 1. The casino and gear-resale changes, their regression coverage, and this handoff entry were committed in this session and were not pushed.
 2. Existing unrelated worktree changes were preserved and were not included unless already part of the staged session scope.
+
+## Session 2026-07-19 — Crash Chance Rebalance
+
+**Model:** OpenAI Codex `gpt-5.6-sol` with extra-high reasoning.
+**Branch:** `main`
+**Completed:** 2026-07-19 TST
+
+This entry follows the Casino Fairness and Enhancement-Aware Gear Resale entry above. The casino action guards, Blackjack correction, gear-resale calculation, and all other casino payouts remain unchanged.
+
+Crash balance update completed:
+
+1. Reduced the first Crash push chance from 20% to 15%.
+2. Preserved the +2 percentage-point increase per climb: pushes 1 through 10 now use 15%, 17%, 19%, 21%, 23%, 25%, 27%, 29%, 31%, and 33%.
+3. Updated the shared payout table and engine documentation. The active Crash UI continues to read the shared table, so it now displays the revised chance automatically without a duplicate hardcoded value.
+4. Preserved every multiplier, the 10-push gameplay cap, crypto-backed randomness, settlement behavior, and button-action serialization.
+
+Validation:
+
+1. Focused `node scripts/casino-selftest.js` passed at 187/187.
+2. Full `npm.cmd run selftest:full` passed: battle 276/276, weapon passive audit passed, requested-patch passed, casino 187/187, plus telemetry, asset-cache, R2-skin, Canvas, schema, lifecycle, and help suites.
+3. Regression expectations now enforce the 15% start, +2% progression, 29.45% cumulative crash probability by push 2, 33% final gameplay push, and the unreachable 75% formula cap.
+4. `git diff --check` passed. No production database changes were required or executed.
+
+Current handoff state:
+
+1. The Crash chance rebalance, updated tests, and this handoff entry were committed in this session and were not pushed.
+2. Pre-existing handoff-only formatting/model edits present at the start of this session were preserved.

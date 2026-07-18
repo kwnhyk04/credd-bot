@@ -5,8 +5,8 @@
  *
  * Each push: roll the crash chance FIRST (crashChance(push)); crash → lose the
  * already-debited bet, and the crash point shown is that push's multiplier; survive → lock
- * crashMultiplier(push) as the safe cash-out value. Crash chance is 20% at push 1 and +2%
- * each push (push2 22%, push3 24%…). Push 10 is the final attempt; after surviving it the
+ * crashMultiplier(push) as the safe cash-out value. Crash chance is 15% at push 1 and +2%
+ * each push (push2 17%, push3 19%…). Push 10 is the final attempt; after surviving it the
  * player can only cash out. Beyond push 6 the multiplier extends per payoutTables (×1.45/push).
  *
  * PURE: owns no Map, no DB, no Discord; takes an injectable rng. The command layer owns the

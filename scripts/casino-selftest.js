@@ -203,7 +203,7 @@ const N = 300_000;
   }
   const expectedBy2 = 1 - (1 - payouts.crashChance(1) / 100)
     * (1 - payouts.crashChance(2) / 100);
-  near('dist: crash cumulative by push 1', push1 / M, 0.20, 0.01);
+  near('dist: crash cumulative by push 1', push1 / M, 0.15, 0.01);
   near('dist: crash cumulative by push 2', byPush2 / M, expectedBy2, 0.01);
 })();
 
@@ -211,15 +211,15 @@ const N = 300_000;
   const table = { 1: 1.45, 2: 2.10, 3: 3.05, 4: 4.42, 5: 6.40, 6: 9.28 };
   for (const p of Object.keys(table)) {
     ok(`crash: published mult push ${p}`, payouts.crashMultiplier(Number(p)) === table[p], `got ${payouts.crashMultiplier(Number(p))}`);
-    ok(`crash: chance push ${p}`, payouts.crashChance(Number(p)) === 20 + 2 * (Number(p) - 1));
+    ok(`crash: chance push ${p}`, payouts.crashChance(Number(p)) === 15 + 2 * (Number(p) - 1));
   }
   ok('crash: extend mult push 7 = 13.46', payouts.crashMultiplier(7) === 13.46, `got ${payouts.crashMultiplier(7)}`);
   ok('crash: extend mult push 8 = 19.51', payouts.crashMultiplier(8) === 19.51, `got ${payouts.crashMultiplier(8)}`);
-  ok('crash: chance push 7 = 32', payouts.crashChance(7) === 32);
-  ok('crash: chance push 8 = 34', payouts.crashChance(8) === 34);
-  ok('crash: final gameplay push 10 chance = 38', payouts.crashChance(10) === 38);
+  ok('crash: chance push 7 = 27', payouts.crashChance(7) === 27);
+  ok('crash: chance push 8 = 29', payouts.crashChance(8) === 29);
+  ok('crash: final gameplay push 10 chance = 33', payouts.crashChance(10) === 33);
   ok('crash: gameplay cap is 10 pushes', payouts.CRASH_MAX_PUSHES === 10);
-  ok('crash: formula cap remains 75 but is unreachable in gameplay', payouts.crashChance(28) === 74 && payouts.crashChance(29) === 75);
+  ok('crash: formula cap remains 75 but is unreachable in gameplay', payouts.crashChance(30) === 73 && payouts.crashChance(31) === 75);
 
   let chanceCalls = 0;
   const survive = makeRng((n) => {
