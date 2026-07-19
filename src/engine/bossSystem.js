@@ -68,6 +68,7 @@ const {
 } = require('../utils/runtimeLogs');
 const { registerMemorySource } = require('../utils/memoryRegistry');
 const { beginActivity } = require('../utils/networkTelemetry');
+const { range: secureRange } = require('../utils/secureRng');
 const { bossFeatTitlesFor } = require('../config/titles');
 const {
   isGreaterBoss, bossRewards, rollBossChest, hpMultiplierForChest,
@@ -316,11 +317,11 @@ function clearBossRuntimeForGuild(guildId, reason = 'guild-removed') {
  * and cached by spawn_id, so every read (announcement, every attacker's payout) is identical.
  */
 function chestForSpawn(spawnId, bossName, { baseHp = null, maxHp = null } = {}) {
-  if (!isGreaterBoss(bossName)) return rollBossChest(bossName, Math.random); // fixed 1× treasure
+  if (!isGreaterBoss(bossName)) return rollBossChest(bossName); // fixed 1× treasure
   if (!greaterChests.has(spawnId)) {
     greaterChests.set(
       spawnId,
-      inferChestFromGreaterHp(baseHp, maxHp) || rollBossChest(bossName, Math.random)
+      inferChestFromGreaterHp(baseHp, maxHp) || rollBossChest(bossName)
     );
   }
   return greaterChests.get(spawnId);
@@ -1280,19 +1281,19 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
     if (!named || named.mob_type !== 'boss') return false; // unknown boss name
     pick = { row: named, greater: isGreaterBoss(named.name) };
   } else {
-    pick = pickWeightedBoss(await fetchAllBosses(pool), Math.random);
+    pick = pickWeightedBoss(await fetchAllBosses(pool));
   }
   if (!pick) return false;
   const { row, greater } = pick;
 
   // §16: boss level = round(avg) + random(1–10) — NO [1,55] clamp (bosses are
   // exempt; that clamp governs raid mobs only). Defensive floor at 1.
-  const level = Math.max(1, Math.round(Number(avg)) + 1 + Math.floor(Math.random() * 10));
+  const level = Math.max(1, Math.round(Number(avg)) + secureRange(1, 10));
   const stats = computeBossStats(row, level);
   // Roll a Greater chest once at spawn so HP, announcement, and payout share
   // the same outcome. Only Greater max HP is adjusted: 2× Treasure => 1.5× HP,
   // 1× Golden => 2× HP. ATK, DEF, and CRIT remain direct database values.
-  const spawnChest = greater ? rollBossChest(row.name, Math.random) : null;
+  const spawnChest = greater ? rollBossChest(row.name) : null;
   const hpMultiplier = greater ? hpMultiplierForChest(spawnChest) : 1;
   const maxHp = Math.floor(stats.hp * hpMultiplier);
   performanceLog('boss stats resolved from database', {

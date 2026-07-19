@@ -4,6 +4,7 @@ const {
   envNumber, envPositiveInt, performanceLog,
 } = require('./runtimeLogs');
 const { registerMemorySource } = require('./memoryRegistry');
+const { int } = require('./secureRng');
 
 const pools = new Map();
 
@@ -61,9 +62,10 @@ async function getSelectionPool(parts, loader, logContext = {}) {
   return rows;
 }
 
-function pickRandomRow(rows, rng = Math.random) {
+function pickRandomRow(rows, rng = null) {
   if (!Array.isArray(rows) || rows.length === 0) return null;
-  return rows[Math.floor(rng() * rows.length)];
+  const index = typeof rng === 'function' ? Math.floor(rng() * rows.length) : int(rows.length);
+  return rows[index];
 }
 
 function getSelectionPoolStats() {

@@ -1,5 +1,7 @@
 'use strict';
 
+const { int, range: secureRange } = require('./secureRng');
+
 /**
  * Daily quests — roll, progress, auto-grant (Master §20, Phase 8).
  *
@@ -33,7 +35,12 @@ const TODAY_PHT = `(NOW() AT TIME ZONE 'Asia/Manila')::date`;
 // (mirrors the bestow daily-cap pattern; requires the Phase-8 ALTER on users).
 const REFRESH_ALLOWANCE = 2;
 
-const randInt = (rng, min, max) => min + Math.floor(rng() * (max - min + 1));
+const randInt = (rng, min, max) => typeof rng === 'function'
+  ? min + Math.floor(rng() * (max - min + 1))
+  : secureRange(min, max);
+const randomIndex = (length, rng) => typeof rng === 'function'
+  ? Math.floor(rng() * length)
+  : int(length);
 const creduxSpentEnhancementLabel = (n) => `Spend ${(n * 1000).toLocaleString()} Credux on enhancement`;
 
 // Each def: target range (rolled units), reward(rolledUnits) → [credux, shards],
@@ -79,11 +86,11 @@ const QUEST_DEFS = {
 
 const QUEST_TYPES = Object.keys(QUEST_DEFS);
 
-/** Fisher–Yates using the provided rng (defaults to Math.random). */
+/** Fisher–Yates using an optional injected rng. */
 function shuffle(arr, rng) {
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
+    const j = randomIndex(i + 1, rng);
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
@@ -94,7 +101,7 @@ function shuffle(arr, rng) {
  * with a client whose transaction is open; the advisory xact-lock holds until that tx
  * ends. Returns true if it rolled, false if quests already existed. rng injectable.
  */
-async function rollQuestsIfMissing(client, discordId, rng = Math.random) {
+async function rollQuestsIfMissing(client, discordId, rng = null) {
   await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`quests:${discordId}`]);
 
   const existing = await client.query(
@@ -211,7 +218,7 @@ async function getRefreshesUsed(client, discordId) {
  * unless bypassMax (dev). Must run inside the caller's open transaction. Returns a tagged
  * result: ok / max / badindex / noalt.
  */
-async function refreshQuestLine(client, discordId, index, { bypassMax = false, rng = Math.random } = {}) {
+async function refreshQuestLine(client, discordId, index, { bypassMax = false, rng = null } = {}) {
   await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`quests:${discordId}`]);
   await rollQuestsIfMissing(client, discordId, rng);
 
@@ -231,7 +238,7 @@ async function refreshQuestLine(client, discordId, index, { bypassMax = false, r
   const inUse = new Set(quests.map((q) => q.quest_type));
   const candidates = QUEST_TYPES.filter((t) => !inUse.has(t));
   if (candidates.length === 0) return { status: 'noalt' }; // 6 types, 3 in use → never empty
-  const newType = candidates[Math.floor(rng() * candidates.length)];
+  const newType = candidates[randomIndex(candidates.length, rng)];
   const def = QUEST_DEFS[newType];
   const target = def.roll(rng);
   const [credux, shards] = def.reward(target);
@@ -303,7 +310,7 @@ const WEEKLY_GRAND_VALOR = 150;
 const WEEKLY_GRAND_RELICS = 1; // the Sacred Relic the weekly board is built around
 
 /** Roll the 5 weekly quests for (discordId, this PHT week) if none exist yet. */
-async function rollWeeklyIfMissing(client, discordId, rng = Math.random) {
+async function rollWeeklyIfMissing(client, discordId, rng = null) {
   const week = phtWeek();
   await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`weekly:${discordId}`]);
   const existing = await client.query(

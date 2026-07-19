@@ -1,6 +1,7 @@
 'use strict';
 
 const { BELIEVER_EXP_PER_LEVEL } = require('./believerProgression');
+const { weightedIndex } = require('../utils/secureRng');
 
 /**
  * Deity gacha constants (Master §4 / §9 / §35.6). Hardcoded game-balance
@@ -9,14 +10,12 @@ const { BELIEVER_EXP_PER_LEVEL } = require('./believerProgression');
  */
 
 // ── Tier roll weights (Ascension Patch §3.2) ───────────────────────────────
-// Epic 64.5% · Mythic 34.4% · Legendary 1% · Supreme 0.1% — must sum to 1.0.
-// (Was 64.5/30/5/0.5; the Ascension patch shifts Legendary/Supreme weight to
-// Mythic — deity power now comes from Sigils, not raw pull luck.)
+// Epic 64.5% · Mythic 34% · Legendary 1% · Supreme 0.5% — must sum to 1.0.
 const TIER_WEIGHTS = [
   ['Epic', 0.645],
-  ['Mythic', 0.344],
+  ['Mythic', 0.340],
   ['Legendary', 0.01],
-  ['Supreme', 0.001],
+  ['Supreme', 0.005],
 ];
 
 // ── Pity (Master §4 "Deity Gacha Pity" + §35.0) ────────────────────────────
@@ -53,16 +52,16 @@ const TIER_ALIAS = {
   Supreme: 'Primordial',
 };
 const TIER_COLOR = {
-  Epic: 0x5865F2,      // Blue
-  Mythic: 0x9b59b6,    // Purple
-  Legendary: 0xFFD700, // Gold
-  Supreme: 0xe74c3c,   // Red
+  Epic: 0x5865f2, // Blue
+  Mythic: 0x9b59b6, // Purple
+  Legendary: 0xffd700, // Gold
+  Supreme: 0xe74c3c, // Red
 };
 const TIER_RANK = { Epic: 0, Mythic: 1, Legendary: 2, Supreme: 3 };
 
 // ── Reputation (Master §18, lines 1069–1082) ───────────────────────────────
-const REPUTATION_PER_PULL = 10;    // crd summon, per pull
-const REP_DAILY_CAP = 1500;        // reputation EXP per day (PHT)
+const REPUTATION_PER_PULL = 10; // crd summon, per pull
+const REP_DAILY_CAP = 1500; // reputation EXP per day (PHT)
 
 /**
  * Resolve one natural roll against the player's running pity counter.
@@ -87,15 +86,9 @@ function resolveRoll(pity) {
   return { tier: natural, newPity: incremented, pityReset: false };
 }
 
-/** Weighted tier roll via cumulative walk. */
+/** Crypto-backed weighted tier roll. */
 function rollTier() {
-  const r = Math.random();
-  let acc = 0;
-  for (const [tier, p] of TIER_WEIGHTS) {
-    acc += p;
-    if (r < acc) return tier;
-  }
-  return TIER_WEIGHTS[TIER_WEIGHTS.length - 1][0]; // FP safety net
+  return TIER_WEIGHTS[weightedIndex(TIER_WEIGHTS.map(([, weight]) => weight))][0];
 }
 
 module.exports = {

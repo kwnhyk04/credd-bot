@@ -1,5 +1,7 @@
 'use strict';
 
+const { chance, int } = require('../utils/secureRng');
+
 /**
  * Greater Boss tier — Master §16 [v4.4].
  *
@@ -55,11 +57,14 @@ function bossRewards(name) {
  * For a Greater Boss the roll is made ONCE per defeat (every attacker gets the same
  * outcome), matching the uniform participation model.
  */
-function rollBossChest(name, rng = Math.random) {
+function rollBossChest(name, rng = null) {
   if (!isGreaterBoss(name)) {
     return { column: 'boss_treasure_chest', qty: 1, label: 'Boss Treasure Chest' };
   }
-  return rng() < GREATER_CHEST_GOLDEN_CHANCE
+  const isGolden = typeof rng === 'function'
+    ? rng() < GREATER_CHEST_GOLDEN_CHANCE
+    : chance(GREATER_CHEST_GOLDEN_CHANCE);
+  return isGolden
     ? { column: 'boss_golden_chest', qty: 1, label: 'Boss Golden Chest' }
     : { column: 'boss_treasure_chest', qty: 2, label: 'Boss Treasure Chest' };
 }
@@ -98,15 +103,18 @@ function inferChestFromGreaterHp(baseHp, maxHp) {
  * a missing Greater seed (or an all-Greater roster) never crashes. Returns
  * { row, greater } or null when there are no boss rows at all.
  */
-function pickWeightedBoss(allBosses, rng = Math.random) {
+function pickWeightedBoss(allBosses, rng = null) {
   if (!allBosses || allBosses.length === 0) return null;
   const greater = allBosses.filter((b) => isGreaterBoss(b.name));
   const normal = allBosses.filter((b) => !isGreaterBoss(b.name));
-  const wantGreater = rng() < GREATER_SPAWN_CHANCE;
+  const wantGreater = typeof rng === 'function'
+    ? rng() < GREATER_SPAWN_CHANCE
+    : chance(GREATER_SPAWN_CHANCE);
   let pool = wantGreater ? greater : normal;
   if (pool.length === 0) pool = wantGreater ? normal : greater; // fall back if chosen pool empty
   if (pool.length === 0) return null;
-  const row = pool[Math.floor(rng() * pool.length)];
+  const index = typeof rng === 'function' ? Math.floor(rng() * pool.length) : int(pool.length);
+  const row = pool[index];
   return { row, greater: isGreaterBoss(row.name) };
 }
 

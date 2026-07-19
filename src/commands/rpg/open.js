@@ -19,6 +19,7 @@ const {
 const { assetPath } = require('../../utils/assets');
 const { performanceLog } = require('../../utils/runtimeLogs');
 const { getSelectionPool, pickRandomRow } = require('../../utils/selectionPools');
+const { weightedIndex } = require('../../utils/secureRng');
 
 // Relic gacha config (Master §6): which relic feeds how many deity rolls.
 //   sr   → 1 Sacred Relic  → 10 deity rolls (pity applies)
@@ -397,13 +398,7 @@ async function openRelic(message, alias) {
 
 /** Weighted tier pick from essence_bag_def.rune_pool ([{tier,weight}], sums 100). */
 function rollRuneTier(pool) {
-  const total = pool.reduce((s, e) => s + Number(e.weight), 0);
-  let r = Math.random() * total;
-  for (const e of pool) {
-    r -= Number(e.weight);
-    if (r < 0) return e.tier;
-  }
-  return pool[pool.length - 1].tier;
+  return pool[weightedIndex(pool.map((entry) => Number(entry.weight)))].tier;
 }
 
 /**

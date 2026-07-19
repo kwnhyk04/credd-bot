@@ -1809,3 +1809,24 @@ Current handoff state:
 Validation:
 
 1. Verified the interaction router now returns before its stale-control fallback for both Bestow button IDs.
+
+## Session 2026-07-19 — Crypto-Backed RPG Randomness
+
+Implementation completed:
+
+1. Added a shared `crypto.randomInt` RNG utility with integer, inclusive-range, probability, unit-interval, and weighted-index helpers.
+2. Removed every production `Math.random` reference from deity summons, chest and gear drops, enhancement success, rune bags and values, roster selection, quests, bosses, and default raid-loot rolls.
+3. Preserved injectable RNG parameters for deterministic tests and preserved the seeded raid combat/reward stream used for replay consistency.
+4. Corrected the deity gacha table to Epic 64.5%, Mythic 34%, Legendary 1%, and Supreme 0.5%, totaling exactly 100%.
+5. Updated regression coverage for the revised gacha rates, crypto-backed helper boundaries, and the absence of `Math.random` in all converted production files.
+
+Validation:
+
+1. Loaded the complete command handler and ran 2,000 iterations across deity, chest, gear, rune, boss, raid-loot, and shared selection RNG paths successfully.
+2. Requested-patch, casino (187/187), lifecycle (17/17), help (183/183), weapon-passive, telemetry, schema, asset-cache, R2-skin, and Canvas self-tests passed.
+3. The battle self-test reached 285 passing checks, including every new RNG check, but retains three pre-existing stale Legendary ascension-cost expectations from before commit `6d0e32a`; those unrelated assertions were not changed in this RNG session.
+4. Source syntax checks and `git diff --check` passed. No production database operations were required or executed.
+
+Current handoff state:
+
+1. This RNG conversion and handoff entry are ready to commit and have not been pushed.

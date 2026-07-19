@@ -417,7 +417,7 @@ function buildBossFighter(row, bossState) {
 /**
  * Random boss row — equal chance among all seeded boss rows (mob_roster has
  * no is_available column; the RETIRE soft-delete patch covered weapon/deity
- * rosters only). rng injectable for tests; the scheduler passes Math.random.
+ * rosters only). rng is supplied by the caller for deterministic tests.
  */
 async function fetchRandomBoss(db, rng) {
   const rows = await queryMobRows(

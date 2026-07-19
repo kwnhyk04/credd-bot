@@ -1,5 +1,7 @@
 'use strict';
 
+const { chance, int, unit, weightedIndex } = require('../utils/secureRng');
+
 /**
  * Chest drop rates (§5) + weapon stat banding (§7) + armor stat banding (v5 §C.1).
  * Hardcoded game-balance constants. No schema/seed.
@@ -112,23 +114,17 @@ const SUPREME_ARMOR = {
  */
 function rollTier(chestAlias) {
   const chest = CHESTS[chestAlias];
-  const r = Math.random();
-  let acc = 0;
-  for (const [tier, p] of chest.drops) {
-    acc += p;
-    if (r < acc) return tier;
-  }
-  return chest.drops[chest.drops.length - 1][0]; // FP safety net
+  return chest.drops[weightedIndex(chest.drops.map(([, weight]) => weight))][0];
 }
 
 /** Roll the gear class for one drop: 'weapon' or 'armor' (GEAR_SPLIT). */
 function rollGearClass() {
-  return Math.random() < GEAR_SPLIT ? 'weapon' : 'armor';
+  return chance(GEAR_SPLIT) ? 'weapon' : 'armor';
 }
 
 /** Roll an armor type, 1/3 each (Heavy/Medium/Light). */
 function rollArmorType() {
-  return ARMOR_TYPES[Math.floor(Math.random() * ARMOR_TYPES.length)];
+  return ARMOR_TYPES[int(ARMOR_TYPES.length)];
 }
 
 // ── Native socket count rolled at gear drop (Phase 2 §2.2) ──────────────────
@@ -146,13 +142,7 @@ const NATIVE_SOCKET_ROLL = {
 /** Roll how many native sockets a freshly-dropped gear piece has, by tier. */
 function rollNativeSocketCount(tier) {
   const table = NATIVE_SOCKET_ROLL[tier] || NATIVE_SOCKET_ROLL.Common;
-  const r = Math.random();
-  let acc = 0;
-  for (const [count, p] of table) {
-    acc += p;
-    if (r < acc) return count;
-  }
-  return table[table.length - 1][0]; // FP safety net
+  return table[weightedIndex(table.map(([, weight]) => weight))][0];
 }
 
 /**
@@ -167,7 +157,7 @@ function buildSocketArray(count) {
 function bandedValue(range, band) {
   const [min, max] = range;
   const [lo, hi] = BAND_FRACTIONS[band];
-  const frac = lo + Math.random() * (hi - lo);
+  const frac = lo + unit() * (hi - lo);
   return min + frac * (max - min);
 }
 
@@ -191,7 +181,7 @@ function rollWeaponStats(tier, type) {
   const crit = Math.round(bandedValue(range.crit, profile.crit) * 10) / 10; // 1 decimal
 
   let bonus_dmg_pct = null;
-  if (tier === 'Legendary' && Math.random() < LEGENDARY_BONUS_CHANCE) {
+  if (tier === 'Legendary' && chance(LEGENDARY_BONUS_CHANCE)) {
     bonus_dmg_pct = LEGENDARY_BONUS_VALUE;
   }
 

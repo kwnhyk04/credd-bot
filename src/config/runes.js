@@ -15,6 +15,7 @@
  */
 
 const { emoji, emojiForDisplay } = require('../utils/emojis');
+const { range: secureRange } = require('../utils/secureRng');
 
 // Tier ladder shared with gear (rune_roster.tier uses the same five strings,
 // though Common never seeds a rune).
@@ -132,11 +133,13 @@ function runeArtRel(effectKey) {
   return `items/runes/${effectKey}.png`;
 }
 
-function rollRuneValue(effectKey, tier, rng = Math.random) {
+function rollRuneValue(effectKey, tier, rng = null) {
   const range = RUNE_VALUE_RANGES[effectKey]?.[tier];
   if (!range) return null;
   const [min, max] = range;
-  const value = min + Math.floor(rng() * (max - min + 1));
+  const value = typeof rng === 'function'
+    ? min + Math.floor(rng() * (max - min + 1))
+    : secureRange(min, max);
   return Number(value.toFixed(2));
 }
 

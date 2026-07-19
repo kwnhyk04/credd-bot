@@ -1,5 +1,7 @@
 'use strict';
 
+const { chance } = require('../utils/secureRng');
+
 /**
  * raidLoot.js — raid spawn + loot constants (Master §13, mob-rebalance patch).
  *
@@ -40,8 +42,11 @@ const RAID_LOOT = {
   },
 };
 
-function rollRaidChest(winLoot, rng = Math.random) {
-  return rng() < winLoot.chestChance ? winLoot.chest : null;
+function rollRaidChest(winLoot, rng = null) {
+  const wonChest = typeof rng === 'function'
+    ? rng() < winLoot.chestChance
+    : chance(winLoot.chestChance);
+  return wonChest ? winLoot.chest : null;
 }
 
 module.exports = { ELITE_SPAWN_CHANCE, RAID_LOOT, rollRaidChest };

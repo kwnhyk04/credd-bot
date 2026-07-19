@@ -14,6 +14,7 @@ const {
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay, emoji } = require('../../utils/emojis');
 const { progressQuests } = require('../../utils/questProgress');
+const { chance } = require('../../utils/secureRng');
 
 const TIER_COLOR = {
   Common: 0x95a5a6, Rare: 0x3498db, Mythic: 0x9b59b6, Legendary: 0xFFD700, Supreme: 0xe74c3c,
@@ -282,7 +283,7 @@ async function attemptEnhance(client, discordId, gearId) {
     return { status: 'insufficient', cost: next.cost, credux: creduxBefore };
   }
 
-  const success = Math.random() < next.successRate;
+  const success = chance(next.successRate);
   const creduxAfter = creduxBefore - next.cost;
 
   await client.query(

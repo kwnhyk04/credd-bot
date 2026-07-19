@@ -1472,14 +1472,34 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
   } = require(path.join(ROOT, 'src', 'config', 'ascension'));
   const { TIER_WEIGHTS } = require(path.join(ROOT, 'src', 'config', 'gachaRates'));
 
-  // §3.2 — rates 64.5 / 34.4 / 1 / 0.1, summing to exactly 100%.
+  // §3.2 — rates 64.5 / 34 / 1 / 0.5, summing to exactly 100%.
   const w = Object.fromEntries(TIER_WEIGHTS);
   check('rates: Epic 64.5%', w.Epic === 0.645);
-  check('rates: Mythic 34.4%', w.Mythic === 0.344);
+  check('rates: Mythic 34%', w.Mythic === 0.340);
   check('rates: Legendary 1%', w.Legendary === 0.01);
-  check('rates: Supreme 0.1%', w.Supreme === 0.001);
+  check('rates: Supreme 0.5%', w.Supreme === 0.005);
   const sum = TIER_WEIGHTS.reduce((s, [, p]) => s + p, 0);
   check('rates sum to 1.0', Math.abs(sum - 1) < 1e-9, `sum=${sum}`);
+
+  const secureRng = require(path.join(ROOT, 'src', 'utils', 'secureRng'));
+  check('secure RNG uses crypto.randomInt',
+    /crypto\.randomInt\s*\(/.test(fs.readFileSync(path.join(ROOT, 'src', 'utils', 'secureRng.js'), 'utf8')));
+  check('secure RNG integer helpers preserve bounds',
+    secureRng.int(1) === 0
+      && secureRng.range(5, 5) === 5
+      && secureRng.chance(0) === false
+      && secureRng.chance(1) === true
+      && secureRng.weightedIndex([0, 1, 0]) === 1);
+  const randomAuditFiles = [
+    'config/gachaRates.js', 'config/dropRates.js', 'config/bosses.js',
+    'config/raidLoot.js', 'config/runes.js', 'utils/questProgress.js',
+    'utils/selectionPools.js', 'commands/rpg/enhance.js', 'commands/rpg/open.js',
+    'engine/bossSystem.js',
+  ];
+  for (const file of randomAuditFiles) {
+    const source = fs.readFileSync(path.join(ROOT, 'src', file), 'utf8');
+    check(`${file} has no Math.random reference`, !/Math\.random\b/.test(source));
+  }
 
   // §3.4 — multiplier: 0 sigils = 50%, each +5%, 10/10 = 100%.
   check('sigil multiplier 0 → 0.50', sigilMultiplier(0) === 0.50);
