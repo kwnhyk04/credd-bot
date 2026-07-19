@@ -30,6 +30,8 @@ const casinoButtons = casinoEnabled ? {
 
 const COLLECTOR_OWNED_BUTTONS = new Set([
   'battle_log',
+  'bestow_confirm',
+  'bestow_cancel',
 ]);
 
 /**

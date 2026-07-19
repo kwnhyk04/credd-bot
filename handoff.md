@@ -1800,3 +1800,12 @@ Current handoff state:
 
 1. The Crash chance rebalance, updated tests, and this handoff entry were committed in this session and were not pushed.
 2. Pre-existing handoff-only formatting/model edits present at the start of this session were preserved.
+
+## Session 2026-07-19 — Bestow Confirmation Controls
+
+1. Fixed `crd bestow` Confirm and Cancel buttons being handled by the global interaction fallback before Bestow's message collector could receive them, which produced “This control is no longer active.”
+2. Marked only `bestow_confirm` and `bestow_cancel` as collector-owned controls; the existing Bestow validation, transfer, expiry, and message behavior are unchanged.
+
+Validation:
+
+1. Verified the interaction router now returns before its stale-control fallback for both Bestow button IDs.
