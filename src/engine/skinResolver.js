@@ -23,7 +23,7 @@
 const fs = require('fs');
 const path = require('path');
 const {
-  SKINS_DIR, DIRS, SET_FILES, skinFilePath, DEV_ACCOUNT_IDS, BETA_MODE,
+  SKINS_DIR, DIRS, SET_FILES, skinFilePath, BETA_MODE,
 } = require('../config/cosmetics');
 const {
   assetPath,
@@ -229,17 +229,12 @@ async function resolveStatsSkin(db, userId) {
 
 /**
  * §6 profile top-label: the word drawn in the profile's top space.
- *   - dev accounts → "Founder 000"
  *   - founders     → "Founder NNN" (zero-padded founder_number)
  *   - else         → the tier name ("Believer"/"Chosen"/"Eternal")
  * Returns { hasTopLabel, word } — hasTopLabel comes from the equipped profile skin's
  * catalog flag (base/store), defaulting false for free players.
  */
 async function resolveProfileLabel(db, userId) {
-  // Dev accounts always render Founder 000.
-  if (DEV_ACCOUNT_IDS.includes(String(userId))) {
-    return { hasTopLabel: true, word: 'Founder 000' };
-  }
   const sup = await getSupporter(db, userId);
   if (!isActiveSupporter(sup)) return { hasTopLabel: false, word: null };
 

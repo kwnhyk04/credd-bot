@@ -76,8 +76,9 @@ const SUPPORTER_BADGE_FILE = { believer: 'believer', chosen: 'chosen', eternal: 
 // BETA_MODE is an OPT-IN override (set env BETA_MODE=true) that instead renders the testers/
 // default set for unequipped accounts. Off by default so "default" always means default_template.
 const BETA_MODE = String(process.env.BETA_MODE ?? 'false').toLowerCase() === 'true';
-// The two dev accounts render the profile top-label as `Founder 000`. Human supplies the IDs
-// via env DEV_ACCOUNT_IDS (comma-separated); falls back to DEV_IDS.
+// Developer accounts receive non-production cosmetic/avatar access only. This must not grant
+// a Founder profile label; that label is derived exclusively from a real founder_number.
+// Human supplies the IDs via DEV_ACCOUNT_IDS (comma-separated); falls back to DEV_IDS.
 const DEV_ACCOUNT_IDS = (process.env.DEV_ACCOUNT_IDS
   ? process.env.DEV_ACCOUNT_IDS.split(',').map((s) => s.trim()).filter(Boolean)
   : DEV_IDS);
