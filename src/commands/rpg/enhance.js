@@ -10,6 +10,7 @@ const {
   computeWeaponStats,
   computeArmorStats,
   nextAttempt,
+  maxDisplayEnhancement,
 } = require('../../engine/enhancement');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay, emoji } = require('../../utils/emojis');
@@ -94,7 +95,7 @@ function addNextSection(container, g) {
     container.addTextDisplayComponents((td) => td.setContent(`${g.tier} gear cannot be enhanced.`));
     return false;
   }
-  const next = nextAttempt(g.tier, g.enhancement);
+  const next = nextAttempt(g.tier, g.enhancement, g.kind);
   if (next == null) {
     container.addTextDisplayComponents((td) => td.setContent('-# Maximum enhancement reached'));
     return false;
@@ -273,7 +274,7 @@ async function attemptEnhance(client, discordId, gearId) {
     await client.query('ROLLBACK');
     return { status: 'not_enhanceable', tier: g.tier };
   }
-  const next = nextAttempt(g.tier, g.enhancement);
+  const next = nextAttempt(g.tier, g.enhancement, kind);
   if (next == null) {
     await client.query('ROLLBACK');
     return { status: 'maxed' };
@@ -378,7 +379,9 @@ async function handleAttempt(interaction, gearId, ownerId) {
     return;
   }
   if (result.status === 'maxed') {
-    await interaction.editReply(buildForgePayload(g, gearId, ownerId, { resultLine: 'This equipment is already maxed (+10).' }));
+    await interaction.editReply(buildForgePayload(g, gearId, ownerId, {
+      resultLine: `This equipment is already maxed (+${maxDisplayEnhancement(g.tier, g.kind)}).`,
+    }));
     return;
   }
 

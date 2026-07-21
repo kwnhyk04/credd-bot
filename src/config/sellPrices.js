@@ -16,6 +16,8 @@ const SELL_PRICES = {
   Mythic: 50000,
   Legendary: 100000,
   Supreme: 1000000,
+  // [Genesis update] The five First Arms sit above Supreme.
+  Genesis: 2000000,
 };
 
 const ENHANCEMENT_SELL_REFUND_RATE = 0.30;
@@ -46,7 +48,7 @@ function computeSellTotal(rows) {
 // Valid `crd sell <tier>` targets. Per Master §22 every tier is a valid bulk
 // tier-sell (Legendary/Supreme included); only `crd sell all` excludes the top
 // two tiers. The Confirm dialog is the safeguard.
-const TIER_NAMES = ['Common', 'Rare', 'Mythic', 'Legendary', 'Supreme'];
+const TIER_NAMES = ['Common', 'Rare', 'Mythic', 'Legendary', 'Supreme', 'Genesis'];
 
 // alias (lowercased command arg) → canonical tier name.
 const TIER_ALIASES = {
@@ -55,10 +57,12 @@ const TIER_ALIASES = {
   mythic: 'Mythic',
   legendary: 'Legendary',
   supreme: 'Supreme',
+  genesis: 'Genesis',
 };
 
 // `crd sell all` excludes these tiers entirely (id-only, §22).
-const ALL_EXCLUDED_TIERS = ['Legendary', 'Supreme'];
+// [Genesis update] Genesis joins the protected tiers — never bulk-sellable.
+const ALL_EXCLUDED_TIERS = ['Legendary', 'Supreme', 'Genesis'];
 
 module.exports = {
   SELL_PRICES,

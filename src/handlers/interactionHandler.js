@@ -3,6 +3,7 @@
 const { MessageFlags } = require('discord.js');
 const registerCmd = require('../commands/rpg/register');
 const createCmd = require('../commands/rpg/create');
+const changeClassCmd = require('../commands/rpg/changeClass');
 const bagCmd = require('../commands/rpg/bag');
 const bagViews = require('../engine/bagViews');
 const runeCmd = require('../commands/rpg/rune');
@@ -34,6 +35,11 @@ const COLLECTOR_OWNED_BUTTONS = new Set([
   'bestow_cancel',
 ]);
 
+function isCollectorOwnedButton(customId) {
+  return COLLECTOR_OWNED_BUTTONS.has(customId)
+    || String(customId || '').startsWith('battle_log_page:');
+}
+
 /**
  * Routes button interactions by customId.
  * customId schemes (last segment is always the initiating user id):
@@ -60,7 +66,7 @@ async function handleInteractionInner(interaction) {
   const isSelect = interaction.isStringSelectMenu && interaction.isStringSelectMenu();
   if (!isButton && !isSelect) return;
 
-  if (isButton && COLLECTOR_OWNED_BUTTONS.has(interaction.customId)) return;
+  if (isButton && isCollectorOwnedButton(interaction.customId)) return;
 
   const parts = interaction.customId.split(':');
   const [namespace, action] = parts;
@@ -222,6 +228,33 @@ async function handleInteractionInner(interaction) {
         return;
       }
     }
+
+    // [Genesis update S14] Change Character (`crd use cc`) — independent
+    // chgclass:* namespace mirroring create:* above.
+    if (namespace === 'chgclass') {
+      if (action === 'class') {
+        const className = parts[2];
+        const ownerId = parts[3];
+        await changeClassCmd.handleClassSelect(interaction, className, ownerId);
+        return;
+      }
+      if (action === 'confirm') {
+        const className = parts[2];
+        const ownerId = parts[3];
+        await changeClassCmd.handleConfirm(interaction, className, ownerId);
+        return;
+      }
+      if (action === 'back') {
+        const ownerId = parts[2];
+        await changeClassCmd.handleBack(interaction, ownerId);
+        return;
+      }
+      if (action === 'cancel') {
+        const ownerId = parts[2];
+        await changeClassCmd.handleCancel(interaction, ownerId);
+        return;
+      }
+    }
     if (!interaction.replied && !interaction.deferred) {
       await interaction.reply({
         content: 'This control is no longer active. Please run the command again.',
@@ -241,7 +274,7 @@ const INTERACTION_COMMANDS = {
   title: 'title', essx: 'exchange', quest: 'quests', gloss: 'glossary', araid: 'auto',
   register: 'register', boss: 'boss', bj: 'blackjack', crash: 'crash', weapons: 'bag',
   armors: 'bag', chests: 'bag', deities: 'deity', dsigil: 'deity', denhance: 'deity',
-  enhance: 'enhance', sell: 'sell', create: 'create', duel: 'duel',
+  enhance: 'enhance', sell: 'sell', create: 'create', chgclass: 'use', duel: 'duel',
   duel_accept: 'duel', duel_decline: 'duel',
 };
 
@@ -257,4 +290,4 @@ function handleInteraction(interaction) {
   }, () => handleInteractionInner(interaction));
 }
 
-module.exports = { handleInteraction };
+module.exports = { handleInteraction, isCollectorOwnedButton };

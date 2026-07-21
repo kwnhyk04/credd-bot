@@ -1,0 +1,249 @@
+==================================================
+14. CHARACTER CLASS CHANGE EMBED AND FLOW
+==================================================
+
+When a user runs:
+
+crd use cc
+
+Open a Character Class Change interface based on the existing Create Character embed design.
+
+Important implementation detail:
+
+- Copy the Create Character embed configuration into a separate Character Class Change configuration.
+- "Copy" means creating another independent configuration for the class-change flow.
+- Do not directly reuse, mutate, or overwrite the existing Create Character configuration.
+- Changes to the Character Class Change embed must not affect the original Create Character embed.
+- Preserve the same overall visual design, layout, formatting, buttons, select menus, class presentation, emojis, descriptions, and interaction style used by Create Character.
+- Change the embed header from "Create Character" to "Change Character."
+- Update any creation-specific instructions so they correctly describe changing an existing character's class.
+- Do not run character-creation logic when this interface is opened.
+
+The separate configurations should follow a structure similar to:
+
+- Create Character embed configuration
+- Change Character embed configuration
+
+They may share reusable helper functions or common style constants, but they must remain independently configurable.
+
+Class-change flow:
+
+1. The user runs `crd use cc`.
+2. Confirm that the user owns at least one Character Class Change item.
+3. Open the Change Character embed.
+4. Display the available character classes using the same presentation style as Create Character.
+5. Let the user select a new class.
+6. Show a confirmation step before applying the change.
+7. Apply the class change only after explicit confirmation.
+8. Consume one `cc` item only after the database update succeeds.
+9. Refresh all affected character and avatar data.
+10. Return a successful class-change confirmation.
+
+Do not consume the Character Class Change item when:
+
+- The user closes or cancels the interface.
+- The interaction expires or times out.
+- The user selects their current class.
+- The selected class is invalid.
+- The database update fails.
+- A dependent update fails.
+- The final confirmation is not completed.
+
+The Change Character embed must clearly show:
+
+- Current class
+- Selected new class
+- A warning that the class will be changed
+- Confirm button
+- Cancel button
+
+Class-change behavior:
+
+- Preserve the character's level.
+- Preserve Combat EXP.
+- Preserve Believer Level and Believer EXP.
+- Preserve Credux.
+- Preserve owned items and chests.
+- Preserve equipment unless existing game rules make an equipped item incompatible with the new class.
+- Follow the existing equipment validation rules for incompatible equipment.
+- Do not delete equipment.
+- Preserve gender.
+- Preserve the selected skin tier.
+- Recalculate the correct class-based avatar path after the change.
+- If the Genesis avatar is selected, resolve the new path as:
+
+  /skins/avatars/genesis/{gender}/genesis_{new_class}_{gender}.png
+
+- Invalidate only the affected profile, avatar, stats, or battle-render cache.
+- Do not clear the entire bot cache.
+
+Concurrency and safety:
+
+- Prevent the same `cc` item from being used by multiple concurrent interactions.
+- Prevent duplicate class changes caused by button retries.
+- Ensure the class update and item consumption are atomic.
+- Lock or safely update the character and inventory records.
+- If any required operation fails, roll back both the class change and item consumption.
+
+Update tests for:
+
+- Change Character embed uses the same style as Create Character.
+- Change Character uses a separate embed configuration.
+- Modifying the Change Character configuration does not modify Create Character.
+- Header displays "Change Character."
+- Successful class change consumes one `cc`.
+- Cancellation does not consume the item.
+- Timeout does not consume the item.
+- Selecting the current class does not consume the item.
+- Failed database update does not consume the item.
+- Character progress and inventory are preserved.
+- Genesis avatar path changes to the newly selected class.
+- Concurrent class-change attempts cannot consume the item twice.
+
+==================================================
+15. NEW PVP RANK: CELESTIAL
+==================================================
+
+Add a new PvP rank bracket named:
+
+Celestial
+
+Celestial rank requirement:
+
+- 20,000 PvP points or higher
+
+Rank evaluation must follow this rule:
+
+- PvP points greater than or equal to 20,000 = Celestial
+
+Requirements:
+
+- Celestial must become the highest PvP rank.
+- Update the central PvP rank configuration instead of adding scattered hardcoded checks.
+- Ensure exactly 20,000 points qualifies for Celestial.
+- Ensure all values above 20,000 remain Celestial.
+- Update the previous highest rank so its upper range ends at 19,999 points.
+- Preserve all existing lower-rank thresholds unless a boundary adjustment is required to prevent overlap.
+- Do not leave gaps or overlaps between PvP rank ranges.
+
+Integrate Celestial into every relevant PvP feature, including:
+
+- PvP profile display
+- PvP leaderboard
+- PvP matchmaking information
+- Match-result embeds
+- Rank-up and rank-down notifications
+- Rank icons or emojis
+- PvP statistics
+- PvP Shop restrictions, if ranks are used there
+- Seasonal reward calculations
+- PvP reward previews
+- Admin commands
+- Help commands
+- Autocomplete
+- Logs
+- Any rank-based role or badge assignment
+
+If the project uses rank-order indexes or enums:
+
+- Add Celestial after the current highest rank.
+- Preserve the ordering of all existing ranks.
+- Update validation, serialization, and database mappings safely.
+- Do not renumber existing stored rank IDs unless absolutely required.
+
+Rank-boundary tests must include:
+
+- 19,999 points returns the previous highest rank.
+- 20,000 points returns Celestial.
+- 20,001 points returns Celestial.
+- A very high point value still returns Celestial.
+- Existing lower-rank boundaries remain unchanged.
+- No point value matches two rank brackets.
+- No valid point value is left without a rank.
+
+If a Celestial visual asset, emoji, or badge does not exist:
+
+- Use the project's existing safe fallback.
+- Do not break the PvP embed.
+- Clearly report the missing optional asset in the final implementation summary.
+
+==================================================
+16. SQL SCRIPTS MUST BE PROVIDED, NOT EXECUTED
+==================================================
+
+Do not automatically execute production SQL updates.
+
+I will review and manually run all SQL scripts.
+
+Codex must:
+
+- Inspect the actual database schema, table names, column names, data types, constraints, indexes, and existing reward rows.
+- Generate SQL that matches the real project schema.
+- Do not invent table or column names without checking the codebase and migrations.
+- Do not run the SQL against production.
+- Do not silently apply data updates through application startup code.
+- Do not add a startup routine that automatically compensates users or changes production rows.
+- Clearly separate schema migrations from data updates.
+- Put each manual SQL operation in a dedicated, clearly named file.
+
+Provide manual SQL scripts for all required database changes, including:
+
+1. Character Combat Level reward tracking
+2. Believer Level reward tracking
+3. CRD Shop purchase-limit tracking
+4. Character Class Change inventory support
+5. Diamond Chest inventory support
+6. CRD Bag item-category migration
+7. Sacred Relic category update
+8. Supreme Relic category update
+9. Celestial PvP rank support, if PvP ranks are stored in a database table
+10. Celestial PvP reward-table entry
+11. Any required constraints or indexes
+12. Any required compensation support records
+
+Suggested SQL file organization:
+
+- `001_level_reward_tracking.sql`
+- `002_crd_shop_tracking.sql`
+- `003_crd_inventory_updates.sql`
+- `004_crd_bag_category_updates.sql`
+- `005_pvp_celestial_rank.sql`
+- `006_pvp_celestial_rewards.sql`
+- `007_required_indexes.sql`
+- `008_rollback.sql`
+
+Use the project's existing migration naming convention instead if one already exists.
+
+Every SQL script must include:
+
+- A comment explaining its purpose
+- The affected table or tables
+- A transaction block where supported
+- Safe guards against accidental duplicate insertion
+- Appropriate `IF EXISTS`, `IF NOT EXISTS`, `ON CONFLICT`, `MERGE`, or equivalent behavior supported by the project's database
+- Validation queries that can be run after the update
+- A rollback section or separate rollback script
+- Notes about whether the script is safe to rerun
+
+Do not include destructive SQL such as `DROP TABLE`, broad `DELETE`, or unfiltered `UPDATE` unless strictly necessary and explicitly justified.
+
+Before any data-changing statement, include a preview or verification query when practical.
+
+Example structure:
+
+```sql
+-- Preview the affected records.
+SELECT ...;
+
+BEGIN;
+
+-- Perform the guarded update or insertion.
+INSERT INTO ...
+SELECT ...
+WHERE NOT EXISTS (...);
+
+COMMIT;
+
+-- Verify the result.
+SELECT ...;
+```

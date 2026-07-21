@@ -31,6 +31,7 @@ const {
 const pool = require('../../db/pool');
 const { RAID_LOOT, ELITE_SPAWN_CHANCE } = require('../../config/raidLoot');
 const { awardCombatExp } = require('../../utils/awardCombatExp');
+const { formatLevelRewardLine } = require('../../config/levelRewards');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay } = require('../../utils/emojis');
 
@@ -193,7 +194,8 @@ function buildClaimPayload(ownerId, level) {
 /** Claimed summary — terminal, no buttons. */
 function buildClaimedPayload(ownerId, rw, lvl) {
   const levelNote = lvl.leveledUp
-    ? `\n📈 **Combat Level ${lvl.previousLevel} → ${lvl.newLevel}!**`
+    ? `\n📈 **Combat Level ${lvl.previousLevel} → ${lvl.newLevel}!**` +
+      (lvl.rewards ? `\n🎁 Level Rewards: ${formatLevelRewardLine(lvl.rewards)}` : '')
     : '';
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)

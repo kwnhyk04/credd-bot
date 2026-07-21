@@ -40,6 +40,24 @@ AGENTS.md
 AGENT.md
 Handoff.md
 handoff.md
+todo.md
+
+# Local-only development and validation scripts. Production migrations,
+# schemas, preflight, deployment, compensation, seed, and repair tools remain tracked.
+scripts/*selftest.js
+scripts/*benchmark.js
+scripts/alignSkins.js
+scripts/analyze-resource-logs.js
+scripts/build-casino-spin-assets.js
+scripts/buildProfilePreviewSheet.js
+scripts/diagnose-founder.js
+scripts/diagnose-supporter-badges.js
+scripts/gen_description_patch.js
+scripts/recompress-assets.js
+scripts/render-requested-preview.js
+scripts/renderSkinDesignPreview.js
+scripts/skinPreview.js
+scripts/v5_wipe_test_gear.js
 
 # SQL scratch/backup dumps — deployment schema (and v4 rules schema) stay tracked
 *.sql

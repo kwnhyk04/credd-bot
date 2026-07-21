@@ -21,7 +21,7 @@ const {
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const { encodeCanvas } = require('../utils/canvasEncode');
 const { smallDivider: sep } = require('../utils/componentsV2');
-const { emoji, emojiForDisplay } = require('../utils/emojis');
+const { emoji, emojiForDisplay, deityTierEmoji } = require('../utils/emojis');
 const {
   assetPath,
   assetExtension,
@@ -62,10 +62,10 @@ const NAME_COLORS = {
 };
 
 const RARITY_SYMBOLS = {
-  Remnant: '◆',
-  Awakened: '❖',
-  Undying: '★',
-  Primordial: '✦',
+  Remnant: deityTierEmoji('Remnant', '◆'),
+  Awakened: deityTierEmoji('Awakened', '❖'),
+  Undying: deityTierEmoji('Undying', '★'),
+  Primordial: deityTierEmoji('Primordial', '✦'),
 };
 
 const FLAVOR = {

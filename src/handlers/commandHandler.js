@@ -2,7 +2,7 @@
 
 const { DEV_IDS } = require('../config/config');
 const { MessageContext } = require('../utils/commandContext');
-const { awardCommandBelieverExp } = require('../utils/awardBelieverExp');
+const { awardCommandBelieverExp, notifyBelieverLevelUp } = require('../utils/awardBelieverExp');
 const guildConfig = require('./guildConfigCache');
 const ALIASES = require('../config/aliases');
 const { envBool } = require('../utils/runtimeLogs');
@@ -38,7 +38,7 @@ const exchangeCmd = require('../commands/rpg/exchange');
 const pvpShopCmd = require('../commands/rpg/pvpShop');
 const socketCmd = require('../commands/rpg/socket');
 const runeCmd = require('../commands/rpg/rune');
-const shopCmd = require('../commands/rpg/shop');
+const shopCmd = require('../commands/rpg/crdShop'); // CRD Shop; forwards `shop supporter` to the legacy supporter shop
 const skinCmd = require('../commands/rpg/skin');
 const avatarCmd = require('../commands/rpg/avatar');
 const buyCmd = require('../commands/rpg/buy');
@@ -234,7 +234,7 @@ async function handleMessage(message, { runMiddleware, isBanned }) {
     // Superuser-only (§2). Non-devs get NO reply (invisible), skipping all middleware.
     if (!DEV_IDS.includes(ctx.userId)) return true;
     await withNetworkContext(telemetryContext, () => impl.run(ctx, { args: ctx.args }));
-    await awardCommandBelieverExp(ctx.userId, command, ctx.args);
+    notifyBelieverLevelUp(message.channel, ctx.userId, await awardCommandBelieverExp(ctx.userId, command, ctx.args));
     return true;
   }
   if (impl.mw === 'ban') {
@@ -244,7 +244,7 @@ async function handleMessage(message, { runMiddleware, isBanned }) {
     if (!allowed) return true;
   }
   await withNetworkContext(telemetryContext, () => impl.run(ctx, { args: ctx.args }));
-  await awardCommandBelieverExp(ctx.userId, command, ctx.args);
+  notifyBelieverLevelUp(message.channel, ctx.userId, await awardCommandBelieverExp(ctx.userId, command, ctx.args));
   return true;
 }
 

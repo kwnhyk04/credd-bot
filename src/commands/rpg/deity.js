@@ -1323,4 +1323,5 @@ async function execute(message, { args }) {
 module.exports = {
   execute, deities, handleListButton, handleSigilButton,
   handleEnhanceAttempt, handleEnhanceCancel, attemptDeityEnhance, buildDeityInfoPayload,
+  buildListPage,
 };

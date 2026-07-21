@@ -8,6 +8,7 @@ const {
 } = require('../../config/dropRates');
 const { generateUniqueGearId, generateUniqueRuneUid } = require('../../utils/weaponId');
 const { runSummon } = require('../../engine/summonEngine');
+const { notifyBelieverLevelUp } = require('../../utils/awardBelieverExp');
 const { TIER_ALIAS } = require('../../config/gachaRates');
 const { playAnimatedOpen, buildWeaponResultPayload, buildRuneResultPayload, OPEN_EMOJI } = require('../../engine/chestOpen');
 const { emoji } = require('../../utils/emojis');
@@ -117,7 +118,8 @@ async function openChestsTxn(discordId, alias, amount) {
     for (let i = 0; i < amount; i++) {
       const tier = rollTier(alias);
       // [v5] each drop is a weapon OR an armor (GEAR_SPLIT). Same chest, same tier odds.
-      const gearClass = rollGearClass();
+      // [Genesis update] Genesis tier is weapon-only (the five First Arms) — no split.
+      const gearClass = tier === 'Genesis' ? 'weapon' : rollGearClass();
 
       if (gearClass === 'weapon') {
         const selectStarted = Date.now();
@@ -248,11 +250,11 @@ async function execute(message, { args }) {
     return;
   }
   if (!alias) {
-    await reply(message, 'Usage: `crd open <sc|gc|btc|bgtc|supc|lb|gb|db> [amount]`');
+    await reply(message, 'Usage: `crd open <sc|gc|btc|bgtc|supc|dmc|gnc|lb|gb|db> [amount]`');
     return;
   }
   if (!CHEST_ALIASES.includes(alias)) {
-    await reply(message, 'Unknown chest. Try: `sc`, `gc`, `btc`, `bgtc`, `supc`.');
+    await reply(message, 'Unknown chest. Try: `sc`, `gc`, `btc`, `bgtc`, `supc`, `dmc`, `gnc`.');
     return;
   }
 
@@ -394,6 +396,8 @@ async function openRelic(message, alias) {
     // Keep the relic-open emoji in the result header (matches the animation).
     buildResult: () => buildResultMessage(results, balances, { headerEmoji: emoji(OPEN_EMOJI[relic.emojiName]) }),
   });
+  // Believer level-up from relic reputation (committed with the summon).
+  notifyBelieverLevelUp(message.channel, discordId, { levelUp: result.believerLevelUp });
 }
 
 /** Weighted tier pick from essence_bag_def.rune_pool ([{tier,weight}], sums 100). */
@@ -518,4 +522,6 @@ async function openRuneBags(message, alias, rawAmount) {
   });
 }
 
-module.exports = { execute, openChestsTxn, openRuneBagsTxn };
+// openRelic exported for `crd use sr|supr` (Genesis update S8) — same
+// effect-before-consume transaction as `crd open sr|supr`.
+module.exports = { execute, openChestsTxn, openRuneBagsTxn, openRelic };

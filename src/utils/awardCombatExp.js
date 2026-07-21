@@ -17,10 +17,13 @@
  */
 
 const { applyCombatExp } = require('../config/combatExp');
+const { grantCombatLevelRewards, grantCombatLevelRewardsMany } = require('./grantLevelRewards');
 
 /**
  * Grant `gain` combat EXP to one player (raid path).
- * @returns {{ levelsGained, newLevel, newExp, leveledUp, previousLevel }}
+ * On level-up, also credits the per-level rewards (spec S1) exactly once in
+ * the same transaction; `rewards` is `{ credux, chests, levels }` or null.
+ * @returns {{ levelsGained, newLevel, newExp, leveledUp, previousLevel, rewards }}
  */
 async function awardCombatExp(client, discordId, gain) {
   const res = await client.query(
@@ -36,12 +39,16 @@ async function awardCombatExp(client, discordId, gain) {
     'UPDATE user_character SET combat_level = $2, combat_exp = $3 WHERE discord_id = $1',
     [discordId, next.level, next.exp]
   );
+  const rewards = next.level > level
+    ? await grantCombatLevelRewards(client, discordId, level, next.level)
+    : null;
   return {
     levelsGained: next.level - level,
     newLevel: next.level,
     newExp: next.exp,
     leveledUp: next.leveledUp,
     previousLevel: level,
+    rewards,
   };
 }
 
@@ -82,6 +89,20 @@ async function awardCombatExpMany(client, discordIds, gain) {
         WHERE uc.discord_id = u.discord_id`,
       [updIds, updLvls, updExps]
     );
+  }
+  // Per-level rewards for everyone who leveled (set-based, same transaction).
+  const levelUps = new Map();
+  for (const [discordId, info] of out) {
+    if (info.levelsGained > 0) {
+      levelUps.set(discordId, { previousLevel: info.previousLevel, newLevel: info.newLevel });
+    }
+  }
+  if (levelUps.size > 0) {
+    const rewardsById = await grantCombatLevelRewardsMany(client, levelUps);
+    for (const [discordId, rewards] of rewardsById) {
+      const info = out.get(discordId);
+      if (info) info.rewards = rewards;
+    }
   }
   return out;
 }

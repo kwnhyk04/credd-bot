@@ -14,7 +14,11 @@ const path = require('path');
  */
 
 const pool = require('../../db/pool');
-const { computeWeaponStats, computeArmorStats } = require('../../engine/enhancement');
+const {
+  computeWeaponStats,
+  computeArmorStats,
+  maxDisplayEnhancement,
+} = require('../../engine/enhancement');
 const { computeSigilStats } = require('../../config/ascension');
 const { resolveBattle, rngOf } = require('../../engine/battleEngine');
 const {
@@ -44,9 +48,9 @@ const SUPPORTER_MONTH_DAYS = 31;
 // type alias → users_bag column (accepts open-cmd aliases too).
 const CHEST_COLUMNS = {
   silver: 'silver_chest', gold: 'gold_chest', boss_treasure: 'boss_treasure_chest',
-  boss_golden: 'boss_golden_chest', supreme: 'supreme_chest',
+  boss_golden: 'boss_golden_chest', supreme: 'supreme_chest', genesis: 'genesis_chest',
   sc: 'silver_chest', gc: 'gold_chest', btc: 'boss_treasure_chest',
-  bgtc: 'boss_golden_chest', supc: 'supreme_chest',
+  bgtc: 'boss_golden_chest', supc: 'supreme_chest', gnc: 'genesis_chest',
 };
 const RELIC_COLUMNS = { sacred: 'sacred_relics', supreme: 'supreme_relics' };
 // [v5 Phase 2] essence tier → users_bag column; rune-bag alias → users_bag column.
@@ -169,12 +173,12 @@ function addManualSupporterMonths(existing, months) {
   return new Date(base + months * SUPPORTER_MONTH_DAYS * 24 * 60 * 60 * 1000);
 }
 
-// Accepts "+5" or "5"; valid display level 0..10.
-function parseLevel(raw) {
+// Accepts "+5" or "5" and validates against the caller's display-level cap.
+function parseLevel(raw, max = 10) {
   const m = /^\+?(\d{1,2})$/.exec(raw || '');
   if (!m) return null;
   const n = parseInt(m[1], 10);
-  if (n < 0 || n > 10) return null;
+  if (n < 0 || n > max) return null;
   return n;
 }
 
@@ -254,11 +258,11 @@ async function giveBeliefShards(message, args, devId) {
 // ── crd dev givechest @user <type> <amount> ────────────────────────────────
 async function giveChest(message, args, devId) {
   const target = message.mentions.users.first();
-  if (!target) return reply(message, 'Usage: `crd dev givechest @user <silver|gold|boss_treasure|boss_golden|supreme> <amount>`');
+  if (!target) return reply(message, 'Usage: `crd dev givechest @user <silver|gold|boss_treasure|boss_golden|supreme|genesis> <amount>`');
   const rest = nonMentionArgs(args);
   const type = (rest[0] || '').toLowerCase();
   const col = CHEST_COLUMNS[type];
-  if (!col) return reply(message, 'Type must be one of: silver, gold, boss_treasure, boss_golden, supreme (or sc/gc/btc/bgtc/supc).');
+  if (!col) return reply(message, 'Type must be one of: silver, gold, boss_treasure, boss_golden, supreme, genesis (or sc/gc/btc/bgtc/supc/gnc).');
   const amount = parseAmount(rest[1]);
   if (amount == null) return reply(message, 'Amount must be a positive whole number.');
   if (amount > INT_MAX) return reply(message, 'Amount is too large.');
@@ -686,8 +690,8 @@ async function setRating(message, args, devId) {
 async function enhanceEquipment(message, args, devId) {
   const cleanArgs = argsWithoutConfirm(args);
   const gearId = (cleanArgs[1] || '').trim().toLowerCase();
-  const level = parseLevel(cleanArgs[2]);
-  if (!gearId || level == null) return reply(message, 'Usage: `crd dev enhanceequipment <equipment_id> <+0..+10>`');
+  const level = parseLevel(cleanArgs[2], 20);
+  if (!gearId || level == null) return reply(message, 'Usage: `crd dev enhanceequipment <equipment_id> <+0..+20>`');
   const token = `confirm:${gearId}:${level}`;
   const guard = highValueGuardMessage(args, token, `crd dev enhanceequipment ${gearId} +${level} ${token}`);
   if (guard) return reply(message, guard);
@@ -697,11 +701,20 @@ async function enhanceEquipment(message, args, devId) {
   try {
     await client.query('BEGIN');
     const wRes = await client.query(
-      'SELECT discord_id, base_atk FROM user_weapons WHERE weapon_id = $1 FOR UPDATE',
+      `SELECT uw.discord_id, uw.base_atk, wr.tier
+         FROM user_weapons uw
+         JOIN weapon_roster wr ON wr.weapon_roster_id = uw.weapon_roster_id
+        WHERE uw.weapon_id = $1
+        FOR UPDATE OF uw`,
       [gearId]
     );
     if (wRes.rows.length > 0) {
       const w = wRes.rows[0];
+      const maxLevel = maxDisplayEnhancement(w.tier);
+      if (level > maxLevel) {
+        await client.query('ROLLBACK');
+        return reply(message, `${w.tier} weapons can only be enhanced to **+${maxLevel}**.`);
+      }
       const stats = computeWeaponStats(w, stored); // ATK only
       await client.query(
         'UPDATE user_weapons SET enhancement = $2, curr_atk = $3 WHERE weapon_id = $1',
@@ -718,6 +731,10 @@ async function enhanceEquipment(message, args, devId) {
     );
     if (aRes.rows.length > 0) {
       const a = aRes.rows[0];
+      if (level > 10) {
+        await client.query('ROLLBACK');
+        return reply(message, 'Armors can only be enhanced to **+10**.');
+      }
       const stats = computeArmorStats(a, stored); // HP + DEF
       await client.query(
         'UPDATE user_armors SET enhancement = $2, curr_hp = $3, curr_def = $4 WHERE armor_id = $1',
@@ -1286,4 +1303,4 @@ async function execute(message, { args }) {
   }
 }
 
-module.exports = { execute };
+module.exports = { CHEST_COLUMNS, execute };

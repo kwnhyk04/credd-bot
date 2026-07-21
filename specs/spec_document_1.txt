@@ -1,0 +1,632 @@
+Update the Discord bot to implement automatic Character Combat Level rewards, Believer Level rewards, retroactive compensation, the CRD Shop, CRD Bag item usage, inventory category changes, and the new Genesis avatar assets.
+
+Before changing anything, inspect the existing codebase, database schema, reward system, inventory system, command architecture, PvP Shop implementation, CRD Bag implementation, character class system, avatar renderer, asset-loading logic, and current transaction patterns.
+
+Reuse existing patterns where possible. Do not change unrelated behavior or progression logic.
+
+==================================================
+1. CHARACTER COMBAT LEVEL REWARDS
+==================================================
+
+Automatically grant rewards whenever a character gains a Combat Level.
+
+Rewards are granted for every individual level reached:
+
+Combat Levels 1-10:
+- 100,000 Credux per level
+- 1 Gold Chest per level
+
+Combat Levels 11-20:
+- 250,000 Credux per level
+- 1 Boss Treasure Chest per level
+
+Combat Levels 21-30:
+- 500,000 Credux per level
+- 2 Boss Treasure Chests per level
+
+Combat Levels 31-40:
+- 1,000,000 Credux per level
+- 3 Boss Treasure Chests per level
+
+Combat Levels 41-50:
+- 5,000,000 Credux per level
+- 1 Boss Golden Treasure Chest per level
+
+Requirements:
+
+- Rewards must be granted for each individual level gained.
+- Support gaining multiple levels from one action.
+- Calculate rewards separately for every crossed reward bracket.
+- Do not grant rewards based only on the final level.
+
+Examples:
+
+- Level 10 to 11 grants the Level 11 reward.
+- Level 19 to 22 grants rewards for Levels 20, 21, and 22.
+- Level 39 to 41 grants the Level 40 reward and the Level 41 reward.
+
+The level-up response should show:
+
+- Previous Combat Level
+- New Combat Level
+- Total Credux received
+- Chests received, grouped by chest type
+
+==================================================
+2. BELIEVER LEVEL REWARDS
+==================================================
+
+Automatically grant rewards whenever a user gains a Believer Level.
+
+Rewards are granted for every individual level reached:
+
+Believer Levels 1-10:
+- 250,000 Credux per level
+- 5 Gold Chests per level
+
+Believer Levels 11-20:
+- 500,000 Credux per level
+- 5 Boss Treasure Chests per level
+
+Believer Levels 21-30:
+- 1,000,000 Credux per level
+- 10 Boss Treasure Chests per level
+
+Believer Levels 31-50:
+- 1,000,000 Credux per level
+- 5 Boss Golden Treasure Chests per level
+
+Requirements:
+
+- Rewards must be granted for every individual Believer Level.
+- Support multiple Believer Levels gained from one action.
+- Correctly calculate rewards when crossing reward brackets.
+- Show a reward summary after the level-up.
+
+The summary should include:
+
+- Previous Believer Level
+- New Believer Level
+- Total Credux received
+- Chests received, grouped by chest type
+
+==================================================
+3. AUTOMATIC REWARD CREDITING
+==================================================
+
+Use the same reliable reward-crediting pattern currently used by quest rewards.
+
+Requirements:
+
+- Credit rewards immediately after a level-up is successfully confirmed.
+- Support multiple levels gained in one operation.
+- Grant each level reward only once.
+- Prevent duplicate rewards from:
+  - Repeated events
+  - Command retries
+  - Discord interaction retries
+  - Concurrent requests
+  - Bot restarts
+  - Database reconnects
+  - Compensation script reruns
+- Store a permanent record of rewarded Combat Levels and Believer Levels.
+- Use database transactions and row locking where supported.
+- Do not update the reward-tracking record unless the Credux and inventory rewards were successfully granted.
+- Roll back the entire operation if any part of the reward credit fails.
+- Preserve the current quest reward behavior.
+
+Create reusable reward calculation functions instead of duplicating reward-table logic in multiple commands.
+
+==================================================
+4. RETROACTIVE COMPENSATION FOR ALL CURRENT USERS
+==================================================
+
+All existing users must receive the rewards they should have earned based on their current Combat Level and Believer Level.
+
+Create a production-safe compensation script or migration process that checks every current user.
+
+For each user:
+
+1. Read their current Character Combat Level.
+2. Read their current Believer Level.
+3. Determine which level rewards have already been credited, if reward records exist.
+4. Calculate all missing rewards from Level 1 up to their current level.
+5. Credit only the missing rewards.
+6. Store reward records so the same compensation cannot be granted twice.
+
+If this is a completely new reward system and no previous level rewards exist, compensate every eligible level from Level 1 through the user's current level.
+
+Requirements:
+
+- The process must be idempotent.
+- It must be safe to rerun.
+- Include a dry-run mode.
+- Dry-run mode must not change balances, inventories, or reward records.
+- Process users in batches to avoid excessive memory usage or database load.
+- Use transactions per user or per safe batch.
+- A failure for one user must not corrupt another user's compensation.
+- Log successful, skipped, and failed compensation records.
+- Do not load all users and inventories into memory at once.
+
+The compensation result must report:
+
+- Total users checked
+- Total users compensated
+- Total users skipped
+- Total failed users
+- Total Credux distributed
+- Total Gold Chests distributed
+- Total Boss Treasure Chests distributed
+- Total Boss Golden Treasure Chests distributed
+
+Provide:
+
+- The compensation script
+- Dry-run command
+- Production execution command
+- Rollback or recovery instructions
+- Any required SQL migration
+
+==================================================
+5. IMPLEMENT THE CRD SHOP
+==================================================
+
+Implement the CRD Shop using the bot's existing command structure.
+
+Use the same embed design, formatting, pagination, navigation buttons, error style, purchase confirmation style, and interaction behavior as the existing PvP Shop.
+
+CRD Shop product IDs must be numeric and sequential:
+
+1, 2, 3, 4, 5, and so on.
+
+These numeric IDs are shop product IDs only. They are separate from CRD Bag item IDs.
+
+CRD Shop products:
+
+ID 1: Character Class Change
+- Price: 5,000,000 Credux
+- Inventory item ID after purchase: cc
+
+ID 2: Lesser Bag
+- Price: 500,000 Credux each
+- Maximum: 10 purchases per calendar month
+
+ID 3: Greater Bag
+- Price: 2,000,000 Credux each
+- Maximum: 5 purchases per calendar month
+
+ID 4: Divine Bag
+- Price: 4,000,000 Credux each
+- Maximum: 3 purchases per calendar month
+
+ID 5: Silver Chest
+- Price: 5,000 Credux each
+- Maximum: 10 purchases per calendar day
+
+ID 6: Gold Chest
+- Price: 20,000 Credux each
+- Maximum: 5 purchases per calendar day
+
+ID 7: Diamond Chest
+- Price: 5,000,000 Credux each
+- Maximum: 1 purchase per calendar week
+
+Do not create a duplicate Character Class Change shop entry.
+
+Purchase requirements:
+
+- Support quantity purchasing where appropriate.
+- Validate the item ID and quantity before deducting Credux.
+- Reject zero, negative, invalid, decimal, or non-numeric quantities.
+- Check the user's remaining purchase allowance before charging.
+- Purchase limits apply to the total quantity purchased, not only the number of commands used.
+- Deduct Credux and grant the purchased item in one atomic transaction.
+- Do not deduct Credux if the item cannot be granted.
+- Prevent overspending and limit bypasses caused by concurrent requests.
+- Use database-backed purchase tracking.
+- Do not rely only on in-memory cooldowns.
+- Show the user's remaining daily, weekly, or monthly allowance.
+- Show when the purchase limit resets.
+- Follow the bot's existing timezone convention.
+- If the bot has no existing reset timezone convention, use UTC consistently and document it.
+
+Purchase confirmation must show:
+
+- Product name
+- Quantity purchased
+- Price per item
+- Total Credux spent
+- Remaining Credux balance
+- Remaining purchase allowance, when applicable
+
+The CRD Shop embed should show:
+
+- Numeric product ID
+- Product name
+- Price
+- Purchase limit
+- User's remaining allowance
+- Reset period
+
+==================================================
+6. CRD BAG ITEM CATEGORY
+==================================================
+
+Update the CRD Bag so the CRD Bag Items category contains only usable non-chest items.
+
+The following items must appear under CRD Bag Items:
+
+Character Class Change:
+- ID: cc
+
+Sacred Relic:
+- Keep its existing ID unchanged
+
+Supreme Relic:
+- Keep its existing ID unchanged
+
+Requirements:
+
+- Move Sacred Relic from CRD Bag Chests to CRD Bag Items.
+- Move Supreme Relic from CRD Bag Chests to CRD Bag Items.
+- Preserve all existing user quantities.
+- Preserve the existing Sacred Relic ID.
+- Preserve the existing Supreme Relic ID.
+- Do not create duplicate inventory records during the migration.
+- Character Class Change must use the item ID cc.
+- Use the same CRD Bag embed style already used by the bot.
+- Update all display names, category mappings, autocomplete, validation, and item lookup logic.
+
+==================================================
+7. CRD BAG CHEST CATEGORY
+==================================================
+
+Remove these entries from CRD Bag Chests:
+
+- Sacred Relic
+- Supreme Relic
+
+The CRD Bag Chests category should include:
+
+- Diamond Chest
+- Genesis Chest
+
+Requirements:
+
+- Reuse the existing Genesis Chest ID and behavior.
+- Reuse an existing Diamond Chest definition if one already exists.
+- If Diamond Chest does not exist, implement it consistently across:
+  - Item registry
+  - Database inventory
+  - CRD Shop
+  - CRD Bag display
+  - Chest-opening command
+  - Reward handlers
+  - Logging
+- Do not give Genesis Chest a CRD Shop price unless it already has one elsewhere.
+- Sacred Relic and Supreme Relic must remain usable after being moved to CRD Bag Items.
+
+==================================================
+8. CRD ITEM USAGE COMMAND
+==================================================
+
+Implement this command:
+
+crd use <id>
+
+Examples:
+
+crd use cc
+crd use <sacred_relic_id>
+crd use <supreme_relic_id>
+
+Important ID behavior:
+
+- The IDs used by crd use only need to be unique within the CRD Bag Items category.
+- CRD Bag Item IDs do not need to be globally unique across every inventory category.
+- The same ID may exist in another category without causing a conflict.
+- The command must resolve the supplied ID specifically against the CRD Bag Items registry.
+- Shop numeric IDs are not CRD Bag Item IDs.
+
+The command must accept only:
+
+- cc
+- The existing Sacred Relic ID
+- The existing Supreme Relic ID
+- Any future item specifically registered under CRD Bag Items
+
+The command must reject:
+
+- CRD Shop numeric product IDs
+- Chest IDs
+- Bag IDs
+- Currency IDs
+- IDs registered only under other inventory categories
+- Unknown IDs
+
+Usage requirements:
+
+- Verify that the user owns at least one copy.
+- Verify that the item is currently usable.
+- Apply the item effect first within the same safe transaction flow.
+- Consume one item only after its effect succeeds.
+- Do not consume the item if the user cancels the action.
+- Do not consume the item if the effect fails.
+- Prevent duplicate consumption from concurrent commands or interaction retries.
+- Lock or safely update the relevant inventory row.
+- Return a clear error for invalid IDs, missing ownership, cancellation, or failed usage.
+
+Successful usage confirmation must show:
+
+- Item used
+- Effect applied
+- Quantity consumed
+- Remaining quantity
+
+Character Class Change behavior:
+
+- Running crd use cc should start the existing class-change flow or a newly implemented equivalent.
+- The user must confirm the selected class before the item is consumed.
+- Do not consume the item when the user cancels, times out, selects their current class, or the class change fails.
+- After a successful class change, update any class-dependent profile, combat, equipment validation, and avatar data using the existing game rules.
+- Do not reset unrelated character progression unless that is already part of the existing class-change behavior.
+
+Update the help command and command documentation to include:
+
+crd use <id>
+
+==================================================
+9. NEW GENESIS AVATAR ASSETS
+==================================================
+
+New Genesis avatar images have been uploaded to the asset storage.
+
+Use these exact folder structures:
+
+/skins/avatars/genesis/female/
+/skins/avatars/genesis/male/
+
+Use this filename format:
+
+genesis_<class>_<gender>.png
+
+All folder names, class names, gender values, and filenames are lowercase.
+
+Gender values:
+
+- female
+- male
+
+Supported class values include:
+
+- archer
+- fighter
+- knight
+- mage
+- swordsman
+
+Examples of valid asset paths:
+
+/skins/avatars/genesis/female/genesis_archer_female.png
+/skins/avatars/genesis/female/genesis_mage_female.png
+/skins/avatars/genesis/female/genesis_swordsman_female.png
+
+/skins/avatars/genesis/male/genesis_fighter_male.png
+/skins/avatars/genesis/male/genesis_knight_male.png
+/skins/avatars/genesis/male/genesis_swordsman_male.png
+
+The general path must be constructed as:
+
+/skins/avatars/genesis/{gender}/genesis_{class}_{gender}.png
+
+Requirements:
+
+- Register the new Genesis avatars in the existing avatar or skin registry.
+- Use the character's current class and gender to select the correct Genesis avatar.
+- Use the Genesis avatar only when the Genesis avatar skin is equipped or selected.
+- Do not affect avatars from other skin tiers.
+- Do not hardcode one avatar for every class or gender.
+- Normalize class and gender values to lowercase before constructing the path.
+- Validate the class and gender against the supported values.
+- Prevent path traversal or arbitrary path construction.
+- Use the existing storage base URL, CDN URL, R2 URL, or asset resolver already used by the bot.
+- Do not duplicate the storage hostname throughout the codebase.
+- Keep the relative asset path separate from the configured storage base URL.
+- Update any avatar preview, selection, profile, stats, collection, or skin display that uses the Genesis avatar.
+
+Missing asset behavior:
+
+- Do not crash the command or renderer if a specific class and gender combination has not yet been uploaded.
+- Use the existing default or fallback avatar.
+- Log a concise warning containing the missing relative asset path.
+- Do not silently replace the missing avatar with a different gender or different class.
+- Do not expose internal storage errors to users.
+
+Cache behavior:
+
+- Ensure newly uploaded avatars are not blocked by stale asset caches.
+- Reuse the bot's existing asset caching and CDN strategy.
+- Do not repeatedly download the same image for every render.
+- Do not add an unbounded in-memory image cache.
+- Preserve existing cache limits, TTLs, cleanup behavior, and memory optimizations.
+
+Class-change integration:
+
+After Character Class Change succeeds:
+
+- Recalculate the Genesis avatar path using the user's new class.
+- Preserve the user's existing gender.
+- Preserve the user's selected avatar skin.
+- If Genesis is selected, immediately use the corresponding new Genesis class avatar.
+- Invalidate only the affected cached render or asset reference when necessary.
+- Do not clear the entire global render cache.
+
+==================================================
+10. DATABASE AND MIGRATION REQUIREMENTS
+==================================================
+
+Inspect the existing schema before creating new tables or columns.
+
+Add only what is necessary for:
+
+- Combat Level reward tracking
+- Believer Level reward tracking
+- Compensation tracking
+- Daily CRD Shop purchase tracking
+- Weekly CRD Shop purchase tracking
+- Monthly CRD Shop purchase tracking
+- Diamond Chest inventory support
+- Character Class Change inventory support
+- CRD Bag category changes
+
+Requirements:
+
+- Preserve all existing Credux balances.
+- Preserve all current inventory quantities.
+- Preserve existing Sacred Relic and Supreme Relic IDs.
+- Preserve Genesis Chest data.
+- Avoid duplicate inventory rows.
+- Add appropriate unique constraints.
+- Add indexes needed for reward and purchase-limit lookups.
+- Keep migrations idempotent where possible.
+- Make the migration safe for production.
+- Include rollback or recovery instructions.
+
+Suggested reward uniqueness behavior:
+
+- Character reward record unique by user or character ID plus Combat Level.
+- Believer reward record unique by user ID plus Believer Level.
+
+Suggested shop tracking behavior:
+
+- Track the user, shop product, reset period, and quantity purchased.
+- Enforce limits transactionally.
+- Do not use one database row per individual chest when an aggregated quantity is more appropriate.
+
+==================================================
+11. PERFORMANCE AND SAFETY
+==================================================
+
+The bot has previously experienced high production memory usage, so implementation must avoid unnecessary memory growth.
+
+Requirements:
+
+- Do not load every user into memory during compensation.
+- Process compensation using pagination, cursors, or database batches.
+- Do not introduce unbounded Maps, Sets, arrays, collectors, or image caches.
+- Do not retain Discord interactions longer than necessary.
+- Reuse prepared services and existing database connections.
+- Avoid repeated asset downloads.
+- Avoid unnecessary loops and repeated inventory queries.
+- Use aggregate database queries where safe.
+- Do not change existing gameplay behavior for the sake of optimization.
+- Do not rewrite unrelated systems.
+
+==================================================
+12. TESTING REQUIREMENTS
+==================================================
+
+Add or update tests for:
+
+Character Combat Level rewards:
+- Single level gained
+- Multiple levels gained
+- Crossing reward brackets
+- Level 50 reward
+- Duplicate event handling
+- Concurrent reward attempts
+- Transaction rollback
+
+Believer Level rewards:
+- Single level gained
+- Multiple levels gained
+- Crossing reward brackets
+- Level 50 reward
+- Duplicate event handling
+- Concurrent reward attempts
+- Transaction rollback
+
+Compensation:
+- User with only Combat Levels
+- User with only Believer Levels
+- User with both level types
+- User already partially compensated
+- User fully compensated
+- Compensation dry-run
+- Compensation script rerun
+- One failed user not stopping the full batch
+- Correct reward totals for each level bracket
+
+CRD Shop:
+- Valid purchase
+- Quantity purchase
+- Invalid item ID
+- Invalid quantity
+- Insufficient Credux
+- Daily limit
+- Weekly limit
+- Monthly limit
+- Remaining allowance calculation
+- Reset period calculation
+- Concurrent purchase attempts
+- Transaction rollback when inventory credit fails
+
+CRD Bag:
+- Character Class Change appears under CRD Bag Items
+- Sacred Relic appears under CRD Bag Items
+- Supreme Relic appears under CRD Bag Items
+- Sacred Relic no longer appears under CRD Bag Chests
+- Supreme Relic no longer appears under CRD Bag Chests
+- Diamond Chest appears under CRD Bag Chests
+- Genesis Chest remains under CRD Bag Chests
+- Existing quantities are preserved
+
+crd use:
+- Successful crd use cc
+- Successful Sacred Relic usage
+- Successful Supreme Relic usage
+- Unknown item ID
+- Chest ID rejection
+- Shop numeric ID rejection
+- Item not owned
+- Cancelled item use
+- Failed item effect
+- Duplicate and concurrent usage
+- Same ID existing in another category without conflict
+
+Genesis avatars:
+- Correct male Genesis avatar path
+- Correct female Genesis avatar path
+- Correct path for every supported class
+- Lowercase normalization
+- Invalid class rejection
+- Invalid gender rejection
+- Missing asset fallback
+- Class change updates the Genesis avatar path
+- Other avatar skins remain unchanged
+- No global cache flush after one class change
+
+==================================================
+13. FINAL DELIVERABLES
+==================================================
+
+After implementation, provide:
+
+1. A summary of all modified files.
+2. A summary of the implementation approach.
+3. All database migrations or SQL scripts.
+4. The retroactive compensation script.
+5. The dry-run compensation command.
+6. The production compensation command.
+7. Rollback or recovery instructions.
+8. CRD Shop reset periods and timezone behavior.
+9. The final CRD Shop product registry.
+10. The final CRD Bag Items registry and IDs.
+11. The final CRD Bag Chests registry and IDs.
+12. The Genesis avatar path resolver implementation.
+13. A list of Genesis avatar files detected or registered.
+14. Test results.
+15. Any assumptions made because existing behavior was unclear.
+16. Confirmation that unrelated commands, quest rewards, balances, inventory quantities, progression, and other skin tiers were not changed.
+
+Do not only provide a plan. Inspect the codebase and implement the changes.

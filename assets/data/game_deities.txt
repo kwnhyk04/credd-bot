@@ -1,5 +1,9 @@
 Display Name | Emoji Name | Emoji ID
 -----------------------------------------
+Supreme Icon | supreme_icon | '1528916323344711833'
+Legendary Icon | legendary_icon | '1528916318823387328'
+Mythical Icon | mythical_icon | '1528916321390035165'
+Epic Icon | epic_icon | '1528916317326016602'
 Zeus | 'zeus' | '1515280020141113507'
 Poseidon | 'poseidon' | '1515280018203213895'
 Persephone | 'persephone' | '1515280016315912263'

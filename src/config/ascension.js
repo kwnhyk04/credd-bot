@@ -21,7 +21,7 @@ const PER_SIGIL_FRACTION = 0.05; // +5% of base stats per Sigil
 
 // ── Sigil essence cost — [tier][sigil number 1..10] (§3.4) ──────────────────
 // Bands: sigils 1–3, 4–7, 8–10. Column totals: Epic 100 · Mythic 83 ·
-// Legendary 60 · Supreme 30.
+// Legendary 47 · Supreme 30.
 const SIGIL_ESSENCE_COST = {
   Epic: { 1: 5, 2: 5, 3: 5, 4: 10, 5: 10, 6: 10, 7: 10, 8: 15, 9: 15, 10: 15 },
   Mythic: { 1: 5, 2: 5, 3: 5, 4: 8, 5: 8, 6: 8, 7: 8, 8: 12, 9: 12, 10: 12 },

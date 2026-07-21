@@ -4,13 +4,13 @@
  * Season engine (v5 Phase 5). One 2-month clock drives:
  *   - season-end ranked payout by PEAK bracket (ranked_reward.season_end_payload)
  *   - soft ranked reset (rating × 0.6, floor 1000; peak/shield reset)
- *   - season-rank title grant (Divine = rotating exclusive; lower = per-season title)
+ *   - season-rank title grant (Celestial = rotating exclusive; lower = per-season title)
  *   - closing the season until a dev manually starts the next one
  * Banner + reward track are intentionally NOT handled here (deferred).
  */
 
 const { bracketOf } = require('../config/ranked');
-const { divineSeasonTitle } = require('../config/titles');
+const { celestialSeasonTitle } = require('../config/titles');
 const { grantTitle } = require('../utils/titleGrant');
 
 const SEASON_DAYS = 60; // 2 months
@@ -44,8 +44,8 @@ async function grantSeasonEnd(client, discordId, bracket, payload, seasonId, sea
   const bagParams = [discordId];
   for (const entry of (payload || [])) {
     if (entry.type === 'title') {
-      const code = bracket === 'Divine'
-        ? divineSeasonTitle(seasonId)
+      const code = bracket === 'Celestial'
+        ? celestialSeasonTitle(seasonId)
         : await ensureSeasonTitle(client, seasonId, seasonName, bracket);
       await grantTitle(client, discordId, code);
     } else if (entry.item === 'credux') {

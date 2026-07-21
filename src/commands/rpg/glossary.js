@@ -26,7 +26,7 @@ const { emojiForDisplay } = require('../../utils/emojis');
 const { TIER_ALIAS } = require('../../config/gachaRates');
 const { RARITY_SYMBOLS } = require('../../engine/renderSummon');
 const {
-  TIER_RANGES, TYPE_PROFILES, BAND_FRACTIONS, SUPREME_STATS,
+  TIER_RANGES, TYPE_PROFILES, BAND_FRACTIONS, SUPREME_STATS, GENESIS_STATS,
   ARMOR_TIER_RANGES, ARMOR_TYPE_PROFILES, SUPREME_ARMOR,
 } = require('../../config/dropRates');
 const { runeEmoji, runeDescription } = require('../../config/runes');
@@ -42,9 +42,9 @@ const CATEGORIES = {
   runes: 'Runes',
 };
 
-// Gear tier ordering (Supreme → Common); deity tiers order via the same CASE.
+// Gear tier ordering (Genesis → Common); deity tiers order via the same CASE.
 const GEAR_TIER_ORDER_SQL = `CASE tier
-  WHEN 'Supreme' THEN 5 WHEN 'Legendary' THEN 4 WHEN 'Mythic' THEN 3
+  WHEN 'Genesis' THEN 6 WHEN 'Supreme' THEN 5 WHEN 'Legendary' THEN 4 WHEN 'Mythic' THEN 3
   WHEN 'Rare' THEN 2 WHEN 'Common' THEN 1 ELSE 0 END`;
 
 const MYTHOLOGY_LABEL = { PH: 'Philippine Mythology', Norse: 'Norse Mythology', Greek: 'Greek Mythology' };
@@ -134,7 +134,9 @@ async function gearPage(kind, page) {
     const icon = emojiForDisplay(g.name, kind === 'weapons' ? '⚔️' : '🛡️');
     let statLine;
     if (kind === 'weapons') {
-      if (g.tier === 'Supreme') {
+      if (g.tier === 'Genesis') {
+        statLine = `ATK ${GENESIS_STATS.atk.toLocaleString()} · CRIT ${GENESIS_STATS.crit}% · +${GENESIS_STATS.bonus_dmg_pct}% DMG`;
+      } else if (g.tier === 'Supreme') {
         statLine = `ATK ${SUPREME_STATS.atk.toLocaleString()} · CRIT ${SUPREME_STATS.crit}% · +${SUPREME_STATS.bonus_dmg_pct}% DMG`;
       } else {
         const range = TIER_RANGES[g.tier];

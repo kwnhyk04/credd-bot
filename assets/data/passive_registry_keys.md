@@ -74,6 +74,11 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `gungnir` — Never Misses: Ignores 40% of enemy DEF; 25% chance to pierce all DEF (zero mitigation).
 - `thunderbolt_of_zeus` — Divine Thunder: on a CRIT, deal +100% bonus ATK and paralyze for 1 turn.
 - `trident_of_poseidon` — Tidal Wrath: Every 2nd turn, deals +100% bonus ATK and reduces enemy DEF by 20% for 1 turn, with a 30% chance to stun for 1 turn.
+- `kiri` — Thousand Partings: [Genesis] Each attack increases damage by 20%, stacking up to +120%. Every attack has a 25% chance to strike twice.
+- `moira` — Fate Ignores Iron: [Genesis] All attacks reduce the target's DEF by 10%, stacking up to 50%. Ignores 50% of DEF against targets with a defense buff active. Attacks cannot miss.
+- `sophia` — The Price of Knowing: [Genesis] All damage dealt is increased by 75%, but the wielder takes 20% more damage. Below 30% HP the damage bonus rises to +150% for the rest of the battle.
+- `atlas` — Worldbreaker's Grip: [Genesis] Base attack increased by 50%. Every 3rd turn is a guaranteed critical strike. Enemies hit by a critical strike have their ATK reduced by 30% for 1 turn.
+- `titan` — Forgefire Veins: [Genesis] Heals for 30% of all damage dealt (50% while below 50% HP). Once per battle, upon taking fatal damage, survives at 1 HP and gains +100% damage until the end of battle.
 
 ## ARMOR passives (armor_roster.passive_key) — [v5]
 

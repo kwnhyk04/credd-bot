@@ -17,8 +17,10 @@ const { iconToken, iconShop } = require('./skinEmojis');
 
 const BRAND = 0x9b59b6;
 const PER_PAGE = 10;
-const STYLE_COST = Object.freeze({ cyber: 9, anime: 12, webtoon: 15 });
-const STYLE_LABEL = Object.freeze({ cyber: 'Cyber', anime: 'Anime', webtoon: 'Webtoon' });
+// [Genesis update S9] genesis is a token-shop style (15, same as webtoon) with
+// its OWN path layout — see genesisAvatarAssetPath / canonicalAvatarAssetPath.
+const STYLE_COST = Object.freeze({ cyber: 9, anime: 12, webtoon: 15, genesis: 15 });
+const STYLE_LABEL = Object.freeze({ cyber: 'Cyber', anime: 'Anime', webtoon: 'Webtoon', genesis: 'Genesis' });
 const GENDER_LABEL = Object.freeze({ male: 'Male', female: 'Female' });
 const SEED_CLASSES = Object.freeze(CLASS_NAMES.map((name) => ({ name, folder: name.toLowerCase() })));
 const SEED_GENDERS = Object.freeze(['male', 'female']);
@@ -86,12 +88,29 @@ function resolveAvatarImagePath(row) {
   return rel ? assetPath(rel) : null;
 }
 
+// [Genesis update S9] Genesis avatar relative path:
+//   skins/avatars/genesis/{gender}/genesis_{class}_{gender}.png (all lowercase).
+// Whitelist-only interpolation: inputs are normalized (trim + lowercase) and
+// must match the supported class/gender lists exactly — anything else
+// (including traversal attempts) returns null. Byte-identical to the catalog
+// seed formula in scripts/migrations/20260720_07_genesis_avatar_catalog.sql.
+const GENESIS_AVATAR_CLASSES = Object.freeze(new Set(CLASS_NAMES.map((n) => n.toLowerCase())));
+const GENESIS_AVATAR_GENDERS = Object.freeze(new Set(['male', 'female']));
+function genesisAvatarAssetPath(className, gender) {
+  const cls = String(className || '').trim().toLowerCase();
+  const g = String(gender || '').trim().toLowerCase();
+  if (!GENESIS_AVATAR_CLASSES.has(cls) || !GENESIS_AVATAR_GENDERS.has(g)) return null;
+  return `skins/avatars/genesis/${g}/genesis_${cls}_${g}.png`;
+}
+
 function canonicalAvatarAssetPath(row) {
   if (!row || row.is_default) return null;
   const gender = String(row.gender || '').trim().toLowerCase();
   const style = String(row.style || '').trim().toLowerCase();
   const folder = classFolder(row.class_name);
   if (!gender || !style || !folder || gender === 'class' || style === 'default') return null;
+  // [Genesis update S9] genesis uses its own layout — never the store one.
+  if (style === 'genesis') return genesisAvatarAssetPath(folder, gender);
   // Only the store styles follow the <gender>/<class>/<class>_<style>.png layout.
   // Grant-only rows (founder/tester, gender='avatar') store their real path in
   // asset_path — rebuilding would fabricate a nonexistent key (the crd stats
@@ -211,7 +230,7 @@ async function queryClassAvatars(db, className, { purchasableOnly = false } = {}
         AND lower(class_name) = lower($1)
         ${shopFilter}
       ORDER BY
-        COALESCE(CASE style WHEN 'cyber' THEN 1 WHEN 'anime' THEN 2 WHEN 'webtoon' THEN 3 ELSE 99 END, 99),
+        COALESCE(CASE style WHEN 'cyber' THEN 1 WHEN 'anime' THEN 2 WHEN 'webtoon' THEN 3 WHEN 'genesis' THEN 4 ELSE 99 END, 99),
         COALESCE(CASE gender WHEN 'male' THEN 1 WHEN 'female' THEN 2 ELSE 99 END, 99),
         display_name ASC,
         avatar_key ASC`,
@@ -470,13 +489,16 @@ async function resolveStatsAvatar(pool, userId, className, logContext = {}) {
 
 module.exports = {
   STYLE_COST,
+  STYLE_LABEL,
   avatarShortId,
   buildAvatarPage,
+  canonicalAvatarAssetPath,
   clearEquippedAvatar,
   defaultClassAvatar,
   displayName,
   ensureDevAvatarOwnership,
   equipAvatarTx,
+  genesisAvatarAssetPath,
   isDevAccountId,
   getAvatarByKey,
   getCharacter,

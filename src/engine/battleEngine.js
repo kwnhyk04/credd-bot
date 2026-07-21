@@ -106,6 +106,7 @@ const MAX_ROUNDS = 50;
 const SUDDEN_DEATH_FROM = 30;     // player sides lose 10% max HP at end of every round ≥ 30 (mobs/bosses exempt)
 const SUDDEN_DEATH_PCT = 0.10;
 const SNAPSHOT_EVERY = 3;
+const FIGHTER_DIZZY_MISS_CHANCE = 0.25;
 const MITIGATION_K = 200;         // §12: 1 − DEF/(DEF+200)
 const ARCHER_PIERCE = 0.25;
 const KNIGHT_DR = 0.80;
@@ -498,6 +499,11 @@ function resolveBattle(a, b, opts = {}) {
         let pierce = S.scratch.ignoreDefPct;
         if (S.classPassive === 'pierce') pierce = Math.max(pierce, ARCHER_PIERCE);
         if (mainHit && S.flags.crossbow_pierce) pierce = Math.max(pierce, 0.25);
+        // [Genesis] Moira ignores 50% DEF while the target's DEF is buffed —
+        // the defender's own per-round DEF multiplier is the buff signal.
+        if (S.flags.moira_pierce_vs_def_buff && (O.scratch?.playerDefMult || 0) > 0) {
+          pierce = Math.max(pierce, 0.50);
+        }
         def *= Math.max(0, 1 - pierce);
       }
     }
@@ -555,7 +561,7 @@ function resolveBattle(a, b, opts = {}) {
     if (O.kind === 'mob') {
       // mob defenses live on the attacking player's flags (mob skills run there)
       if (S.flags.sigbin_evade_check && !S.flags.tyrfing_no_miss) {
-        shared.events.push(`👤 ${O.name} evades the attack!`);
+        shared.events.push(`👤 ${O.name} evades the attack (Shadow Step)!`);
         return { applied: 0, negated: true };
       }
       prepareConfirmedHit();
@@ -682,9 +688,33 @@ function resolveBattle(a, b, opts = {}) {
       return { applied, negated: false };
     }
 
+    // [Genesis] Titan: Forgefire Veins — once per battle, survive a lethal blow
+    // at 1 HP and gain +100% damage for the rest of the battle (no heal; the
+    // registry folds titan_atk_bonus into ATK each following round).
+    if (dmg >= O.hp && F.titan_reprieve_available && !F.titan_reprieve_used) {
+      F.titan_reprieve_used = true;
+      F.titan_reprieve_available = false;
+      const applied = O.hp - 1;
+      setHp(O, 1);
+      F.titan_atk_bonus = 1.00;
+      grantValkyrieResolve(O);
+      if (info.crit) recordReceivedCrit(O);
+      shared.events.push(`🔥 Titan: Forgefire Veins — ${O.name} survives at 1 HP, damage +100%!`);
+      return { applied, negated: false };
+    }
+
     damage(O, dmg);
     if (O.hp > 0) grantValkyrieResolve(O);
     if (info.crit) recordReceivedCrit(O);
+    // [Genesis] Atlas: Worldbreaker's Grip — a landed critical strike cuts the
+    // victim's ATK by 30% for one turn (immunity-gated like any stat debuff).
+    if (info.crit && S.flags.atlas_crit_atk_down) {
+      // 2 engine ticks = the one-turn user-facing window (matches the other
+      // landed-hit stat debuffs, e.g. the def_down shred above).
+      if (tryApplyDebuff(O, 'atk_down', 2, 0.30)) {
+        shared.events.push(`🥊 Atlas: Worldbreaker's Grip — ${O.name}'s ATK reduced 30%!`);
+      }
+    }
     if (O.hp > 0) armLowHpAttackPassives(O);
 
     if (checkDeaths('attack')) return { applied: dmg, negated: false }; // R5: lethal hit ends battle pre-reflect
@@ -904,6 +934,15 @@ function resolveBattle(a, b, opts = {}) {
         if (S.flags.soul_drain_active) heal(S, res.applied * 0.15);
         if (S.flags.echo_soul_drain_active) heal(S, res.applied * 0.05);
         if (S.flags.rune_lifesteal_pct > 0) heal(S, res.applied * S.flags.rune_lifesteal_pct);
+        // [Genesis] Titan: Forgefire Veins — 30% of damage dealt (50% below 50% HP).
+        if (S.flags.titan_lifesteal_pct > 0) {
+          const before = S.hp;
+          heal(S, res.applied * S.flags.titan_lifesteal_pct);
+          const restored = S.hp - before;
+          if (restored > 0) {
+            shared.events.push(`🗡️ Titan: Forgefire Veins — Recovered ${restored} HP!`);
+          }
+        }
       }
       if (result) {
         return;
@@ -927,7 +966,9 @@ function resolveBattle(a, b, opts = {}) {
             const bashResult = applyHitToDefender(S, O, bash, { crit: false });
             shared.events.push(`💥 ${S.name} follows with Bash for **${bashResult.applied} DMG**!`);
             O.flags.dizzy_pending = true;
-            shared.events.push(`💫 ${O.name} is Dizzy; its next attack has a 15% miss chance.`);
+            shared.events.push(
+              `💫 ${O.name} is Dizzy; its next attack has a ${Math.round(FIGHTER_DIZZY_MISS_CHANCE * 100)}% miss chance.`
+            );
             if (result) return;
           }
         }
@@ -1094,7 +1135,7 @@ function resolveBattle(a, b, opts = {}) {
     }
     if (S.flags.dizzy_pending) {
       S.flags.dizzy_pending = false;
-      const misses = rng() < 0.15;
+      const misses = rng() < FIGHTER_DIZZY_MISS_CHANCE;
       if (misses && !S.flags.tyrfing_no_miss) {
         shared.events.push(`💫 ${S.name} misses its attack due to Dizzy!`);
         return;
@@ -1491,4 +1532,5 @@ module.exports = {
   MAX_ROUNDS,
   SUDDEN_DEATH_FROM,
   SNAPSHOT_EVERY,
+  FIGHTER_DIZZY_MISS_CHANCE,
 };

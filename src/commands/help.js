@@ -80,8 +80,10 @@ const CATEGORIES = [
     key: 'inventory', emoji: '🎒', title: 'Inventory & Gear',
     lines: [
       { canonical: 'bag', cmd: 'crd bag (b)', desc: 'Bag overview' },
-      { canonical: 'bag', cmd: 'crd bag chests / weapons / armors (bc/bw/ba)', desc: 'Inventory sections' },
+      { canonical: 'bag', cmd: 'crd bag chests / items / weapons / armors (bc/bw/ba)', desc: 'Inventory sections' },
       { canonical: 'open', cmd: 'crd open [chest] (o)', desc: 'Open a chest or relic' },
+      { canonical: 'use', cmd: 'crd use <id>', desc: 'Use a CRD Bag item (cc/sr/supr)', prefixOnly: true },
+      { canonical: 'shop', cmd: 'crd shop / crd shop buy <id> [qty]', desc: 'CRD Shop — spend Credux', prefixOnly: true },
       { canonical: 'equip', cmd: 'crd equip [id] (eq)', desc: 'Equip a weapon or armor' },
       { canonical: 'equipment', cmd: 'crd equipment info [id] (ei)', desc: 'Weapon/armor info card' },
       { canonical: 'compare', cmd: 'crd compare weapon/armor/deity <a> <b> [c] (cmp)', desc: 'Compare 2–3 owned weapons, armors, or deities', prefixOnly: true },

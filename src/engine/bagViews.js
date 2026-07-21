@@ -35,19 +35,27 @@ const HELP_ICON = { id: '1517665553261662370', name: 'help_icon' };
  * CONFIG
  * ══════════════════════════════════════════ */
 const ACCENT = 0x9b59b6;
+const BAG_ITEMS_EMOJI = 'bag_items';
 
 // Fixed chest definitions: name, emoji key, open command, count code
 const CHESTS = [
   { code: 'sc',   name: 'Silver Chest',        emojiName: 'silver_chest',        openCmd: 'crd open sc' },
   { code: 'gc',   name: 'Gold Chest',          emojiName: 'gold_chest',          openCmd: 'crd open gc' },
+  // [Genesis update S6] premium chests join the Chests category.
+  { code: 'dmc',  name: 'Diamond Chest',       emojiName: 'diamond_chest',       openCmd: 'crd open dmc' },
+  { code: 'supc', name: 'Supreme Chest',       emojiName: 'supreme_chest',       openCmd: 'crd open supc' },
+  { code: 'gnc',  name: 'Genesis Chest',       emojiName: 'genesis_chest',       openCmd: 'crd open gnc' },
+  // Boss-earned chests form a separate visual group after the progression chests.
   { code: 'btc',  name: 'Boss Treasure Chest', emojiName: 'boss_treasure_chest', openCmd: 'crd open btc' },
   { code: 'bgtc', name: 'Boss Golden Chest',   emojiName: 'boss_golden_chest',   openCmd: 'crd open bgtc' },
-  { code: 'supc', name: 'Supreme Chest',       emojiName: 'supreme_chest',       openCmd: 'crd open supc' },
 ];
 
-const RELICS = [
-  { code: 'sr', name: 'Sacred Relic',  emojiName: 'sacred_relic',  countKey: 'sacred',  openCmd: 'crd open sr' },
-  { code: 'supr', name: 'Supreme Relic', emojiName: 'supreme_relic', countKey: 'supreme', openCmd: 'crd open supr' },
+// [Genesis update S6-S7] CRD Bag ITEMS category — usable via `crd use <id>`.
+// Sacred/Supreme Relic moved here from Chests; ids (`sr`/`supr`) unchanged.
+const BAG_ITEMS = [
+  { code: 'cc',   name: 'Character Class Change', emojiName: 'change_class',  countKey: 'cc',      useCmd: 'crd use cc' },
+  { code: 'sr',   name: 'Sacred Relic',           emojiName: 'sacred_relic',  countKey: 'sacred',  useCmd: 'crd use sr' },
+  { code: 'supr', name: 'Supreme Relic',          emojiName: 'supreme_relic', countKey: 'supreme', useCmd: 'crd use supr' },
 ];
 
 function buildDropRatesButton(ownerId) {
@@ -56,14 +64,6 @@ function buildDropRatesButton(ownerId) {
     .setEmoji(HELP_ICON)
     .setLabel('Drop rates')
     .setStyle(ButtonStyle.Secondary);
-}
-
-function buildChestIdButton(ownerId, code) {
-  return new ButtonBuilder()
-    .setCustomId(`chests:id:${ownerId}:${code}`)
-    .setLabel(code)
-    .setStyle(ButtonStyle.Secondary)
-    .setDisabled(true);
 }
 
 /* ════════════════════════════════════════════
@@ -83,6 +83,7 @@ async function buildBagOverview(user, data) {
     `\u2694\uFE0F **Weapons**  -# \`crd bag weapons\``,
     `\uD83D\uDEE1\uFE0F **Armors**  -# \`crd bag armors\``,
     `${emoji('general_chest')} **Chests**  -# \`crd bag chests\``,
+    `${emoji(BAG_ITEMS_EMOJI)} **Bag Items**  -# \`crd bag items\``,
     `${emoji('bag')} **Rune Bag**  -# \`crd rune bag\``,
     `${emoji('rune_icon')} **Runes**  -# \`crd runes\``,
   ];
@@ -108,24 +109,19 @@ async function buildBagOverview(user, data) {
 }
 
 /* ════════════════════════════════════════════
- * CRD BAG CHESTS — canvas-rendered boxed rows
- * ONE container: header (mention) → separator → MediaGallery with the
- * rendered rows image (5 chests + 2 relics) → separator → footer text.
- * Image re-rendered per invocation; emoji icons are disk-cached (renderBagItems).
+ * CRD BAG CHESTS — inline-code ids followed by emoji/name/count rows.
+ * ONE container: header (mention + Drop rates) → progression rows → separator
+ * → boss rows → separator → footer text.
  *
  * counts = { sc, gc, btc, bgtc, supc, sacred, supreme }
  * ══════════════════════════════════════════ */
 async function buildChestsView(user, counts) {
-  const rows = [
-    ...CHESTS.map((c) => ({
-      code: c.code,
-      text: `${emoji(c.emojiName)} **${c.name}** - **${Number(counts[c.code] ?? 0).toLocaleString()}**`,
-    })),
-    ...RELICS.map((r) => ({
-      code: r.code,
-      text: `${emoji(r.emojiName)} **${r.name}** - **${Number(counts[r.countKey] ?? 0).toLocaleString()}**`,
-    })),
-  ];
+  // [Genesis update S6] Chests view lists chests only — relics moved to
+  // the Items category (`crd bag items`).
+  const rows = CHESTS.map((c) => ({
+    code: c.code,
+    text: `\`${c.code}\` ${emoji(c.emojiName)} **${c.name}** - **${Number(counts[c.code] ?? 0).toLocaleString()}**`,
+  }));
 
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
@@ -136,17 +132,47 @@ async function buildChestsView(user, counts) {
     .addSeparatorComponents(sep);
 
   for (const row of rows) {
-    container.addSectionComponents((section) => section
-      .addTextDisplayComponents((td) => td.setContent(row.text))
-      .setButtonAccessory(buildChestIdButton(user.id, row.code)));
+    if (row.code === 'btc') container.addSeparatorComponents(sep);
+    container.addTextDisplayComponents((td) => td.setContent(row.text));
   }
 
   container
-    // ── Body: rendered boxed rows ──
     .addSeparatorComponents(sep)
     // ── Footer ──
     .addTextDisplayComponents((td) =>
       td.setContent('-# 💡 Open up to 20 at once, e.g. `crd open sc 20` (Supreme: 1) ・ `crd bag`')
+    );
+
+  return {
+    components: [container],
+    flags: MessageFlags.IsComponentsV2,
+    allowedMentions: { parse: [] },
+  };
+}
+
+/* ════════════════════════════════════════════
+ * [Genesis update S7] CRD BAG ITEMS — inline-code ids followed by item rows.
+ * counts = getChestCounts() result (cc / sacred / supreme keys).
+ * ══════════════════════════════════════════ */
+async function buildItemsView(user, counts) {
+  const container = new ContainerBuilder()
+    .setAccentColor(ACCENT)
+    .addTextDisplayComponents((td) => td.setContent(
+      `## ${emoji(BAG_ITEMS_EMOJI)} <@${user.id}>'s Bag Items`
+    ))
+    .addSeparatorComponents(sep);
+
+  for (const item of BAG_ITEMS) {
+    container.addTextDisplayComponents((td) => td.setContent(
+      `\`${item.code}\` ${emoji(item.emojiName)} **${item.name}** - **${Number(counts[item.countKey] ?? 0).toLocaleString()}**\n` +
+      `-# Use with \`${item.useCmd}\``
+    ));
+  }
+
+  container
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) =>
+      td.setContent('-# 💡 Use an item with `crd use <id>` ・ `crd bag`')
     );
 
   return {
@@ -202,7 +228,7 @@ async function handleChestRatesButton(interaction) {
 async function getChestCounts(discordId) {
   const { rows } = await pool.query(
     `SELECT silver_chest, gold_chest, boss_treasure_chest, boss_golden_chest, supreme_chest,
-            sacred_relics, supreme_relics
+            diamond_chest, genesis_chest, sacred_relics, supreme_relics, change_class
        FROM users_bag WHERE discord_id = $1`,
     [discordId]
   );
@@ -214,13 +240,17 @@ async function getChestCounts(discordId) {
     btc: b.boss_treasure_chest ?? 0,
     bgtc: b.boss_golden_chest ?? 0,
     supc: b.supreme_chest ?? 0,
+    dmc: b.diamond_chest ?? 0,
+    gnc: b.genesis_chest ?? 0,
     sacred: b.sacred_relics ?? 0,
     supreme: b.supreme_relics ?? 0,
+    cc: b.change_class ?? 0,
   };
 }
 
 module.exports = {
-  buildBagOverview, buildChestsView, getChestCounts, CHESTS,
+  buildBagOverview, buildChestsView, buildItemsView, getChestCounts, CHESTS, BAG_ITEMS,
   buildDropRatesEmbed, handleChestRatesButton,
+  BAG_ITEMS_EMOJI,
   HELP_ICON, // [addendum3 §1] reused as the shop/collection Preview button emoji
 };

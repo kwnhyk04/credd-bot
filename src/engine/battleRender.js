@@ -69,6 +69,11 @@ const BATTLE_FRAME_MODES = new Set(['full', 'start_and_final', 'text_only']);
 const BATTLE_FRAME_COOLDOWN_MAX = 5000;
 const battleFrameCooldowns = new Map();
 let activeBattleCollectors = 0;
+let activeBattleLogPageCollectors = 0;
+
+const BATTLE_LOG_TURNS_PER_PAGE = 8;
+const BATTLE_LOG_DESCRIPTION_LIMIT = 3800;
+const BATTLE_LOG_COLLECTOR_MS = 300_000;
 
 const COLORS = {
   bg: '#1f2125', card: '#26282d', cardLine: '#36393f',
@@ -814,19 +819,168 @@ function buttons() {
 }
 
 function logEmbeds(sim) {
-  // every single round — the per-turn detail the 3-turn embed skips
-  const sections = sim.rounds.map((r) => `**— TURN ${r.round} —**\n${r.events.join('\n')}`);
-  const pages = [];
-  let buf = `-# Seed: \`${sim.seed}\` · ${sim.rounds.length} turns · winner: ${sim.winner === 'a' ? sim.a.name : sim.b.name}`;
-  for (const sec of sections) {
-    if (buf.length + sec.length > 3800) { pages.push(buf); buf = ''; }
-    buf += (buf ? '\n\n' : '') + sec;
+  // Keep every turn in chronological order. Eight complete turns is the normal
+  // page size; the character guard can create a shorter page when event text is
+  // unusually verbose so no Discord embed limit is exceeded.
+  const pageData = [];
+  let current = { texts: [], turns: [] };
+
+  const flush = () => {
+    if (!current.texts.length) return;
+    pageData.push(current);
+    current = { texts: [], turns: [] };
+  };
+
+  for (const round of sim.rounds || []) {
+    const chunks = battleLogTurnChunks(round);
+
+    // A single exceptional turn can exceed the safe description size. Keep it
+    // intact at event-line boundaries and label its continuation pages.
+    if (chunks.length > 1) {
+      flush();
+      for (const text of chunks) pageData.push({ texts: [text], turns: [round.round] });
+      continue;
+    }
+
+    const text = chunks[0];
+    const separatorLength = current.texts.length ? 2 : 0;
+    const currentLength = current.texts.reduce((sum, entry) => sum + entry.length, 0)
+      + Math.max(0, current.texts.length - 1) * 2;
+    if (current.turns.length >= BATTLE_LOG_TURNS_PER_PAGE
+      || currentLength + separatorLength + text.length > BATTLE_LOG_DESCRIPTION_LIMIT) {
+      flush();
+    }
+    current.texts.push(text);
+    current.turns.push(round.round);
   }
-  if (buf) pages.push(buf);
-  return pages.map((d, i) =>
-    new EmbedBuilder().setColor(0x2b2d31)
-      .setTitle(i === 0 ? '📋 Full Battle Log' : '📋 Full Battle Log (cont.)')
-      .setDescription(d));
+  flush();
+
+  if (!pageData.length) pageData.push({ texts: ['No turn events were recorded.'], turns: [] });
+
+  const winner = sim.winner === 'a' ? sim.a?.name : sim.b?.name;
+  return pageData.map((page, index) => {
+    const firstTurn = page.turns[0];
+    const lastTurn = page.turns[page.turns.length - 1];
+    const turnLabel = firstTurn == null
+      ? ''
+      : ` · Turn${firstTurn === lastTurn ? '' : 's'} ${firstTurn}${firstTurn === lastTurn ? '' : `–${lastTurn}`}`;
+    const footer = `Page ${index + 1}/${pageData.length} · Seed ${sim.seed} · Winner: ${winner || 'Unknown'}`;
+    return new EmbedBuilder()
+      .setColor(0x2b2d31)
+      .setTitle(`📋 Full Battle Log${turnLabel}`)
+      .setDescription(page.texts.join('\n\n'))
+      .setFooter({ text: footer.slice(0, 2048) });
+  });
+}
+
+function battleLogTurnChunks(round) {
+  const heading = `**— TURN ${round.round} —**`;
+  const continuationHeading = `**— TURN ${round.round} (cont.) —**`;
+  const events = Array.isArray(round.events) && round.events.length
+    ? round.events.map((event) => String(event))
+    : ['No events recorded.'];
+  const chunks = [];
+  let buf = heading;
+  let hasBody = false;
+
+  for (const event of events) {
+    if (buf.length + 1 + event.length <= BATTLE_LOG_DESCRIPTION_LIMIT) {
+      buf += `\n${event}`;
+      hasBody = true;
+      continue;
+    }
+
+    let chunkHeading;
+    if (hasBody) {
+      chunks.push(buf);
+      chunkHeading = continuationHeading;
+    } else {
+      chunkHeading = chunks.length ? continuationHeading : heading;
+    }
+    buf = chunkHeading;
+    hasBody = false;
+
+    let remaining = event;
+    let available = BATTLE_LOG_DESCRIPTION_LIMIT - chunkHeading.length - 1;
+    while (remaining.length > available) {
+      chunks.push(`${chunkHeading}\n${remaining.slice(0, available)}`);
+      remaining = remaining.slice(available);
+      chunkHeading = continuationHeading;
+      available = BATTLE_LOG_DESCRIPTION_LIMIT - chunkHeading.length - 1;
+    }
+    if (remaining.length) {
+      buf = `${chunkHeading}\n${remaining}`;
+      hasBody = true;
+    }
+  }
+
+  if (hasBody || !chunks.length) chunks.push(buf);
+  return chunks;
+}
+
+function battleLogNavigationRow(pageIndex, pageCount) {
+  const lastPage = Math.max(0, pageCount - 1);
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`battle_log_page:${Math.max(0, pageIndex - 1)}`)
+      .setLabel('Previous')
+      .setEmoji('◀️')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(pageIndex <= 0),
+    new ButtonBuilder()
+      .setCustomId(`battle_log_page:${pageIndex}`)
+      .setLabel(`${pageIndex + 1}/${pageCount}`)
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(true),
+    new ButtonBuilder()
+      .setCustomId(`battle_log_page:${Math.min(lastPage, pageIndex + 1)}`)
+      .setLabel('Next')
+      .setEmoji('▶️')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(pageIndex >= lastPage),
+  );
+}
+
+async function showPaginatedBattleLog(interaction, pages) {
+  const safePages = Array.isArray(pages) && pages.length
+    ? pages
+    : [new EmbedBuilder().setColor(0x2b2d31).setTitle('📋 Full Battle Log')
+      .setDescription('No turn events were recorded.')];
+  let pageIndex = 0;
+  const components = safePages.length > 1
+    ? [battleLogNavigationRow(pageIndex, safePages.length)]
+    : [];
+  const reply = await interaction.editReply({ embeds: [safePages[pageIndex]], components });
+
+  if (safePages.length <= 1 || typeof reply?.createMessageComponentCollector !== 'function') return reply;
+
+  const collector = reply.createMessageComponentCollector({
+    time: BATTLE_LOG_COLLECTOR_MS,
+    filter: (button) => button.user?.id === interaction.user?.id
+      && /^battle_log_page:\d+$/.test(button.customId),
+  });
+  activeBattleLogPageCollectors += 1;
+  collector.on('collect', async (button) => {
+    try {
+      const requestedPage = Number(button.customId.split(':')[1]);
+      if (!Number.isInteger(requestedPage) || requestedPage < 0 || requestedPage >= safePages.length) {
+        await button.deferUpdate().catch(() => {});
+        return;
+      }
+      pageIndex = requestedPage;
+      await button.update({
+        embeds: [safePages[pageIndex]],
+        components: [battleLogNavigationRow(pageIndex, safePages.length)],
+      });
+    } catch (err) {
+      if (!isDiscordErrorCode(err, 10062)) console.error('[battleRender] log page error:', err.message);
+    }
+  });
+  collector.once('end', () => {
+    activeBattleLogPageCollectors = Math.max(0, activeBattleLogPageCollectors - 1);
+    interaction.editReply({ components: [] }).catch(() => {});
+  });
+  return reply;
 }
 
 function isDiscordErrorCode(err, code) {
@@ -1037,16 +1191,13 @@ async function runBattleImpl(channel, {
   renderRewardsBuffer = null;
 
   const battleLogPages = logEmbeds(sim);
-  const collector = msg.createMessageComponentCollector({ time: 300_000 });
+  const collector = msg.createMessageComponentCollector({ time: BATTLE_LOG_COLLECTOR_MS });
   activeBattleCollectors += 1;
   collector.on('collect', async (i) => {
     try {
       if (i.customId === 'battle_log') {
         await i.deferReply({ flags: MessageFlags.Ephemeral });
-        await i.editReply({ embeds: battleLogPages.slice(0, 10) });
-        for (let p = 10; p < battleLogPages.length; p += 10) {
-          await i.followUp({ embeds: battleLogPages.slice(p, p + 10), flags: MessageFlags.Ephemeral });
-        }
+        await showPaginatedBattleLog(i, battleLogPages);
       }
     } catch (err) {
       if (isDiscordErrorCode(err, 10062)) return;
@@ -1077,6 +1228,7 @@ registerMemorySource('battle.runtime', () => ({
   cooldownEntries: battleFrameCooldowns.size,
   cooldownMaxEntries: BATTLE_FRAME_COOLDOWN_MAX,
   activeCollectors: activeBattleCollectors,
+  activeLogPageCollectors: activeBattleLogPageCollectors,
 }));
 
 module.exports = {
@@ -1085,6 +1237,8 @@ module.exports = {
   renderRewardsPanel,
   battleEmbed,
   logEmbeds,
+  battleLogNavigationRow,
+  showPaginatedBattleLog,
   battleFrameCacheParts,
   battleResultCacheParts,
   battlePhase,

@@ -2,6 +2,7 @@
 
 const pool = require('../../db/pool');
 const { runSummon } = require('../../engine/summonEngine');
+const { notifyBelieverLevelUp } = require('../../utils/awardBelieverExp');
 const { buildFlipMessage, buildResultMessage } = require('../../engine/renderSummon');
 const { resolveSummonAnimation } = require('../../engine/skinResolver');
 const {
@@ -155,6 +156,8 @@ async function execute(message, { args }) {
       allowedMentions: { repliedUser: false },
     }).catch(() => {});
   }
+  // Believer level-up from summon reputation (committed with the pulls).
+  notifyBelieverLevelUp(message.channel, discordId, { levelUp: result.believerLevelUp });
 }
 
 module.exports = { execute };

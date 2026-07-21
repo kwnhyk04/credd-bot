@@ -7,7 +7,7 @@ const {
   MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
-const { buildBagOverview, buildChestsView, getChestCounts } = require('../../engine/bagViews');
+const { buildBagOverview, buildChestsView, buildItemsView, getChestCounts } = require('../../engine/bagViews');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay, emoji } = require('../../utils/emojis');
 
@@ -24,14 +24,22 @@ function clampPageForTotal(page, total) {
   return Math.min(Math.max(0, page | 0), totalPages - 1);
 }
 
-// Tier ordering for the weapons list (Supreme → Common).
-const TIER_ORDER_SQL = `CASE wr.tier
-  WHEN 'Supreme' THEN 5 WHEN 'Legendary' THEN 4 WHEN 'Mythic' THEN 3
-  WHEN 'Rare' THEN 2 WHEN 'Common' THEN 1 ELSE 0 END`;
-// [v5] same ordering keyed on the armor_roster alias.
-const ARMOR_TIER_ORDER_SQL = `CASE ar.tier
-  WHEN 'Supreme' THEN 5 WHEN 'Legendary' THEN 4 WHEN 'Mythic' THEN 3
-  WHEN 'Rare' THEN 2 WHEN 'Common' THEN 1 ELSE 0 END`;
+// Strongest-first order shared by weapon and armor inventories. Genesis is
+// currently weapon-only, but keeping one list prevents the two queries from
+// drifting if Genesis armor is ever introduced.
+const GEAR_TIER_STRENGTH = Object.freeze([
+  'Genesis', 'Supreme', 'Legendary', 'Mythic', 'Rare', 'Common',
+]);
+
+function tierOrderSql(column) {
+  const clauses = GEAR_TIER_STRENGTH
+    .map((tier, index) => `WHEN '${tier}' THEN ${GEAR_TIER_STRENGTH.length - index}`)
+    .join(' ');
+  return `CASE ${column} ${clauses} ELSE 0 END`;
+}
+
+const TIER_ORDER_SQL = tierOrderSql('wr.tier');
+const ARMOR_TIER_ORDER_SQL = tierOrderSql('ar.tier');
 
 function reply(message, payload) {
   // parse: [] — header user-mentions must render without pinging anyone.
@@ -95,6 +103,16 @@ async function chests(message) {
     return;
   }
   await reply(message, await buildChestsView(message.author, counts));
+}
+
+// ── crd bag items — CRD Bag Items category (Genesis update S7) ──────────
+async function items(message) {
+  const counts = await getChestCounts(message.author.id);
+  if (!counts) {
+    await reply(message, { content: 'You don\'t have a bag yet. Use `crd register` first.' });
+    return;
+  }
+  await reply(message, await buildItemsView(message.author, counts));
 }
 
 // ── crd bag weapons (paginated, Components V2) ──────────────────────────
@@ -326,9 +344,17 @@ async function handleArmorsButton(interaction) {
 async function execute(message, { args }) {
   const sub = (args[0] || '').toLowerCase();
   if (sub === 'chests') return chests(message);
+  if (sub === 'items' || sub === 'item') return items(message);
   if (sub === 'weapons') return weapons(message);
   if (sub === 'armors' || sub === 'armor') return armors(message);
   return overview(message);
 }
 
-module.exports = { execute, handleWeaponsButton, handleArmorsButton };
+module.exports = {
+  execute,
+  handleWeaponsButton,
+  handleArmorsButton,
+  fetchWeapons,
+  fetchArmors,
+  GEAR_TIER_STRENGTH,
+};

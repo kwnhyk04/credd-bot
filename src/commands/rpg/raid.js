@@ -28,6 +28,7 @@ const { runBattle } = require('../../engine/battleRender');
 const { resolveSkin } = require('../../engine/skinResolver');
 const { RAID_LOOT, rollRaidChest } = require('../../config/raidLoot');
 const { awardCombatExp } = require('../../utils/awardCombatExp');
+const { formatLevelRewardLine } = require('../../config/levelRewards');
 const { progressQuests } = require('../../utils/questProgress');
 
 const STALE_BATTLE_MINUTES = 5;
@@ -58,6 +59,9 @@ function rewardSummaryText(sim, mobName, rewards) {
     }
     if (rewards.chestLabel) parts.push(`🎁 ${rewards.chestLabel} x1`);
     if (rewards.leveledUp) parts.push(`⬆️ LEVEL UP! ${rewards.levelFrom} -> ${rewards.levelTo}`);
+    if (rewards.leveledUp && rewards.levelRewards) {
+      parts.push(`🎁 Level Rewards: ${formatLevelRewardLine(rewards.levelRewards)}`);
+    }
   } else {
     parts.push(`✨ +${Number(rewards.exp || 0).toLocaleString()} EXP`);
   }
@@ -209,6 +213,7 @@ async function commitRewards(discordId, sim, mobRow, rng) {
       won, credux, exp, shards,
       chestLabel: chestCol ? CHEST_LABELS[chestCol] : null,
       levelFrom: lvl.previousLevel, levelTo: lvl.newLevel, leveledUp: lvl.leveledUp,
+      levelRewards: lvl.rewards,
       questNotices,
     };
   } catch (err) {

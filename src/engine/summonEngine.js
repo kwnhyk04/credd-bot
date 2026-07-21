@@ -33,6 +33,7 @@ const {
   resolveRoll,
 } = require('../config/gachaRates');
 const { grantTitles, grantTitle } = require('../utils/titleGrant');
+const { grantBelieverLevelRewards } = require('../utils/grantLevelRewards');
 const { believerTitlesFor, COLLECTION_PANTHEON_KEEPER, MYTHOLOGY_COLLECTION } = require('../config/titles');
 const { performanceLog } = require('../utils/runtimeLogs');
 const { getSelectionPool, pickRandomRow } = require('../utils/selectionPools');
@@ -243,7 +244,8 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
   }
 
   // ── Reputation: +10/pull, 1,500/day PHT cap, 3,000-flat level roll-up ────
-  const reputationAwarded = await awardReputation(client, discordId, char, count);
+  const reputation = await awardReputation(client, discordId, char, count);
+  const reputationAwarded = reputation.awarded;
 
   // ── Collection titles: per-mythology completion + full Pantheon Keeper ───
   if (pulls.some((p) => !p.isDupe)) {
@@ -289,6 +291,7 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
     finalPity: pity,
     newActiveDeityId: pendingActiveId,
     reputationAwarded,
+    believerLevelUp: reputation.levelUp,
   };
 }
 
@@ -309,7 +312,8 @@ async function awardReputation(client, discordId, char, count) {
   const remainingCap = Math.max(0, REP_DAILY_CAP - todaySoFar);
   const awarded = Math.min(desired, remainingCap);
 
-  let level = char.believer_level;
+  const startLevel = Number(char.believer_level);
+  let level = startLevel;
   let exp = Number(char.believer_exp) + awarded;
   while (exp >= BELIEVER_EXP_PER_LEVEL) {
     exp -= BELIEVER_EXP_PER_LEVEL;
@@ -325,9 +329,16 @@ async function awardReputation(client, discordId, char, count) {
       WHERE discord_id = $1`,
     [discordId, level, exp, todaySoFar + awarded, today]
   );
+  // Believer level rewards (Genesis S2) — exactly once, same transaction.
+  // Lock order holds: runSummon locked users_bag before user_character.
+  let levelUp = null;
+  if (level > startLevel) {
+    const rewards = await grantBelieverLevelRewards(client, discordId, startLevel, level);
+    levelUp = { previousLevel: startLevel, newLevel: level, rewards };
+  }
   // Believer-milestone titles for the (possibly new) level — idempotent grants.
   await grantTitles(client, discordId, believerTitlesFor(level));
-  return awarded;
+  return { awarded, levelUp };
 }
 
 module.exports = { runSummon };

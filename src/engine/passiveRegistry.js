@@ -487,6 +487,110 @@ const PASSIVE_REGISTRY = {
     bs.flags.laevateinn_staff_on_hit = true;
   },
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // GENESIS TIER — the five First Arms (specs/genesis_tier_weapons.md).
+  // Tier above Supreme; weapon-only drops from the Genesis Chest.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  'kiri': (bs) => {
+    // Thousand Partings — each ATTACK ramps damage +20% (cap +120%), and every
+    // attack has a 25% chance to strike twice. Both are attack-bound so crowd
+    // control cannot burn a stack or a double-strike roll on a skipped turn.
+    bs.onAttack(() => {
+      if (!bs.flags.kiri_stack) bs.flags.kiri_stack = 0;
+      const previousStack = bs.flags.kiri_stack;
+      if (bs.flags.kiri_stack < 1.20) {
+        bs.flags.kiri_stack = Math.min(bs.flags.kiri_stack + 0.20, 1.20);
+      }
+      bs.playerAtkMult += bs.flags.kiri_stack;
+      if (bs.flags.kiri_stack > previousStack) {
+        bs.log.push(
+          `🌫️ Kiri: Thousand Partings — Damage +20% (total +${Math.round(bs.flags.kiri_stack * 100)}%).`
+        );
+      }
+      if (bs.rng() < 0.25) {
+        bs.nextAttackDouble = true;
+        bs.log.push('🌫️ Kiri: Thousand Partings — Double strike triggered!');
+      }
+    });
+  },
+
+  'moira': (bs) => {
+    // Fate Ignores Iron — enemy DEF -10%/attack stacking to -50% (one def_down
+    // source carrying the stack, highest-wins per R8 and gated by immunity),
+    // +50% armor pierce while the target's DEF is buffed (engine reads
+    // moira_pierce_vs_def_buff at DEF time), and attacks cannot miss or be
+    // evaded (engine reads tyrfing_no_miss).
+    if (!bs.flags.moira_def_stack) bs.flags.moira_def_stack = 0;
+    if (!bs.enemyImmune('def_down') && bs.flags.moira_def_stack < 0.50) {
+      const nextStack = Math.min(bs.flags.moira_def_stack + 0.10, 0.50);
+      if (bs.applyDebuff('def_down', 1, nextStack)) {
+        bs.flags.moira_def_stack = nextStack;
+        bs.log.push(`🏹 Moira: Fate Ignores Iron — Enemy DEF reduced (total -${Math.round(nextStack * 100)}%)!`);
+      }
+    }
+    bs.flags.moira_pierce_vs_def_buff = true;
+    if (!bs.flags.tyrfing_no_miss) {
+      bs.log.push('🏹 Moira: Fate Ignores Iron — Every arrow was always meant to land.');
+    }
+    bs.flags.tyrfing_no_miss = true;
+  },
+
+  'sophia': (bs) => {
+    // The Price of Knowing — +75% damage dealt and +20% damage taken; once the
+    // wielder drops below 30% HP the bonus RISES TO +150% for the rest of the
+    // battle (sticky, not additive with the base +75%).
+    if (!bs.flags.sophia_passive_logged) {
+      bs.flags.sophia_passive_logged = true;
+      bs.log.push('📖 Sophia: The Price of Knowing — Damage +75%; damage taken +20%.');
+    }
+    if (bs.playerHP < bs.playerMaxHP * 0.30 && !bs.flags.sophia_awakened) {
+      bs.flags.sophia_awakened = true;
+      bs.log.push('📖 Sophia: The Price of Knowing — Reality relents; damage +150%!');
+    }
+    bs.playerAtkMult += bs.flags.sophia_awakened ? 1.50 : 0.75;
+    bs.bonusIncomingDmgMult += 0.20;
+  },
+
+  'atlas': (bs) => {
+    // Worldbreaker's Grip — +50% ATK, every 3rd round is a guaranteed critical
+    // strike, and any critical strike cuts the enemy's ATK by 30% for 1 turn
+    // (engine applies it on the landed crit via atlas_crit_atk_down).
+    bs.playerAtkMult += 0.50;
+    bs.flags.atlas_crit_atk_down = true;
+    if (!bs.flags.atlas_passive_logged) {
+      bs.flags.atlas_passive_logged = true;
+      bs.log.push('🥊 Atlas: Worldbreaker\'s Grip — Base ATK +50%.');
+    }
+    if (bs.currentTurn % 3 === 0) {
+      bs.nextAttackAutoCrit = true;
+      bs.log.push('🥊 Atlas: Worldbreaker\'s Grip — The sky-bearing blow lands true!');
+    }
+  },
+
+  'titan': (bs) => {
+    // Forgefire Veins — heal 30% of damage dealt (50% while below 50% HP), and
+    // once per battle survive fatal damage at 1 HP with +100% damage for the
+    // rest of the battle. The engine reads titan_lifesteal_pct on every landed
+    // hit and consumes titan_reprieve_available on the lethal blow.
+    const lifestealPct = bs.playerHP < bs.playerMaxHP * 0.50 ? 0.50 : 0.30;
+    if (bs.flags.titan_lifesteal_pct !== lifestealPct) {
+      bs.log.push(
+        `🔥 Titan: Forgefire Veins — Lifesteal ${Math.round(lifestealPct * 100)}%` +
+        `${lifestealPct > 0.30 ? ' while below half HP' : ''}.`
+      );
+    }
+    bs.flags.titan_lifesteal_pct = lifestealPct;
+    if (!bs.flags.titan_reprieve_used) {
+      bs.flags.titan_reprieve_available = true;
+    }
+    if (!bs.flags.titan_reprieve_logged && !bs.flags.titan_reprieve_used) {
+      bs.flags.titan_reprieve_logged = true;
+      bs.log.push('🔥 Titan: Forgefire Veins — Fatal reprieve armed.');
+    }
+    if (bs.flags.titan_atk_bonus > 0) bs.playerAtkMult += bs.flags.titan_atk_bonus;
+  },
+
   'galdrastafir': chanceLandedHitDebuff(0.50, 'def_down', LANDED_STAT_DEBUFF_TURNS, () => 0.30,
     '🪄 Galdrastafir: Runebreaker — Enemy DEF -30%!'),
 
@@ -735,9 +839,8 @@ const PASSIVE_REGISTRY = {
     bs.flags.evade_chance_used = used + chance;
     const roll = bs.rng();
     bs.flags.valkyrie_evade_check = roll < chance;
-    if (bs.flags.valkyrie_evade_check) {
-      bs.log.push('🪽 Valkyrie\'s Mantle: Chooser\'s Grace — Attack evaded!');
-    }
+    // The engine logs only after the evade really stops a hit. A no-miss
+    // attacker such as Moira must not produce a contradictory "evaded" event.
   },
 
   // Mantle of Bathala — Divine Aegis: +5% HP and +5% DEF every turn, stacking to
@@ -877,7 +980,6 @@ const PASSIVE_REGISTRY = {
     bs.flags.loki_evade_check = bs.rng() < 0.25;
     if (bs.flags.loki_evade_check) {
       bs.flags.loki_counter_dmg = Math.floor(bs.playerATK);
-      bs.log.push('🃏 Loki: Illusory Double — Attack evaded! Counter incoming!');
     }
   },
 
@@ -1255,8 +1357,11 @@ const PASSIVE_REGISTRY = {
     [{ tag: 'crit_down', turns: 1, value: 0.30 }, { tag: 'atk_down', turns: 1, value: 0.10 }],
     '💨 Kapre: Smoke Cloud — Your CRIT -30%, ATK -10% for 1 turn!'),
 
-  'sigbin_shadow_step': chanceFlag(0.20, 'sigbin_evade_check',
-    '👤 Sigbin: Shadow Step — Evaded your attack!'),
+  'sigbin_shadow_step': (bs) => {
+    // Defer the event until hit resolution so Moira's no-miss property can
+    // suppress both the evade and its log without suppressing absolute absorbs.
+    bs.flags.sigbin_evade_check = bs.rng() < 0.20;
+  },
 
   'batibat_sleep_paralysis': everyNthPlayerDebuff(4,
     [{ tag: 'paralyze', turns: 1 }],

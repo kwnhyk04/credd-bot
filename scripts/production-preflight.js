@@ -12,6 +12,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
+const { REQUIRED_COLUMNS: BOOT_REQUIRED_COLUMNS } = require('../src/db/schemaGuard');
 
 const ROOT = path.join(__dirname, '..');
 const isProdMode = process.argv.includes('--prod');
@@ -182,6 +183,14 @@ const REQUIRED_COLUMNS = {
   casino_logs: ['discord_id', 'game', 'bet_amount', 'result', 'payout', 'balance_before', 'balance_after'],
   canvas_cache: ['cache_key', 'object_key', 'url', 'last_used_at'],
 };
+
+// Keep deployment preflight aligned with the fail-fast schema guard used at boot.
+for (const [table, columns] of Object.entries(BOOT_REQUIRED_COLUMNS)) {
+  if (!REQUIRED_TABLES.includes(table)) REQUIRED_TABLES.push(table);
+  REQUIRED_COLUMNS[table] = [
+    ...new Set([...(REQUIRED_COLUMNS[table] || []), ...columns]),
+  ];
+}
 
 const REQUIRED_INDEXES = [
   'active_casino_sessions_one_active',
@@ -501,7 +510,11 @@ async function main() {
   if (failures > 0) process.exit(1);
 }
 
-main().catch((err) => {
-  console.error('FAIL preflight crashed:', err.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('FAIL preflight crashed:', err.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { REQUIRED_COLUMNS, REQUIRED_TABLES };

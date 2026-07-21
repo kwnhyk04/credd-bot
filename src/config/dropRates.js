@@ -36,6 +36,18 @@ const CHESTS = {
     drops: [['Legendary', 0.70], ['Supreme', 0.30]],
     maxOpen: 1, // Supreme Chests open one at a time
   },
+  // [Genesis update] Diamond Chest — CRD Shop weekly premium gear chest.
+  dmc: {
+    column: 'diamond_chest', action: 'Diamond Chest',
+    drops: [['Mythic', 0.50], ['Legendary', 0.50]],
+  },
+  // [Genesis update] Genesis Chest — always one of the five Genesis weapons
+  // (weapon-only: the open flow skips the weapon/armor split for this tier).
+  gnc: {
+    column: 'genesis_chest', action: 'Genesis Chest',
+    drops: [['Genesis', 1.00]],
+    maxOpen: 1, // premium chest — opens one at a time (like Supreme)
+  },
 };
 
 const CHEST_ALIASES = Object.keys(CHESTS); // ['sc','gc','btc','bgtc','supc']
@@ -79,6 +91,15 @@ const BAND_FRACTIONS = {
 // Supreme fixed weapon stats (§7/§8/§35.2). DEF/HP gone; single 50% damage rider.
 const SUPREME_STATS = {
   atk: 800, crit: 10.0, // [v5 tweak] Supreme weapons fixed 10% crit on drop.
+  bonus_dmg_pct: 50.00,
+};
+
+// [Genesis update] Genesis fixed weapon stats (specs/genesis_tier_weapons.md):
+// ATK 1600 · Crit Rate 20%. The spec's "+50% Crit Damage" is carried by the
+// same damage-rider stat the Supreme tier uses (bonus_dmg_pct) — the engine
+// has no separate crit-damage stat.
+const GENESIS_STATS = {
+  atk: 1600, crit: 20.0,
   bonus_dmg_pct: 50.00,
 };
 
@@ -137,6 +158,7 @@ const NATIVE_SOCKET_ROLL = {
   Mythic:    [[1, 0.40], [2, 0.60]],
   Legendary: [[2, 1.00]],
   Supreme:   [[2, 1.00]],
+  Genesis:   [[2, 1.00]],
 };
 
 /** Roll how many native sockets a freshly-dropped gear piece has, by tier. */
@@ -169,6 +191,9 @@ function bandedValue(range, band) {
 function rollWeaponStats(tier, type) {
   if (tier === 'Supreme') {
     return { ...SUPREME_STATS };
+  }
+  if (tier === 'Genesis') {
+    return { ...GENESIS_STATS }; // fixed — no roll, no type banding
   }
 
   const range = TIER_RANGES[tier];
@@ -220,6 +245,7 @@ module.exports = {
   TYPE_PROFILES,
   BAND_FRACTIONS,
   SUPREME_STATS,
+  GENESIS_STATS,
   ARMOR_TIER_RANGES,
   ARMOR_TYPE_PROFILES,
   SUPREME_ARMOR,

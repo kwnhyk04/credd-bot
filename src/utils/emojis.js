@@ -67,6 +67,20 @@ const ALIASES = {
 const registry = new Map();     // emojiName → { id, display }
 const displayIndex = new Map(); // normalized name (alnum-only) → emojiName
 
+// Database tiers and their summon-facing aliases share the four uploaded
+// deity-tier icons from game_deities.txt. Keeping the mapping here prevents
+// raw Discord tags and Unicode rarity symbols from drifting between surfaces.
+const DEITY_TIER_EMOJI_NAMES = Object.freeze({
+  Epic: 'epic_icon',
+  Remnant: 'epic_icon',
+  Mythic: 'mythical_icon',
+  Awakened: 'mythical_icon',
+  Legendary: 'legendary_icon',
+  Undying: 'legendary_icon',
+  Supreme: 'supreme_icon',
+  Primordial: 'supreme_icon',
+});
+
 // Valid Discord custom-emoji parts — anything else falls back, never emitted.
 const VALID_NAME = /^[a-z0-9_]{2,32}$/i;
 const VALID_ID = /^\d+$/;
@@ -148,6 +162,15 @@ function emojiForDisplay(display, fallback = '▫️') {
   if (!name) return fallback;
   const e = registry.get(name);
   return tag(name, e.id, e.animated) || fallback;
+}
+
+/** Resolve a deity database tier or summon-facing alias to its custom icon. */
+function deityTierEmoji(tierOrAlias, fallback = '◆') {
+  load();
+  const name = DEITY_TIER_EMOJI_NAMES[String(tierOrAlias || '').trim()];
+  if (!name) return fallback;
+  const e = registry.get(name);
+  return (e && tag(name, e.id, e.animated)) || fallback;
 }
 
 // ── Startup diagnostics ─────────────────────────────────────────────────────
@@ -269,6 +292,8 @@ module.exports = {
   emoji,
   displayName,
   emojiForDisplay,
+  deityTierEmoji,
+  DEITY_TIER_EMOJI_NAMES,
   resolveName,
   auditWeaponEmojis,
   reconcileEmojiIds,

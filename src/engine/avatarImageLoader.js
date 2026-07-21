@@ -80,6 +80,13 @@ async function loadAvatarAsset(loadImageSource, sources, logContext = {}) {
     loadStatus: 'missing',
     reason: 'no-avatar-asset-loaded',
   });
+  // [Genesis update S9] Concise operator warning naming the missing RELATIVE
+  // path (never the storage URL or the underlying storage error). The caller
+  // still falls back to the default class art — a missing file never
+  // substitutes another class or gender.
+  if (entries.length > 0) {
+    console.warn(`[avatar] missing asset: ${safeAssetKey(entries[0].path)}`);
+  }
   return null;
 }
 

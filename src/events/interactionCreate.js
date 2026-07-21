@@ -14,7 +14,7 @@ const { byName } = require('../commands/slashDefinitions');
 const { IMPLEMENTED, COMMAND_MAP } = require('../handlers/commandHandler');
 const { runMiddleware, isBanned } = require('../handlers/middleware');
 const { InteractionContext } = require('../utils/commandContext');
-const { awardCommandBelieverExp } = require('../utils/awardBelieverExp');
+const { awardCommandBelieverExp, notifyBelieverLevelUp } = require('../utils/awardBelieverExp');
 const { withNetworkContext } = require('../utils/networkTelemetry');
 
 async function replyBlockedSlash(ctx) {
@@ -56,7 +56,7 @@ async function handleSlash(interaction) {
       },
       () => impl.run(ctx, { args: ctx.args })
     );
-    await awardCommandBelieverExp(ctx.userId, entry.canonical, ctx.args);
+    notifyBelieverLevelUp(interaction.channel, ctx.userId, await awardCommandBelieverExp(ctx.userId, entry.canonical, ctx.args));
   } catch (err) {
     console.error('[interactionCreate] slash error:', err);
     try {

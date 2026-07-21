@@ -35,10 +35,9 @@ const MYTHOLOGY_COLLECTION = {
   Greek: 'coll_greek_keeper',
 };
 
-// Season-end rank titles by PEAK bracket. Divine = the season's exclusive rotating
-// title (divine_* seeds, by season order); lower brackets get NO permanent title here
-// (Divine-only permanent — keep it simple).
-const DIVINE_SEASON_TITLES = [
+// Celestial receives the exclusive rotating title using the existing catalog codes.
+// Every lower bracket receives a generic per-season title.
+const CELESTIAL_SEASON_TITLES = [
   'divine_embercrowned',
   'divine_fimbulwinter',
   'divine_tempest_amihan',
@@ -66,10 +65,10 @@ function bossFeatTitlesFor(kills) {
   return BOSS_FEAT_THRESHOLDS.filter((t) => kills >= t.kills).map((t) => t.code);
 }
 
-/** Divine season title for a 1-based season number (rotates, wraps). */
-function divineSeasonTitle(seasonNumber) {
-  const idx = (Math.max(1, seasonNumber) - 1) % DIVINE_SEASON_TITLES.length;
-  return DIVINE_SEASON_TITLES[idx];
+/** Celestial season title for a 1-based season number (rotates, wraps). */
+function celestialSeasonTitle(seasonNumber) {
+  const idx = (Math.max(1, seasonNumber) - 1) % CELESTIAL_SEASON_TITLES.length;
+  return CELESTIAL_SEASON_TITLES[idx];
 }
 
 module.exports = {
@@ -77,9 +76,11 @@ module.exports = {
   BOSS_FEAT_THRESHOLDS,
   COLLECTION_PANTHEON_KEEPER,
   MYTHOLOGY_COLLECTION,
-  DIVINE_SEASON_TITLES,
+  CELESTIAL_SEASON_TITLES,
   TITLE_CATEGORIES,
   believerTitlesFor,
   bossFeatTitlesFor,
-  divineSeasonTitle,
+  celestialSeasonTitle,
+  DIVINE_SEASON_TITLES: CELESTIAL_SEASON_TITLES,
+  divineSeasonTitle: celestialSeasonTitle,
 };

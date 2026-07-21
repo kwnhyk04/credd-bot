@@ -45,8 +45,9 @@ const { resolveBattle } = require('./battleEngine');
 const {
   buildPlayerFighter, buildBossFighter, computeBossStats, fetchAllBosses, fetchMobByName,
 } = require('./statAssembly');
-const { logEmbeds } = require('./battleRender');
+const { logEmbeds, showPaginatedBattleLog } = require('./battleRender');
 const { awardCombatExpMany } = require('../utils/awardCombatExp');
+const { formatLevelRewardLine } = require('../config/levelRewards');
 const { isBanned } = require('../handlers/middleware');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emojiForDisplay } = require('../utils/emojis');
@@ -1379,6 +1380,7 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
   let attackerIds = [];
   let reward = null;
   let chest = null;
+  let expResults = new Map();
   try {
     await dbc.query('BEGIN');
     // expires_at = NOW() anchors the 15-min respawn clock (no died_at column)
@@ -1437,7 +1439,7 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
         [attackerIds, reward.credux, reward.shards, chest.qty]
       );
 
-      await awardCombatExpMany(dbc, attackerIds, reward.exp);
+      expResults = await awardCombatExpMany(dbc, attackerIds, reward.exp);
 
       // [v5 Phase 4] boss participation kill — boss died + you attacked (Blueprint §4.4)
       const killRes = await dbc.query(
@@ -1506,11 +1508,32 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
       const r = reward || bossRewards(view.mobRow.name);
       const c = chest || { qty: 1, label: 'Boss Treasure Chest' };
       const greater = isGreaterBoss(view.mobRow.name);
+      // Grouped level-up + level-reward summary (spec S3) from the same
+      // distribution transaction — post-commit display only.
+      let levelLine = '';
+      {
+        const leveled = [...expResults.values()].filter((i) => i.levelsGained > 0);
+        if (leveled.length > 0) {
+          const totals = { credux: 0, chests: {} };
+          for (const info of leveled) {
+            if (!info.rewards) continue;
+            totals.credux += info.rewards.credux;
+            for (const [col, qty] of Object.entries(info.rewards.chests)) {
+              totals.chests[col] = (totals.chests[col] || 0) + qty;
+            }
+          }
+          const rewardsText = formatLevelRewardLine(totals);
+          levelLine =
+            `\n⬆️ **${leveled.length}** challenger${leveled.length === 1 ? '' : 's'} leveled up!` +
+            (rewardsText ? ` Level Rewards: ${rewardsText}` : '');
+        }
+      }
       await channel.send({
         content:
           `🎉 ${greater ? '☠️ **GREATER** ' : ''}**${view.mobRow.name}** has fallen! ` +
           `All **${attackerIds.length}** challenger${attackerIds.length === 1 ? '' : 's'} receive: ` +
-          `${r.credux.toLocaleString()} Credux · ${r.exp.toLocaleString()} Combat EXP · ${c.qty}× ${c.label} · ${r.shards.toLocaleString()} Belief Shards.`,
+          `${r.credux.toLocaleString()} Credux · ${r.exp.toLocaleString()} Combat EXP · ${c.qty}× ${c.label} · ${r.shards.toLocaleString()} Belief Shards.` +
+          levelLine,
         allowedMentions: { parse: [] },
       }).catch(() => {});
     }
@@ -1725,10 +1748,7 @@ async function handleLog(interaction) {
       return;
     }
     const pages = logEmbeds(sim);
-    await interaction.editReply({ embeds: pages.slice(0, 10) });
-    for (let p = 10; p < pages.length; p += 10) {
-      await interaction.followUp({ embeds: pages.slice(p, p + 10), flags: MessageFlags.Ephemeral });
-    }
+    await showPaginatedBattleLog(interaction, pages);
   } catch (err) {
     console.error('[boss] log error:', err);
     if (interaction.deferred || interaction.replied) {

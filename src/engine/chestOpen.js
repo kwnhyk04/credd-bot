@@ -38,6 +38,9 @@ const CHEST_GIFS = {
   lesser_bag: 'lesser_bag.gif',
   greater_bag: 'greater_bag.gif',
   divine_bag: 'divine_bag.gif',
+  // [Genesis update] premium chests (gif optional — missing → results-only flow).
+  diamond_chest: 'diamond_chest.gif',
+  genesis_chest: 'genesis_chest.gif',
 };
 
 const OPEN_EMOJI = {
@@ -51,6 +54,8 @@ const OPEN_EMOJI = {
   lesser_bag: 'lesser_bag_open',
   greater_bag: 'greater_bag_open',
   divine_bag: 'divine_bag_open',
+  diamond_chest: 'diamond_open',
+  genesis_chest: 'genesis_open',
 };
 
 const CHEST_FLAVOR = {
@@ -64,10 +69,12 @@ const CHEST_FLAVOR = {
   lesser_bag: 'The lesser bag unravels — faint runes scatter into your hand.',
   greater_bag: 'The greater bag splits open, humming with bound power.',
   divine_bag: 'The divine bag erupts in light — the strongest runes answer.',
+  diamond_chest: 'The diamond facets fracture the light — brilliance made steel.',
+  genesis_chest: 'The chest opens on the void before creation. One of the First Arms answers.',
 };
 
 // Weapon tiers rarest-first for the summary line.
-const TIER_ORDER = ['supreme', 'legendary', 'mythic', 'rare', 'common'];
+const TIER_ORDER = ['genesis', 'supreme', 'legendary', 'mythic', 'rare', 'common'];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

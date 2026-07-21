@@ -11,7 +11,8 @@ const BRACKETS = [
   { name: 'Champion',  floor: 1000,  ceil: 2499 },
   { name: 'Demigod',   floor: 2500,  ceil: 4999 },
   { name: 'Ascendant', floor: 5000,  ceil: 9999 },
-  { name: 'Divine',    floor: 10000, ceil: Infinity },
+  { name: 'Divine',    floor: 10000, ceil: 19999 },
+  { name: 'Celestial', floor: 20000, ceil: Infinity },
 ];
 
 const WEEKLY_MIN_GAMES = 5;
