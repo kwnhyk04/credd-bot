@@ -43,6 +43,7 @@ const REGISTRY_PATHS = [
 const ANIMATED_NAMES = new Set([
   // chest / relic / rune-bag open animations
   'silver_open', 'gold_open', 'tboss_open', 'gboss_open', 'supreme_open',
+  'diamond_open', 'genesis_open',
   'rsacred_open', 'rsupreme_open', 'lesser_bag_open', 'greater_bag_open', 'divine_bag_open',
   // card flip + summon-skin base + summon-skin flip animations
   'card_flip', 'rune_glow', 'aurora_ribbon', 'eternal_supernova', 'stardust_constellation',

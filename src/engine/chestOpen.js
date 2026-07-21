@@ -176,20 +176,26 @@ async function playAnimatedOpen(message, { gifKey, animTitle, buildResult }) {
     if (!result) result = await buildResult();
   }
 
-  const resultPayload = () => ({
+  const resultPayload = ({ forEdit = false } = {}) => ({
     components: result.components,
     files: result.files,
     attachments: [], // required: drops the previous gif/grid attachment
-    flags: MessageFlags.IsComponentsV2,
+    // The animation reply already owns the immutable IsComponentsV2 flag.
+    // Re-sending it in PATCH can be rejected by Discord; fresh replies need it.
+    ...(forEdit ? {} : { flags: MessageFlags.IsComponentsV2 }),
     allowedMentions: { repliedUser: false },
   });
 
   if (msg) {
-    await msg.edit(resultPayload());
-  } else {
-    msg = await message.reply(resultPayload());
+    try {
+      return await msg.edit(resultPayload({ forEdit: true }));
+    } catch (err) {
+      // The roll is committed. Never leave the user on a permanent Opening card
+      // just because the original Discord message could not be edited.
+      console.error(`[chestOpen] result edit failed (${gifKey}); posting a fresh result:`, err.message);
+    }
   }
-  return msg;
+  return message.reply(resultPayload());
 }
 
 /**
