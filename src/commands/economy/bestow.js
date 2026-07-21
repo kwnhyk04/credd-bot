@@ -8,10 +8,11 @@
  * (balance + receiver daily cap re-checked under row locks, since state may have
  * moved since the card was shown). No balances are ever displayed (§3).
  *
- * Receiver daily cap: 1,000,000 Credux/day (PHT clock via users.last_bestow_received
- * + bestow_received_today; a stale date means today's received is 0). Partial fills
- * are NOT allowed — if the amount would exceed the receiver's remaining headroom the
- * bestow is rejected and the remaining headroom is stated.
+ * Receiver daily cap: base 1,000,000 Credux/day + 500,000 per receiver Believer Level
+ * + 500,000 per receiver Combat Level (see src/config/bestow.js). PHT clock via
+ * users.last_bestow_received + bestow_received_today; a stale date means today's received
+ * is 0. Partial fills are NOT allowed — if the amount would exceed the receiver's remaining
+ * headroom the bestow is rejected and the remaining headroom is stated.
  *
  * Lock order (Phase-5 convention): both users_bag rows (sorted discord_id) FOR UPDATE,
  * then the receiver's users row FOR UPDATE for the cap counters.
@@ -26,9 +27,33 @@ const { isBanned } = require('../../handlers/middleware');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emoji } = require('../../utils/emojis');
 const { registerMemorySource } = require('../../utils/memoryRegistry');
+const { computeBestowDailyCap } = require('../../config/bestow');
 
-const DAILY_CAP = 1_000_000;            // receiver-side Credux/day (§3)
 const CONFIRM_WINDOW_MS = 60_000;
+
+/** Next PHT (Asia/Manila, UTC+8, no DST) midnight as a unix timestamp (seconds). */
+function nextPhtResetUnix() {
+  const nowMs = Date.now();
+  const PHT_OFFSET_MS = 8 * 60 * 60 * 1000;
+  // Midnight PHT is 16:00 UTC the previous day. Find the next such instant strictly ahead.
+  const phtNow = new Date(nowMs + PHT_OFFSET_MS);
+  const nextPhtMidnightUtcMs = Date.UTC(
+    phtNow.getUTCFullYear(), phtNow.getUTCMonth(), phtNow.getUTCDate() + 1
+  ) - PHT_OFFSET_MS;
+  return Math.floor(nextPhtMidnightUtcMs / 1000);
+}
+
+/** Cap-exceeded body: requested, limit, remaining, levels, next reset. */
+function capExceededBody(receiverId, amount, limit, headroom, believerLevel, combatLevel) {
+  return [
+    `That exceeds <@${receiverId}>'s daily bestow cap.`,
+    `• Requested: **${amount.toLocaleString()}**`,
+    `• Daily limit: **${limit.toLocaleString()}**`,
+    `• Remaining today: **${Math.max(0, headroom).toLocaleString()}**`,
+    `• Believer Level: **${believerLevel}** · Combat Level: **${combatLevel}**`,
+    `• Resets <t:${nextPhtResetUnix()}:F>`,
+  ].join('\n');
+}
 let activeBestowCollectors = 0;
 
 const GOLD = 0xf0b232;
@@ -98,11 +123,15 @@ async function performBestow(senderId, receiverId, amount) {
     const senderBag = byId[senderId];
     const receiverBag = byId[receiverId];
 
-    // receiver users row: cap counters + ban re-check (bag → users lock order)
+    // receiver users row: cap counters + ban re-check (bag → users lock order).
+    // LEFT JOIN user_character for the authoritative Believer/Combat levels that scale the cap.
     const uRes = await client.query(
-      `SELECT is_banned, bestow_received_today,
-              (last_bestow_received = (NOW() AT TIME ZONE 'Asia/Manila')::date) AS is_today
-         FROM users WHERE discord_id = $1 FOR UPDATE`,
+      `SELECT u.is_banned, u.bestow_received_today,
+              (u.last_bestow_received = (NOW() AT TIME ZONE 'Asia/Manila')::date) AS is_today,
+              uc.believer_level, uc.combat_level
+         FROM users u
+         LEFT JOIN user_character uc ON uc.discord_id = u.discord_id
+        WHERE u.discord_id = $1 FOR UPDATE OF u`,
       [receiverId]
     );
     if (uRes.rows.length === 0) { await client.query('ROLLBACK'); return { status: 'missing' }; }
@@ -111,8 +140,14 @@ async function performBestow(senderId, receiverId, amount) {
 
     // stale date → today's received is 0
     const receivedToday = u.is_today ? Number(u.bestow_received_today) : 0;
-    const headroom = DAILY_CAP - receivedToday;
-    if (amount > headroom) { await client.query('ROLLBACK'); return { status: 'cap', headroom }; }
+    const believerLevel = u.believer_level == null ? 0 : Number(u.believer_level);
+    const combatLevel = u.combat_level == null ? 0 : Number(u.combat_level);
+    const limit = computeBestowDailyCap(believerLevel, combatLevel);
+    const headroom = limit - receivedToday;
+    if (amount > headroom) {
+      await client.query('ROLLBACK');
+      return { status: 'cap', headroom, limit, believerLevel, combatLevel };
+    }
     if (Number(senderBag.credux) < amount) {
       await client.query('ROLLBACK');
       return { status: 'insufficient' };
@@ -175,11 +210,15 @@ async function execute(message, { args }) {
   }
 
   try {
-    // receiver must be registered + not banned (registration implies a users_bag row)
+    // receiver must be registered + not banned (registration implies a users_bag row).
+    // LEFT JOIN user_character for the levels that scale the receiver's daily cap.
     const recvRes = await pool.query(
-      `SELECT is_banned, bestow_received_today,
-              (last_bestow_received = (NOW() AT TIME ZONE 'Asia/Manila')::date) AS is_today
-         FROM users WHERE discord_id = $1`,
+      `SELECT u.is_banned, u.bestow_received_today,
+              (u.last_bestow_received = (NOW() AT TIME ZONE 'Asia/Manila')::date) AS is_today,
+              uc.believer_level, uc.combat_level
+         FROM users u
+         LEFT JOIN user_character uc ON uc.discord_id = u.discord_id
+        WHERE u.discord_id = $1`,
       [receiver.id]
     );
     if (recvRes.rows.length === 0) {
@@ -196,12 +235,16 @@ async function execute(message, { args }) {
       return reply(message, `You don't have enough Credux to bestow **${amount.toLocaleString()}**.`);
     }
 
-    // receiver headroom pre-check (no partial fills)
-    const receivedToday = recvRes.rows[0].is_today ? Number(recvRes.rows[0].bestow_received_today) : 0;
-    const headroom = DAILY_CAP - receivedToday;
+    // receiver headroom pre-check (no partial fills); cap scales with receiver levels
+    const recv = recvRes.rows[0];
+    const receivedToday = recv.is_today ? Number(recv.bestow_received_today) : 0;
+    const believerLevel = recv.believer_level == null ? 0 : Number(recv.believer_level);
+    const combatLevel = recv.combat_level == null ? 0 : Number(recv.combat_level);
+    const limit = computeBestowDailyCap(believerLevel, combatLevel);
+    const headroom = limit - receivedToday;
     if (amount > headroom) {
       return reply(message,
-        `That exceeds <@${receiver.id}>'s daily bestow cap. They can still receive **${headroom.toLocaleString()}** Credux today.`);
+        capExceededBody(receiver.id, amount, limit, headroom, believerLevel, combatLevel));
     }
 
     // confirm card — sender-only, 60s
@@ -245,7 +288,10 @@ async function execute(message, { args }) {
         }
         // re-validation failed inside the transaction — nothing written
         const msg = result.status === 'cap'
-          ? `Bestow failed — <@${receiver.id}> can only receive **${Number(result.headroom).toLocaleString()}** more Credux today.`
+          ? `Bestow failed — cap reached.\n${capExceededBody(
+              receiver.id, amount, Number(result.limit),
+              Number(result.headroom), Number(result.believerLevel), Number(result.combatLevel),
+            )}`
           : result.status === 'insufficient'
             ? 'Bestow failed — your balance changed and is no longer enough.'
             : result.status === 'receiver_banned'

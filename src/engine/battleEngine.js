@@ -109,12 +109,12 @@ const SNAPSHOT_EVERY = 3;
 const FIGHTER_DIZZY_MISS_CHANCE = 0.25;
 const MITIGATION_K = 200;         // §12: 1 − DEF/(DEF+200)
 const ARCHER_PIERCE = 0.25;
-const KNIGHT_DR = 0.80;
+const KNIGHT_DR = 0.75;           // ×0.75 incoming = 25% damage reduction
 const INCOMING_DR_FLOOR = 0.25;   // [v5] combined damage-reduction floor: post-DEF incoming never < 25%
 const TOTAL_EVADE_CAP = 0.40;     // [v5] total evade across all sources (enforced in the registry)
 const OVERCHARGE_EVERY = 3;       // [v4.2] fires on rounds 3, 6, 9, …
-const BLEED_PCT_PER_STACK = 0.03;
-const BLEED_MAX_STACKS = 10;
+const BLEED_PCT_PER_STACK = 0.05;   // +5% ATK per stack
+const BLEED_MAX_STACKS = 6;         // 6 × 5% = 30% ATK cap
 const KNIGHT_OUTGOING_BONUS = 0.30;
 
 const SKIP_TAGS = ['stun', 'paralyze', 'freeze', 'petrify', 'charm', 'confuse', 'miss'];
@@ -976,8 +976,8 @@ function resolveBattle(a, b, opts = {}) {
       if (!res.negated) {
         applyLandedHitPassives(S, O, { mainHit, crit: critApplied, damage: res.applied });
       }
-      // Every landed Swordsman attack adds one 3% Bleed stack and refreshes it to 2 turns.
-      // Ten stacks cap the additive value at 30%; later hits only refresh the duration.
+      // Every landed Swordsman attack adds one 5% Bleed stack and refreshes it to 2 turns.
+      // Six stacks cap the additive value at 30%; later hits only refresh the duration.
       // Requires the swordsman to actually act — a skip-CC'd turn never reaches here.
       // The per-attack rng draw is KEPT (consumed, unused) for draw-order stream stability
       // now that the value is deterministic.
