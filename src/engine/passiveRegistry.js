@@ -293,8 +293,8 @@ const PASSIVE_REGISTRY = {
   'carved_totem': firstHitBonus('carved_totem_used', 0.20,
     '🪵 Carved Totem: Opening Strike — +20% ATK bonus!'),
 
-  'steel_kite_shield': chanceFlag(0.10, 'steel_kite_shield_block',
-    '🛡️ Steel Kite Shield: Bulwark — Blocked 15% incoming damage!'),
+  // Rolled during setup; the engine logs it only if an incoming hit consumes it.
+  'steel_kite_shield': chanceFlag(0.10, 'steel_kite_shield_block', null),
 
   'reinforced_targe': firstHitBonus('reinforced_targe_used', 0.20,
     '🛡️ Reinforced Targe: Opening Strike — +20% ATK bonus!'),
@@ -361,8 +361,8 @@ const PASSIVE_REGISTRY = {
 
   'battersea_shield': timedSelfBuff(2, 0, 0.25),
 
-  'enderby_shield': chanceFlag(0.10, 'enderby_reflect_check',
-    '🛡️ Enderby Shield: Thornward — Will reflect 30% of incoming damage!'),
+  // Reflection is logged by the engine after the hit that actually triggers it.
+  'enderby_shield': chanceFlag(0.10, 'enderby_reflect_check', null),
 
   'holmegaard_bow': stackingAtk('holmegaard_stack', 0.03, 0.15),
 
@@ -397,8 +397,7 @@ const PASSIVE_REGISTRY = {
 
   'dipylon_shield': timedSelfBuff(3, 0, 0.20),
 
-  'pelte': chanceFlag(0.15, 'pelte_block_check',
-    '🛡️ Pelte: Deflection — Will block 25% incoming damage!',
+  'pelte': chanceFlag(0.15, 'pelte_block_check', null,
     (bs) => { bs.flags.pelte_block_pct = 0.25; }),
 
   'arrow_of_eros': attackChanceRider(0.30, 0.45,
@@ -460,8 +459,7 @@ const PASSIVE_REGISTRY = {
     bs.flags.jarngreipr_on_stun = true;
   },
 
-  'gridr_iron_gloves': chanceFlag(0.20, 'gridr_ignore_check',
-    '👊 Gridr Iron Gloves: Ironhide — Ignored incoming damage!'),
+  'gridr_iron_gloves': chanceFlag(0.20, 'gridr_ignore_check', null),
 
   'alans_reversed_hands': (bs) => {
     bs.playerStatusImmune = true;
@@ -516,19 +514,21 @@ const PASSIVE_REGISTRY = {
   },
 
   'moira': (bs) => {
-    // Fate Ignores Iron — enemy DEF -10%/attack stacking to -50% (one def_down
-    // source carrying the stack, highest-wins per R8 and gated by immunity),
+    // Fate Ignores Iron — each landed attack applies enemy DEF -10%, stacking
+    // to -50% (one def_down source, highest-wins per R8 and immunity-gated),
     // +50% armor pierce while the target's DEF is buffed (engine reads
     // moira_pierce_vs_def_buff at DEF time), and attacks cannot miss or be
     // evaded (engine reads tyrfing_no_miss).
     if (!bs.flags.moira_def_stack) bs.flags.moira_def_stack = 0;
-    if (!bs.enemyImmune('def_down') && bs.flags.moira_def_stack < 0.50) {
-      const nextStack = Math.min(bs.flags.moira_def_stack + 0.10, 0.50);
-      if (bs.applyDebuff('def_down', 1, nextStack)) {
-        bs.flags.moira_def_stack = nextStack;
-        bs.log.push(`🏹 Moira: Fate Ignores Iron — Enemy DEF reduced (total -${Math.round(nextStack * 100)}%)!`);
+    bs.onLandedHit(() => {
+      if (!bs.enemyImmune('def_down') && bs.flags.moira_def_stack < 0.50) {
+        const nextStack = Math.min(bs.flags.moira_def_stack + 0.10, 0.50);
+        if (bs.applyDebuff('def_down', LANDED_STAT_DEBUFF_TURNS, nextStack)) {
+          bs.flags.moira_def_stack = nextStack;
+          bs.log.push(`🏹 Moira: Fate Ignores Iron — Enemy DEF reduced (total -${Math.round(nextStack * 100)}%)!`);
+        }
       }
-    }
+    });
     bs.flags.moira_pierce_vs_def_buff = true;
     if (!bs.flags.tyrfing_no_miss) {
       bs.log.push('🏹 Moira: Fate Ignores Iron — Every arrow was always meant to land.');
@@ -629,8 +629,7 @@ const PASSIVE_REGISTRY = {
     bs.playerAtkMult += bs.flags.valkyrie_shield_atk;
   },
 
-  'skjaldmaer': chanceFlag(0.15, 'skjaldmaer_ignore_check',
-    '🛡️ Skjaldmaer: Shieldmaiden\'s Guard — Ignored incoming damage!'),
+  'skjaldmaer': chanceFlag(0.15, 'skjaldmaer_ignore_check', null),
 
   'luzon_tribal_shield': (bs) => {
     // While debuffed: DEF +40% until the debuff expires
@@ -948,7 +947,6 @@ const PASSIVE_REGISTRY = {
     if (bs.currentTurn % 2 === 0) {
       bs.flags.odin_foresight_block = true;
       bs.flags.odin_foresight_bonus = 0;
-      bs.log.push('🪄 Odin: All-Father\'s Foresight — 25% damage reduction this turn!');
     } else {
       bs.flags.odin_foresight_block = false;
       bs.flags.odin_foresight_bonus = Math.max(0, Math.floor(bs.flags.odin_prevented_damage || 0));
@@ -1038,8 +1036,7 @@ const PASSIVE_REGISTRY = {
   'freyr_harvest_bounty': regenSelf(2, 0.06,
     (heal) => `🌾 Freyr: Harvest Bounty — Restored ${heal} HP!`),
 
-  'njord_seas_favor': chanceFlag(0.15, 'njord_block_check',
-    '🌊 Njord: Sea\'s Favor — Incoming damage reduced by 30%!',
+  'njord_seas_favor': chanceFlag(0.15, 'njord_block_check', null,
     (bs) => { bs.flags.njord_block_pct = 0.30; }),
 
   'bragi_battle_hymn': constantSelfBuff(0.15, 0, 0), // ATK +15% for the whole battle
@@ -1252,8 +1249,7 @@ const PASSIVE_REGISTRY = {
     if (stacks > 0) bs.playerAtkMult += stacks * 0.03;
   },
 
-  'echo_njord': chanceFlag(0.10, 'echo_njord_block_check',
-    '🌊 Echo · Njord: Sea\'s Favor — Incoming damage reduced by 20%!',
+  'echo_njord': chanceFlag(0.10, 'echo_njord_block_check', null,
     (bs) => { bs.flags.echo_njord_block_pct = 0.20; }),
 
   'echo_freya': hpThresholdBuff(0.40, 0, 0.20),

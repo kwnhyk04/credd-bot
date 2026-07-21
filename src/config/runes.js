@@ -155,7 +155,7 @@ function runeDescription(effectKey, value, fallback = '') {
     case 'precision': return `CRIT +${v}%`;
     case 'vampiric': return `Lifesteal ${v}% of damage dealt`;
     case 'piercing': return `Ignore ${v}% of enemy DEF`;
-    case 'venom': return `On hit: flat DOT ${v}% ATK/turn (2 turns)`;
+    case 'venom': return `On hit: Poison ${v}% ATK/turn (2 turns)`;
     case 'vitality': return `HP +${v}%`;
     case 'bulwark': return `DEF +${v}%`;
     case 'thorns': return `Reflect ${v}% of damage taken`;

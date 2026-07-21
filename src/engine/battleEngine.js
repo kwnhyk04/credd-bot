@@ -123,12 +123,14 @@ const DOT_TAGS = Object.keys(EFFECT_DEFINITIONS).filter(isRecurringDamageEffect)
 const DOT_DEATH_TEXT = {
   bleed: 'bleeding',
   burn: 'burning',
+  venom: 'poisoning',
+  poison: 'poisoning',
   hp_pct_dot: 'rot',
   thor_paralyze_dot: 'paralysis',
 };
 
 const ACTION_TAG_LABELS = {
-  bleed: 'Bleed', burn: 'Burn', hp_pct_dot: 'Rot', stun: 'Stun', freeze: 'Freeze',
+  bleed: 'Bleed', burn: 'Burn', venom: 'Poison', poison: 'Poison', hp_pct_dot: 'Rot', stun: 'Stun', freeze: 'Freeze',
   paralyze: 'Paralyze', petrify: 'Petrify', charm: 'Charm', confuse: 'Confuse',
   miss: 'Miss', def_down: 'DEF Down', atk_down: 'ATK Down', crit_down: 'CRIT Down',
   thor_paralyze: 'Paralyze', thor_paralyze_dot: 'Paralysis', frostbite: 'Frostbite',
@@ -646,15 +648,28 @@ function resolveBattle(a, b, opts = {}) {
     if (F.odin_foresight_block) {
       odinDamageBefore = dmg;
       dmg *= 0.75;
+      shared.events.push(`🪄 Odin: All-Father's Foresight — Reduced incoming damage by 25%!`);
     }
     const applyLaterReduction = (multiplier) => {
       dmg *= multiplier;
       if (odinDamageBefore != null) afterOdinMultiplier *= multiplier;
     };
-    if (F.steel_kite_shield_block) applyLaterReduction(0.85);
-    if (F.pelte_block_check) applyLaterReduction(1 - (F.pelte_block_pct || 0));
-    if (F.njord_block_check) applyLaterReduction(1 - (F.njord_block_pct || 0));
-    if (F.echo_njord_block_check) applyLaterReduction(1 - (F.echo_njord_block_pct || 0));
+    if (F.steel_kite_shield_block) {
+      applyLaterReduction(0.85);
+      shared.events.push('🛡️ Steel Kite Shield: Bulwark — Blocked 15% incoming damage!');
+    }
+    if (F.pelte_block_check) {
+      applyLaterReduction(1 - (F.pelte_block_pct || 0));
+      shared.events.push('🛡️ Pelte: Deflection — Blocked 25% incoming damage!');
+    }
+    if (F.njord_block_check) {
+      applyLaterReduction(1 - (F.njord_block_pct || 0));
+      shared.events.push("🌊 Njord: Sea's Favor — Reduced incoming damage by 30%!");
+    }
+    if (F.echo_njord_block_check) {
+      applyLaterReduction(1 - (F.echo_njord_block_pct || 0));
+      shared.events.push("🌊 Echo · Njord: Sea's Favor — Reduced incoming damage by 20%!");
+    }
 
     applyLaterReduction(1 + O.scratch.bonusIncomingDmgMult);
     if (O.classPassive === 'damage_reduction') applyLaterReduction(KNIGHT_DR);
@@ -738,6 +753,15 @@ function resolveBattle(a, b, opts = {}) {
     return { applied: dmg, negated: false };
   };
 
+  // Defender reactions resolve immediately inside applyHitToDefender, but their
+  // log lines belong after the attack that caused them.
+  const applyHitWithReactions = (S, O, dmg, info = {}) => {
+    const reactionStart = shared.events.length;
+    const hit = applyHitToDefender(S, O, dmg, info);
+    const reactions = shared.events.splice(reactionStart);
+    return { hit, reactions };
+  };
+
   /** Resolve effects whose final text says an attack/hit applies or rolls them. */
   const applyLandedHitPassives = (S, O, info = {}) => {
     for (const hook of S.scratch.landedHitHooks) hook(info);
@@ -803,7 +827,7 @@ function resolveBattle(a, b, opts = {}) {
     if (amihanStacks > 0) {
       S.scratch.playerAtkMult += amihanStacks * 0.20;
       S.flags.amihan_evade_bonus_stacks = 0;
-      shared.events.push(`💨 Amihan: Tailwind — Evade momentum! ATK +${amihanStacks * 20}%!`);
+      attackHookEvents.push(`💨 Amihan: Tailwind — Evade momentum! ATK +${amihanStacks * 20}%!`);
     }
     if (S.flags.idiyanale_attack_bonus_pending) {
       S.scratch.playerAtkMult += S.flags.idiyanale_attack_bonus_pending;
@@ -835,6 +859,7 @@ function resolveBattle(a, b, opts = {}) {
 
     const doHit = ({ atkScale, mainHit, critKnown }) => {
       if (result) return;
+      const preHitEvents = [];
       const def = effDef(S, O, { mainHit });
       let crit;
       if (critKnown != null) crit = critKnown;
@@ -885,7 +910,7 @@ function resolveBattle(a, b, opts = {}) {
         dmg += bonus;
         if (jarngreiprDmg != null) jarngreiprDmg += bonus;
         S.flags.odin_foresight_bonus = 0;
-        shared.events.push(`🪄 Odin: All-Father's Foresight — released ${bonus} stored damage!`);
+        preHitEvents.push(`🪄 Odin: All-Father's Foresight — released ${bonus} stored damage!`);
       }
       dmg = Math.max(0, Math.floor(dmg));
       if (jarngreiprDmg != null) {
@@ -908,11 +933,19 @@ function resolveBattle(a, b, opts = {}) {
       const tag = overchargeFired ? ' *(Overcharge!)*'
         : doubled ? ' *(Double!)*'
         : critApplied ? ' *(CRIT!)*' : '';
-      const res = applyHitToDefender(S, O, dmg, { crit: critApplied, prepareLandedHit });
+      const { hit: res, reactions } = applyHitWithReactions(
+        S,
+        O,
+        dmg,
+        { crit: critApplied, prepareLandedHit },
+      );
       shared.events.push(
         `⚔️ ${S.name} ${mainHit ? 'attacks' : 'strikes again'} for **${res.applied} DMG**` +
         `${tag}${res.negated ? ' *(evaded)*' : ''}`
       );
+      if (mainHit) shared.events.push(...attackHookEvents.splice(0));
+      shared.events.push(...preHitEvents);
+      shared.events.push(...reactions);
       if (!res.negated && surtVsBurning) {
         shared.events.push("🔥 Surt: Muspell's Flame — +50% vs a burning enemy!");
       }
@@ -963,8 +996,14 @@ function resolveBattle(a, b, opts = {}) {
               shared.events.push('⚡ Jarngreipr: Thunder Grip — Stun triggered Bash! +60% ATK!');
             }
             const bash = Math.max(0, Math.floor(dmg * 0.50));
-            const bashResult = applyHitToDefender(S, O, bash, { crit: false });
+            const { hit: bashResult, reactions: bashReactions } = applyHitWithReactions(
+              S,
+              O,
+              bash,
+              { crit: false },
+            );
             shared.events.push(`💥 ${S.name} follows with Bash for **${bashResult.applied} DMG**!`);
+            shared.events.push(...bashReactions);
             O.flags.dizzy_pending = true;
             shared.events.push(
               `💫 ${O.name} is Dizzy; its next attack has a ${Math.round(FIGHTER_DIZZY_MISS_CHANCE * 100)}% miss chance.`
@@ -1013,7 +1052,6 @@ function resolveBattle(a, b, opts = {}) {
     const mainCrit = !overchargeRound
       && ((S.critRollValue * 100 < effCritChance(S)) || S.scratch.nextAttackAutoCrit);
     doHit({ atkScale: 1, mainHit: true, critKnown: mainCrit });
-    shared.events.push(...attackHookEvents);
     if (result) return;
 
     // labrys 2nd hit (rider — both hits crit-eligible)
@@ -1086,11 +1124,12 @@ function resolveBattle(a, b, opts = {}) {
       if (i === 0) dmg += F.enemy_bonus_damage || 0;  // rider once per round (R4)
       if (critApplied) dmg *= CRIT_MULT;
       dmg = Math.max(0, Math.floor(dmg));
-      const res = applyHitToDefender(S, O, dmg, { crit: critApplied });
+      const { hit: res, reactions } = applyHitWithReactions(S, O, dmg, { crit: critApplied });
       shared.events.push(
         `💀 ${S.name} strikes ${subHits > 1 ? `(hit ${i + 1}/${subHits}) ` : ''}for **${res.applied} DMG**` +
         `${critApplied ? ' *(CRIT!)*' : ''}${res.negated ? ' *(evaded)*' : ''}`
       );
+      shared.events.push(...reactions);
     }
   };
 
@@ -1220,7 +1259,7 @@ function resolveBattle(a, b, opts = {}) {
    * only handle combat-effect families. Sums within a family across sockets:
    *   piercing → ignoreDefPct (highest-wins lane) · aegis_rune → incoming reduction
    *   thorns → reflect % · warding → incoming-DOT cut · vampiric → lifesteal %
-   *   venom → on-hit flat Burn DOT (2 turns). No runes → no-op (byte-identical).
+   *   venom → on-hit flat Poison DOT (2 turns). No runes → no-op (byte-identical).
    */
   const applyRunes = (side, P) => {
     if (result) return;
@@ -1244,7 +1283,14 @@ function resolveBattle(a, b, opts = {}) {
     side.flags.rune_thorns_reflect = thorns / 100;
     side.flags.rune_warding_pct = Math.min(warding, 100) / 100;
     side.flags.rune_lifesteal_pct = lifesteal / 100;
-    if (venom > 0) P.applyDebuff('burn', 2, P.playerATK * (venom / 100));
+    if (venom > 0) {
+      const poisonPct = venom / 100;
+      P.onLandedHit(() => {
+        if (!P.enemyImmune('poison')) {
+          P.applyDebuff('poison', 2, P.playerATK * poisonPct);
+        }
+      });
+    }
     checkDeaths('passive');
   };
 
