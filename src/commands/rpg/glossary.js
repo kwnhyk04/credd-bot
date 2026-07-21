@@ -73,33 +73,47 @@ function fmtRange([lo, hi], suffix = '') {
 }
 
 // ── page data ───────────────────────────────────────────────────────────────
-let mythologyCache = null;
+// Deity pages are grouped by mythology (roster order), and a mythology larger than
+// PAGE_SIZE is split into sub-pages so a single page never exceeds Discord's CV2 text
+// budget (~4000 chars). Each plan entry = one renderable page: { mythology, offset,
+// sub, subCount }. Cached once (the roster is static within a process).
+let deityPagePlanCache = null;
 registerMemorySource('database.glossary-mythologies', () => ({
-  entries: mythologyCache?.length || 0,
+  entries: deityPagePlanCache?.length || 0,
   fixedQueryResult: true,
 }));
-async function mythologies() {
-  if (mythologyCache) return mythologyCache;
+async function deityPagePlan() {
+  if (deityPagePlanCache) return deityPagePlanCache;
   const res = await pool.query(
-    'SELECT mythology FROM deity_roster WHERE is_available = TRUE GROUP BY mythology ORDER BY MIN(deity_id)'
+    `SELECT mythology, COUNT(*)::int AS n
+       FROM deity_roster WHERE is_available = TRUE
+      GROUP BY mythology ORDER BY MIN(deity_id)`
   );
-  mythologyCache = res.rows.map((r) => r.mythology);
-  return mythologyCache;
+  const plan = [];
+  for (const row of res.rows) {
+    const subCount = Math.max(1, Math.ceil(row.n / PAGE_SIZE));
+    for (let sub = 0; sub < subCount; sub += 1) {
+      plan.push({ mythology: row.mythology, offset: sub * PAGE_SIZE, sub, subCount });
+    }
+  }
+  deityPagePlanCache = plan.length ? plan : [{ mythology: null, offset: 0, sub: 0, subCount: 1 }];
+  return deityPagePlanCache;
 }
 
 async function deityPage(page) {
-  const myths = await mythologies();
-  const totalPages = Math.max(1, myths.length);
+  const plan = await deityPagePlan();
+  const totalPages = plan.length;
   const p = Math.min(Math.max(0, page), totalPages - 1);
-  const mythology = myths[p] ?? null;
+  const { mythology, offset, sub, subCount } = plan[p];
   if (mythology == null) return { entries: [], subtitle: '—', page: p, totalPages };
 
   const { rows } = await pool.query(
     `SELECT name, tier, base_hp, base_atk, base_def, blessing_name, blessing_description
        FROM deity_roster
       WHERE is_available = TRUE AND mythology = $1
-      ORDER BY ${GEAR_TIER_ORDER_SQL} DESC, name ASC`,
-    [mythology]
+      ORDER BY ${GEAR_TIER_ORDER_SQL} DESC, name ASC
+      LIMIT $2 OFFSET $3`,
+    [mythology, PAGE_SIZE, offset]
   );
   // Fully-ascended reference stats = 100% base (§4).
   const entries = rows.map((d) => {
@@ -108,12 +122,11 @@ async function deityPage(page) {
       `HP ${Number(d.base_hp).toLocaleString()} · ATK ${Number(d.base_atk).toLocaleString()} · DEF ${Number(d.base_def).toLocaleString()}\n` +
       `-# ${d.blessing_name}: ${clip(d.blessing_description)}`;
   });
-  return {
-    entries,
-    subtitle: `${MYTHOLOGY_LABEL[mythology] ?? `${mythology} Mythology`} — fully-ascended reference stats`,
-    page: p,
-    totalPages,
-  };
+  const label = MYTHOLOGY_LABEL[mythology] ?? `${mythology} Mythology`;
+  const subtitle = subCount > 1
+    ? `${label} (${sub + 1}/${subCount}) — fully-ascended reference stats`
+    : `${label} — fully-ascended reference stats`;
+  return { entries, subtitle, page: p, totalPages };
 }
 
 async function gearPage(kind, page) {
