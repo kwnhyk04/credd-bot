@@ -5,6 +5,7 @@ const { runSummon } = require('../../engine/summonEngine');
 const { notifyBelieverLevelUp } = require('../../utils/awardBelieverExp');
 const { buildFlipMessage, buildResultMessage } = require('../../engine/renderSummon');
 const { resolveSummonAnimation } = require('../../engine/skinResolver');
+const { emoji, emojiForDisplay, deityTierEmoji } = require('../../utils/emojis');
 const {
   assetExistsSync,
   assetExtension,
@@ -17,6 +18,7 @@ const {
   SHARDS_PER_PULL,
   ALLOWED_SUMMON_COUNTS,
   TIER_ALIAS,
+  TIER_ESSENCE_COLUMN,
 } = require('../../config/gachaRates');
 
 function reply(message, payload) {
@@ -148,9 +150,11 @@ async function execute(message, { args }) {
     // Display-only failure: the pulls are committed — always tell the player.
     console.error('[summon] display failed:', err.message);
     if (sent) await sent.delete().catch(() => {});
-    const lines = result.pulls.map((p) =>
-      `${p.name} — ${TIER_ALIAS[p.tier]}${p.isDupe ? ` (+${p.essence} essence)` : ' (NEW)'}`
-    );
+    const lines = result.pulls.map((p) => {
+      const rarity = TIER_ALIAS[p.tier];
+      return `${deityTierEmoji(rarity, '◆')} ${emojiForDisplay(p.name, 'Deity')} **${p.name}** `
+        + `${emoji(TIER_ESSENCE_COLUMN[p.tier] || 'epic_essence')} **+${Number(p.essence || 0).toLocaleString()} Essence**`;
+    });
     await message.reply({
       content: `✨ Invocation complete:\n${lines.join('\n')}\nBelief Shards: ${shardsRemaining.toLocaleString()}`,
       allowedMentions: { repliedUser: false },

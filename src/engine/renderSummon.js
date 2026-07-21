@@ -364,23 +364,20 @@ function groupSummonResults(results) {
   const groups = new Map();
   for (const r of results) {
     const key = `${r.name}|${r.rarity}`;
-    const entry = groups.get(key) || { name: r.name, rarity: r.rarity, newCount: 0, essence: 0, pulls: 0 };
+    const entry = groups.get(key) || { name: r.name, rarity: r.rarity, essence: 0, pulls: 0 };
     entry.pulls += 1;
-    if (r.isNew) entry.newCount += 1;
-    else entry.essence += Number(r.essence) || 0;
+    if (!r.isNew) entry.essence += Number(r.essence) || 0;
     groups.set(key, entry);
   }
   return [...groups.values()].map((g) => {
-    // Essence only accrues on duplicates, but every result line shows the matching essence
-    // currency and the amount granted (including +0 for a first-time pull).
-    const segs = [];
-    if (g.newCount) segs.push(`New${g.newCount > 1 ? ` x${g.newCount}` : ''}`);
+    // Compact result order: tier icon, deity icon, name, essence icon, amount.
+    // Essence only accrues on duplicates; first-time pulls intentionally show
+    // +0 here because the rendered card already carries the NEW badge.
+    const tierEmoji = RARITY_SYMBOLS[g.rarity] ?? '◆';
+    const deityEmoji = emojiForDisplay(g.name, 'Deity');
     const essenceEmoji = emoji(ALIAS_TO_ESSENCE[g.rarity] ?? 'epic_essence');
-    segs.push(`${essenceEmoji} essence +${g.essence.toLocaleString()}`);
-    const status = segs.join(' + ');
     const count = g.pulls > 1 ? ` x${g.pulls}` : '';
-    const tierSymbol = RARITY_SYMBOLS[g.rarity] ?? '◆';
-    return `${emojiForDisplay(g.name, 'Deity')} **${g.name}**${count} — ${tierSymbol} ${g.rarity} — ${status}`;
+    return `${tierEmoji} ${deityEmoji} **${g.name}**${count} ${essenceEmoji} **+${g.essence.toLocaleString()} Essence**`;
   }).join('\n');
 }
 
