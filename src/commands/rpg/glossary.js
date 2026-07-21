@@ -34,6 +34,7 @@ const { runeEmoji, runeDescription } = require('../../config/runes');
 const BRAND = 0x9b59b6;
 const PAGE_SIZE = 10;
 const DESC_CAP = 180; // per-entry text cap keeps a full page inside Discord's CV2 budget
+const DEITY_BODY_CAP = 3500;
 
 const CATEGORIES = {
   deities: 'Deities',
@@ -73,60 +74,77 @@ function fmtRange([lo, hi], suffix = '') {
 }
 
 // ── page data ───────────────────────────────────────────────────────────────
-// Deity pages are grouped by mythology (roster order), and a mythology larger than
-// PAGE_SIZE is split into sub-pages so a single page never exceeds Discord's CV2 text
-// budget (~4000 chars). Each plan entry = one renderable page: { mythology, offset,
-// sub, subCount }. Cached once (the roster is static within a process).
-let deityPagePlanCache = null;
+// Deity pages are grouped by mythology (roster order): exactly one mythology per
+// page. Blessing descriptions are clipped dynamically below so even the largest
+// mythology stays within Discord's Components V2 text budget without being split.
+let mythologyCache = null;
 registerMemorySource('database.glossary-mythologies', () => ({
-  entries: deityPagePlanCache?.length || 0,
+  entries: mythologyCache?.length || 0,
   fixedQueryResult: true,
 }));
-async function deityPagePlan() {
-  if (deityPagePlanCache) return deityPagePlanCache;
+async function mythologies() {
+  if (mythologyCache) return mythologyCache;
   const res = await pool.query(
-    `SELECT mythology, COUNT(*)::int AS n
-       FROM deity_roster WHERE is_available = TRUE
-      GROUP BY mythology ORDER BY MIN(deity_id)`
+    `SELECT mythology
+       FROM deity_roster
+      WHERE is_available = TRUE
+      GROUP BY mythology
+      ORDER BY MIN(deity_id)`
   );
-  const plan = [];
-  for (const row of res.rows) {
-    const subCount = Math.max(1, Math.ceil(row.n / PAGE_SIZE));
-    for (let sub = 0; sub < subCount; sub += 1) {
-      plan.push({ mythology: row.mythology, offset: sub * PAGE_SIZE, sub, subCount });
+  mythologyCache = res.rows.map((row) => row.mythology).filter(Boolean);
+  return mythologyCache;
+}
+
+function deityEntries(rows) {
+  const render = (descriptionCap) => rows.map((d) => {
+    const symbol = RARITY_SYMBOLS[TIER_ALIAS[d.tier]] ?? '◆';
+    const blessing = descriptionCap > 0
+      ? `${d.blessing_name}: ${clip(d.blessing_description, descriptionCap)}`
+      : d.blessing_name;
+    return `${symbol} ${emojiForDisplay(d.name, '🕯️')} **${d.name}** — ${TIER_ALIAS[d.tier]}\n` +
+      `HP ${Number(d.base_hp).toLocaleString()} · ATK ${Number(d.base_atk).toLocaleString()} · DEF ${Number(d.base_def).toLocaleString()}\n` +
+      `-# ${blessing}`;
+  });
+
+  let low = 0;
+  let high = DESC_CAP;
+  let best = render(0);
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const candidate = render(mid);
+    if (candidate.join('\n\n').length <= DEITY_BODY_CAP) {
+      best = candidate;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
     }
   }
-  deityPagePlanCache = plan.length ? plan : [{ mythology: null, offset: 0, sub: 0, subCount: 1 }];
-  return deityPagePlanCache;
+  return best;
 }
 
 async function deityPage(page) {
-  const plan = await deityPagePlan();
-  const totalPages = plan.length;
+  const myths = await mythologies();
+  const totalPages = Math.max(1, myths.length);
   const p = Math.min(Math.max(0, page), totalPages - 1);
-  const { mythology, offset, sub, subCount } = plan[p];
+  const mythology = myths[p] ?? null;
   if (mythology == null) return { entries: [], subtitle: '—', page: p, totalPages };
 
   const { rows } = await pool.query(
     `SELECT name, tier, base_hp, base_atk, base_def, blessing_name, blessing_description
-       FROM deity_roster
+      FROM deity_roster
       WHERE is_available = TRUE AND mythology = $1
-      ORDER BY ${GEAR_TIER_ORDER_SQL} DESC, name ASC
-      LIMIT $2 OFFSET $3`,
-    [mythology, PAGE_SIZE, offset]
+      ORDER BY ${GEAR_TIER_ORDER_SQL} DESC, name ASC`,
+    [mythology]
   );
   // Fully-ascended reference stats = 100% base (§4).
-  const entries = rows.map((d) => {
-    const symbol = RARITY_SYMBOLS[TIER_ALIAS[d.tier]] ?? '◆';
-    return `${symbol} ${emojiForDisplay(d.name, '🕯️')} **${d.name}** — ${TIER_ALIAS[d.tier]}\n` +
-      `HP ${Number(d.base_hp).toLocaleString()} · ATK ${Number(d.base_atk).toLocaleString()} · DEF ${Number(d.base_def).toLocaleString()}\n` +
-      `-# ${d.blessing_name}: ${clip(d.blessing_description)}`;
-  });
+  const entries = deityEntries(rows);
   const label = MYTHOLOGY_LABEL[mythology] ?? `${mythology} Mythology`;
-  const subtitle = subCount > 1
-    ? `${label} (${sub + 1}/${subCount}) — fully-ascended reference stats`
-    : `${label} — fully-ascended reference stats`;
-  return { entries, subtitle, page: p, totalPages };
+  return {
+    entries,
+    subtitle: `${label} — fully-ascended reference stats`,
+    page: p,
+    totalPages,
+  };
 }
 
 async function gearPage(kind, page) {
