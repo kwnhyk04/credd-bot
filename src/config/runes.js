@@ -44,7 +44,7 @@ const RUNE_VALUE_RANGES = {
     Rare: [2, 4], Mythic: [5, 7], Legendary: [8, 13], Supreme: [15, 20],
   },
   venom: {
-    Rare: [5, 10], Mythic: [11, 15], Legendary: [16, 20], Supreme: [25, 30],
+    Rare: [1, 2], Mythic: [3, 5], Legendary: [5, 8], Supreme: [9, 10],
   },
   vitality: {
     Rare: [3, 7], Mythic: [8, 12], Legendary: [15, 20], Supreme: [25, 30],
