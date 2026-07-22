@@ -457,6 +457,16 @@ function resolveBattle(a, b, opts = {}) {
     if (result) return;
     applyDefeatPassives(side);
     result = { winner: side === A ? 'a' : 'b', outcome };
+    // PvP knockout (duel / wager / ranked — both sides are players): add an explicit
+    // faint/defeat line so the loss is clearly visible in the log, mirroring how the
+    // mob-defeat line reads in raids. Engine works from display names; the renderer
+    // substitutes a mention when the side carries one (side.in.mention).
+    const loser = side === A ? B : A;
+    if (side.kind === 'player' && loser.kind === 'player') {
+      const winTag = side.in?.mention || side.name;
+      const loseTag = loser.in?.mention || loser.name;
+      shared.events.push(`💫 ${loseTag} fainted and was defeated by ${winTag}!`);
+    }
   };
   /** Death check in causal order (§35.3 first-to-0). Returns true if battle over. */
   const checkDeaths = (outcome) => {

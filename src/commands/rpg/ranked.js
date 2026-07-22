@@ -152,6 +152,10 @@ async function fight(message) {
   ]);
   if (!p1 || !p2) return reply(message, 'Ranked cancelled — a combatant has no character.');
 
+  // Carry Discord mentions so the engine's PvP faint/defeat line reads with
+  // @mentions (embeds render but never ping) instead of bare display names.
+  p1.mention = `<@${me}>`;
+  p2.mention = `<@${opp.discord_id}>`;
   const sim = resolveBattle(p1, p2, { mode: 'duel', seed: Date.now() >>> 0 });
   const won = sim.winner === 'a';
   let ratingBefore;

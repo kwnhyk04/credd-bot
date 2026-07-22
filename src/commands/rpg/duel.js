@@ -481,6 +481,10 @@ async function handleButtonInteraction(interaction, services = {}) {
       return true;
     }
 
+    // Carry Discord mentions so the engine's PvP faint/defeat line reads with
+    // @mentions (embeds render but never ping) instead of bare display names.
+    p1.mention = mention(session.challengerId);
+    p2.mention = mention(session.opponentId);
     const sim = resolveBattle(p1, p2, { mode: 'duel', seed: Date.now() >>> 0 });
     await markDuelSettling(duelLock).catch((err) => {
       console.warn(`[${isWager ? 'wager' : 'duel'} lock] settling:`, err.message);

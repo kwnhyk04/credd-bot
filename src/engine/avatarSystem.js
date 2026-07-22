@@ -379,15 +379,17 @@ function pagePayload(state, userId, page, mode) {
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(`avat:${mode}:${userId}:${safePage - 1}`)
+      // Circular carousel: wrap the target page so Previous on page 0 lands on the
+      // last page and Next on the last page lands on page 0.
+      .setCustomId(`avat:${mode}:${userId}:${(safePage - 1 + pageCount) % pageCount}`)
       .setLabel('Previous')
       .setStyle(ButtonStyle.Secondary)
-      .setDisabled(safePage <= 0),
+      .setDisabled(pageCount <= 1),
     new ButtonBuilder()
-      .setCustomId(`avat:${mode}:${userId}:${safePage + 1}`)
+      .setCustomId(`avat:${mode}:${userId}:${(safePage + 1) % pageCount}`)
       .setLabel('Next')
       .setStyle(ButtonStyle.Secondary)
-      .setDisabled(safePage >= pageCount - 1)
+      .setDisabled(pageCount <= 1)
   );
 
   return { components: [container, row], flags: MessageFlags.IsComponentsV2 };

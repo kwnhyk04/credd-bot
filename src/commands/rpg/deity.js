@@ -119,7 +119,9 @@ async function fetchDeities(discordId, page) {
   // Stable page order: one page per mythology, in seed (roster) order.
   const mythologies = await mythologyPages();
   const totalPages = Math.max(1, mythologies.length);
-  const p = Math.min(Math.max(0, page), totalPages - 1);
+  // Circular carousel: wrap out-of-range pages instead of clamping so Previous
+  // on page 0 lands on the last page and Next on the last page lands on page 0.
+  const p = ((page % totalPages) + totalPages) % totalPages;
   const mythology = mythologies[p] ?? null;
 
   const deityQuery = mythology == null ? Promise.resolve({ rows: [] }) : pool.query(
@@ -191,13 +193,13 @@ async function buildListPage({ user, deities, mythology, page, totalPages, essen
         .setLabel('Previous')
         .setEmoji('◀️')
         .setStyle(ButtonStyle.Secondary)
-        .setDisabled(page <= 0),
+        .setDisabled(totalPages <= 1),
       new ButtonBuilder()
         .setCustomId(`deities:next:${user.id}:${page}`)
         .setLabel('Next')
         .setEmoji('▶️')
         .setStyle(ButtonStyle.Secondary)
-        .setDisabled(page >= totalPages - 1)
+        .setDisabled(totalPages <= 1)
     )
   );
 
@@ -227,9 +229,10 @@ async function handleListButton(interaction) {
 
   await interaction.deferUpdate();
   const currentPage = parseInt(pageStr, 10) || 0;
-  const page = action === 'next' ? currentPage + 1 : Math.max(0, currentPage - 1);
+  // Carousel: hand fetchDeities the raw neighbor index (may be -1 or === total);
+  // fetchDeities wraps it with modulo so navigation cycles in both directions.
+  const page = action === 'next' ? currentPage + 1 : currentPage - 1;
 
-  // fetchDeities clamps the page to the mythology count server-side.
   const fetched = await fetchDeities(ownerId, page);
   await interaction.editReply(await buildListPage({ user: interaction.user, ...fetched }));
 }

@@ -44,7 +44,7 @@ const BRAND = 0x9b59b6;
 const PAGES = ['profile', 'battle', 'battle_result', 'summon'];
 const CAT_LABEL = { profile: 'Profile', battle: 'Battle', battle_result: 'Battle Result', summon: 'Summon' };
 
-function clampPage(p) { return Math.min(Math.max(0, p | 0), PAGES.length - 1); }
+function clampPage(p) { const n = Math.max(1, PAGES.length); return (((p | 0) % n) + n) % n; } // carousel wrap
 
 // Collection ordering: Founder → Beta (tester default) → Base → shop skins
 // (ascending by code) → other tester customs.
@@ -159,9 +159,9 @@ async function buildShopPage(db, viewerId, { page = 0, ctx = 'shop' } = {}) {
   container.addSeparatorComponents(sep);
   container.addActionRowComponents((row) => row.setComponents(
     new ButtonBuilder().setCustomId(`sshop:prev:${viewerId}:${page}:${ctx}`)
-      .setEmoji('◀️').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
+      .setEmoji('◀️').setStyle(ButtonStyle.Secondary).setDisabled(PAGES.length <= 1),
     new ButtonBuilder().setCustomId(`sshop:next:${viewerId}:${page}:${ctx}`)
-      .setEmoji('▶️').setStyle(ButtonStyle.Secondary).setDisabled(page >= PAGES.length - 1),
+      .setEmoji('▶️').setStyle(ButtonStyle.Secondary).setDisabled(PAGES.length <= 1),
     new ButtonBuilder().setCustomId(`sshop:preview:${viewerId}:${page}:${ctx}`)
       .setEmoji(HELP_ICON).setLabel('Preview').setStyle(ButtonStyle.Primary).setDisabled(skins.length === 0),
   ));

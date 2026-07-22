@@ -21,7 +21,8 @@ const ARMOR_TYPE_EMOJI = { Heavy: '🛡️', Medium: '🥋', Light: '🧥' };
 
 function clampPageForTotal(page, total) {
   const totalPages = Math.max(1, Math.ceil(total / WEAPONS_PER_PAGE));
-  return Math.min(Math.max(0, page | 0), totalPages - 1);
+  const p = page | 0;
+  return ((p % totalPages) + totalPages) % totalPages; // circular carousel wrap
 }
 
 // Strongest-first order shared by weapon and armor inventories. Genesis is
@@ -201,13 +202,13 @@ function buildWeaponsPage({ user, weapons, total, page }) {
         .setLabel('Previous')
         .setEmoji('◀️')
         .setStyle(ButtonStyle.Secondary)
-        .setDisabled(page <= 0),
+        .setDisabled(totalPages <= 1),
       new ButtonBuilder()
         .setCustomId(`weapons:next:${user.id}:${page}`)
         .setLabel('Next')
         .setEmoji('▶️')
         .setStyle(ButtonStyle.Secondary)
-        .setDisabled(page >= totalPages - 1)
+        .setDisabled(totalPages <= 1)
     )
   );
 
@@ -237,7 +238,7 @@ async function handleWeaponsButton(interaction) {
 
   await interaction.deferUpdate();
   const currentPage = parseInt(pageStr, 10) || 0;
-  const page = action === 'next' ? currentPage + 1 : Math.max(0, currentPage - 1);
+  const page = action === 'next' ? currentPage + 1 : currentPage - 1; // clampPageForTotal wraps
 
   const { weapons: rows, total, page: actualPage } = await fetchWeapons(ownerId, page);
   await interaction.editReply(buildWeaponsPage({ user: interaction.user, weapons: rows, total, page: actualPage }));
@@ -308,10 +309,10 @@ function buildArmorsPage({ user, armors, total, page }) {
     row.setComponents(
       new ButtonBuilder()
         .setCustomId(`armors:prev:${user.id}:${page}`)
-        .setLabel('Previous').setEmoji('◀️').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
+        .setLabel('Previous').setEmoji('◀️').setStyle(ButtonStyle.Secondary).setDisabled(totalPages <= 1),
       new ButtonBuilder()
         .setCustomId(`armors:next:${user.id}:${page}`)
-        .setLabel('Next').setEmoji('▶️').setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1)
+        .setLabel('Next').setEmoji('▶️').setStyle(ButtonStyle.Secondary).setDisabled(totalPages <= 1)
     )
   );
 
@@ -335,7 +336,7 @@ async function handleArmorsButton(interaction) {
   }
   await interaction.deferUpdate();
   const currentPage = parseInt(pageStr, 10) || 0;
-  const page = action === 'next' ? currentPage + 1 : Math.max(0, currentPage - 1);
+  const page = action === 'next' ? currentPage + 1 : currentPage - 1; // clampPageForTotal wraps
   const { armors: rows, total, page: actualPage } = await fetchArmors(ownerId, page);
   await interaction.editReply(buildArmorsPage({ user: interaction.user, armors: rows, total, page: actualPage }));
 }

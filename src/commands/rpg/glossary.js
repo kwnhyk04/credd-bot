@@ -125,7 +125,7 @@ function deityEntries(rows) {
 async function deityPage(page) {
   const myths = await mythologies();
   const totalPages = Math.max(1, myths.length);
-  const p = Math.min(Math.max(0, page), totalPages - 1);
+  const p = ((page % totalPages) + totalPages) % totalPages; // circular carousel wrap
   const mythology = myths[p] ?? null;
   if (mythology == null) return { entries: [], subtitle: '—', page: p, totalPages };
 
@@ -151,7 +151,7 @@ async function gearPage(kind, page) {
   const table = kind === 'weapons' ? 'weapon_roster' : 'armor_roster';
   const countRes = await pool.query(`SELECT COUNT(*)::int AS n FROM ${table} WHERE is_available = TRUE`);
   const totalPages = Math.max(1, Math.ceil(countRes.rows[0].n / PAGE_SIZE));
-  const p = Math.min(Math.max(0, page), totalPages - 1);
+  const p = ((page % totalPages) + totalPages) % totalPages; // circular carousel wrap
   const { rows } = await pool.query(
     `SELECT name, type, tier, passive_name, passive_description
        FROM ${table}
@@ -199,7 +199,7 @@ async function gearPage(kind, page) {
 async function runePage(page) {
   const countRes = await pool.query('SELECT COUNT(*)::int AS n FROM rune_roster WHERE is_available = TRUE');
   const totalPages = Math.max(1, Math.ceil(countRes.rows[0].n / PAGE_SIZE));
-  const p = Math.min(Math.max(0, page), totalPages - 1);
+  const p = ((page % totalPages) + totalPages) % totalPages; // circular carousel wrap
   const { rows } = await pool.query(
     `SELECT name, effect_key, tier, value, description
        FROM rune_roster
@@ -235,13 +235,13 @@ function buildControls(cat, page, totalPages, ownerId) {
       .setLabel('Previous')
       .setEmoji('◀️')
       .setStyle(ButtonStyle.Secondary)
-      .setDisabled(page <= 0),
+      .setDisabled(totalPages <= 1),
     new ButtonBuilder()
       .setCustomId(`gloss:next:${ownerId}:${cat}:${page}`)
       .setLabel('Next')
       .setEmoji('▶️')
       .setStyle(ButtonStyle.Secondary)
-      .setDisabled(page >= totalPages - 1),
+      .setDisabled(totalPages <= 1),
   );
   return [new ActionRowBuilder().addComponents(select), buttons];
 }
@@ -301,7 +301,9 @@ async function handleInteraction(interaction) {
   } else {
     cat = CATEGORIES[parts[3]] ? parts[3] : 'deities';
     const current = parseInt(parts[4], 10) || 0;
-    page = action === 'next' ? current + 1 : Math.max(0, current - 1);
+    // Carousel: pass the raw neighbor index; fetchPage wraps it with modulo so
+    // Previous on page 0 lands on the last page and Next on the last wraps to 0.
+    page = action === 'next' ? current + 1 : current - 1;
   }
   await interaction.editReply(await buildPayload(cat, page, ownerId));
 }

@@ -196,46 +196,21 @@ function bossLogKey(spawnId, discordId) {
   return `${spawnId}:${discordId}`;
 }
 
+// Serialize an attacker's boss sim for the log cache. Keep EVERY turn/event so the
+// paginated viewer can start at Turn 1 and reach every turn — the char-safe pager
+// (battleRender.logEmbeds) handles Discord's limits, so nothing is truncated here.
+// Only the serializable log fields are retained (no player/canvas/engine objects),
+// and the cache stays bounded by the per-spawn attacker cap in rememberBossLog.
 function compactBossSim(sim) {
-  const limit = bossLogCacheMaxEventsPerAttacker();
   const rounds = Array.isArray(sim?.rounds) ? sim.rounds : [];
-  const totalEvents = rounds.reduce((sum, round) => sum + (round.events?.length || 0), 0);
-  let compacted = rounds;
-  if (totalEvents > limit) {
-    let remaining = limit;
-    compacted = [];
-    for (let i = rounds.length - 1; i >= 0 && remaining > 0; i--) {
-      const round = rounds[i];
-      const events = Array.isArray(round.events) ? round.events : [];
-      const kept = events.slice(Math.max(0, events.length - remaining));
-      if (kept.length > 0) {
-        compacted.unshift({ round: round.round, events: kept });
-        remaining -= kept.length;
-      }
-    }
-    const dropped = totalEvents - compacted.reduce((sum, round) => sum + round.events.length, 0);
-    if (dropped > 0 && compacted.length > 0) {
-      compacted[0] = {
-        ...compacted[0],
-        events: [`-# Earlier boss log events compacted (${dropped} hidden).`, ...compacted[0].events],
-      };
-    }
-    performanceLog('boss log compacted', {
-      system: 'boss',
-      command: 'boss:attack',
-      events: totalEvents,
-      limit,
-      removed: dropped,
-    });
-  } else {
-    compacted = rounds.map((round) => ({ round: round.round, events: [...(round.events || [])] }));
-  }
   return {
     seed: sim.seed,
     winner: sim.winner,
+    outcome: sim.outcome,
+    mode: sim.mode || 'boss',
     a: { name: sim.a?.name || 'Player' },
     b: { name: sim.b?.name || 'Boss' },
-    rounds: compacted,
+    rounds: rounds.map((round) => ({ round: round.round, events: [...(round.events || [])] })),
   };
 }
 

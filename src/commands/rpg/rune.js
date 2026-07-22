@@ -78,7 +78,8 @@ async function fetchRunes(discordId, requestedPage, rawLane = 'offense') {
   );
   const total = countRes.rows[0].total;
   const totalPages = Math.max(1, Math.ceil(total / RUNES_PER_PAGE));
-  const page = Math.max(0, Math.min(requestedPage, totalPages - 1));
+  const rp = requestedPage | 0;
+  const page = ((rp % totalPages) + totalPages) % totalPages; // circular carousel wrap
   const offset = page * RUNES_PER_PAGE;
 
   const { rows: runes } = await pool.query(
@@ -160,13 +161,13 @@ function buildRunesPage({ user, runes, total, page, totalPages, lane }) {
           .setLabel('Previous')
           .setEmoji('◀️')
           .setStyle(ButtonStyle.Secondary)
-          .setDisabled(page <= 0),
+          .setDisabled(totalPages <= 1),
         new ButtonBuilder()
           .setCustomId(`runes:next:${user.id}:${page}:${lane}`)
           .setLabel('Next')
           .setEmoji('▶️')
           .setStyle(ButtonStyle.Secondary)
-          .setDisabled(page >= totalPages - 1)
+          .setDisabled(totalPages <= 1)
       )
     );
   }

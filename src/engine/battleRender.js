@@ -74,6 +74,7 @@ let activeBattleLogPageCollectors = 0;
 const BATTLE_LOG_TURNS_PER_PAGE = 8;
 const BATTLE_LOG_DESCRIPTION_LIMIT = 3800;
 const BATTLE_LOG_COLLECTOR_MS = 300_000;
+const BATTLE_LOG_MODE_LABELS = { raid: 'Raid Battle', duel: 'PvP Battle', boss: 'Boss Battle' };
 
 const COLORS = {
   bg: '#1f2125', card: '#26282d', cardLine: '#36393f',
@@ -857,17 +858,33 @@ function logEmbeds(sim) {
 
   if (!pageData.length) pageData.push({ texts: ['No turn events were recorded.'], turns: [] });
 
-  const winner = sim.winner === 'a' ? sim.a?.name : sim.b?.name;
+  const aName = sim.a?.name || 'Player';
+  const bName = sim.b?.name || 'Enemy';
+  const winnerName = sim.winner === 'a' ? aName : bName;
+  const modeLabel = BATTLE_LOG_MODE_LABELS[sim.mode] || 'Battle';
+  const resultLine = sim.outcome === 'boss_timeout'
+    ? `${bName} survived`
+    : `${winnerName} won`;
+  // Mode · participants · result go in the embed AUTHOR (its own 256-char field)
+  // rather than the description, so the per-page turn text keeps the full safe
+  // character budget and a maxed page can never spill past the limit.
+  const authorLine = `${modeLabel} · ${aName} vs ${bName} · ${resultLine}`.slice(0, 256);
+  const totalTurns = Array.isArray(sim.rounds) ? sim.rounds.length : pageData.length;
+
   return pageData.map((page, index) => {
     const firstTurn = page.turns[0];
     const lastTurn = page.turns[page.turns.length - 1];
-    const turnLabel = firstTurn == null
+    const rangeLabel = firstTurn == null
       ? ''
-      : ` · Turn${firstTurn === lastTurn ? '' : 's'} ${firstTurn}${firstTurn === lastTurn ? '' : `–${lastTurn}`}`;
-    const footer = `Page ${index + 1}/${pageData.length} · Seed ${sim.seed} · Winner: ${winner || 'Unknown'}`;
+      : (firstTurn === lastTurn ? `Turn ${firstTurn}` : `Turns ${firstTurn}–${lastTurn}`);
+    const title = rangeLabel ? `📋 Battle Log • ${rangeLabel}` : '📋 Battle Log';
+    const footer = firstTurn == null
+      ? `Page ${index + 1} of ${pageData.length}`
+      : `Page ${index + 1} of ${pageData.length} • ${rangeLabel} of ${totalTurns}`;
     return new EmbedBuilder()
       .setColor(0x2b2d31)
-      .setTitle(`📋 Full Battle Log${turnLabel}`)
+      .setAuthor({ name: authorLine })
+      .setTitle(title)
       .setDescription(page.texts.join('\n\n'))
       .setFooter({ text: footer.slice(0, 2048) });
   });
@@ -918,26 +935,47 @@ function battleLogTurnChunks(round) {
   return chunks;
 }
 
+// Action-suffixed custom ids (not page-number ids) so every button in the row
+// is unique. Page-number ids collided on the first page (Previous == counter ==
+// `battle_log_page:0`) and last page (Next == counter), which made Discord reject
+// the whole message (50035) and the nav row silently failed to appear. The target
+// page is resolved from the collector's closure pageIndex, not the custom id.
+// Bounded pagination — First/Previous disabled on page 0, Next/Last on the last
+// page; never wraps (that is reserved for the deity/glossary carousels).
 function battleLogNavigationRow(pageIndex, pageCount) {
   const lastPage = Math.max(0, pageCount - 1);
+  const atFirst = pageIndex <= 0;
+  const atLast = pageIndex >= lastPage;
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId(`battle_log_page:${Math.max(0, pageIndex - 1)}`)
+      .setCustomId('battle_log_page:first')
+      .setLabel('First')
+      .setEmoji('⏮️')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(atFirst),
+    new ButtonBuilder()
+      .setCustomId('battle_log_page:prev')
       .setLabel('Previous')
       .setEmoji('◀️')
       .setStyle(ButtonStyle.Secondary)
-      .setDisabled(pageIndex <= 0),
+      .setDisabled(atFirst),
     new ButtonBuilder()
-      .setCustomId(`battle_log_page:${pageIndex}`)
-      .setLabel(`${pageIndex + 1}/${pageCount}`)
+      .setCustomId('battle_log_page:count')
+      .setLabel(`${pageIndex + 1} / ${pageCount}`)
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(true),
     new ButtonBuilder()
-      .setCustomId(`battle_log_page:${Math.min(lastPage, pageIndex + 1)}`)
+      .setCustomId('battle_log_page:next')
       .setLabel('Next')
       .setEmoji('▶️')
       .setStyle(ButtonStyle.Secondary)
-      .setDisabled(pageIndex >= lastPage),
+      .setDisabled(atLast),
+    new ButtonBuilder()
+      .setCustomId('battle_log_page:last')
+      .setLabel('Last')
+      .setEmoji('⏭️')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(atLast),
   );
 }
 
@@ -954,20 +992,32 @@ async function showPaginatedBattleLog(interaction, pages) {
 
   if (safePages.length <= 1 || typeof reply?.createMessageComponentCollector !== 'function') return reply;
 
+  const lastPage = safePages.length - 1;
   const collector = reply.createMessageComponentCollector({
     time: BATTLE_LOG_COLLECTOR_MS,
+    // Only the user who opened this ephemeral viewer controls it. Each duel/ranked
+    // participant opens their own separate viewer, so this scopes to that opener.
     filter: (button) => button.user?.id === interaction.user?.id
-      && /^battle_log_page:\d+$/.test(button.customId),
+      && /^battle_log_page:(first|prev|next|last|count)$/.test(button.customId),
   });
   activeBattleLogPageCollectors += 1;
   collector.on('collect', async (button) => {
     try {
-      const requestedPage = Number(button.customId.split(':')[1]);
-      if (!Number.isInteger(requestedPage) || requestedPage < 0 || requestedPage >= safePages.length) {
+      // Resolve the target from the closure pageIndex (not the custom id) so
+      // rapid clicks always step relative to the page actually shown.
+      const action = button.customId.split(':')[1];
+      let target = pageIndex;
+      if (action === 'first') target = 0;
+      else if (action === 'prev') target = Math.max(0, pageIndex - 1);
+      else if (action === 'next') target = Math.min(lastPage, pageIndex + 1);
+      else if (action === 'last') target = lastPage;
+      if (target === pageIndex) {
+        // Counter press or a no-op boundary click — acknowledge without a rerender
+        // so the page indicator can never drift out of sync.
         await button.deferUpdate().catch(() => {});
         return;
       }
-      pageIndex = requestedPage;
+      pageIndex = target;
       await button.update({
         embeds: [safePages[pageIndex]],
         components: [battleLogNavigationRow(pageIndex, safePages.length)],
