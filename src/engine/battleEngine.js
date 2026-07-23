@@ -316,25 +316,12 @@ function resolveBattle(a, b, opts = {}) {
   };
   const damage = (side, amount) => setHp(side, side.hp - Math.max(0, Math.floor(amount)));
   const heal = (side, amount) => setHp(side, side.hp + Math.max(0, Math.floor(amount)));
-  const applyLifesteal = (side, damageDealt, percentage, source, compact = false) => {
+  const applyLifesteal = (side, damageDealt, percentage, passiveName) => {
     const requested = Math.max(0, Math.floor(damageDealt * percentage));
     const before = side.hp;
     heal(side, requested);
     const restored = side.hp - before;
-    if (compact) {
-      shared.events.push(`🩸 Lifesteal: ${restored.toLocaleString()} HP restored`);
-      return;
-    }
-    const limited = requested - restored;
-    const pct = percentage * 100;
-    const pctLabel = Number.isInteger(pct) ? pct.toString() : pct.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
-    shared.events.push(
-      `🩸 ${source} — Recovered ${restored.toLocaleString()} HP through Lifesteal for ${side.name}.\n` +
-      `Damage dealt: **${damageDealt.toLocaleString()}** · Lifesteal: **${pctLabel}%** · ` +
-      `Requested healing: **${requested.toLocaleString()} HP** · Actual HP restored: **${restored.toLocaleString()} HP**` +
-      `${limited > 0 ? ` · Limited by max HP: **${limited.toLocaleString()} HP**` : ''}\n` +
-      `❤️ HP: **${side.hp.toLocaleString()} / ${side.maxHp.toLocaleString()}**`
-    );
+    shared.events.push(`🩸 ${passiveName}: Healed ${restored.toLocaleString()} HP`);
   };
 
   // ── debuff helpers (§13.1: refresh don't stack/extend; highest value wins) ─
@@ -992,20 +979,20 @@ function resolveBattle(a, b, opts = {}) {
       // before the result return so Japanese Bo does not lose its finishing-hit heal.
       if (res.applied > 0 && S.hp > 0) {
         if (S.flags.japanese_bo_active) {
-          applyLifesteal(S, res.applied, 0.50, 'Japanese Bo: Vital Siphon');
+          applyLifesteal(S, res.applied, 0.50, 'Vital Siphon');
         }
         if (S.flags.soul_drain_active) {
-          applyLifesteal(S, res.applied, 0.15, 'Magwayen: Soul Drain');
+          applyLifesteal(S, res.applied, 0.15, 'Soul Drain');
         }
         if (S.flags.echo_soul_drain_active) {
-          applyLifesteal(S, res.applied, 0.05, 'Echo Magwayen: Soul Drain');
+          applyLifesteal(S, res.applied, 0.05, 'Echo Soul Drain');
         }
         if (S.flags.rune_lifesteal_pct > 0) {
-          applyLifesteal(S, res.applied, S.flags.rune_lifesteal_pct, 'Vampiric Rune', true);
+          applyLifesteal(S, res.applied, S.flags.rune_lifesteal_pct, 'Vampiric Rune');
         }
         // [Genesis] Titan: Forgefire Veins — 30% of damage dealt (50% below 50% HP).
         if (S.flags.titan_lifesteal_pct > 0) {
-          applyLifesteal(S, res.applied, S.flags.titan_lifesteal_pct, 'Titan: Forgefire Veins');
+          applyLifesteal(S, res.applied, S.flags.titan_lifesteal_pct, 'Forgefire Veins');
         }
       }
       if (result) {
