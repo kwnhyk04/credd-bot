@@ -316,11 +316,15 @@ function resolveBattle(a, b, opts = {}) {
   };
   const damage = (side, amount) => setHp(side, side.hp - Math.max(0, Math.floor(amount)));
   const heal = (side, amount) => setHp(side, side.hp + Math.max(0, Math.floor(amount)));
-  const applyLifesteal = (side, damageDealt, percentage, source) => {
+  const applyLifesteal = (side, damageDealt, percentage, source, compact = false) => {
     const requested = Math.max(0, Math.floor(damageDealt * percentage));
     const before = side.hp;
     heal(side, requested);
     const restored = side.hp - before;
+    if (compact) {
+      shared.events.push(`🩸 Lifesteal: ${restored.toLocaleString()} HP restored`);
+      return;
+    }
     const limited = requested - restored;
     const pct = percentage * 100;
     const pctLabel = Number.isInteger(pct) ? pct.toString() : pct.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
@@ -997,7 +1001,7 @@ function resolveBattle(a, b, opts = {}) {
           applyLifesteal(S, res.applied, 0.05, 'Echo Magwayen: Soul Drain');
         }
         if (S.flags.rune_lifesteal_pct > 0) {
-          applyLifesteal(S, res.applied, S.flags.rune_lifesteal_pct, 'Vampiric Rune');
+          applyLifesteal(S, res.applied, S.flags.rune_lifesteal_pct, 'Vampiric Rune', true);
         }
         // [Genesis] Titan: Forgefire Veins — 30% of damage dealt (50% below 50% HP).
         if (S.flags.titan_lifesteal_pct > 0) {
