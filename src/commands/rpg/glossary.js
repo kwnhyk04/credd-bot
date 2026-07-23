@@ -12,7 +12,8 @@
  * Deities: ONE MYTHOLOGY PER PAGE (same grouping as `crd deity collection`),
  * showing the FULLY-ASCENDED reference stats (100% base) and the blessing —
  * this is a codex, independent of what the viewer owns.
- * Weapons/Armors/Runes: 10 per page, tier-descending. Only is_available rows.
+ * Weapons/Armors/Runes: up to 10 per page, tier-descending. Long entries reduce
+ * the page size dynamically. Only is_available rows.
  */
 
 const {
@@ -32,9 +33,8 @@ const {
 const { runeEmoji, runeDescription } = require('../../config/runes');
 
 const BRAND = 0x9b59b6;
-const PAGE_SIZE = 10;
-const DESC_CAP = 180; // per-entry text cap keeps a full page inside Discord's CV2 budget
-const DEITY_BODY_CAP = 3500;
+const PAGE_ENTRY_LIMIT = 10;
+const PAGE_BODY_LIMIT = 3600;
 
 const CATEGORIES = {
   deities: 'Deities',
@@ -57,9 +57,111 @@ function reply(message, payload) {
   });
 }
 
-function clip(text, cap = DESC_CAP) {
-  const t = String(text || '').trim();
-  return t.length > cap ? `${t.slice(0, cap - 1)}…` : t;
+function splitBoundary(text, limit) {
+  if (text.length <= limit) return text.length;
+  const sample = text.slice(0, limit + 1);
+  const boundaries = [];
+
+  const paragraph = sample.lastIndexOf('\n\n', limit - 2);
+  if (paragraph >= 0) boundaries.push(paragraph + 2);
+
+  let sentence = 0;
+  for (const match of sample.matchAll(/[.!?](?:["')\]]*)[ \t\r\n]+/g)) {
+    const end = match.index + match[0].length;
+    if (end <= limit) sentence = end;
+  }
+  if (sentence) boundaries.push(sentence);
+
+  const newline = sample.lastIndexOf('\n', limit - 1);
+  if (newline >= 0) boundaries.push(newline + 1);
+
+  let whitespace = 0;
+  for (const match of sample.matchAll(/\s+/g)) {
+    const end = match.index + match[0].length;
+    if (end <= limit) whitespace = end;
+  }
+  if (whitespace) boundaries.push(whitespace);
+
+  const punctuation = Math.max(
+    sample.lastIndexOf('-', limit - 1),
+    sample.lastIndexOf('/', limit - 1),
+    sample.lastIndexOf('_', limit - 1),
+  );
+  if (punctuation >= 0) boundaries.push(punctuation + 1);
+
+  return boundaries.length ? Math.max(...boundaries) : limit;
+}
+
+function takeDescriptionChunk(text, limit) {
+  if (limit < 1) throw new RangeError('Glossary description limit is too small');
+  return text.slice(0, splitBoundary(text, limit));
+}
+
+function completeEntry(entry) {
+  if (entry.description == null) return entry.leading;
+  const label = entry.passiveName ? `${entry.passiveName}: ` : '';
+  return `${entry.leading}\n-# ${label}${entry.description}`;
+}
+
+function splitOversizedEntry(entry, limit) {
+  const pages = [];
+  let remaining = entry.description;
+  let continuation = false;
+
+  while (remaining.length > 0) {
+    const heading = entry.descriptionHeading || 'Passive Description';
+    const subject = entry.passiveName ? ` (${entry.passiveName})` : '';
+    const label = continuation
+      ? `-# **${heading} — Continued${subject}**\n`
+      : `-# **${heading}${subject}**\n`;
+    const prefix = `${entry.leading}${continuation ? ' *(continued)*' : ''}\n${label}`;
+    const chunk = takeDescriptionChunk(remaining, limit - prefix.length);
+    pages.push(`${prefix}${chunk}`);
+    remaining = remaining.slice(chunk.length);
+    continuation = true;
+  }
+  return pages;
+}
+
+function paginateEntries(entries, {
+  bodyLimit = PAGE_BODY_LIMIT,
+  entryLimit = PAGE_ENTRY_LIMIT,
+} = {}) {
+  const pages = [];
+  let current = [];
+  let currentLength = 0;
+
+  const flush = () => {
+    if (!current.length) return;
+    pages.push(current.join('\n\n'));
+    current = [];
+    currentLength = 0;
+  };
+
+  for (const entry of entries) {
+    const text = completeEntry(entry);
+    if (text.length > bodyLimit && entry.description != null) {
+      flush();
+      pages.push(...splitOversizedEntry(entry, bodyLimit));
+      continue;
+    }
+
+    const separatorLength = current.length ? 2 : 0;
+    if (current.length >= entryLimit
+      || currentLength + separatorLength + text.length > bodyLimit) {
+      flush();
+    }
+    current.push(text);
+    currentLength += (current.length > 1 ? 2 : 0) + text.length;
+  }
+  flush();
+  return pages.length ? pages : ['*Nothing recorded here yet.*'];
+}
+
+function circularPage(pages, page) {
+  const totalPages = Math.max(1, pages.length);
+  const p = ((page % totalPages) + totalPages) % totalPages;
+  return { body: pages[p]?.body || pages[p] || '*Nothing recorded here yet.*', page: p, totalPages };
 }
 
 /** Banded [lo, hi] sub-window of a tier stat range (mirrors dropRates.bandedValue). */
@@ -74,9 +176,8 @@ function fmtRange([lo, hi], suffix = '') {
 }
 
 // ── page data ───────────────────────────────────────────────────────────────
-// Deity pages are grouped by mythology (roster order): exactly one mythology per
-// page. Blessing descriptions are clipped dynamically below so even the largest
-// mythology stays within Discord's Components V2 text budget without being split.
+// Deity pages remain grouped by mythology. A mythology only gains continuation
+// pages when its complete blessing text cannot fit safely on one page.
 let mythologyCache = null;
 registerMemorySource('database.glossary-mythologies', () => ({
   entries: mythologyCache?.length || 0,
@@ -96,69 +197,45 @@ async function mythologies() {
 }
 
 function deityEntries(rows) {
-  const render = (descriptionCap) => rows.map((d) => {
+  return rows.map((d) => {
     const symbol = RARITY_SYMBOLS[TIER_ALIAS[d.tier]] ?? '◆';
-    const blessing = descriptionCap > 0
-      ? `${d.blessing_name}: ${clip(d.blessing_description, descriptionCap)}`
-      : d.blessing_name;
-    return `${symbol} ${emojiForDisplay(d.name, '🕯️')} **${d.name}** — ${TIER_ALIAS[d.tier]}\n` +
-      `HP ${Number(d.base_hp).toLocaleString()} · ATK ${Number(d.base_atk).toLocaleString()} · DEF ${Number(d.base_def).toLocaleString()}\n` +
-      `-# ${blessing}`;
+    return {
+      leading: `${symbol} ${emojiForDisplay(d.name, '🕯️')} **${d.name}** — ${TIER_ALIAS[d.tier]}\n` +
+        `HP ${Number(d.base_hp).toLocaleString()} · ATK ${Number(d.base_atk).toLocaleString()} · DEF ${Number(d.base_def).toLocaleString()}`,
+      passiveName: d.blessing_name,
+      description: String(d.blessing_description || '').trim(),
+    };
   });
-
-  let low = 0;
-  let high = DESC_CAP;
-  let best = render(0);
-  while (low <= high) {
-    const mid = Math.floor((low + high) / 2);
-    const candidate = render(mid);
-    if (candidate.join('\n\n').length <= DEITY_BODY_CAP) {
-      best = candidate;
-      low = mid + 1;
-    } else {
-      high = mid - 1;
-    }
-  }
-  return best;
 }
 
-async function deityPage(page) {
+async function deityPages() {
   const myths = await mythologies();
-  const totalPages = Math.max(1, myths.length);
-  const p = ((page % totalPages) + totalPages) % totalPages; // circular carousel wrap
-  const mythology = myths[p] ?? null;
-  if (mythology == null) return { entries: [], subtitle: '—', page: p, totalPages };
-
-  const { rows } = await pool.query(
-    `SELECT name, tier, base_hp, base_atk, base_def, blessing_name, blessing_description
-      FROM deity_roster
-      WHERE is_available = TRUE AND mythology = $1
-      ORDER BY ${GEAR_TIER_ORDER_SQL} DESC, name ASC`,
-    [mythology]
-  );
-  // Fully-ascended reference stats = 100% base (§4).
-  const entries = deityEntries(rows);
-  const label = MYTHOLOGY_LABEL[mythology] ?? `${mythology} Mythology`;
-  return {
-    entries,
-    subtitle: `${label} — fully-ascended reference stats`,
-    page: p,
-    totalPages,
-  };
+  const pages = [];
+  for (const mythology of myths) {
+    const { rows } = await pool.query(
+      `SELECT name, tier, base_hp, base_atk, base_def, blessing_name, blessing_description
+        FROM deity_roster
+        WHERE is_available = TRUE AND mythology = $1
+        ORDER BY ${GEAR_TIER_ORDER_SQL} DESC, name ASC`,
+      [mythology]
+    );
+    const label = MYTHOLOGY_LABEL[mythology] ?? `${mythology} Mythology`;
+    const bodies = paginateEntries(deityEntries(rows), { entryLimit: Number.POSITIVE_INFINITY });
+    pages.push(...bodies.map((body) => ({
+      body,
+      subtitle: `${label} — fully-ascended reference stats`,
+    })));
+  }
+  return pages.length ? pages : [{ body: '*Nothing recorded here yet.*', subtitle: '—' }];
 }
 
-async function gearPage(kind, page) {
+async function gearPages(kind) {
   const table = kind === 'weapons' ? 'weapon_roster' : 'armor_roster';
-  const countRes = await pool.query(`SELECT COUNT(*)::int AS n FROM ${table} WHERE is_available = TRUE`);
-  const totalPages = Math.max(1, Math.ceil(countRes.rows[0].n / PAGE_SIZE));
-  const p = ((page % totalPages) + totalPages) % totalPages; // circular carousel wrap
   const { rows } = await pool.query(
     `SELECT name, type, tier, passive_name, passive_description
        FROM ${table}
       WHERE is_available = TRUE
-      ORDER BY ${GEAR_TIER_ORDER_SQL} DESC, name ASC
-      LIMIT $1 OFFSET $2`,
-    [PAGE_SIZE, p * PAGE_SIZE]
+      ORDER BY ${GEAR_TIER_ORDER_SQL} DESC, name ASC`
   );
 
   const entries = rows.map((g) => {
@@ -188,37 +265,48 @@ async function gearPage(kind, page) {
         ? `HP ${fmtRange(bandWindow(range.hp, profile.hp))} · DEF ${fmtRange(bandWindow(range.def, profile.def))}`
         : 'HP — · DEF —';
     }
-    const passive = g.passive_name && g.passive_name.toLowerCase() !== 'none'
-      ? `-# ${g.passive_name}: ${clip(g.passive_description)}`
-      : '-# No passive.';
-    return `${icon} **${g.name}** — ${g.tier}\n${statLine}\n${passive}`;
+    const leading = `${icon} **${g.name}** — ${g.tier}\n${statLine}`;
+    return g.passive_name && g.passive_name.toLowerCase() !== 'none'
+      ? {
+        leading,
+        passiveName: g.passive_name,
+        description: String(g.passive_description || '').trim(),
+      }
+      : { leading: `${leading}\n-# No passive.`, description: null };
   });
-  return { entries, subtitle: 'Sorted by tier (highest first)', page: p, totalPages };
+  return paginateEntries(entries).map((body) => ({
+    body,
+    subtitle: 'Sorted by tier (highest first)',
+  }));
 }
 
-async function runePage(page) {
-  const countRes = await pool.query('SELECT COUNT(*)::int AS n FROM rune_roster WHERE is_available = TRUE');
-  const totalPages = Math.max(1, Math.ceil(countRes.rows[0].n / PAGE_SIZE));
-  const p = ((page % totalPages) + totalPages) % totalPages; // circular carousel wrap
+async function runePages() {
   const { rows } = await pool.query(
     `SELECT name, effect_key, tier, value, description
        FROM rune_roster
       WHERE is_available = TRUE
-      ORDER BY ${GEAR_TIER_ORDER_SQL} DESC, name ASC
-      LIMIT $1 OFFSET $2`,
-    [PAGE_SIZE, p * PAGE_SIZE]
+      ORDER BY ${GEAR_TIER_ORDER_SQL} DESC, name ASC`
   );
-  const entries = rows.map((r) =>
-    `${runeEmoji(r.effect_key)} **${r.name}** — ${r.tier}\n` +
-    `-# ${runeDescription(r.effect_key, r.value, clip(r.description))}`
-  );
-  return { entries, subtitle: 'Sorted by tier (highest first)', page: p, totalPages };
+  const entries = rows.map((r) => ({
+    leading: `${runeEmoji(r.effect_key)} **${r.name}** — ${r.tier}`,
+    passiveName: null,
+    descriptionHeading: 'Rune Description',
+    description: runeDescription(r.effect_key, r.value, String(r.description || '').trim()),
+  }));
+  return paginateEntries(entries).map((body) => ({
+    body,
+    subtitle: 'Sorted by tier (highest first)',
+  }));
 }
 
 async function fetchPage(cat, page) {
-  if (cat === 'deities') return deityPage(page);
-  if (cat === 'runes') return runePage(page);
-  return gearPage(cat, page);
+  const pages = cat === 'deities'
+    ? await deityPages()
+    : cat === 'runes'
+      ? await runePages()
+      : await gearPages(cat);
+  const selected = circularPage(pages, page);
+  return { ...selected, subtitle: pages[selected.page]?.subtitle || '—' };
 }
 
 // ── payload ─────────────────────────────────────────────────────────────────
@@ -247,7 +335,7 @@ function buildControls(cat, page, totalPages, ownerId) {
 }
 
 async function buildPayload(cat, page, ownerId) {
-  const { entries, subtitle, page: p, totalPages } = await fetchPage(cat, page);
+  const { body, subtitle, page: p, totalPages } = await fetchPage(cat, page);
   const [selectRow, buttonRow] = buildControls(cat, p, totalPages, ownerId);
 
   const container = new ContainerBuilder().setAccentColor(BRAND);
@@ -257,7 +345,7 @@ async function buildPayload(cat, page, ownerId) {
   container.addActionRowComponents(() => selectRow);
   container.addSeparatorComponents(sep);
   container.addTextDisplayComponents((td) => td.setContent(
-    entries.length > 0 ? entries.join('\n\n') : '*Nothing recorded here yet.*'
+    body
   ));
   container.addSeparatorComponents(sep);
   container.addActionRowComponents(() => buttonRow);
@@ -309,3 +397,10 @@ async function handleInteraction(interaction) {
 }
 
 module.exports = { execute, handleInteraction };
+Object.assign(module.exports, {
+  paginateEntries,
+  splitBoundary,
+  circularPage,
+  PAGE_BODY_LIMIT,
+  PAGE_ENTRY_LIMIT,
+});
