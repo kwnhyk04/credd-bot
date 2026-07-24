@@ -186,15 +186,14 @@ function damageFromEvents(side, events) {
   let crit = false;
   let evaded = false;
   for (const event of events) {
-    const isOwnHit = event.includes(`${side.name} attacks for **`) ||
-      event.includes(`${side.name} strikes again for **`) ||
-      event.includes(`${side.name} strikes for **`) ||
-      event.includes(`${side.name} strikes (hit `);
+    const isOwnHit = event.includes(`${side.name} attacks`) ||
+      event.includes(`${side.name} strikes again`) ||
+      event.includes(`${side.name} strikes`);
     if (!isOwnHit) continue;
     const m = /for \*\*(\d+) DMG\*\*/.exec(event);
     if (m) damage += Number(m[1]);
     if (event.includes('CRIT!')) crit = true;
-    if (event.includes('evaded')) evaded = true;
+    if (event.includes('Evaded!') || event.includes('evaded')) evaded = true;
   }
   return { damage, crit, evaded };
 }
@@ -551,7 +550,9 @@ function resolveBattle(a, b, opts = {}) {
 
   // ── defender stack (R3) ────────────────────────────────────────────────────
   /**
-   * Apply one computed hit to the defender. Returns { applied, negated }.
+   * Apply one computed hit to the defender. Returns { applied, negated, evaded? }.
+   * `negated` controls landed-hit mechanics; `evaded` distinguishes presentation
+   * from full damage absorption/ignore effects that also apply zero damage.
    * info: { crit, attacker } — crit drives player_was_critted latch & reflects.
    */
   const recordReceivedCrit = (side) => {
@@ -598,7 +599,7 @@ function resolveBattle(a, b, opts = {}) {
       // mob defenses live on the attacking player's flags (mob skills run there)
       if (S.flags.sigbin_evade_check && !S.flags.tyrfing_no_miss) {
         shared.events.push(`👤 ${O.name} evades the attack (Shadow Step)!`);
-        return { applied: 0, negated: true };
+        return { applied: 0, negated: true, evaded: true };
       }
       prepareConfirmedHit();
       if (S.flags.dwarf_shield_active) {
@@ -619,7 +620,7 @@ function resolveBattle(a, b, opts = {}) {
     if (F.amihan_evade_check && !S.flags.tyrfing_no_miss) {
       shared.events.push(`💨 ${O.name} evades the attack (Tailwind)!`);
       F.amihan_evade_bonus_stacks = (F.amihan_evade_bonus_stacks || 0) + 1;
-      return { applied: 0, negated: true };
+      return { applied: 0, negated: true, evaded: true };
     }
     if (F.loki_evade_check && !S.flags.tyrfing_no_miss) {
       shared.events.push(`🃏 ${O.name} evades the attack (Illusory Double)!`);
@@ -634,7 +635,7 @@ function resolveBattle(a, b, opts = {}) {
         shared.events.push(`🃏 Loki's counter strikes ${S.name} for ${appliedCounter} DMG!`);
         checkDeaths('counter');
       }
-      return { applied: 0, negated: true };
+      return { applied: 0, negated: true, evaded: true };
     }
     if (F.gridr_ignore_check) {
       shared.events.push(`👊 ${O.name} ignores the incoming damage (Ironhide)!`);
@@ -646,7 +647,7 @@ function resolveBattle(a, b, opts = {}) {
     }
     if (F.valkyrie_evade_check && !S.flags.tyrfing_no_miss) { // [v5] armor evade (total-evade cap enforced in the registry)
       shared.events.push(`🪽 ${O.name} evades the attack (Chooser's Grace)!`);
-      return { applied: 0, negated: true };
+      return { applied: 0, negated: true, evaded: true };
     }
 
     prepareConfirmedHit();
@@ -1060,10 +1061,10 @@ function resolveBattle(a, b, opts = {}) {
         dmg,
         { crit: critApplied, prepareLandedHit },
       );
-      shared.events.push(
-        `⚔️ ${S.name} ${mainHit ? 'attacks' : 'strikes again'} for **${res.applied} DMG**` +
-        `${tag}${res.negated ? ' *(evaded)*' : ''}`
-      );
+      const attackLabel = `⚔️ ${S.name} ${mainHit ? 'attacks' : 'strikes again'}`;
+      shared.events.push(res.evaded
+        ? `${attackLabel} — **Evaded!**`
+        : `${attackLabel} for **${res.applied} DMG**${tag}`);
       if (mainHit) shared.events.push(...attackHookEvents.splice(0));
       shared.events.push(...preHitEvents);
       shared.events.push(...reactions);
@@ -1273,10 +1274,10 @@ function resolveBattle(a, b, opts = {}) {
       if (critApplied) dmg *= CRIT_MULT;
       dmg = Math.max(0, Math.floor(dmg));
       const { hit: res, reactions } = applyHitWithReactions(S, O, dmg, { crit: critApplied });
-      shared.events.push(
-        `💀 ${S.name} strikes ${subHits > 1 ? `(hit ${i + 1}/${subHits}) ` : ''}for **${res.applied} DMG**` +
-        `${critApplied ? ' *(CRIT!)*' : ''}${res.negated ? ' *(evaded)*' : ''}`
-      );
+      const attackLabel = `💀 ${S.name} strikes${subHits > 1 ? ` (hit ${i + 1}/${subHits})` : ''}`;
+      shared.events.push(res.evaded
+        ? `${attackLabel} — **Evaded!**`
+        : `${attackLabel} for **${res.applied} DMG**${critApplied ? ' *(CRIT!)*' : ''}`);
       shared.events.push(...reactions);
     }
   };
