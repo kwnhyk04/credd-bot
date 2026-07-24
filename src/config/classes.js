@@ -18,6 +18,22 @@
 // Valid class names (must match user_character.class CHECK constraint exactly).
 const CLASS_NAMES = ['Swordsman', 'Fighter', 'Mage', 'Knight', 'Archer'];
 
+const CLASS_PASSIVE_VALUES = Object.freeze({
+  Swordsman: Object.freeze({
+    bleedPerAttack: 0.04,
+    bleedMax: 0.20,
+  }),
+  Archer: Object.freeze({
+    defenseIgnore: 0.25,
+    doubleAttackChance: 0.25,
+  }),
+  Fighter: Object.freeze({
+    stunChance: 0.25,
+    stunTurns: 1,
+    bashDamage: 0.50,
+  }),
+});
+
 const CLASSES = {
   Swordsman: {
     emoji: '⚔️',
@@ -28,7 +44,7 @@ const CLASSES = {
       'A warrior forged for the battlefield. Neither the strongest nor the fastest, but the most reliable. ' +
       'The Swordsman walks the line between offense and defense, adapting to any fight. Every strike leaves a mark, and every mark bleeds.',
     passiveLine:
-      '**Passive: Bleed** — Every attack opens a wound. Enemies will suffer beyond the moment of impact.',
+      '**Passive: Bleed** — Attacks inflict 4% Bleed, stacking up to 20%.',
   },
   Fighter: {
     emoji: '👊',
@@ -39,7 +55,7 @@ const CLASSES = {
       'A warrior who does not wait for the fight to come — they bring it. The Fighter is built on aggression, raw power, ' +
       "and the unshakable belief that the best defense is a fist to the jaw. When a Fighter lands, the enemy feels it. And sometimes, they don't get back up.",
     passiveLine:
-      '**Passive: Stun** — A devastating blow can stop an enemy cold. Not every hit lands the same way.',
+      '**Passive: Stun** — Attacks have a 25% chance to Stun the target for 1 turn. Bash deals 50% of the triggering hit and leaves the target Dizzy.',
   },
   Mage: {
     emoji: '🔮',
@@ -65,14 +81,14 @@ const CLASSES = {
   },
   Archer: {
     emoji: '🏹',
-    passiveName: 'Armor Pierce',
+    passiveName: 'Armor Pierce & Double Attack',
     base: { hp: 600, atk: 300, def: 150, crit: 5.0 },
     scaling: { hp: 105, atk: 85, def: 25, crit: 0.7 },
     flavor:
       'Swift, precise, and deadly from a distance. The Archer does not wait for the enemy to come — they are already gone before the enemy arrives. ' +
       'Every arrow finds its mark, and no armor is thick enough to stop what cannot be seen coming.',
     passiveLine:
-      '**Passive: Armor Pierce** — Your arrows do not care for steel or stone. Every shot cuts through the defenses of your enemy, finding the gaps that others cannot.',
+      "**Passive: Armor Pierce & Double Attack** — Attacks ignore 25% of the target's Defense and have a 25% chance to immediately attack again.",
   },
 };
 
@@ -95,6 +111,7 @@ function computeClassStats(className, level) {
 
 module.exports = {
   CLASS_NAMES,
+  CLASS_PASSIVE_VALUES,
   CLASSES,
   computeClassStats,
 };

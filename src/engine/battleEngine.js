@@ -20,7 +20,7 @@
  *        a. crit pre-roll (1 draw, ALWAYS — voided if the side is skip-CC'd; also voided,
  *           with the draw still consumed, on a Mage's overcharge round (every 3rd) where the
  *           entire attack cannot crit — §13.1)
- *        b. class-stun pre-roll (1 draw, only if class passive is 'stun')
+ *        b. Fighter 25% class-stun pre-roll (1 draw, only if class passive is 'stun')
  *     3. passive phase (round-bound registry draws, in invocation order):
  *        raid/boss → A.weapon → A.deity → mob skill (all on A's perspective)
  *        duel      → first actor's weapon → deity, then second actor's weapon → deity
@@ -28,8 +28,10 @@
  *        PLAYER attack: attack-start weapon draws → main-hit variance (1 draw) →
  *        landed-hit weapon draws → [Swordsman] bleed draw (1, only
  *        when the main hit lands — RESERVED for stream stability; the bleed value is now
- *        a deterministic 3%/stack) → [labrys 2nd hit] crit (1) + variance (1) →
- *        [extra_turn] crit (1) + variance (1) + [Swordsman] bleed (1)
+ *        a deterministic 4%/stack) → [labrys 2nd hit] crit (1) + variance (1) →
+ *        [extra_turn] crit (1) + variance (1) + [Swordsman] bleed (1) →
+ *        [Archer] 25% Double Attack roll (1); a proc resolves one fresh regular
+ *        attack instance and cannot recurse
  *        MOB attack: per sub-hit → crit (1 draw) + variance (1 draw)
  *
  * ROUND PIPELINE (§35.1/§13.1, rulings R1–R9):
@@ -92,6 +94,7 @@
 
 const PASSIVE_REGISTRY = require('./passiveRegistry');
 const { CRIT_MULT, OVERCHARGE_MULT, hitMultiplier } = require('../config/combat');
+const { CLASS_PASSIVE_VALUES } = require('../config/classes');
 const {
   EFFECT_CATEGORY,
   EFFECT_DEFINITIONS,
@@ -106,15 +109,19 @@ const MAX_ROUNDS = 50;
 const SUDDEN_DEATH_FROM = 30;     // player sides lose 10% max HP at end of every round ≥ 30 (mobs/bosses exempt)
 const SUDDEN_DEATH_PCT = 0.10;
 const SNAPSHOT_EVERY = 3;
-const FIGHTER_DIZZY_MISS_CHANCE = 0.25;
 const MITIGATION_K = 200;         // §12: 1 − DEF/(DEF+200)
-const ARCHER_PIERCE = 0.25;
+const ARCHER_PIERCE = CLASS_PASSIVE_VALUES.Archer.defenseIgnore;
+const ARCHER_DOUBLE_ATTACK_CHANCE = CLASS_PASSIVE_VALUES.Archer.doubleAttackChance;
+const FIGHTER_STUN_CHANCE = CLASS_PASSIVE_VALUES.Fighter.stunChance;
+const FIGHTER_STUN_TURNS = CLASS_PASSIVE_VALUES.Fighter.stunTurns;
+const FIGHTER_BASH_DAMAGE_PCT = CLASS_PASSIVE_VALUES.Fighter.bashDamage;
 const KNIGHT_DR = 0.75;           // ×0.75 incoming = 25% damage reduction
 const INCOMING_DR_FLOOR = 0.25;   // [v5] combined damage-reduction floor: post-DEF incoming never < 25%
 const TOTAL_EVADE_CAP = 0.40;     // [v5] total evade across all sources (enforced in the registry)
 const OVERCHARGE_EVERY = 3;       // [v4.2] fires on rounds 3, 6, 9, …
-const BLEED_PCT_PER_STACK = 0.05;   // +5% ATK per stack
-const BLEED_MAX_STACKS = 6;         // 6 × 5% = 30% ATK cap
+const BLEED_PCT_PER_STACK = CLASS_PASSIVE_VALUES.Swordsman.bleedPerAttack;
+const BLEED_MAX_PCT = CLASS_PASSIVE_VALUES.Swordsman.bleedMax;
+const BLEED_MAX_STACKS = Math.ceil(BLEED_MAX_PCT / BLEED_PCT_PER_STACK);
 const KNIGHT_OUTGOING_BONUS = 0.30;
 
 const SKIP_TAGS = ['stun', 'paralyze', 'freeze', 'petrify', 'charm', 'confuse', 'miss'];
@@ -287,7 +294,7 @@ function resolveBattle(a, b, opts = {}) {
     scratch: null,          // per-round (reset before passives)
     skipped: false,         // skip-CC'd this round
     critRollValue: 1,       // pre-rolled crit draw for this round's main hit
-    stunPreRoll: 0,         // Fighter class stun turns rolled for this round (0/1/2)
+    stunPreRoll: 0,         // Fighter class stun turns rolled for this round (0/1)
     bathalaExtraHp: 0,      // currently-applied Bathala HP bonus
   });
 
@@ -835,9 +842,83 @@ function resolveBattle(a, b, opts = {}) {
     }
   };
 
+  /**
+   * A class Double Attack is a new attack instance, so chance-based defenses get
+   * fresh seeded rolls before it enters the normal defender pipeline. Durable
+   * one-shot defenses (Heimdall, Athena, Stone Skin, etc.) are deliberately not
+   * refreshed here; their existing consumption rules still apply.
+   */
+  const rerollDefensiveChecks = (S, O) => {
+    if (O.kind === 'mob') {
+      if (O.skillKey === 'sigbin_shadow_step') {
+        S.flags.sigbin_evade_check = rng() < 0.20;
+      }
+      return;
+    }
+
+    const F = O.flags;
+    const hasPassive = (key) =>
+      O.weaponPassiveKey === key || O.armorPassiveKey === key;
+
+    F.steel_kite_shield_block = hasPassive('steel_kite_shield') && rng() < 0.10;
+    F.pelte_block_check = hasPassive('pelte') && rng() < 0.15;
+    F.gridr_ignore_check = hasPassive('gridr_iron_gloves') && rng() < 0.20;
+    F.skjaldmaer_ignore_check = hasPassive('skjaldmaer') && rng() < 0.15;
+    F.enderby_reflect_check = hasPassive('enderby_shield') && rng() < 0.10;
+
+    let evadeChanceUsed = 0;
+    if (O.deityBlessingKey === 'amihan_tailwind') {
+      evadeChanceUsed += 0.20;
+      F.amihan_evade_check = rng() < 0.20;
+    } else {
+      F.amihan_evade_check = false;
+    }
+    if (O.deityBlessingKey === 'loki_illusory_double') {
+      evadeChanceUsed += 0.25;
+      F.loki_evade_check = rng() < 0.25;
+      F.loki_counter_dmg = F.loki_evade_check ? Math.floor(O.atk) : 0;
+    } else {
+      F.loki_evade_check = false;
+      F.loki_counter_dmg = 0;
+    }
+    F.njord_block_check =
+      O.deityBlessingKey === 'njord_seas_favor' && rng() < 0.15;
+    F.echo_njord_block_check =
+      O.echoBlessingKey === 'echo_njord' && rng() < 0.10;
+
+    if (hasPassive('valkyrie_mantle')) {
+      const chance = Math.min(0.20, Math.max(0, TOTAL_EVADE_CAP - evadeChanceUsed));
+      F.valkyrie_evade_check = rng() < chance;
+    } else {
+      F.valkyrie_evade_check = false;
+    }
+  };
+
   // ── player attack action ───────────────────────────────────────────────────
-  const playerAttack = (S, O) => {
-    // These hooks run only when an action really begins. A CC skip or Dizzy miss
+  const playerAttack = (S, O, context = {}) => {
+    const isBonusAttack = context.isBonusAttack === true;
+    const allowArcherDoubleAttack = context.allowArcherDoubleAttack !== false;
+    const scratchBaseline = context.scratchBaseline || {
+      damageBonusPct: S.scratch.damageBonusPct,
+      bonusIncomingDmgMult: S.scratch.bonusIncomingDmgMult,
+      playerAtkMult: S.scratch.playerAtkMult,
+      playerDefMult: S.scratch.playerDefMult,
+      ignoreDefPct: S.scratch.ignoreDefPct,
+      nextAttackAutoCrit: S.scratch.nextAttackAutoCrit,
+      nextAttackDouble: S.scratch.nextAttackDouble,
+    };
+    if (isBonusAttack) {
+      S.scratch.damageBonusPct = scratchBaseline.damageBonusPct;
+      S.scratch.bonusIncomingDmgMult = scratchBaseline.bonusIncomingDmgMult;
+      S.scratch.playerAtkMult = scratchBaseline.playerAtkMult;
+      S.scratch.playerDefMult = scratchBaseline.playerDefMult;
+      S.scratch.ignoreDefPct = scratchBaseline.ignoreDefPct;
+      // Durable "next attack" guarantees belong to Attack #1. Attack-bound hooks
+      // below can still independently arm these values for Attack #2.
+      S.scratch.nextAttackAutoCrit = false;
+      S.scratch.nextAttackDouble = false;
+    }
+    // These hooks run only when an action really begins. A CC or Dizzy/Stun skip
     // cannot consume first-action effects, roll offensive procs, or leak a proc.
     const attackHookEventStart = shared.events.length;
     for (const hook of S.scratch.attackHooks) hook();
@@ -1009,11 +1090,11 @@ function resolveBattle(a, b, opts = {}) {
             ? fighterStunned
             : addDebuff(O, 'stun', S.stunPreRoll);
           if (stunned) {
-            shared.events.push(`👊 ${S.name}'s blow stuns ${O.name} for ${S.stunPreRoll} turn${S.stunPreRoll > 1 ? 's' : ''}!`);
+            shared.events.push(`👊 ${S.name}'s blow stuns ${O.name} for ${S.stunPreRoll} turn!`);
             if (jarngreiprTriggered) {
               shared.events.push('⚡ Jarngreipr: Thunder Grip — Stun triggered Bash! +60% ATK!');
             }
-            const bash = Math.max(0, Math.floor(dmg * 0.50));
+            const bash = Math.max(0, Math.floor(dmg * FIGHTER_BASH_DAMAGE_PCT));
             const { hit: bashResult, reactions: bashReactions } = applyHitWithReactions(
               S,
               O,
@@ -1024,7 +1105,7 @@ function resolveBattle(a, b, opts = {}) {
             shared.events.push(...bashReactions);
             O.flags.dizzy_pending = true;
             shared.events.push(
-              `💫 ${O.name} is Dizzy; its next attack has a ${Math.round(FIGHTER_DIZZY_MISS_CHANCE * 100)}% miss chance.`
+              `💫 ${O.name} becomes Dizzy and is stunned for ${S.stunPreRoll} turn!`
             );
             if (result) return;
           }
@@ -1033,8 +1114,8 @@ function resolveBattle(a, b, opts = {}) {
       if (!res.negated) {
         applyLandedHitPassives(S, O, { mainHit, crit: critApplied, damage: res.applied });
       }
-      // Every landed Swordsman attack adds one 5% Bleed stack and refreshes it to 2 turns.
-      // Six stacks cap the additive value at 30%; later hits only refresh the duration.
+      // Every landed Swordsman attack adds one 4% Bleed stack and refreshes it to 2 turns.
+      // Five stacks cap the additive value at 20%; later hits only refresh the duration.
       // Requires the swordsman to actually act — a skip-CC'd turn never reaches here.
       // The per-attack rng draw is KEPT (consumed, unused) for draw-order stream stability
       // now that the value is deterministic.
@@ -1042,7 +1123,7 @@ function resolveBattle(a, b, opts = {}) {
         rng(); // reserved draw — stream stability (bleed value is deterministic now)
         const ex = findDebuff(O, 'bleed');
         const stacks = Math.min(BLEED_MAX_STACKS, (ex && ex.stacks ? ex.stacks : 0) + 1);
-        const value = stacks * BLEED_PCT_PER_STACK * S.atk;
+        const value = Math.min(BLEED_MAX_PCT, stacks * BLEED_PCT_PER_STACK) * S.atk;
         if (ex) {
           ex.turnsLeft = 2;
           ex.value = Math.max(ex.value, value);
@@ -1067,8 +1148,9 @@ function resolveBattle(a, b, opts = {}) {
 
     // main hit (crit pre-rolled at round start; auto-crit flags can upgrade it) —
     // an overcharge round suppresses the crit entirely (§13.1), latch and all.
+    const mainCritRoll = isBonusAttack ? rng() : S.critRollValue;
     const mainCrit = !overchargeRound
-      && ((S.critRollValue * 100 < effCritChance(S)) || S.scratch.nextAttackAutoCrit);
+      && ((mainCritRoll * 100 < effCritChance(S)) || S.scratch.nextAttackAutoCrit);
     doHit({ atkScale: 1, mainHit: true, critKnown: mainCrit });
     if (result) return;
 
@@ -1117,6 +1199,22 @@ function resolveBattle(a, b, opts = {}) {
     if (S.flags.extra_turn) {
       S.flags.extra_turn = false;
       doHit({ atkScale: 1, mainHit: false });
+      if (result) return;
+    }
+
+    // The Archer class can add at most one complete regular attack instance. The
+    // target must survive Attack #1, and the nested call explicitly disables this
+    // class roll so Attack #2 cannot recurse into Attack #3.
+    if (allowArcherDoubleAttack
+        && S.classPassive === 'pierce'
+        && rng() < ARCHER_DOUBLE_ATTACK_CHANCE) {
+      shared.events.push(`🏹 ${S.name}'s Double Attack activated!`);
+      rerollDefensiveChecks(S, O);
+      playerAttack(S, O, {
+        allowArcherDoubleAttack: false,
+        isBonusAttack: true,
+        scratchBaseline,
+      });
     }
   };
 
@@ -1168,12 +1266,17 @@ function resolveBattle(a, b, opts = {}) {
     if (skipTags.length > 0) {
       const hadStun = skipTags.some((d) => d.tag === 'stun');
       const hadFreeze = skipTags.some((d) => d.tag === 'freeze');
+      let fighterDizzyExpired = false;
       for (const d of skipTags) d.turnsLeft -= 1;
       S.debuffs = S.debuffs.filter((d) => d.turnsLeft > 0);
       // On the round a stun wears off, grant a 1-round immunity window so the Fighter
       // class passive can't immediately re-chain it (see the stun-lock guard above).
       if (hadStun && !S.debuffs.some((d) => d.tag === 'stun')) {
         S.flags.stun_immune_until = shared.round + 1;
+        if (S.flags.dizzy_pending) {
+          S.flags.dizzy_pending = false;
+          fighterDizzyExpired = true;
+        }
       }
       // Skadi: when a Freeze wears off the victim is left Frostbitten (+50% damage taken).
       // turnsLeft 2 so it reliably covers the next round's incoming attack ("1 turn").
@@ -1181,7 +1284,9 @@ function resolveBattle(a, b, opts = {}) {
         addDebuff(S, 'frostbite', 2);
         shared.events.push(`🧊 ${S.name} is Frostbitten — takes +50% damage!`);
       }
-      shared.events.push(`⏸️ ${S.name} is unable to act (${skipTags.map((d) => d.tag).join(', ')})!`);
+      shared.events.push(fighterDizzyExpired
+        ? `💫 ${S.name} is unable to act (Dizzy, stun)!`
+        : `⏸️ ${S.name} is unable to act (${skipTags.map((d) => d.tag).join(', ')})!`);
       return;
     }
     // Thor's linked Paralyze status controls the 10% action-skip chance while its
@@ -1190,19 +1295,25 @@ function resolveBattle(a, b, opts = {}) {
       shared.events.push(`⚡ ${S.name} is paralyzed and cannot move!`);
       return;
     }
-    if (S.flags.dizzy_pending) {
+    // Dizzy is the Fighter Bash/Stun presentation state. It expires with that
+    // single skipped turn and never adds a second missed action. If the linked
+    // Stun was cleansed first, clear the orphaned indicator before acting.
+    if (S.flags.dizzy_pending && !findDebuff(S, 'stun')) {
       S.flags.dizzy_pending = false;
-      const misses = rng() < FIGHTER_DIZZY_MISS_CHANCE;
-      if (misses && !S.flags.tyrfing_no_miss) {
-        shared.events.push(`💫 ${S.name} misses its attack due to Dizzy!`);
-        return;
-      }
-      shared.events.push(misses
-        ? `🗡️ ${S.name}'s Tyrfing curse overcomes Dizzy; the attack cannot miss.`
-        : `💫 ${S.name} overcomes Dizzy and attacks.`);
+      shared.events.push(`💫 ${S.name} recovers from Dizzy and attacks.`);
     }
-    if (S.kind === 'player') playerAttack(S, O);
-    else mobAttack(S, O);
+    if (S.kind === 'player') {
+      if (S.classPassive === 'overcharge') {
+        const charge = ((shared.round - 1) % OVERCHARGE_EVERY) + 1;
+        shared.events.push(
+          `🔮 Mage Passive: Overcharge — Charge ${charge}/${OVERCHARGE_EVERY}` +
+          `${charge === OVERCHARGE_EVERY ? ' — Released!' : ''}`
+        );
+      }
+      playerAttack(S, O);
+    } else {
+      mobAttack(S, O);
+    }
   };
 
   // ── round-start bookkeeping ────────────────────────────────────────────────
@@ -1417,7 +1528,9 @@ function resolveBattle(a, b, opts = {}) {
       side.critRollValue = rng();
       if (side.classPassive === 'stun') {
         const r = rng();
-        side.stunPreRoll = side.skipped ? 0 : (r < 0.10 ? 2 : (r < 0.25 ? 1 : 0));
+        side.stunPreRoll = side.skipped || r >= FIGHTER_STUN_CHANCE
+          ? 0
+          : FIGHTER_STUN_TURNS;
       } else {
         side.stunPreRoll = 0;
       }
@@ -1596,5 +1709,11 @@ module.exports = {
   MAX_ROUNDS,
   SUDDEN_DEATH_FROM,
   SNAPSHOT_EVERY,
-  FIGHTER_DIZZY_MISS_CHANCE,
+  ARCHER_DOUBLE_ATTACK_CHANCE,
+  FIGHTER_STUN_CHANCE,
+  FIGHTER_STUN_TURNS,
+  FIGHTER_BASH_DAMAGE_PCT,
+  BLEED_PCT_PER_STACK,
+  BLEED_MAX_PCT,
+  BLEED_MAX_STACKS,
 };
