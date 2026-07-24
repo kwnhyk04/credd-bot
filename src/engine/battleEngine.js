@@ -28,10 +28,10 @@
  *        PLAYER attack: attack-start weapon draws → main-hit variance (1 draw) →
  *        landed-hit weapon draws → [Swordsman] bleed draw (1, only
  *        when the main hit lands — RESERVED for stream stability; the bleed value is now
- *        a deterministic 4%/stack) → [labrys 2nd hit] crit (1) + variance (1) →
- *        [extra_turn] crit (1) + variance (1) + [Swordsman] bleed (1) →
- *        [Archer] 25% Double Attack roll (1); a proc resolves one fresh regular
- *        attack instance and cannot recurse
+ *        a deterministic 4%/stack) → primary-only additional-attack generator
+ *        rolls → queued additional attacks in Labrys → Glacial Bow → Archer order.
+ *        Each additional attack receives fresh attack-bound, class, crit, variance,
+ *        landed-hit, and defensive rolls, but generator hooks are disabled.
  *        MOB attack: per sub-hit → crit (1 draw) + variance (1 draw)
  *
  * ROUND PIPELINE (§35.1/§13.1, rulings R1–R9):
@@ -53,21 +53,17 @@
  *   whatever arrives; the start + final snapshots are always present):
  *     duel/raid → rounds 1,4,16,…   boss → every 3rd round
  *
- * MAGE OVERCHARGE ([v4.2], §11/§13.1; [Jun-2026] stacks damage%): the charge accumulator
- *   is gone. On every 3rd round (rounds 3,6,9,…) the Mage's MAIN hit is ×(2.5 + damage%/100)
- *   ([v4.4] base was ×3) AND the entire attack's crit is suppressed (pre-roll latch voided,
- *   nextAttackAutoCrit ignored) — STRICT no-crit. The damage-% lane (weapon bonusDmgPct +
- *   procced damageBonusPct; e.g. a 200% proc → ×4.5) now stacks ADDITIVELY onto the 2.5
- *   base, and ATK-mult procs (Mjolnir) already fold in via effATK. Rider hits in the same
- *   action (Labrys 2nd, Glacial Bow extra) are NOT the overcharge attack — they keep fresh
- *   crit rolls and the normal multiplier.
+ * MAGE OVERCHARGE (§11/§13.1): on every 3rd round (rounds 3,6,9,…) the Mage's PRIMARY
+ *   attack is ×(2.75 + damage%/100) and cannot crit. The pre-roll latch and
+ *   nextAttackAutoCrit are ignored for that attack. Additional attacks in the same
+ *   action never inherit Overcharge; they keep fresh crit rolls and normal multipliers.
  *   Skip-CC on a multiple of 3 → the action never runs → that overcharge is simply lost
  *   (no carry-over); the next fires on the next multiple of 3.
  *
  * DAMAGE PIPELINE (per hit) — ONE unified rule (§35.2 / config/combat):
  *   base = effATK × (1 − effDEF/(effDEF+200)) × variance(0.90–1.10)
  *   then exactly one multiplier:
- *     overcharge (Mage 3rd round): ×(2.5 + damage%/100), no crit (damage% stacks; ATK-mult via effATK)
+ *     overcharge (Mage 3rd-round primary): ×(2.75 + damage%/100), no crit
  *     otherwise:                   ×((critLevel ? 2.0 : 1) + damage%/100)
  *   critLevel = a rolled crit OR a Double (Idiyanale, a guaranteed crit-level hit that DOES
  *   take the rider). damage% = weapon bonusDmgPct + procced sources (Katana +30, future
@@ -427,6 +423,15 @@ function resolveBattle(a, b, opts = {}) {
     set nextAttackAutoCrit(v) { self.scratch.nextAttackAutoCrit = v; },
     get nextAttackDouble() { return self.scratch.nextAttackDouble; },
     set nextAttackDouble(v) { self.scratch.nextAttackDouble = v; },
+    get isPrimaryAttack() {
+      return self.scratch?.attackContext?.isPrimaryAttack !== false;
+    },
+    get isAdditionalAttack() {
+      return self.scratch?.attackContext?.isAdditionalAttack === true;
+    },
+    get allowAdditionalAttackProcs() {
+      return self.scratch?.attackContext?.allowAdditionalAttackProcs !== false;
+    },
     onAttack: (fn) => {
       if (typeof fn === 'function') self.scratch.attackHooks.push(fn);
     },
@@ -843,7 +848,7 @@ function resolveBattle(a, b, opts = {}) {
   };
 
   /**
-   * A class Double Attack is a new attack instance, so chance-based defenses get
+   * An additional attack is a new attack instance, so chance-based defenses get
    * fresh seeded rolls before it enters the normal defender pipeline. Durable
    * one-shot defenses (Heimdall, Athena, Stone Skin, etc.) are deliberately not
    * refreshed here; their existing consumption rules still apply.
@@ -896,8 +901,12 @@ function resolveBattle(a, b, opts = {}) {
 
   // ── player attack action ───────────────────────────────────────────────────
   const playerAttack = (S, O, context = {}) => {
-    const isBonusAttack = context.isBonusAttack === true;
-    const allowArcherDoubleAttack = context.allowArcherDoubleAttack !== false;
+    const isPrimaryAttack = context.isPrimaryAttack !== false;
+    const isAdditionalAttack = !isPrimaryAttack;
+    const allowAdditionalAttackProcs =
+      isPrimaryAttack && context.allowAdditionalAttackProcs !== false;
+    const attackSource = context.source || (isPrimaryAttack ? 'primary' : 'additional');
+    const attackScale = Number.isFinite(context.atkScale) ? context.atkScale : 1;
     const scratchBaseline = context.scratchBaseline || {
       damageBonusPct: S.scratch.damageBonusPct,
       bonusIncomingDmgMult: S.scratch.bonusIncomingDmgMult,
@@ -907,7 +916,7 @@ function resolveBattle(a, b, opts = {}) {
       nextAttackAutoCrit: S.scratch.nextAttackAutoCrit,
       nextAttackDouble: S.scratch.nextAttackDouble,
     };
-    if (isBonusAttack) {
+    if (isAdditionalAttack) {
       S.scratch.damageBonusPct = scratchBaseline.damageBonusPct;
       S.scratch.bonusIncomingDmgMult = scratchBaseline.bonusIncomingDmgMult;
       S.scratch.playerAtkMult = scratchBaseline.playerAtkMult;
@@ -918,6 +927,12 @@ function resolveBattle(a, b, opts = {}) {
       S.scratch.nextAttackAutoCrit = false;
       S.scratch.nextAttackDouble = false;
     }
+    S.scratch.attackContext = {
+      isPrimaryAttack,
+      isAdditionalAttack,
+      allowAdditionalAttackProcs,
+      source: attackSource,
+    };
     // These hooks run only when an action really begins. A CC or Dizzy/Stun skip
     // cannot consume first-action effects, roll offensive procs, or leak a proc.
     const attackHookEventStart = shared.events.length;
@@ -925,7 +940,7 @@ function resolveBattle(a, b, opts = {}) {
     const attackHookEvents = shared.events.splice(attackHookEventStart);
 
     // Durable "next attack" effects are consumed only when an attack actually begins.
-    // A stun, freeze, charm, or Dizzy miss therefore cannot silently discard them.
+    // A stun, freeze, charm, or Dizzy/Stun skip cannot silently discard them.
     const amihanStacks = Math.max(0, Number(S.flags.amihan_evade_bonus_stacks) || 0);
     if (amihanStacks > 0) {
       S.scratch.playerAtkMult += amihanStacks * 0.20;
@@ -952,13 +967,17 @@ function resolveBattle(a, b, opts = {}) {
       S.scratch.nextAttackAutoCrit = true;
       S.flags.vidar_auto_crit_pending = false;
     }
-    // Mage Overcharge: on every 3rd round the MAIN hit is ×(2.5 + damage%/100) ([v4.4] base
-    // was ×3) AND the entire attack's crit is suppressed (pre-roll latch & nextAttackAutoCrit
-    // both voided — STRICT no-crit). The damage-% lane stacks additively onto the 2.5 base
-    // ([Jun-2026]); ATK-mult procs fold in earlier via effATK. Only the main hit qualifies —
-    // rider hits later in the same action (Labrys 2nd, Glacial Bow extra) keep their own crit
-    // rolls and the normal multiplier.
-    const overchargeRound = S.classPassive === 'overcharge' && shared.round % OVERCHARGE_EVERY === 0;
+    // Mage Overcharge is a turn-based modifier consumed only by the primary
+    // attack on every 3rd round. Any Labrys, Archer, Glacial Bow, or future
+    // additional attack gets the normal multiplier and a fresh crit roll.
+    const overchargeRound = isPrimaryAttack
+      && S.classPassive === 'overcharge'
+      && shared.round % OVERCHARGE_EVERY === 0;
+    const fighterStunTurns = S.classPassive === 'stun'
+      ? (isPrimaryAttack
+        ? S.stunPreRoll
+        : (rng() < FIGHTER_STUN_CHANCE ? FIGHTER_STUN_TURNS : 0))
+      : 0;
 
     const doHit = ({ atkScale, mainHit, critKnown }) => {
       if (result) return;
@@ -975,7 +994,8 @@ function resolveBattle(a, b, opts = {}) {
       //   hit = base × ((critLevel ? 2.0 : 1.0) + damage%/100)
       // Double (Idiyanale) is a GUARANTEED crit-level hit — same 2.0 base + damage%, so it
       // stacks with the rider (Supreme + double → ×2.5; Supreme + deity 50% + double → ×3.0).
-      // Overcharge (Mage 3rd round) is its own lane: ×(2.5 + damage%/100), no crit.
+      // Overcharge (Mage 3rd-round primary attack) is its own lane:
+      // ×(2.75 + damage%/100), no crit.
       const overchargeFired = mainHit && overchargeRound;
       const doubled = mainHit && S.scratch.nextAttackDouble && !overchargeFired;
       const critApplied = crit && !overchargeFired && !doubled;
@@ -984,7 +1004,7 @@ function resolveBattle(a, b, opts = {}) {
       const surtVsBurning = Boolean(S.flags.surt_on_hit && findDebuff(O, 'burn'));
       const willFighterStun = mainHit
         && S.classPassive === 'stun'
-        && S.stunPreRoll > 0
+        && fighterStunTurns > 0
         && canApplyFighterStun(O);
       const jarngreiprEligible = willFighterStun && S.flags.jarngreipr_on_stun;
       const thunderboltTriggered = mainHit && S.flags.thunderbolt_on_crit && critApplied;
@@ -994,10 +1014,8 @@ function resolveBattle(a, b, opts = {}) {
       const rolledDamage = (extraAtkMult) => {
         let amount = mitigated(effAtk(S, extraAtkMult) * atkScale, def) * variance;
         if (overchargeFired) {
-          // [Jun-2026] Overcharge stacks the damage-% lane ADDITIVELY onto the ×2.5 base,
-          // still with NO crit: e.g. a 200% damage-% proc → ×(2.5 + 2.0) = ×4.5. ATK-mult
-          // procs (e.g. Mjolnir) already fold in earlier through effAtk. A plain Mage
-          // (damage% 0) stays a clean ×2.5.
+          // Overcharge stacks the damage-% lane ADDITIVELY onto the ×2.75 base,
+          // still with NO crit. ATK-mult procs already fold in through effAtk.
           amount *= OVERCHARGE_MULT + damagePct / 100;
         } else {
           amount *= hitMultiplier(critLevel, damagePct);
@@ -1026,7 +1044,7 @@ function resolveBattle(a, b, opts = {}) {
       const prepareLandedHit = jarngreiprEligible
         ? () => {
           fighterStunResolved = true;
-          fighterStunned = tryApplyDebuff(O, 'stun', S.stunPreRoll);
+          fighterStunned = tryApplyDebuff(O, 'stun', fighterStunTurns);
           jarngreiprTriggered = fighterStunned;
           if (jarngreiprTriggered) dmg = jarngreiprDmg;
           return dmg;
@@ -1088,9 +1106,9 @@ function resolveBattle(a, b, opts = {}) {
           // rule centrally for every other stun source, so mixed passives cannot refresh it.
           const stunned = fighterStunResolved
             ? fighterStunned
-            : addDebuff(O, 'stun', S.stunPreRoll);
+            : addDebuff(O, 'stun', fighterStunTurns);
           if (stunned) {
-            shared.events.push(`👊 ${S.name}'s blow stuns ${O.name} for ${S.stunPreRoll} turn!`);
+            shared.events.push(`👊 ${S.name}'s blow stuns ${O.name} for ${fighterStunTurns} turn!`);
             if (jarngreiprTriggered) {
               shared.events.push('⚡ Jarngreipr: Thunder Grip — Stun triggered Bash! +60% ATK!');
             }
@@ -1105,7 +1123,7 @@ function resolveBattle(a, b, opts = {}) {
             shared.events.push(...bashReactions);
             O.flags.dizzy_pending = true;
             shared.events.push(
-              `💫 ${O.name} becomes Dizzy and is stunned for ${S.stunPreRoll} turn!`
+              `💫 ${O.name} becomes Dizzy and is stunned for ${fighterStunTurns} turn!`
             );
             if (result) return;
           }
@@ -1148,18 +1166,11 @@ function resolveBattle(a, b, opts = {}) {
 
     // main hit (crit pre-rolled at round start; auto-crit flags can upgrade it) —
     // an overcharge round suppresses the crit entirely (§13.1), latch and all.
-    const mainCritRoll = isBonusAttack ? rng() : S.critRollValue;
+    const mainCritRoll = isAdditionalAttack ? rng() : S.critRollValue;
     const mainCrit = !overchargeRound
       && ((mainCritRoll * 100 < effCritChance(S)) || S.scratch.nextAttackAutoCrit);
-    doHit({ atkScale: 1, mainHit: true, critKnown: mainCrit });
+    doHit({ atkScale: attackScale, mainHit: true, critKnown: mainCrit });
     if (result) return;
-
-    // labrys 2nd hit (rider — both hits crit-eligible)
-    if (S.flags.labrys_double_hit) {
-      S.flags.labrys_double_hit = false;
-      doHit({ atkScale: S.flags.labrys_second_hit_pct || 0.70, mainHit: false });
-      if (result) return;
-    }
 
     // Post-hit burst procs. Their landed-hit hooks arm these flags, so evasion and
     // crowd-control skips cannot trigger or carry them into a later turn.
@@ -1194,25 +1205,46 @@ function resolveBattle(a, b, opts = {}) {
       }
     }
 
-    // extra turn rider (Glacial Bow) — one additional attack, same round, no
-    // re-run of passives, riders already consumed, fresh crit roll
-    if (S.flags.extra_turn) {
-      S.flags.extra_turn = false;
-      doHit({ atkScale: 1, mainHit: false });
-      if (result) return;
+    // Additional-attack generators are evaluated only by the primary attack.
+    // Their deterministic order is Labrys → Glacial Bow → Archer. Every generated
+    // attack is otherwise a complete regular attack instance, but its context
+    // disables every additional-attack generator to prevent recursion.
+    const additionalAttacks = [];
+    if (allowAdditionalAttackProcs) {
+      if (S.flags.labrys_double_hit) {
+        additionalAttacks.push({
+          source: 'labrys',
+          atkScale: S.flags.labrys_second_hit_pct || 0.70,
+          log: '🪓 Labrys: Double Strike activated! (70% ATK additional attack)',
+        });
+      }
+      if (S.flags.extra_turn) {
+        additionalAttacks.push({
+          source: 'glacial_bow',
+          atkScale: 1,
+          log: '🏹 Glacial Bow: Frostwind Volley activated!',
+        });
+      }
+      if (S.classPassive === 'pierce' && rng() < ARCHER_DOUBLE_ATTACK_CHANCE) {
+        additionalAttacks.push({
+          source: 'archer',
+          atkScale: 1,
+          log: `🏹 ${S.name}'s Double Attack activated!`,
+        });
+      }
     }
+    S.flags.labrys_double_hit = false;
+    S.flags.extra_turn = false;
 
-    // The Archer class can add at most one complete regular attack instance. The
-    // target must survive Attack #1, and the nested call explicitly disables this
-    // class roll so Attack #2 cannot recurse into Attack #3.
-    if (allowArcherDoubleAttack
-        && S.classPassive === 'pierce'
-        && rng() < ARCHER_DOUBLE_ATTACK_CHANCE) {
-      shared.events.push(`🏹 ${S.name}'s Double Attack activated!`);
+    for (const additional of additionalAttacks) {
+      if (result || O.hp <= 0) break;
+      shared.events.push(additional.log);
       rerollDefensiveChecks(S, O);
       playerAttack(S, O, {
-        allowArcherDoubleAttack: false,
-        isBonusAttack: true,
+        isPrimaryAttack: false,
+        allowAdditionalAttackProcs: false,
+        source: additional.source,
+        atkScale: additional.atkScale,
         scratchBaseline,
       });
     }
@@ -1326,6 +1358,7 @@ function resolveBattle(a, b, opts = {}) {
       ignoreDefPct: 0,
       nextAttackAutoCrit: false,
       nextAttackDouble: false,
+      attackContext: null,
       attackHooks: [],
       landedHitHooks: [],
     };

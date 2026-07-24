@@ -24,7 +24,8 @@
  * bs scratch fields (reset by the engine every round, per docs/ENGINE_HOOKS.md §1):
  *   damageBonusPct (proc-granted damage %, summed with the weapon's bonusDmgPct),
  *   bonusIncomingDmgMult (0 = normal, additive delta), playerAtkMult, playerDefMult,
- *   ignoreDefPct, nextAttackAutoCrit, nextAttackDouble, log.
+ *   ignoreDefPct, nextAttackAutoCrit, nextAttackDouble, isPrimaryAttack,
+ *   isAdditionalAttack, allowAdditionalAttackProcs, log.
  * bs.flags.* persists for the whole battle (except the engine-managed per-round
  * derived flags — see battleEngine.js round-start reset list).
  *
@@ -367,12 +368,11 @@ const PASSIVE_REGISTRY = {
   'holmegaard_bow': stackingAtk('holmegaard_stack', 0.03, 0.15),
 
   'scandinavian_glacial_wooden_bow': (bs) => {
-    // 10% chance on an actual attack to take another turn (one attack rider).
+    // 10% chance on the primary attack to add one attack. Generated attacks
+    // cannot roll another additional-attack generator.
     bs.onAttack(() => {
+      if (bs.allowAdditionalAttackProcs === false) return;
       bs.flags.extra_turn = bs.rng() < 0.10;
-      if (bs.flags.extra_turn) {
-        bs.log.push('🏹 Glacial Bow: Frostwind Volley — Taking another turn!');
-      }
     });
   },
 
@@ -674,12 +674,13 @@ const PASSIVE_REGISTRY = {
   },
 
   'labrys': (bs) => {
-    // Every 3rd turn's actual attack hits twice; skipped turns cannot carry it forward.
+    // Every 3rd eligible turn, the primary attack queues one 70% ATK additional
+    // strike. Generated attacks cannot re-arm Labrys.
     if (bs.currentTurn % 3 === 0) {
       bs.onAttack(() => {
+        if (bs.allowAdditionalAttackProcs === false) return;
         bs.flags.labrys_double_hit = true;
         bs.flags.labrys_second_hit_pct = 0.70;
-        bs.log.push('🪓 Labrys: Double Strike — Second hit (70% ATK) triggered!');
       });
     }
   },
@@ -689,6 +690,7 @@ const PASSIVE_REGISTRY = {
     bs.playerDefMult += 0.20;
     if (bs.currentTurn % 4 === 0) {
       bs.onAttack(() => {
+        if (bs.isPrimaryAttack === false) return;
         bs.playerAtkMult += 1.50;
         bs.log.push('🔨 Hephaestus Hammer: Forged Armor — Forge Strike! +150% ATK!');
       });
@@ -735,6 +737,7 @@ const PASSIVE_REGISTRY = {
     if (0.25 > bs.ignoreDefPct) bs.ignoreDefPct = 0.25;
     if (bs.currentTurn % 4 === 0) {
       bs.onAttack(() => {
+        if (bs.isPrimaryAttack === false) return;
         bs.nextAttackAutoCrit = true;
         bs.log.push('🏹 Apollo\'s Silver Bow: Unerring Arrow — Guaranteed CRIT!');
       });
@@ -744,10 +747,11 @@ const PASSIVE_REGISTRY = {
   // ── WEAPON PASSIVES — Supreme ────────────────────────────────────────────
 
   'mjolnir': (bs) => {
-    // [Jun-2026 §4] Actual attacks gain +30%; every 3rd gets +200% more.
+    // Actual attacks gain +30%; the every-3rd-turn +200% rider belongs only to
+    // that turn's primary attack and is not repeated by additional attacks.
     bs.onAttack(() => {
       bs.playerAtkMult += 0.30;
-      if (bs.currentTurn % 3 === 0) {
+      if (bs.currentTurn % 3 === 0 && bs.isPrimaryAttack !== false) {
         bs.playerAtkMult += 2.00;
         bs.log.push('⚡ Mjolnir: Crushing Force — CRUSH! +200% ATK!');
       } else {
@@ -779,11 +783,13 @@ const PASSIVE_REGISTRY = {
     if (bs.currentTurn % 2 === 0) {
       let stunProc = false;
       bs.onAttack(() => {
+        if (bs.isPrimaryAttack === false) return;
         bs.playerAtkMult += 1.00;
         stunProc = bs.rng() < 0.30;
         bs.log.push('🔱 Trident of Poseidon: Tidal Wrath — +100% ATK!');
       });
       bs.onLandedHit(() => {
+        if (bs.isPrimaryAttack === false) return;
         const stunned = stunProc
           && !bs.enemyImmune('stun')
           && bs.applyDebuff('stun', 1);

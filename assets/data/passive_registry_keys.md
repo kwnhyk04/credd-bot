@@ -63,7 +63,7 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `freyrs_arrow` — Auto-Fire: 50% chance to auto-fire for 100% ATK damage.
 - `harpe` — Gorgon Slayer: Ignores 30% of enemy DEF.
 - `sword_of_damocles` — Impending Doom: ATK +5% every turn, stacking up to +100%. While any stacks are active, you take +10% damage.
-- `labrys` — Double Strike: Every 3rd turn, the attack hits twice; the second hit deals 70% ATK and both can CRIT.
+- `labrys` — Double Strike: Every 3rd eligible turn, the primary attack is followed by one 70% ATK additional strike. Both attacks can CRIT and trigger eligible attack effects.
 - `hephaestus_hammer` — Forged Armor: DEF +20% for the whole battle; every 4th turn, lands a 150% ATK forge strike.
 - `caduceus` — Herald's Touch: Every 3rd turn, cleanses all debuffs and restores 8% max HP.
 - `spear_of_ares` — Bloodlust: ATK +10% every turn, stacking up to +40%. Whenever you defeat an enemy, immediately gain a stack.

@@ -88,7 +88,7 @@ const CLASSES = {
       'Swift, precise, and deadly from a distance. The Archer does not wait for the enemy to come — they are already gone before the enemy arrives. ' +
       'Every arrow finds its mark, and no armor is thick enough to stop what cannot be seen coming.',
     passiveLine:
-      "**Passive: Armor Pierce & Double Attack** — Attacks ignore 25% of the target's Defense and have a 25% chance to immediately attack again.",
+      "**Passive: Armor Pierce & Double Attack** — Attacks ignore 25% of the target's Defense and have a 25% chance to immediately perform an additional attack.",
   },
 };
 
