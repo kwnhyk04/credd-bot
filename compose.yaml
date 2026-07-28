@@ -1,0 +1,28 @@
+services:
+  credd:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    image: credd-bot:latest
+    container_name: credd-bot
+
+    restart: unless-stopped
+    init: true
+
+    env_file:
+      - .env
+
+    volumes:
+      - credd_asset_cache:/data/credd-asset-cache
+
+    stop_grace_period: 30s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  credd_asset_cache:
