@@ -15,7 +15,7 @@
 const { MessageFlags, ContainerBuilder } = require('discord.js');
 const pool = require('../../db/pool');
 const { smallDivider: sep } = require('../../utils/componentsV2');
-const { emojiForDisplay, emoji } = require('../../utils/emojis');
+const { emojiForDisplay, emoji, gearTierEmoji } = require('../../utils/emojis');
 const { displayEnhancement } = require('../../utils/enhancementFormat');
 const { TIER_ALIAS } = require('../../config/gachaRates');
 const { MAX_SIGILS } = require('../../config/ascension');
@@ -87,9 +87,12 @@ function splitDeityNames(tokens, rosterNames) {
 }
 
 /** 3-line entry body for an owned weapon (glossary gear-entry style). */
-function weaponEntry(g) {
+function weaponEntry(g, id) {
   const icon = emojiForDisplay(g.name, '⚔️');
-  const line1 = `${icon} **${g.name}** — +${displayEnhancement(g.enhancement)} — ${g.tier}`;
+  // ID leads as inline code (tap-to-copy), then tier icon, then the item icon.
+  const tier = gearTierEmoji(g.tier);
+  const displayId = String(id ?? '').trim();
+  const line1 = `${displayId ? `\`${displayId}\` ` : ''}${tier ? `${tier} ` : ''}${icon} **${g.name}** — +${displayEnhancement(g.enhancement)} — ${g.tier}`;
   const stats = [
     `ATK ${Number(g.curr_atk || 0).toLocaleString()}`,
     `CRIT ${Number(g.crit || 0).toFixed(1)}%`,
@@ -103,9 +106,12 @@ function weaponEntry(g) {
 }
 
 /** 3-line entry body for an owned armor (glossary gear-entry style). */
-function armorEntry(g) {
+function armorEntry(g, id) {
   const icon = emojiForDisplay(g.name, '🛡️');
-  const line1 = `${icon} **${g.name}** — +${displayEnhancement(g.enhancement)} — ${g.tier}`;
+  // ID leads as inline code (tap-to-copy), then tier icon, then the item icon.
+  const tier = gearTierEmoji(g.tier);
+  const displayId = String(id ?? '').trim();
+  const line1 = `${displayId ? `\`${displayId}\` ` : ''}${tier ? `${tier} ` : ''}${icon} **${g.name}** — +${displayEnhancement(g.enhancement)} — ${g.tier}`;
   const stats = [
     `HP ${Number(g.curr_hp || 0).toLocaleString()}`,
     `DEF ${Number(g.curr_def || 0).toLocaleString()}`,
@@ -181,9 +187,11 @@ async function execute(message, { args }) {
   const deityByName = new Map((deityRows || []).map((row) => [normalizedName(row.name), row]));
   for (const token of requested) {
     if (kind === 'weapon' || kind === 'armor') {
-      const g = await fetchGear(discordId, token.toLowerCase());
+      // Same normalization the lookup uses, so the displayed ID matches what resolved.
+      const gearId = token.toLowerCase();
+      const g = await fetchGear(discordId, gearId);
       if (!g || g.kind !== kind) { missing.push(token); continue; }
-      entries.push(kind === 'weapon' ? weaponEntry(g) : armorEntry(g));
+      entries.push(kind === 'weapon' ? weaponEntry(g, gearId) : armorEntry(g, gearId));
     } else {
       const d = deityByName.get(normalizedName(token));
       if (!d || d.user_deity_id == null) { missing.push(token); continue; }

@@ -20,7 +20,7 @@ const {
 } = require('discord.js');
 const { TIERS } = require('./weaponResultRenderer');
 const { smallDivider: sep } = require('../utils/componentsV2');
-const { emoji, emojiForDisplay } = require('../utils/emojis');
+const { emoji, emojiForDisplay, gearTierEmoji } = require('../utils/emojis');
 const { capitalizeLower } = require('../utils/textFormat');
 
 const ANIMATION_MS = 5000; // chest/relic/rune-bag reveal countdown (owner: 5s)
@@ -229,7 +229,8 @@ function formatGearDrops(items) {
   return items.map((it) => {
     const icon = emojiForDisplay(it.name, it.gearClass === 'armor' ? 'Armor' : 'Weapon');
     const slots = Number(it.sockets) || 0;
-    return '`' + it.id + '` ' + icon + ' **' + it.name + '** - ' + it.tier + ' - ' + emoji('rune_slot') + ' ' + slots;
+    const tier = gearTierEmoji(it.tier);
+    return '`' + it.id + '` ' + (tier ? tier + ' ' : '') + icon + ' **' + it.name + '** - ' + it.tier + ' - ' + emoji('rune_slot') + ' ' + slots;
   }).join('\n');
 }
 

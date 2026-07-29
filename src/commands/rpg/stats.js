@@ -5,7 +5,7 @@ const { renderOptimizedAttachment, attachmentFromOptimizedImage } = require('../
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 const pool = require('../../db/pool');
 const { assemblePlayerStats, accumulateRuneStats } = require('../../engine/statAssembly');
-const { computeResonanceMods } = require('../../config/blessings');
+const { computeResonanceMods, resolveBlessingSlots, SLOT_UNLOCK_GATES } = require('../../config/blessings');
 const { computeDeityProgressionStats } = require('../../engine/deityEnhancement');
 const { EXP_REQUIRED, MAX_COMBAT_LEVEL } = require('../../config/combatExp');
 const { BELIEVER_EXP_PER_LEVEL, believerTitle } = require('../../config/believerProgression');
@@ -26,7 +26,8 @@ const { SUPPORTER_BADGE_DIR, SUPPORTER_BADGE_FILE } = require('../../config/cosm
 // 9: §1.3 — busts cards cached while an equipped avatar's art was missing on R2.
 // 10: §2.5 — supporter badge below the Title.
 // 11: shared supporter badge dimensions + name clamp to panel.
-const STATS_RENDER_REV = 17;
+// 19: keep the equipped avatar path when the advisory R2 HEAD probe fails.
+const STATS_RENDER_REV = 19;
 const STATS_IMAGE_OPTIONS = Object.freeze({
   quality: 50,
   maxWidth: Math.floor(envNumber('STATS_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 })),
@@ -54,6 +55,7 @@ async function execute(message) {
     pool.query(
       `SELECT uc.class, uc.combat_level, uc.combat_exp,
             uc.believer_level, uc.believer_exp,
+            uc.active_deity_id_2, uc.active_deity_id_3, uc.active_echo_deity_id,
             uc.raids_won, uc.raids_lost, uc.pvp_wins, uc.pvp_losses,
             wr.name  AS weapon_name,
             uw.enhancement AS weapon_enh,
@@ -61,7 +63,7 @@ async function execute(message) {
             ar.name  AS armor_name, ar.type AS armor_type,
             ua.enhancement AS armor_enh, ua.curr_hp AS a_hp, ua.curr_def AS a_def,
             ua.native_sockets AS a_native,
-            dr.name AS deity_name, dr.blessing_name,
+            dr.name AS deity_name, dr.blessing_name, dr.blessing_key,
             COALESCE(ud.sigils, 0) AS d1_unlocked_sigils,
             COALESCE(ud.ascended, FALSE) AS d1_ascended, ud.enhancement AS d1_enhancement,
             dr.base_atk AS d1_batk, dr.base_hp AS d1_bhp, dr.base_def AS d1_bdef,
@@ -74,7 +76,9 @@ async function execute(message) {
             COALESCE(ud3.ascended, FALSE) AS d3_ascended, ud3.enhancement AS d3_enhancement,
             d3r.base_atk AS d3_batk, d3r.base_hp AS d3_bhp, d3r.base_def AS d3_bdef,
             d3r.mythology AS d3_myth,
-            d2r.blessing_name AS deity2_blessing, d3r.blessing_name AS deity3_blessing,
+            der.name AS echo_deity_name, der.blessing_name AS echo_blessing_name,
+            der.blessing_key AS echo_blessing_key,
+            COALESCE(ude.ascended, FALSE) AS echo_ascended,
             tcq.display AS equipped_title
        FROM user_character uc
        LEFT JOIN user_weapons  uw ON uc.equipped_weapon_id = uw.weapon_id
@@ -87,6 +91,8 @@ async function execute(message) {
        LEFT JOIN deity_roster  d2r ON ud2.deity_id          = d2r.deity_id
        LEFT JOIN user_deities  ud3 ON uc.active_deity_id_3  = ud3.user_deity_id
        LEFT JOIN deity_roster  d3r ON ud3.deity_id          = d3r.deity_id
+       LEFT JOIN user_deities  ude ON uc.active_echo_deity_id = ude.user_deity_id
+       LEFT JOIN deity_roster  der ON ude.deity_id            = der.deity_id
        LEFT JOIN title_catalog tcq ON tcq.title_id          = uc.equipped_title_id
        WHERE uc.discord_id = $1`,
       [discordId]
@@ -179,6 +185,53 @@ async function execute(message) {
 
   const combatAtCap = r.combat_level >= MAX_COMBAT_LEVEL;
 
+  // Blessing channels use the same resolver as combat, so the
+  // display can never disagree with which blessing actually fires.
+  const blessingSlots = resolveBlessingSlots({
+    slot1Name: r.deity_name,
+    slot1BlessingName: r.blessing_name,
+    slot1BlessingKey: r.blessing_key,
+    slot1Ascended: r.d1_ascended,
+    echoName: r.echo_deity_name,
+    echoBlessingName: r.echo_blessing_name,
+    echoBlessingKey: r.echo_blessing_key,
+    echoAscended: r.echo_ascended,
+  });
+
+  // Slot 1 has no believer-level gate.
+  const primaryBlessingText = !blessingSlots.primary.deityName
+    ? 'None'
+    : !blessingSlots.primary.ascended
+      ? 'Deity not ascended'
+      : blessingSlots.primary.key === 'none'
+        ? 'None'
+        : (blessingSlots.primary.blessingName || 'None');
+
+  // Which slot the chosen Echo deity occupies, for the believer-level gate.
+  const echoSlot =
+    r.active_echo_deity_id && r.active_echo_deity_id === r.active_deity_id_2 ? 2 :
+      r.active_echo_deity_id && r.active_echo_deity_id === r.active_deity_id_3 ? 3 :
+        null;
+  const believerLevel = Number(r.believer_level) || 0;
+
+  // Gate order matters: the slot-2 gate is checked BEFORE "is an echo deity
+  // selected", so an early-progression character reads Locked, not None.
+  let secondaryBlessingText;
+  if (believerLevel < SLOT_UNLOCK_GATES[2]) {
+    secondaryBlessingText = 'Locked';
+  } else if (echoSlot == null || !blessingSlots.secondary.deityName) {
+    // Nothing selected, or a stale pointer matching neither slot 2 nor slot 3.
+    secondaryBlessingText = 'None';
+  } else if (believerLevel < (SLOT_UNLOCK_GATES[echoSlot] ?? 0)) {
+    secondaryBlessingText = 'Locked';
+  } else if (!blessingSlots.secondary.ascended) {
+    secondaryBlessingText = 'Deity not ascended';
+  } else if (blessingSlots.secondary.key === 'none') {
+    secondaryBlessingText = 'None';
+  } else {
+    secondaryBlessingText = blessingSlots.secondary.blessingName || 'None';
+  }
+
   const data = {
     displayName,
     discordId,
@@ -203,10 +256,11 @@ async function execute(message) {
     deity2Name: r.deity2_name || null,
     deity3Name: r.deity3_name || null,
     deityEnh,
-    // Divine Blessing = slot-1 deity's blessing. Echo Blessing = the blessings carried by the
-    // slot-2/slot-3 (echo) deities, joined; null when no echo deities are equipped.
-    blessingName: r.deity_name ? (r.blessing_name || null) : null,
-    echoBlessing: [r.deity2_blessing, r.deity3_blessing].filter(Boolean).join(' · ') || null,
+    // Primary/Secondary describe the combat channel, not the Divine/Echo blessing
+    // type. An Echo-type deity in slot 1 still supplies the primary channel.
+    // Keys stay `blessingName`/`echoBlessing` so per-skin stats layouts resolve.
+    blessingName: primaryBlessingText,
+    echoBlessing: secondaryBlessingText,
 
     atk: stats.atk,
     hp: stats.hp,
@@ -247,19 +301,20 @@ async function execute(message) {
   });
   data.avatarPath = await resolveStatsAvatar(pool, discordId, r.class, logContext);
   data.avatarFallbackPath = resolveDefaultClassAvatarPath(r.class);
-  // [§1.3] Cache-poisoning guard: the canvas cache assumes the render is a pure
-  // function of its inputs, but the avatar layer also depends on whether the art
-  // is fetchable AT RENDER TIME. If the equipped avatar's file is missing, null
-  // the path so the fallback render is keyed AS a fallback — once the art is
-  // uploaded, remoteAssetAvailable flips (10-min TTL re-check) → new cache key →
-  // fresh render. Uses the existing cached HEAD probe (no per-render egress).
-  if (data.avatarPath && isRemoteAssetsEnabled() && isRemoteSource(data.avatarPath)
-      && !(await remoteAssetAvailable(relativeAssetPath(data.avatarPath)))) {
-    performanceLog('stats avatar art missing — keyed as fallback', {
+  // The HEAD probe is advisory. A transient HEAD failure must not erase a valid
+  // equipped path before the renderer can attempt the real image GET. Keep its
+  // result in the canvas input so a genuinely missing object renders under a
+  // different key once the probe later succeeds, preventing fallback-cache
+  // poisoning without hiding an available avatar.
+  data.avatarAssetAvailable = null;
+  if (data.avatarPath && isRemoteAssetsEnabled() && isRemoteSource(data.avatarPath)) {
+    data.avatarAssetAvailable = await remoteAssetAvailable(relativeAssetPath(data.avatarPath));
+  }
+  if (data.avatarAssetAvailable === false) {
+    performanceLog('stats avatar HEAD unavailable — renderer will attempt source', {
       ...logContext,
       assetKey: safeAssetKey(data.avatarPath),
     });
-    data.avatarPath = null;
   }
 
   // [§2.5] Supporter badge: active subscribers only (effectiveTier → null when

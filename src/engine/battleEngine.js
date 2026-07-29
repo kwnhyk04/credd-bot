@@ -74,12 +74,12 @@
  *   → floor → defender stack (R3) → apply → death check (§35.3 first-to-0, R5)
  *
  * DEFENDER STACK (R3, fixed order):
- *   player defender: negations (amihan → loki+counter → gridr → skjaldmaer; a fully
- *   evaded hit consumes nothing) → multiplicative reductions (heimdall 50% one-shot →
- *   athena 40% ×2 → odin 25% on even turns → steel kite 15% → pelte 25% → njord 30%) →
- *   ×(1 + Σ bonusIncomingDmgMult) → Knight ×0.80 → sidapa lethal reprieve →
- *   apply → reflects on FINAL applied damage (enderby 30% + Tyr 20% + Mayari 15%; skipped when
- *   the hit was lethal — R5).
+ *   player defender: evasion -> full-hit negation -> raw post-DEF damage ->
+ *   collect every damage-reduction source into one additive total (capped at
+ *   70%) -> apply incoming-damage increases -> Brokkr per-hit cap -> apply
+ *   damage -> resolve each reflect source separately on final damage taken ->
+ *   on-hit armor stacks. Reflected damage never enters this defender stack, so
+ *   it cannot itself be reflected.
  *   mob defender: sigbin evade (round-scoped) → dwarf stone-skin absorb (consumed).
  *
  * DEF_DOWN COMBINATION (R8): all def_down sources (the def_down debuff — itself
@@ -95,7 +95,10 @@ const {
   EFFECT_CATEGORY,
   EFFECT_DEFINITIONS,
   CANONICAL_ON_HIT_EFFECTS,
+  BLEED_TAG,
   effectCategory,
+  effectHasTag,
+  isCrowdControlEffect,
   isStatusEffect,
   isRecurringDamageEffect,
   removeEffectsByCategory,
@@ -111,9 +114,8 @@ const ARCHER_DOUBLE_ATTACK_CHANCE = CLASS_PASSIVE_VALUES.Archer.doubleAttackChan
 const FIGHTER_STUN_CHANCE = CLASS_PASSIVE_VALUES.Fighter.stunChance;
 const FIGHTER_STUN_TURNS = CLASS_PASSIVE_VALUES.Fighter.stunTurns;
 const FIGHTER_BASH_DAMAGE_PCT = CLASS_PASSIVE_VALUES.Fighter.bashDamage;
-const KNIGHT_DR = 0.75;           // ×0.75 incoming = 25% damage reduction
-const INCOMING_DR_FLOOR = 0.25;   // [v5] combined damage-reduction floor: post-DEF incoming never < 25%
-const TOTAL_EVADE_CAP = 0.40;     // [v5] total evade across all sources (enforced in the registry)
+const KNIGHT_DAMAGE_REDUCTION = 0.25;
+const MAX_DAMAGE_REDUCTION = 0.70;
 const OVERCHARGE_EVERY = 3;       // [v4.2] fires on rounds 3, 6, 9, …
 const BLEED_PCT_PER_STACK = CLASS_PASSIVE_VALUES.Swordsman.bleedPerAttack;
 const BLEED_MAX_PCT = CLASS_PASSIVE_VALUES.Swordsman.bleedMax;
@@ -130,6 +132,14 @@ const DOT_DEATH_TEXT = {
   poison: 'poisoning',
   hp_pct_dot: 'rot',
   thor_paralyze_dot: 'paralysis',
+};
+const DOT_DEATH_CAUSE = {
+  venom: 'Venom',
+  poison: 'Poison',
+  bleed: 'Bleed',
+  burn: 'Burn',
+  hp_pct_dot: 'Rot',
+  thor_paralyze_dot: 'Paralysis',
 };
 
 const ACTION_TAG_LABELS = {
@@ -188,7 +198,8 @@ function damageFromEvents(side, events) {
   for (const event of events) {
     const isOwnHit = event.includes(`${side.name} attacks`) ||
       event.includes(`${side.name} strikes again`) ||
-      event.includes(`${side.name} strikes`);
+      event.includes(`${side.name} strikes`) ||
+      event.includes(`${side.name}'s Auto-Fire`);
     if (!isOwnHit) continue;
     const m = /for \*\*(\d+) DMG\*\*/.exec(event);
     if (m) damage += Number(m[1]);
@@ -281,7 +292,7 @@ function resolveBattle(a, b, opts = {}) {
     specialFlags: f.specialFlags || {},
     isBoss: f.mobType === 'boss',
     debuffs: [],            // [{tag, turnsLeft, value}]
-    flags: {},              // durable bs.flags.* (docs/ENGINE_HOOKS.md)
+    flags: {},              // durable bs.flags.* state for the current battle
     // Alan's immunity is intrinsic and must exist before either duelist's passive
     // phase; otherwise the first actor could land a round-1 debuff before Alan ran.
     statusImmune: f.weaponPassiveKey === 'alans_reversed_hands'
@@ -303,6 +314,8 @@ function resolveBattle(a, b, opts = {}) {
   // damageDealtToPlayer is the symmetric A-side tally (pvp_logs opponent_damage).
   const totals = { damageDealtToEnemy: 0, damageDealtToPlayer: 0, enemyLocalRegen: 0, netDamage: 0 };
   const shared = { round: 0, events: [] };
+  const hasEquippedPassive = (side, key) =>
+    side.weaponPassiveKey === key || side.armorPassiveKey === key;
 
   // ── HP mutation hub (totals accounting) ────────────────────────────────────
   const setHp = (side, v) => {
@@ -323,13 +336,34 @@ function resolveBattle(a, b, opts = {}) {
     const before = side.hp;
     heal(side, requested);
     const restored = side.hp - before;
-    shared.events.push(`🩸 ${passiveName}: Healed ${restored.toLocaleString()} HP`);
+    const icon = passiveName === 'Soul Drain' ? '🌊' : '🩸';
+    shared.events.push(`${icon} ${passiveName} — healed ${restored.toLocaleString()} HP.`);
   };
 
   // ── debuff helpers (§13.1: refresh don't stack/extend; highest value wins) ─
   const findDebuff = (side, tag) => side.debuffs.find((d) => d.tag === tag);
   const debuffValue = (side, tag) => { const d = findDebuff(side, tag); return d ? d.value : 0; };
-  const frostbiteDamage = (side, amount) => findDebuff(side, 'frostbite') ? amount * 1.5 : amount;
+  const effectDamage = (side, amount) => {
+    let adjusted = amount;
+    if (findDebuff(side, 'frostbite')) adjusted *= 1.5;
+    if (findDebuff(side, 'petrify')) adjusted *= 1.25;
+    return adjusted;
+  };
+  const healTribalWard = (side, removedCount, reason) => {
+    if (!hasEquippedPassive(side, 'luzon_tribal_shield') || removedCount < 1) return;
+    for (let i = 0; i < removedCount; i++) {
+      const before = side.hp;
+      heal(side, side.maxHp * 0.08);
+      shared.events.push(
+        `🪶 Tribal Ward — debuff ${reason}, restored ${(side.hp - before).toLocaleString()} HP.`
+      );
+    }
+  };
+  const removePlayerEffects = (side, categories, reason = 'cleansed') => {
+    const removed = removeEffectsByCategory(side.debuffs, categories);
+    healTribalWard(side, removed, reason);
+    return removed;
+  };
   const addDebuff = (side, tag, turns, value = 0) => {
     const category = effectCategory(tag);
     if (!category) throw new Error(`Unknown combat effect ID: ${tag}`);
@@ -343,18 +377,21 @@ function resolveBattle(a, b, opts = {}) {
         return false;
       }
     }
-    // [v5] armor defensive hooks on a player recipient (anting / salakot). Both run
-    // at debuff-apply time so they catch CC from passives AND attacks. Existing fights
-    // (no v5 armor) leave these flags falsy → byte-identical behavior.
     if (side.kind === 'player') {
-      const immune = side.flags.immune_cc_types;
-      if (Array.isArray(immune) && immune.includes(tag)) {
-        shared.events.push(`🧿 ${side.name} is immune to ${ACTION_TAG_LABELS[tag] || tag} (Charmed Hide)!`);
-        return false;
+      if (side.flags.charmed_hide_active && isCrowdControlEffect(tag)) {
+        if (!side.flags.charmed_hide_first_cc_used) {
+          side.flags.charmed_hide_first_cc_used = true;
+          shared.events.push('🪬 Charmed Hide — the first crowd-control effect was nullified!');
+          return false;
+        }
+        if (rng() < 0.40) {
+          shared.events.push(`🪬 Charmed Hide — resisted ${ACTION_TAG_LABELS[tag] || tag}!`);
+          return false;
+        }
       }
       const negate = side.flags.salakot_negate_chance || 0;
       if (negate > 0 && rng() < negate) {
-        shared.events.push(`🪬 ${side.name} negates an incoming ${ACTION_TAG_LABELS[tag] || tag} (Spirit Ward)!`);
+        shared.events.push(`🪬 Spirit Ward — negated ${ACTION_TAG_LABELS[tag] || tag}!`);
         return false;
       }
     }
@@ -371,15 +408,33 @@ function resolveBattle(a, b, opts = {}) {
     return true;
   };
   const sideImmune = (side, tag) => {
+    if (side.isBoss && (tag === 'boss_immune' || tag === 'hp_pct_dot')) return true;
     if (side.kind !== 'mob') return false;
-    if (side.isBoss && tag === 'hp_pct_dot') return true; // §35.4 auto-immunity
     return side.immunityTags.includes('all_debuffs') || side.immunityTags.includes(tag);
   };
   const debuffImmune = (side, tag) =>
     sideImmune(side, tag) || (side.kind === 'player' && side.statusImmune && isStatusEffect(tag));
-  const tryApplyDebuff = (side, tag, turns, value = 0) => {
-    if (debuffImmune(side, tag)) return false;
-    return addDebuff(side, tag, turns, value);
+  const tryApplyDebuff = (
+    side,
+    tag,
+    turns,
+    value = 0,
+    source = null,
+    { allowOnBoss = false } = {},
+  ) => {
+    const immune = allowOnBoss && side.isBoss ? false : debuffImmune(side, tag);
+    if (immune) {
+      if (side.kind === 'player' && side.statusImmune && isStatusEffect(tag)) {
+        shared.events.push('✋ Untouchable — status effect blocked!');
+      }
+      return false;
+    }
+    const applied = addDebuff(side, tag, turns, value);
+    if (applied && source) {
+      const effect = findDebuff(side, tag);
+      if (effect) effect.source = source;
+    }
+    return applied;
   };
   const canApplyFighterStun = (target) => {
     if (debuffImmune(target, 'stun')) return false;
@@ -387,7 +442,7 @@ function resolveBattle(a, b, opts = {}) {
     return target.flags.stun_immune_until == null || shared.round > target.flags.stun_immune_until;
   };
 
-  // ── perspectives (the registry's bs view; docs/ENGINE_HOOKS.md contract) ──
+  // Perspectives (the registry's bs view).
   const makePerspective = (self, opp) => ({
     rng,
     get currentTurn() { return shared.round; },
@@ -406,12 +461,12 @@ function resolveBattle(a, b, opts = {}) {
     get log() { return shared.events; },
     get playerStatusImmune() { return self.statusImmune; },
     set playerStatusImmune(v) { self.statusImmune = !!v; },
-    // proc-granted damage % (Katana, future deity blessings) — summed with the weapon's
-    // durable bonusDmgPct; resets each round (only active while the source procs). §35.2
     get damageBonusPct() { return self.scratch.damageBonusPct; },
     set damageBonusPct(v) { self.scratch.damageBonusPct = v; },
-    get bonusIncomingDmgMult() { return self.scratch.bonusIncomingDmgMult; },
-    set bonusIncomingDmgMult(v) { self.scratch.bonusIncomingDmgMult = v; },
+    get damageReductionPct() { return self.scratch.damageReductionPct; },
+    set damageReductionPct(v) { self.scratch.damageReductionPct = v; },
+    get incomingDamageIncreasePct() { return self.scratch.incomingDamageIncreasePct; },
+    set incomingDamageIncreasePct(v) { self.scratch.incomingDamageIncreasePct = v; },
     get playerAtkMult() { return self.scratch.playerAtkMult; },
     set playerAtkMult(v) { self.scratch.playerAtkMult = v; },
     get playerDefMult() { return self.scratch.playerDefMult; },
@@ -437,15 +492,28 @@ function resolveBattle(a, b, opts = {}) {
     onLandedHit: (fn) => {
       if (typeof fn === 'function') self.scratch.landedHitHooks.push(fn);
     },
-    enemyImmune: (tag) => debuffImmune(opp, tag),
-    applyDebuff: (tag, turns, value = 0) => tryApplyDebuff(opp, tag, turns, value),
-    applyPlayerDebuff: (tag, turns, value = 0) => tryApplyDebuff(self, tag, turns, value),
+    onEnemyAttack: (fn) => {
+      if (typeof fn === 'function') self.scratch.enemyAttackHooks.push(fn);
+    },
+    onEnemyLandedHit: (fn) => {
+      if (typeof fn === 'function') self.scratch.enemyLandedHitHooks.push(fn);
+    },
+    enemyImmune: (tag) => {
+      const immune = debuffImmune(opp, tag);
+      if (immune && opp.kind === 'player' && opp.statusImmune && isStatusEffect(tag)) {
+        shared.events.push('✋ Untouchable — status effect blocked!');
+      }
+      return immune;
+    },
+    applyDebuff: (tag, turns, value = 0, options = {}) =>
+      tryApplyDebuff(opp, tag, turns, value, self, options),
+    applyPlayerDebuff: (tag, turns, value = 0) => tryApplyDebuff(self, tag, turns, value, opp),
+    enemyHasEffectTag: (tag) => opp.debuffs.some((effect) => effectHasTag(effect.tag, tag)),
     hasPlayerDebuff: (tag) => (tag === 'any' ? self.debuffs.length > 0 : !!findDebuff(self, tag)),
-    clearPlayerStatusEffects: () => removeEffectsByCategory(self.debuffs, [EFFECT_CATEGORY.STATUS]),
-    clearPlayerDebuffs: () => removeEffectsByCategory(
-      self.debuffs,
-      [EFFECT_CATEGORY.STATUS, EFFECT_CATEGORY.DOT],
-    ),
+    clearPlayerStatusEffects: () =>
+      removePlayerEffects(self, [EFFECT_CATEGORY.STATUS], 'cleansed'),
+    clearPlayerDebuffs: () =>
+      removePlayerEffects(self, [EFFECT_CATEGORY.STATUS, EFFECT_CATEGORY.DOT], 'cleansed'),
   });
 
   const PA = makePerspective(A, B);
@@ -454,36 +522,23 @@ function resolveBattle(a, b, opts = {}) {
   const oppOf = (side) => (side === A ? B : A);
 
   // ── battle result ──────────────────────────────────────────────────────────
-  let result = null; // { winner: 'a'|'b', outcome: string }
-  const applyDefeatPassives = (winner) => {
-    if (winner.kind !== 'player') return;
-    if (winner.flags.soul_drain_active) {
-      const before = winner.hp;
-      heal(winner, winner.maxHp * 0.20);
-      const restored = winner.hp - before;
-      if (restored > 0) shared.events.push(`🌊 ${winner.name} claims the fallen soul and recovers ${restored} HP!`);
-    }
-    if (winner.weaponPassiveKey === 'spear_of_ares') {
-      const before = winner.flags.spear_of_ares_stack || 0;
-      winner.flags.spear_of_ares_stack = Math.min(0.40, before + 0.10);
-      if (winner.flags.spear_of_ares_stack > before) {
-        shared.events.push('🩸 Spear of Ares: Bloodlust — Defeat grants an immediate ATK stack!');
-      }
-    }
-  };
-  const win = (side, outcome) => {
+  let result = null;
+  const win = (side, outcome, causeOfDeath = null) => {
     if (result) return;
-    applyDefeatPassives(side);
-    result = { winner: side === A ? 'a' : 'b', outcome };
-    // Explicit knockout line so the defeat is always clearly visible in the log
-    // for every mode (a killing blow otherwise leaves no defeat text). Players use
-    // their mention when the caller supplies one (side.in.mention); mobs/bosses use
-    // their display name.
+    result = { winner: side === A ? 'a' : 'b', outcome, causeOfDeath };
     const loser = side === A ? B : A;
     const tag = (f) => (f.kind === 'player' ? (f.in?.mention || f.name) : f.name);
     const winTag = tag(side);
     const loseTag = tag(loser);
-    if (side.kind === 'player' && loser.kind === 'player') {
+    if (causeOfDeath?.type === 'reflect') {
+      shared.events.push(`💀 ${loseTag} was defeated by ${causeOfDeath.source}'s reflected damage!`);
+    } else if (causeOfDeath?.type === 'execute' && causeOfDeath.source === 'Cursed Edge') {
+      shared.events.push(`💀 ${loseTag} was executed by Cursed Edge!`);
+    } else if (causeOfDeath?.type === 'execute' && causeOfDeath.source === 'Death Charm') {
+      shared.events.push(`💀 ${loseTag} was slain by Death Charm!`);
+    } else if (causeOfDeath?.type === 'dot') {
+      shared.events.push(`💀 ${loseTag} was defeated by ${causeOfDeath.source}!`);
+    } else if (side.kind === 'player' && loser.kind === 'player') {
       shared.events.push(`💫 ${loseTag} fainted and was defeated by ${winTag}!`); // PvP KO
     } else if (loser.kind === 'player') {
       shared.events.push(`💫 ${loseTag} was defeated by ${winTag}!`); // player fell to a mob/boss
@@ -492,10 +547,10 @@ function resolveBattle(a, b, opts = {}) {
     }
   };
   /** Death check in causal order (§35.3 first-to-0). Returns true if battle over. */
-  const checkDeaths = (outcome) => {
+  const checkDeaths = (outcome, causeOfDeath = null) => {
     if (result) return true;
-    if (A.hp <= 0) { win(B, outcome); return true; }
-    if (B.hp <= 0) { win(A, outcome); return true; }
+    if (A.hp <= 0) { win(B, outcome, causeOfDeath); return true; }
+    if (B.hp <= 0) { win(A, outcome, causeOfDeath); return true; }
     return false;
   };
 
@@ -568,17 +623,58 @@ function resolveBattle(a, b, opts = {}) {
   };
   const grantValkyrieResolve = (side) => {
     if (!side.flags.valkyrie_resolve_active) return;
-    const oldDef = side.flags.valkyrie_shield_def || 0;
+    const oldDr = side.flags.valkyrie_shield_dr || 0;
     const oldAtk = side.flags.valkyrie_shield_atk || 0;
-    const nextDef = Math.min(oldDef + 0.05, 0.30);
-    const nextAtk = Math.min(oldAtk + 0.05, 0.30);
-    side.flags.valkyrie_shield_def = nextDef;
+    const nextDr = Math.min(oldDr + 0.05, 0.25);
+    const nextAtk = Math.min(oldAtk + 0.05, 0.25);
+    side.flags.valkyrie_shield_dr = nextDr;
     side.flags.valkyrie_shield_atk = nextAtk;
-    side.scratch.playerDefMult += nextDef - oldDef;
+    side.scratch.damageReductionPct += nextDr - oldDr;
     side.scratch.playerAtkMult += nextAtk - oldAtk;
-    if (nextDef > oldDef || nextAtk > oldAtk) {
-      shared.events.push(`🛡️ Shield of the Valkyrie: Valkyrie's Resolve — DEF +${Math.round(nextDef * 100)}%, ATK +${Math.round(nextAtk * 100)}%!`);
+    if (nextDr > oldDr || nextAtk > oldAtk) {
+      const stacks = Math.round(nextDr / 0.05);
+      shared.events.push(
+        `⚔️ Valkyrie's Resolve — ${stacks} stacks · ${Math.round(nextDr * 100)}% reduction · +${Math.round(nextAtk * 100)}% ATK`
+      );
     }
+  };
+  const grantAegisStone = (defender, attacker) => {
+    if (!defender.flags.aegis_active) return;
+    const oldStacks = defender.flags.aegis_stacks || 0;
+    const nextStacks = oldStacks + 1;
+    if (nextStacks >= 3) {
+      defender.flags.aegis_stacks = 0;
+      defender.scratch.damageReductionPct = Math.max(
+        0,
+        defender.scratch.damageReductionPct - oldStacks * 0.07,
+      );
+      const petrified = tryApplyDebuff(attacker, 'petrify', 1, 0, defender);
+      shared.events.push(
+        petrified
+          ? `🗿 Medusa's Gaze — 3 Stone stacks! ${attacker.name} is Petrified for 1 turn.`
+          : "🗿 Medusa's Gaze — 3 Stone stacks! Petrify was resisted."
+      );
+      return;
+    }
+    defender.flags.aegis_stacks = nextStacks;
+    defender.scratch.damageReductionPct += 0.07;
+    shared.events.push(
+      `🗿 Medusa's Gaze — ${nextStacks} Stone stack${nextStacks === 1 ? '' : 's'} (${nextStacks * 7}% reduction)`
+    );
+  };
+  const applyReflectedDamage = (defender, attacker, baseDamage, pct, source) => {
+    // Reflect is an exact percentage of the triggering hit's final damage. Do
+    // not pass it through Frostbite/Petrify again or a 12% reflect can exceed 12%.
+    const reflected = Math.floor(baseDamage * pct);
+    if (reflected <= 0) return false;
+    const before = attacker.hp;
+    damage(attacker, reflected);
+    const applied = before - attacker.hp;
+    shared.events.push(`🌵 ${source} reflects ${applied} damage back to ${attacker.name}.`);
+    if (applied > 0 && defender.hp > 0 && defender.flags.soul_drain_pct > 0) {
+      applyLifesteal(defender, applied, defender.flags.soul_drain_pct, 'Soul Drain');
+    }
+    return checkDeaths('reflect', { type: 'reflect', source });
   };
   const armLowHpAttackPassives = (side) => {
     if (side.deityBlessingKey === 'vidar_silent_vengeance'
@@ -597,7 +693,7 @@ function resolveBattle(a, b, opts = {}) {
     };
     if (O.kind === 'mob') {
       // mob defenses live on the attacking player's flags (mob skills run there)
-      if (S.flags.sigbin_evade_check && !S.flags.tyrfing_no_miss) {
+      if (S.flags.sigbin_evade_check && !S.flags.attacks_cannot_miss) {
         shared.events.push(`👤 ${O.name} evades the attack (Shadow Step)!`);
         return { applied: 0, negated: true, evaded: true };
       }
@@ -608,21 +704,19 @@ function resolveBattle(a, b, opts = {}) {
         S.flags.dwarf_shield_active = false;
         if (absorbed > 0) shared.events.push(`⛏️ ${O.name}'s Stone Skin absorbs ${absorbed} damage!`);
       }
-      // Skadi: Frostbite amplifies all incoming damage on the frozen-then-thawed enemy.
-      dmg = frostbiteDamage(O, dmg);
+      dmg = effectDamage(O, dmg);
       damage(O, dmg);
       checkDeaths('attack');
       return { applied: Math.floor(dmg), negated: false };
     }
 
-    // player defender — negation rolls first (consume nothing on full evade, R3)
     const F = O.flags;
-    if (F.amihan_evade_check && !S.flags.tyrfing_no_miss) {
+    if (F.amihan_evade_check && !S.flags.attacks_cannot_miss) {
       shared.events.push(`💨 ${O.name} evades the attack (Tailwind)!`);
       F.amihan_evade_bonus_stacks = (F.amihan_evade_bonus_stacks || 0) + 1;
       return { applied: 0, negated: true, evaded: true };
     }
-    if (F.loki_evade_check && !S.flags.tyrfing_no_miss) {
+    if (F.loki_evade_check && !S.flags.attacks_cannot_miss) {
       shared.events.push(`🃏 ${O.name} evades the attack (Illusory Double)!`);
       const counter = Math.max(0, Math.floor(F.loki_counter_dmg || 0));
       // Illusory Double evades one attack per successful turn roll. Consume it
@@ -630,100 +724,128 @@ function resolveBattle(a, b, opts = {}) {
       F.loki_evade_check = false;
       F.loki_counter_dmg = 0;
       if (counter > 0) {
-        const appliedCounter = Math.floor(frostbiteDamage(S, counter));
+        const appliedCounter = Math.floor(effectDamage(S, counter));
+        const counterTargetHpBefore = S.hp;
         damage(S, appliedCounter);
         shared.events.push(`🃏 Loki's counter strikes ${S.name} for ${appliedCounter} DMG!`);
+        if (appliedCounter > 0 && O.hp > 0 && O.flags.soul_drain_pct > 0) {
+          applyLifesteal(
+            O,
+            Math.min(appliedCounter, counterTargetHpBefore),
+            O.flags.soul_drain_pct,
+            'Soul Drain',
+          );
+        }
         checkDeaths('counter');
       }
       return { applied: 0, negated: true, evaded: true };
     }
-    if (F.gridr_ignore_check) {
-      shared.events.push(`👊 ${O.name} ignores the incoming damage (Ironhide)!`);
-      return { applied: 0, negated: true };
+
+    if (F.chooser_grace_active && !S.flags.attacks_cannot_miss) {
+      const chance = Number.isFinite(F.chooser_grace_chance) ? F.chooser_grace_chance : 0.22;
+      if (rng() < chance) {
+        F.chooser_grace_chance = 0.22;
+        shared.events.push("👻 Chooser's Grace — evaded! (chance reset to 22%)");
+        return { applied: 0, negated: true, evaded: true };
+      }
     }
-    if (F.skjaldmaer_ignore_check) {
-      shared.events.push(`🛡️ ${O.name} ignores the incoming damage (Shieldmaiden's Guard)!`);
-      return { applied: 0, negated: true };
-    }
-    if (F.valkyrie_evade_check && !S.flags.tyrfing_no_miss) { // [v5] armor evade (total-evade cap enforced in the registry)
-      shared.events.push(`🪽 ${O.name} evades the attack (Chooser's Grace)!`);
+    if (F.helm_darkness_active && !S.flags.attacks_cannot_miss && rng() < 0.30) {
+      F.unseen_pending = true;
+      shared.events.push('🌑 Veil of Hades — evaded! You are Unseen: next attack ignores 50% DEF.');
       return { applied: 0, negated: true, evaded: true };
     }
 
+    if (F.gridr_ironhide_active && rng() < 0.20) {
+      shared.events.push('🛡️ Ironhide — incoming hit ignored entirely!');
+      return { applied: 0, negated: true };
+    }
+
+    const wouldBeDamage = effectDamage(O, dmg);
+    if (F.skjaldmaer_active && rng() < 0.15) {
+      shared.events.push("🛡️ Shieldmaiden's Guard — incoming hit negated!");
+      applyReflectedDamage(O, S, wouldBeDamage, 1, "Shieldmaiden's Guard");
+      return { applied: 0, negated: true };
+    }
+
     prepareConfirmedHit();
+    dmg = effectDamage(O, dmg);
 
-    // Frostbite applies to player targets too (duels), before their reductions.
-    dmg = frostbiteDamage(O, dmg);
-
-    // [v5] post-DEF baseline for the combined damage-reduction floor (computed below).
     const postDefDmg = dmg;
+    let damageReduction = Math.max(0, O.scratch.damageReductionPct || 0);
+    const incomingIncrease = Math.max(0, O.scratch.incomingDamageIncreasePct || 0);
+    let odinReduction = 0;
 
-    // multiplicative reductions, fixed order (R3)
+    if (F.phalanx_wall_active && !F.phalanx_first_hit_used) {
+      F.phalanx_first_hit_used = true;
+      damageReduction += 0.30;
+      shared.events.push('🛡️ Phalanx Wall — first hit absorbed, damage reduced by 50%.');
+    }
     if (F.heimdall_first_hit_available && !F.heimdall_first_hit_used) {
-      dmg *= 0.5;
+      damageReduction += 0.50;
       F.heimdall_first_hit_used = true;
       F.heimdall_first_hit_available = false;
       shared.events.push(`👁️ Heimdall negates 50% of the first hit on ${O.name}!`);
     } else if (info.crit && F.heimdall_crit_guard) {
-      // For the rest of the battle (after the first hit), incoming crits are cut by 30%.
-      dmg *= 0.70;
+      damageReduction += 0.30;
       shared.events.push(`👁️ Heimdall blunts a critical hit on ${O.name} (-30%)!`);
     }
     if (F.athena_shield_active && (F.athena_hits_absorbed || 0) < 2) {
-      dmg *= 0.6;
+      damageReduction += 0.40;
       F.athena_hits_absorbed = (F.athena_hits_absorbed || 0) + 1;
       if (F.athena_hits_absorbed >= 2) F.athena_shield_active = false;
       shared.events.push(`🛡️ Athena's Aegis absorbs 40% (${F.athena_hits_absorbed}/2)!`);
     } else if ((F.athena_hits_absorbed || 0) >= 2) {
-      dmg *= 0.90;
+      damageReduction += 0.10;
       shared.events.push("🛡️ Athena's Aegis reduces the incoming hit by 10%!");
     }
-    let odinDamageBefore = null;
-    let afterOdinMultiplier = 1;
     if (F.odin_foresight_block) {
-      odinDamageBefore = dmg;
-      dmg *= 0.75;
+      odinReduction = 0.25;
+      damageReduction += odinReduction;
       shared.events.push(`🪄 Odin: All-Father's Foresight — Reduced incoming damage by 25%!`);
     }
-    const applyLaterReduction = (multiplier) => {
-      dmg *= multiplier;
-      if (odinDamageBefore != null) afterOdinMultiplier *= multiplier;
-    };
     if (F.steel_kite_shield_block) {
-      applyLaterReduction(0.85);
+      damageReduction += 0.15;
       shared.events.push('🛡️ Steel Kite Shield: Bulwark — Blocked 15% incoming damage!');
     }
-    if (F.pelte_block_check) {
-      applyLaterReduction(1 - (F.pelte_block_pct || 0));
-      shared.events.push('🛡️ Pelte: Deflection — Blocked 25% incoming damage!');
+    if (F.pelte_active && rng() < 0.20) {
+      damageReduction += 0.50;
+      shared.events.push('🛡️ Deflection — blocked half of the incoming hit!');
     }
     if (F.njord_block_check) {
-      applyLaterReduction(1 - (F.njord_block_pct || 0));
+      damageReduction += F.njord_block_pct || 0;
       shared.events.push("🌊 Njord: Sea's Favor — Reduced incoming damage by 30%!");
     }
     if (F.echo_njord_block_check) {
-      applyLaterReduction(1 - (F.echo_njord_block_pct || 0));
+      damageReduction += F.echo_njord_block_pct || 0;
       shared.events.push("🌊 Echo · Njord: Sea's Favor — Reduced incoming damage by 20%!");
     }
+    if (O.classPassive === 'damage_reduction') damageReduction += KNIGHT_DAMAGE_REDUCTION;
 
-    applyLaterReduction(1 + O.scratch.bonusIncomingDmgMult);
-    if (O.classPassive === 'damage_reduction') applyLaterReduction(KNIGHT_DR);
-    // [v5] combined damage-reduction floor — no stack of reductions can cut a hit
-    // below 25% of its post-DEF value (Blueprint 1.5 / Gear Overhaul §E).
-    const drFloor = postDefDmg * INCOMING_DR_FLOOR;
-    if (postDefDmg > 0 && dmg < drFloor) dmg = drFloor;
+    const cappedReduction = Math.min(MAX_DAMAGE_REDUCTION, damageReduction);
+    dmg *= Math.max(0, 1 - cappedReduction + incomingIncrease);
     dmg = Math.max(0, Math.floor(dmg));
-    if (odinDamageBefore != null) {
-      const withoutOdin = Math.max(0, Math.floor(Math.max(
-        odinDamageBefore * afterOdinMultiplier,
-        postDefDmg > 0 ? drFloor : 0
-      )));
+    if (odinReduction > 0) {
+      const withoutOdinReduction = Math.min(
+        MAX_DAMAGE_REDUCTION,
+        Math.max(0, damageReduction - odinReduction),
+      );
+      const withoutOdin = Math.max(
+        0,
+        Math.floor(postDefDmg * Math.max(0, 1 - withoutOdinReduction + incomingIncrease)),
+      );
       const prevented = Math.max(0, withoutOdin - dmg);
       F.odin_prevented_damage = (F.odin_prevented_damage || 0) + prevented;
     }
 
-    // sidapa lethal reprieve (once per battle): survive at 1 HP, then heal 30% max HP
-    // and gain +50% ATK for the rest of the battle (folded into effATK by the registry).
+    if (F.mail_brokkr_hit_cap > 0) {
+      const cap = Math.floor(O.maxHp * F.mail_brokkr_hit_cap);
+      if (dmg > cap) {
+        const uncapped = dmg;
+        dmg = cap;
+        shared.events.push(`⚒️ Dwarven Forge — hit capped at 15% max HP (${uncapped} -> ${cap}).`);
+      }
+    }
+
     if (dmg >= O.hp && F.sidapa_reprieve_available && !F.sidapa_reprieve_used) {
       F.sidapa_reprieve_used = true;
       F.sidapa_reprieve_available = false;
@@ -732,59 +854,61 @@ function resolveBattle(a, b, opts = {}) {
       const revive = Math.floor(O.maxHp * 0.30);
       setHp(O, Math.min(1 + revive, O.maxHp));
       F.sidapa_atk_bonus = 0.50;
-      grantValkyrieResolve(O);
       if (info.crit) recordReceivedCrit(O);
       shared.events.push(`🌙 Sidapa's Death's Reprieve! ${O.name} survives, heals ${revive} HP, ATK +50%!`);
+      grantValkyrieResolve(O);
+      grantAegisStone(O, S);
       return { applied, negated: false };
     }
 
-    // [Genesis] Titan: Forgefire Veins — once per battle, survive a lethal blow
-    // at 1 HP and gain +100% damage for the rest of the battle (no heal; the
-    // registry folds titan_atk_bonus into ATK each following round).
     if (dmg >= O.hp && F.titan_reprieve_available && !F.titan_reprieve_used) {
       F.titan_reprieve_used = true;
       F.titan_reprieve_available = false;
       const applied = O.hp - 1;
       setHp(O, 1);
       F.titan_atk_bonus = 1.00;
-      grantValkyrieResolve(O);
       if (info.crit) recordReceivedCrit(O);
       shared.events.push(`🔥 Titan: Forgefire Veins — ${O.name} survives at 1 HP, damage +100%!`);
+      grantValkyrieResolve(O);
+      grantAegisStone(O, S);
       return { applied, negated: false };
     }
 
+    const beforeHp = O.hp;
     damage(O, dmg);
-    if (O.hp > 0) grantValkyrieResolve(O);
+    const damageTaken = beforeHp - O.hp;
+    if (checkDeaths('attack')) return { applied: dmg, negated: false };
+
+    const reflectSources = [
+      [F.enderby_reflect_pct || 0, 'Thornward'],
+      [F.skjaldmaer_reflect_pct || 0, "Shieldmaiden's Guard"],
+      [F.mail_brokkr_reflect || 0, 'Dwarven Forge'],
+      [F.tyr_reflect || 0, 'Oathkeeper'],
+      [F.mayari_reflect || 0, 'Lunar Veil'],
+      [F.rune_thorns_reflect || 0, 'Thorns Rune'],
+    ];
+    for (const [pct, source] of reflectSources) {
+      if (pct > 0 && damageTaken > 0 && applyReflectedDamage(O, S, damageTaken, pct, source)) {
+        return { applied: dmg, negated: false };
+      }
+    }
+
+    if (F.chooser_grace_active) {
+      const current = Number.isFinite(F.chooser_grace_chance) ? F.chooser_grace_chance : 0.22;
+      F.chooser_grace_chance = Math.min(1, current + 0.08);
+      shared.events.push(
+        `👻 Chooser's Grace — hit taken, evade chance now ${Math.round(F.chooser_grace_chance * 100)}%`
+      );
+    }
+    grantValkyrieResolve(O);
+    grantAegisStone(O, S);
     if (info.crit) recordReceivedCrit(O);
-    // [Genesis] Atlas: Worldbreaker's Grip — a landed critical strike cuts the
-    // victim's ATK by 30% for one turn (immunity-gated like any stat debuff).
     if (info.crit && S.flags.atlas_crit_atk_down) {
-      // 2 engine ticks = the one-turn user-facing window (matches the other
-      // landed-hit stat debuffs, e.g. the def_down shred above).
-      if (tryApplyDebuff(O, 'atk_down', 2, 0.30)) {
+      if (tryApplyDebuff(O, 'atk_down', 2, 0.30, S)) {
         shared.events.push(`🥊 Atlas: Worldbreaker's Grip — ${O.name}'s ATK reduced 30%!`);
       }
     }
     if (O.hp > 0) armLowHpAttackPassives(O);
-
-    if (checkDeaths('attack')) return { applied: dmg, negated: false }; // R5: lethal hit ends battle pre-reflect
-
-    // reflects on the FINAL applied damage
-    let reflectPct = 0;
-    if (F.enderby_reflect_check) reflectPct += 0.30;
-    if (F.tyr_reflect > 0) reflectPct += F.tyr_reflect;
-    if (F.mayari_reflect > 0) reflectPct += F.mayari_reflect;
-    if (F.mail_brokkr_reflect > 0) reflectPct += F.mail_brokkr_reflect; // [v5] Mail of Brokkr 15%
-    if (F.rune_thorns_reflect > 0) reflectPct += F.rune_thorns_reflect; // [v5 Phase 2] Thorns rune
-    if (reflectPct > 0 && dmg > 0) {
-      const refl = Math.floor(dmg * reflectPct);
-      if (refl > 0) {
-        const appliedReflect = Math.floor(frostbiteDamage(S, refl));
-        damage(S, appliedReflect);
-        shared.events.push(`🔁 ${O.name} reflects ${appliedReflect} damage back at ${S.name}!`);
-        checkDeaths('reflect');
-      }
-    }
     return { applied: dmg, negated: false };
   };
 
@@ -799,15 +923,16 @@ function resolveBattle(a, b, opts = {}) {
 
   /** Resolve effects whose final text says an attack/hit applies or rolls them. */
   const applyLandedHitPassives = (S, O, info = {}) => {
+    const targetWasStunned = Boolean(findDebuff(O, 'stun'));
     for (const hook of S.scratch.landedHitHooks) hook(info);
     if (S.flags.laevateinn_staff_on_hit) {
-      if (tryApplyDebuff(O, 'burn', 2, S.atk * 0.10)) {
+      if (tryApplyDebuff(O, 'burn', 2, S.atk * 0.10, S)) {
         shared.events.push('🔥 Laevateinn Staff: Flickering Flame — Burn (10% ATK, 2 turns)!');
       }
     }
     const apolaki = CANONICAL_ON_HIT_EFFECTS.apolaki;
     if (S.flags[apolaki.flag]) {
-      if (tryApplyDebuff(O, apolaki.tag, apolaki.turns, S.atk * apolaki.atkPctPerHit)) {
+      if (tryApplyDebuff(O, apolaki.tag, apolaki.turns, S.atk * apolaki.atkPctPerHit, S)) {
         shared.events.push('☀️ Apolaki: Solar Burn — Enemy scorched (10% ATK Burn)!');
       }
     }
@@ -817,15 +942,15 @@ function resolveBattle(a, b, opts = {}) {
         (S.flags.surt_burn_stack || 0) + surt.atkPctPerHit,
         surt.maxAtkPct,
       );
-      if (tryApplyDebuff(O, surt.tag, surt.turns, S.atk * nextStack)) {
+      if (tryApplyDebuff(O, surt.tag, surt.turns, S.atk * nextStack, S)) {
         S.flags.surt_burn_stack = nextStack;
         shared.events.push(`🔥 Surt: Muspell's Flame — Burn ${Math.round(nextStack * 100)}% ATK/turn!`);
       }
     }
     if (S.flags.thor_on_hit && rng() < 0.30) {
-      const stunned = tryApplyDebuff(O, 'stun', 1);
-      const paralyzed = tryApplyDebuff(O, 'thor_paralyze', 3);
-      const paralysisDot = tryApplyDebuff(O, 'thor_paralyze_dot', 3, S.atk * 0.20);
+      const stunned = tryApplyDebuff(O, 'stun', 1, 0, S);
+      const paralyzed = tryApplyDebuff(O, 'thor_paralyze', 3, 0, S);
+      const paralysisDot = tryApplyDebuff(O, 'thor_paralyze_dot', 3, S.atk * 0.20, S);
       const effects = [
         stunned ? 'Stunned' : '',
         paralyzed ? 'Paralyzed (3 turns)' : '',
@@ -834,16 +959,31 @@ function resolveBattle(a, b, opts = {}) {
       if (effects.length) shared.events.push(`⚡ Thor: Mjolnir's Wrath — Enemy ${effects.join(' & ')}!`);
     }
     if (S.flags.skadi_on_hit && rng() < 0.30) {
-      if (tryApplyDebuff(O, 'freeze', 1)) {
+      if (tryApplyDebuff(O, 'freeze', 1, 0, S)) {
         shared.events.push("❄️ Skadi: Winter's Hunt — Enemy Frozen!");
       }
     }
     if (S.flags.poseidon_on_hit && rng() < 0.30) {
-      const stunned = tryApplyDebuff(O, 'stun', 1);
-      const shredded = tryApplyDebuff(O, 'def_down', 2, 0.30);
+      const stunned = tryApplyDebuff(O, 'stun', 1, 0, S);
+      const shredded = tryApplyDebuff(O, 'def_down', 2, 0.30, S);
       if (stunned || shredded) {
         const effects = [stunned ? 'Stunned' : '', shredded ? 'DEF -30% for 2 turns' : ''].filter(Boolean);
         shared.events.push(`🌊 Poseidon: Tidal Force — Enemy ${effects.join(' & ')}!`);
+      }
+    }
+    if (S.flags.jarngreipr_on_stun && !targetWasStunned && findDebuff(O, 'stun') && !result) {
+      const bash = Math.max(0, Math.floor((Number(info.damage) || 0) * 0.50));
+      const targetHpBeforeBash = O.hp;
+      const { hit, reactions } = applyHitWithReactions(S, O, bash, { crit: false });
+      shared.events.push(`⚡ Thunder Grip — enemy Stunned, Bash deals ${hit.applied} bonus damage!`);
+      shared.events.push(...reactions);
+      if (hit.applied > 0 && S.hp > 0 && S.flags.soul_drain_pct > 0) {
+        applyLifesteal(
+          S,
+          Math.min(hit.applied, targetHpBeforeBash),
+          S.flags.soul_drain_pct,
+          'Soul Drain',
+        );
       }
     }
   };
@@ -867,10 +1007,6 @@ function resolveBattle(a, b, opts = {}) {
       O.weaponPassiveKey === key || O.armorPassiveKey === key;
 
     F.steel_kite_shield_block = hasPassive('steel_kite_shield') && rng() < 0.10;
-    F.pelte_block_check = hasPassive('pelte') && rng() < 0.15;
-    F.gridr_ignore_check = hasPassive('gridr_iron_gloves') && rng() < 0.20;
-    F.skjaldmaer_ignore_check = hasPassive('skjaldmaer') && rng() < 0.15;
-    F.enderby_reflect_check = hasPassive('enderby_shield') && rng() < 0.10;
 
     let evadeChanceUsed = 0;
     if (O.deityBlessingKey === 'amihan_tailwind') {
@@ -892,12 +1028,6 @@ function resolveBattle(a, b, opts = {}) {
     F.echo_njord_block_check =
       O.echoBlessingKey === 'echo_njord' && rng() < 0.10;
 
-    if (hasPassive('valkyrie_mantle')) {
-      const chance = Math.min(0.20, Math.max(0, TOTAL_EVADE_CAP - evadeChanceUsed));
-      F.valkyrie_evade_check = rng() < chance;
-    } else {
-      F.valkyrie_evade_check = false;
-    }
   };
 
   // ── player attack action ───────────────────────────────────────────────────
@@ -910,7 +1040,8 @@ function resolveBattle(a, b, opts = {}) {
     const attackScale = Number.isFinite(context.atkScale) ? context.atkScale : 1;
     const scratchBaseline = context.scratchBaseline || {
       damageBonusPct: S.scratch.damageBonusPct,
-      bonusIncomingDmgMult: S.scratch.bonusIncomingDmgMult,
+      damageReductionPct: S.scratch.damageReductionPct,
+      incomingDamageIncreasePct: S.scratch.incomingDamageIncreasePct,
       playerAtkMult: S.scratch.playerAtkMult,
       playerDefMult: S.scratch.playerDefMult,
       ignoreDefPct: S.scratch.ignoreDefPct,
@@ -919,7 +1050,8 @@ function resolveBattle(a, b, opts = {}) {
     };
     if (isAdditionalAttack) {
       S.scratch.damageBonusPct = scratchBaseline.damageBonusPct;
-      S.scratch.bonusIncomingDmgMult = scratchBaseline.bonusIncomingDmgMult;
+      S.scratch.damageReductionPct = scratchBaseline.damageReductionPct;
+      S.scratch.incomingDamageIncreasePct = scratchBaseline.incomingDamageIncreasePct;
       S.scratch.playerAtkMult = scratchBaseline.playerAtkMult;
       S.scratch.playerDefMult = scratchBaseline.playerDefMult;
       S.scratch.ignoreDefPct = scratchBaseline.ignoreDefPct;
@@ -934,6 +1066,17 @@ function resolveBattle(a, b, opts = {}) {
       allowAdditionalAttackProcs,
       source: attackSource,
     };
+    if (S.weaponPassiveKey === 'tyrfing' && O.hp < O.maxHp * 0.10) {
+      if (sideImmune(O, 'boss_immune')) {
+        shared.events.push('🚫 Cursed Edge has no effect on bosses.');
+      } else {
+        const remaining = O.hp;
+        setHp(O, 0);
+        shared.events.push(`🗡️ Cursed Edge — the curse takes hold! Tyrfing strikes for ${remaining} damage.`);
+        checkDeaths('execute', { type: 'execute', source: 'Cursed Edge' });
+        return;
+      }
+    }
     // These hooks run only when an action really begins. A CC or Dizzy/Stun skip
     // cannot consume first-action effects, roll offensive procs, or leak a proc.
     const attackHookEventStart = shared.events.length;
@@ -967,6 +1110,11 @@ function resolveBattle(a, b, opts = {}) {
     if (S.flags.vidar_auto_crit_pending) {
       S.scratch.nextAttackAutoCrit = true;
       S.flags.vidar_auto_crit_pending = false;
+    }
+    if (S.flags.unseen_pending) {
+      S.scratch.ignoreDefPct = Math.max(S.scratch.ignoreDefPct, 0.50);
+      S.flags.unseen_pending = false;
+      attackHookEvents.push('🌑 Veil of Hades — Unseen consumed; 50% of enemy DEF ignored.');
     }
     // Mage Overcharge is a turn-based modifier consumed only by the primary
     // attack on every 3rd round. Any Labrys, Archer, Glacial Bow, or future
@@ -1025,7 +1173,7 @@ function resolveBattle(a, b, opts = {}) {
       };
       let dmg = rolledDamage(reactiveAtkMult);
       let jarngreiprDmg = jarngreiprEligible
-        ? rolledDamage(reactiveAtkMult + 0.60)
+        ? rolledDamage(reactiveAtkMult + 0.50)
         : null;
       if (mainHit && S.flags.odin_foresight_bonus > 0) {
         const bonus = Math.floor(S.flags.odin_foresight_bonus);
@@ -1045,7 +1193,7 @@ function resolveBattle(a, b, opts = {}) {
       const prepareLandedHit = jarngreiprEligible
         ? () => {
           fighterStunResolved = true;
-          fighterStunned = tryApplyDebuff(O, 'stun', fighterStunTurns);
+          fighterStunned = tryApplyDebuff(O, 'stun', fighterStunTurns, 0, S);
           jarngreiprTriggered = fighterStunned;
           if (jarngreiprTriggered) dmg = jarngreiprDmg;
           return dmg;
@@ -1055,13 +1203,17 @@ function resolveBattle(a, b, opts = {}) {
       const tag = overchargeFired ? ' *(Overcharge!)*'
         : doubled ? ' *(Double!)*'
         : critApplied ? ' *(CRIT!)*' : '';
+      const targetHpBeforeHit = O.hp;
       const { hit: res, reactions } = applyHitWithReactions(
         S,
         O,
         dmg,
         { crit: critApplied, prepareLandedHit },
       );
-      const attackLabel = `⚔️ ${S.name} ${mainHit ? 'attacks' : 'strikes again'}`;
+      const actualDamageDealt = Math.min(res.applied, targetHpBeforeHit);
+      const attackLabel = attackSource === 'auto_fire'
+        ? `🏹 ${S.name}'s Auto-Fire triggered — additional shot`
+        : `⚔️ ${S.name} ${mainHit ? 'attacks' : 'strikes again'}`;
       shared.events.push(res.evaded
         ? `${attackLabel} — **Evaded!**`
         : `${attackLabel} for **${res.applied} DMG**${tag}`);
@@ -1072,7 +1224,7 @@ function resolveBattle(a, b, opts = {}) {
         shared.events.push("🔥 Surt: Muspell's Flame — +50% vs a burning enemy!");
       }
       if (!res.negated && thunderboltTriggered) {
-        const paralyzed = !result && tryApplyDebuff(O, 'paralyze', 1);
+        const paralyzed = !result && tryApplyDebuff(O, 'paralyze', 1, 0, S);
         shared.events.push(`⚡ Thunderbolt of Zeus: Divine Thunder — +100% ATK${paralyzed ? ' + Paralyze' : ''}!`);
       }
       // Lifesteal is based on damage dealt, including a lethal blow. This must run
@@ -1081,11 +1233,8 @@ function resolveBattle(a, b, opts = {}) {
         if (S.flags.japanese_bo_active) {
           applyLifesteal(S, res.applied, 0.50, 'Vital Siphon');
         }
-        if (S.flags.soul_drain_active) {
-          applyLifesteal(S, res.applied, 0.15, 'Soul Drain');
-        }
-        if (S.flags.echo_soul_drain_active) {
-          applyLifesteal(S, res.applied, 0.05, 'Echo Soul Drain');
+        if (S.flags.soul_drain_pct > 0) {
+          applyLifesteal(S, actualDamageDealt, S.flags.soul_drain_pct, 'Soul Drain');
         }
         if (S.flags.rune_lifesteal_pct > 0) {
           applyLifesteal(S, res.applied, S.flags.rune_lifesteal_pct, 'Vampiric Rune');
@@ -1111,9 +1260,10 @@ function resolveBattle(a, b, opts = {}) {
           if (stunned) {
             shared.events.push(`👊 ${S.name}'s blow stuns ${O.name} for ${fighterStunTurns} turn!`);
             if (jarngreiprTriggered) {
-              shared.events.push('⚡ Jarngreipr: Thunder Grip — Stun triggered Bash! +60% ATK!');
+              shared.events.push('⚡ Thunder Grip — enemy Stunned, Bash deals +50% bonus damage!');
             }
             const bash = Math.max(0, Math.floor(dmg * FIGHTER_BASH_DAMAGE_PCT));
+            const bashTargetHpBefore = O.hp;
             const { hit: bashResult, reactions: bashReactions } = applyHitWithReactions(
               S,
               O,
@@ -1122,6 +1272,14 @@ function resolveBattle(a, b, opts = {}) {
             );
             shared.events.push(`💥 ${S.name} follows with Bash for **${bashResult.applied} DMG**!`);
             shared.events.push(...bashReactions);
+            if (bashResult.applied > 0 && S.hp > 0 && S.flags.soul_drain_pct > 0) {
+              applyLifesteal(
+                S,
+                Math.min(bashResult.applied, bashTargetHpBefore),
+                S.flags.soul_drain_pct,
+                'Soul Drain',
+              );
+            }
             O.flags.dizzy_pending = true;
             shared.events.push(
               `💫 ${O.name} becomes Dizzy and is stunned for ${fighterStunTurns} turn!`
@@ -1133,6 +1291,7 @@ function resolveBattle(a, b, opts = {}) {
       if (!res.negated) {
         applyLandedHitPassives(S, O, { mainHit, crit: critApplied, damage: res.applied });
       }
+      if (result) return;
       // Every landed Swordsman attack adds one 4% Bleed stack and refreshes it to 2 turns.
       // Five stacks cap the additive value at 20%; later hits only refresh the duration.
       // Requires the swordsman to actually act — a skip-CC'd turn never reaches here.
@@ -1156,6 +1315,7 @@ function resolveBattle(a, b, opts = {}) {
             value,
             stacks,
             armed: false,
+            source: S,
           });
         }
       }
@@ -1177,33 +1337,51 @@ function resolveBattle(a, b, opts = {}) {
     // crowd-control skips cannot trigger or carry them into a later turn.
     if (S.flags.instakill_check) {
       S.flags.instakill_check = false;
-      if (mode === 'duel') {
-        shared.events.push('💀 Death Charm blocked: instant kill is disabled in duels.');
-      } else if (O.isBoss) {
-        shared.events.push('💀 Death Charm blocked: instant kill is disabled against bosses.');
-      } else {
-        shared.events.push(`💀 Death Charm! ${O.name} is instantly slain!`);
-        setHp(O, 0);
-        if (checkDeaths('instakill')) return;
-      }
+      shared.events.push('🔮 Death Charm — instant kill!');
+      setHp(O, 0);
+      if (checkDeaths('instakill', { type: 'execute', source: 'Death Charm' })) return;
     }
-    if (S.flags.rupture_check) {
+    if (S.flags.rupture_check || S.flags.rupture_boss_blocked) {
+      const ruptured = S.flags.rupture_check;
+      const bossBlocked = S.flags.rupture_boss_blocked;
       S.flags.rupture_check = false;
-      if (!O.isBoss && !sideImmune(O, 'hp_pct_dot')) {
-        const burst = Math.floor(frostbiteDamage(O, O.maxHp * (S.flags.rupture_pct || 0)));
+      S.flags.rupture_boss_blocked = false;
+      if (ruptured) {
+        const burst = Math.floor(effectDamage(O, O.maxHp * (S.flags.rupture_pct || 0)));
+        const before = O.hp;
         damage(O, burst);
-        shared.events.push(`🌿 Rupture bursts ${O.name} for ${burst} DMG!`);
+        const applied = before - O.hp;
+        shared.events.push(
+          `☠️ Venom Burst — Rupture deals ${applied} damage!` +
+          `${S.flags.venom_burst_applied ? ' Venom applied for 2 turns.' : ''}`
+        );
+        if (applied > 0 && S.hp > 0 && S.flags.soul_drain_pct > 0) {
+          applyLifesteal(S, applied, S.flags.soul_drain_pct, 'Soul Drain');
+        }
         if (checkDeaths('rupture')) return;
+      } else if (bossBlocked) {
+        shared.events.push(
+          '🚫 Venom Burst — Rupture has no effect on bosses.' +
+          `${S.flags.venom_burst_applied ? ' Venom applied for 2 turns.' : ''}`
+        );
       }
+      S.flags.venom_burst_applied = false;
     }
     if (S.flags.hemorrhage_check) {
       S.flags.hemorrhage_check = false;
-      if (!O.isBoss && !sideImmune(O, 'hp_pct_dot')) {
-        const burst = Math.floor(frostbiteDamage(O, O.maxHp * (S.flags.hemorrhage_pct || 0)));
-        damage(O, burst);
-        shared.events.push(`🏹 Hemorrhage tears ${O.name} for ${burst} DMG!`);
-        if (checkDeaths('hemorrhage')) return;
+      const burst = Math.floor(effectDamage(O, O.maxHp * (S.flags.hemorrhage_pct || 0)));
+      const before = O.hp;
+      damage(O, burst);
+      const applied = before - O.hp;
+      shared.events.push(
+        `🩸 Hemorrhaging Shot — Hemorrhage deals ${applied} damage` +
+        `${S.flags.hemorrhage_shredded ? ', enemy DEF -15% for 1 turn.' : '.'}`
+      );
+      if (applied > 0 && S.hp > 0 && S.flags.soul_drain_pct > 0) {
+        applyLifesteal(S, applied, S.flags.soul_drain_pct, 'Soul Drain');
       }
+      S.flags.hemorrhage_shredded = false;
+      if (checkDeaths('hemorrhage')) return;
     }
 
     // Additional-attack generators are evaluated only by the primary attack.
@@ -1226,6 +1404,12 @@ function resolveBattle(a, b, opts = {}) {
           log: '🏹 Glacial Bow: Frostwind Volley activated!',
         });
       }
+      if (S.flags.auto_fire_shot) {
+        additionalAttacks.push({
+          source: 'auto_fire',
+          atkScale: 1,
+        });
+      }
       if (S.classPassive === 'pierce' && rng() < ARCHER_DOUBLE_ATTACK_CHANCE) {
         additionalAttacks.push({
           source: 'archer',
@@ -1236,10 +1420,11 @@ function resolveBattle(a, b, opts = {}) {
     }
     S.flags.labrys_double_hit = false;
     S.flags.extra_turn = false;
+    S.flags.auto_fire_shot = false;
 
     for (const additional of additionalAttacks) {
       if (result || O.hp <= 0) break;
-      shared.events.push(additional.log);
+      if (additional.log) shared.events.push(additional.log);
       rerollDefensiveChecks(S, O);
       playerAttack(S, O, {
         isPrimaryAttack: false,
@@ -1255,6 +1440,9 @@ function resolveBattle(a, b, opts = {}) {
   const mobAttack = (S, O) => {
     // mob offense riders live on the defending player's flags (registry wrote them there)
     const F = O.flags;
+    const attackHookEventStart = shared.events.length;
+    for (const hook of O.scratch.enemyAttackHooks) hook();
+    const attackHookEvents = shared.events.splice(attackHookEventStart);
     const subHits = Math.max(1, Number(S.specialFlags.multi_attack) || 1);
     const subPct = subHits > 1 ? Number(S.specialFlags.multi_attack_pct) || 1 : 1;
     const atkBase = F.enemy_atk_override != null
@@ -1278,19 +1466,32 @@ function resolveBattle(a, b, opts = {}) {
       shared.events.push(res.evaded
         ? `${attackLabel} — **Evaded!**`
         : `${attackLabel} for **${res.applied} DMG**${critApplied ? ' *(CRIT!)*' : ''}`);
+      if (i === 0) shared.events.push(...attackHookEvents);
       shared.events.push(...reactions);
+      if (!res.negated && !result) {
+        for (const hook of O.scratch.enemyLandedHitHooks) {
+          hook({
+            crit: critApplied,
+            damage: res.applied,
+            hitIndex: i,
+            hitCount: subHits,
+          });
+        }
+      }
     }
   };
 
   const act = (S) => {
     if (result) return;
     const O = oppOf(S);
-    if (S.flags.tyrfing_no_miss) {
+    if (S.flags.attacks_cannot_miss) {
       const armedMisses = S.debuffs.filter((d) => d.tag === 'miss' && d.armed);
       if (armedMisses.length) {
         for (const debuff of armedMisses) debuff.turnsLeft -= 1;
+        const expiredCount = armedMisses.filter((d) => d.turnsLeft <= 0).length;
         S.debuffs = S.debuffs.filter((d) => d.turnsLeft > 0);
-        shared.events.push(`🗡️ ${S.name}'s Tyrfing curse overcomes Miss; the attack cannot miss.`);
+        healTribalWard(S, expiredCount, 'expired');
+        shared.events.push(`🏹 ${S.name}'s Moira overcomes Miss; the attack cannot miss.`);
       }
     }
     // Skip-CC gates only on ARMED tags. Existing CC arms at round start; new
@@ -1301,7 +1502,9 @@ function resolveBattle(a, b, opts = {}) {
       const hadFreeze = skipTags.some((d) => d.tag === 'freeze');
       let fighterDizzyExpired = false;
       for (const d of skipTags) d.turnsLeft -= 1;
+      const expiredCount = skipTags.filter((d) => d.turnsLeft <= 0).length;
       S.debuffs = S.debuffs.filter((d) => d.turnsLeft > 0);
+      healTribalWard(S, expiredCount, 'expired');
       // On the round a stun wears off, grant a 1-round immunity window so the Fighter
       // class passive can't immediately re-chain it (see the stun-lock guard above).
       if (hadStun && !S.debuffs.some((d) => d.tag === 'stun')) {
@@ -1353,7 +1556,8 @@ function resolveBattle(a, b, opts = {}) {
   const resetScratch = (side) => {
     side.scratch = {
       damageBonusPct: 0,
-      bonusIncomingDmgMult: 0,
+      damageReductionPct: 0,
+      incomingDamageIncreasePct: 0,
       playerAtkMult: 0,
       playerDefMult: 0,
       ignoreDefPct: 0,
@@ -1362,25 +1566,20 @@ function resolveBattle(a, b, opts = {}) {
       attackContext: null,
       attackHooks: [],
       landedHitHooks: [],
+      enemyAttackHooks: [],
+      enemyLandedHitHooks: [],
     };
     // per-round DERIVED flags the registry re-establishes every round
     side.flags.enemy_bonus_damage = 0;
     side.flags.enemy_atk_mult = undefined;
     side.flags.enemy_def_mult = undefined;
     side.flags.enemy_atk_override = null;
-    side.flags.bathala_hp_fraction = 0; // [Jun-2026 §4] registry re-sets the ramp each round
-    // [v5] armor-derived per-round flags (the armor passive re-establishes them each round)
-    side.flags.evade_chance_used = 0;
+    side.flags.bathala_hp_fraction = 0;
     side.flags.mail_brokkr_reflect = 0;
-    // Static armor wards must exist before either duelist's passive runs; otherwise
-    // actor order lets an offensive passive bypass the second actor's protection.
-    const hasEquippedPassive = (key) =>
-      side.weaponPassiveKey === key || side.armorPassiveKey === key;
-    side.flags.salakot_negate_chance = hasEquippedPassive('salakot_ward') ? 0.20 : 0;
-    side.flags.immune_cc_types = hasEquippedPassive('anting_anting_sash')
-      ? ['stun', 'petrify', 'freeze']
-      : null;
-    side.flags.valkyrie_evade_check = false;
+    side.flags.mail_brokkr_hit_cap = 0;
+    side.flags.mantle_bathala_heal_pct = 0;
+    side.flags.salakot_negate_chance = hasEquippedPassive(side, 'salakot_ward') ? 0.35 : 0;
+    side.flags.charmed_hide_active = hasEquippedPassive(side, 'anting_anting_sash');
     // [v5 Phase 2] socketed effect-rune per-round flags (the rune runner re-sets them).
     side.flags.rune_thorns_reflect = 0;
     side.flags.rune_warding_pct = 0;
@@ -1390,21 +1589,24 @@ function resolveBattle(a, b, opts = {}) {
   const setInputFlags = (side) => {
     const O = oppOf(side);
     side.flags.enemy_is_stunned = !!findDebuff(O, 'stun');
-    side.flags.enemy_is_bleeding = !!findDebuff(O, 'bleed');
+    side.flags.enemy_is_bleeding = O.debuffs.some((effect) => effectHasTag(effect.tag, BLEED_TAG));
     side.flags.enemy_is_burning = !!findDebuff(O, 'burn');
   };
 
   const applyBathala = (side) => {
-    // [Jun-2026 §4] HP ramps with the Bathala stack: target bonus = floor(base maxHP × frac),
-    // where frac is the registry's per-round ramp (0.05 → 0.50). As the bonus grows, max AND
-    // current HP rise together (heals as it ramps — patch assumption); if it ever shrinks,
-    // current is re-clamped to the lowered max.
     const target = Math.floor(side.in.hp * (side.flags.bathala_hp_fraction || 0));
     const delta = target - side.bathalaExtraHp;
     if (delta !== 0) {
       side.maxHp += delta;
       side.bathalaExtraHp = target;
-      setHp(side, side.hp + (delta > 0 ? delta : 0)); // grow heals; shrink just re-clamps
+      setHp(side, side.hp + (delta > 0 ? delta : 0));
+    }
+    if (side.flags.mantle_bathala_heal_pct > 0) {
+      const before = side.hp;
+      heal(side, side.maxHp * side.flags.mantle_bathala_heal_pct);
+      shared.events.push(
+        `✨ Divine Aegis — max stacks restored ${(side.hp - before).toLocaleString()} HP.`
+      );
     }
   };
 
@@ -1442,7 +1644,7 @@ function resolveBattle(a, b, opts = {}) {
       }
     }
     if (pierce > 0) P.ignoreDefPct = Math.max(P.ignoreDefPct, Math.min(pierce, 100) / 100);
-    if (incoming > 0) P.bonusIncomingDmgMult += -(Math.min(incoming, 100) / 100);
+    if (incoming > 0) P.damageReductionPct += Math.min(incoming, 100) / 100;
     side.flags.rune_thorns_reflect = thorns / 100;
     side.flags.rune_warding_pct = Math.min(warding, 100) / 100;
     side.flags.rune_lifesteal_pct = lifesteal / 100;
@@ -1520,26 +1722,42 @@ function resolveBattle(a, b, opts = {}) {
     };
     const tickDotsForSide = (side) => {
       if (result) return;
+      let expired = 0;
       for (const d of side.debuffs) {
         if (!DOT_TAGS.includes(d.tag)) continue;
         let tick = d.tag === 'hp_pct_dot'
           ? Math.floor(side.maxHp * d.value)
           : Math.floor(d.value);
-        tick = Math.floor(frostbiteDamage(side, tick));
+        tick = Math.floor(effectDamage(side, tick));
         // [v5 Phase 2] Warding rune reduces incoming DOT damage on the bearer.
         if (side.flags.rune_warding_pct > 0) tick = Math.floor(tick * (1 - side.flags.rune_warding_pct));
         if (tick > 0) {
+          const before = side.hp;
           damage(side, tick);
+          const applied = before - side.hp;
           const name = combatantName(side);
-          shared.events.push(`🩸 ${name} suffers ${tick} ${ACTION_TAG_LABELS[d.tag] || 'DOT'} damage!`);
-          if (checkDeaths('dot')) {
-            shared.events.push(`💀 ${name} died from ${DOT_DEATH_TEXT[d.tag] || 'damage'}!`);
+          const remaining = Math.max(0, d.turnsLeft - 1);
+          if (d.tag === 'venom') {
+            shared.events.push(
+              `☠️ Venom ticks for ${applied} damage.` +
+              `${remaining > 0 ? ` (${remaining} turn remaining)` : ''}`
+            );
+          } else {
+            shared.events.push(`🩸 ${name} suffers ${applied} ${ACTION_TAG_LABELS[d.tag] || 'DOT'} damage!`);
+          }
+          if (d.source?.flags?.soul_drain_pct > 0 && d.source.hp > 0 && applied > 0) {
+            applyLifesteal(d.source, applied, d.source.flags.soul_drain_pct, 'Soul Drain');
+          }
+          const dotSource = DOT_DEATH_CAUSE[d.tag] || DOT_DEATH_TEXT[d.tag] || 'damage over time';
+          if (checkDeaths('dot', { type: 'dot', source: dotSource })) {
             break;
           }
         }
         d.turnsLeft -= 1;
+        if (d.turnsLeft <= 0) expired += 1;
       }
       side.debuffs = side.debuffs.filter((d) => !DOT_TAGS.includes(d.tag) || d.turnsLeft > 0);
+      healTribalWard(side, expired, 'expired');
     };
 
     // 1. round start: scratch + latches
@@ -1601,7 +1819,9 @@ function resolveBattle(a, b, opts = {}) {
       heal(B, A.flags.hydra_local_regen);
       A.flags.hydra_local_regen = 0;
     }
-    for (const side of order) if (side.kind === 'player') applyBathala(side);
+    for (const side of order) {
+      if (side.kind === 'player') collectPassiveEvents(side, () => applyBathala(side));
+    }
     for (const side of order) {
       side.flags.player_was_critted = false; // latches consumed by deity/echo passives
       side.flags.player_crits_received = 0;
@@ -1636,7 +1856,11 @@ function resolveBattle(a, b, opts = {}) {
         for (const d of side.debuffs) {
           if (!DOT_TAGS.includes(d.tag) && !SKIP_TAGS.includes(d.tag)) d.turnsLeft -= 1;
         }
+        const expired = side.debuffs.filter(
+          (d) => !DOT_TAGS.includes(d.tag) && !SKIP_TAGS.includes(d.tag) && d.turnsLeft <= 0
+        ).length;
         side.debuffs = side.debuffs.filter((d) => d.turnsLeft > 0);
+        healTribalWard(side, expired, 'expired');
       }
       // sudden death (§35.3): drain only hits player (user) sides — mobs and bosses are
       // exempt, so in PvE the user bleeds out while the enemy does not; a PvP duel has two
@@ -1726,6 +1950,7 @@ function resolveBattle(a, b, opts = {}) {
   return {
     winner: result.winner,
     outcome,
+    causeOfDeath: result.causeOfDeath || null,
     rounds,
     snapshots,
     a: summary(A),

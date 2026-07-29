@@ -437,7 +437,12 @@ async function renderRewardsPanel(sim, r) {
     ctx.drawImage(mobImg, rx, y - 16, 18, 18);
     rx += 24;
   }
-  ctx.fillText(won ? `${sim.b.name} defeated!` : `Defeated by ${sim.b.name}…`, rx, y);
+  const causeText = causeOfDeathText(sim);
+  ctx.fillText(
+    causeText ? `${causeText}!` : (won ? `${sim.b.name} defeated!` : `Defeated by ${sim.b.name}…`),
+    rx,
+    y,
+  );
   y += LINE;
 
   // row 2 — label
@@ -507,6 +512,24 @@ function battleStateText(sim, snapIdx) {
   return `${line(sim.a, s.a)}\n${line(sim.b, s.b)}`;
 }
 
+function causeOfDeathText(sim) {
+  const cause = sim.causeOfDeath;
+  if (!cause?.source) return null;
+  const loser = sim.winner === 'a' ? sim.b?.name : sim.a?.name;
+  if (cause.type === 'reflect') {
+    return `${loser} was defeated by ${cause.source}'s reflected damage`;
+  }
+  if (cause.type === 'execute') {
+    return cause.source === 'Death Charm'
+      ? `${loser} was slain by Death Charm`
+      : `${loser} was executed by ${cause.source}`;
+  }
+  if (cause.type === 'dot') {
+    return `${loser} was defeated by ${cause.source}`;
+  }
+  return null;
+}
+
 function battleEmbed(sim, snapIdx, {
   mode, includeImage = true, imageUrl = null, includeStateText = false,
 }) {
@@ -527,10 +550,12 @@ function battleEmbed(sim, snapIdx, {
     color = playerWon ? 0x43d675 : 0xf23f43;
     line = sim.outcome === 'cap_hp_pct'
       ? `⚔️ *Turn cap reached — ${winner.name} wins on remaining HP%!*`
-      : `⚔️ *${winner.name} defeats ${loser.name}!*`;
+      : `⚔️ *${causeOfDeathText(sim) || `${winner.name} defeats ${loser.name}`}!*`;
   } else {
     title = playerWon ? '🏆 Victory!' : '💀 Defeated!';
     color = playerWon ? 0x43d675 : 0xf23f43;
+    const cause = causeOfDeathText(sim);
+    if (cause) line = `⚔️ *${cause}!*`;
   }
   const e = new EmbedBuilder()
     .setColor(color)
@@ -864,7 +889,7 @@ function logEmbeds(sim) {
   const modeLabel = BATTLE_LOG_MODE_LABELS[sim.mode] || 'Battle';
   const resultLine = sim.outcome === 'boss_timeout'
     ? `${bName} survived`
-    : `${winnerName} won`;
+    : (causeOfDeathText(sim) || `${winnerName} won`);
   // Mode · participants · result go in the embed AUTHOR (its own 256-char field)
   // rather than the description, so the per-page turn text keeps the full safe
   // character budget and a maxed page can never spill past the limit.

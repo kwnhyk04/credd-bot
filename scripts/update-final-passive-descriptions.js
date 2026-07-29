@@ -6,7 +6,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const pool = require('../src/db/pool');
 
 const DEITY_UPDATES = Object.freeze([
-  { name: 'Magwayen', key: 'magwayen_soul_drain', description: 'Heals 15% of all damage dealt. When an enemy is defeated, recover 20% max HP as their soul is claimed.' },
+  { name: 'Magwayen', key: 'magwayen_soul_drain', description: 'Heals 30% of all damage actually dealt after mitigation, up to max HP.' },
   { name: 'Mandarangan', key: 'mandarangan_war_frenzy', description: 'End of each turn: +10% ATK, stacking up to +50% (reached turn 5). Stacks persist all battle.' },
   { name: 'Sidapa', key: 'sidapa_deaths_reprieve', description: 'Once per battle, the first lethal hit leaves the user at 1 HP. The user then heals 30% max HP and gains +50% ATK for the rest of the battle.' },
   { name: 'Apolaki', key: 'apolaki_solar_burn', description: "Each attack burns the enemy for 10% of the user's base ATK for 1 turn." },
@@ -49,16 +49,27 @@ const DEITY_UPDATES = Object.freeze([
 ]);
 
 const WEAPON_UPDATES = Object.freeze([
-  { name: 'Gram', key: 'gram', description: 'Ignores 25% of enemy DEF. Deals +30% bonus damage to enemies above 80% HP.' },
+  { name: 'Gram', key: 'gram', description: 'Ignores 25% of enemy DEF and deals 30% more damage while the target is above 50% max HP.' },
   {
     requestedName: 'Laevateinn',
     name: 'Laevateinn Staff',
     key: 'laevateinn_staff',
     description: 'Attacks ignore 15% of enemy DEF and apply Burn equal to 10% of ATK for 2 turns.',
   },
-  { name: 'Spear of Ares', key: 'spear_of_ares', description: 'ATK +10% every turn, stacking up to +40%. Whenever you defeat an enemy, immediately gain a stack.' },
+  { name: 'Spear of Ares', key: 'spear_of_ares', description: 'ATK +10% at the start of each turn, stacking up to +50% for the battle.' },
   { name: 'Sword of Damocles', key: 'sword_of_damocles', description: 'ATK +5% every turn, stacking up to +100%. While any stacks are active, you take +10% damage.' },
-  { name: 'Tyrfing', key: 'tyrfing', description: 'ATK +10% every turn, stacking up to +30%. Once the enemy drops below 30% HP, the curse takes hold: your attacks can no longer miss or be evaded.' },
+  { name: 'Tyrfing', key: 'tyrfing', description: 'ATK +10% at the start of each turn, stacking up to +30%. Attacks execute non-boss targets below 10% max HP.' },
+  { name: 'Gungnir', key: 'gungnir', description: 'Each attack ignores 40% of enemy DEF and has a 25% chance to pierce all DEF (zero mitigation).' },
+  { name: 'Thunderbolt of Zeus', key: 'thunderbolt_of_zeus', description: 'Each critical attack deals +100% bonus ATK and applies Paralyze for 1 turn.' },
+  { name: 'Katana', key: 'katana', description: 'Each attack deals 30% additional damage (×1.30 on a normal hit; ×2.30 on a critical hit).' },
+  { name: 'Kiri', key: 'kiri', description: 'Each attack increases damage by 20%, stacking up to +120%. Each attack has a 25% chance to strike twice.' },
+]);
+
+const MOB_UPDATES = Object.freeze([
+  { name: 'Lamia', key: 'lamia_serpent_bite', description: "Each attack has a 30% chance to add Bleed equal to 15% of Lamia's ATK per turn for 2 turns." },
+  { name: 'Chimera', key: 'chimera_tri_form_assault', description: "Each phase cycles through Lion Claw, which deals 140% ATK; Goat Ram, which reduces the player's DEF by 20% for 1 turn; and Serpent Bite, which adds Burn equal to 20% of Chimera's ATK per turn for 2 turns." },
+  { name: 'Amalanhig', key: 'amalanhig_infectious_bite', description: "Each attack has a 30% chance to inflict Rot equal to 5% of the player's max HP per turn for 2 turns." },
+  { name: 'Dark Elf', key: 'dark_elves_curse_of_decay', description: "Each attack has a 25% chance to reduce the player's DEF by 10% for 1 turn." },
 ]);
 
 const GROUPS = [
@@ -80,11 +91,23 @@ const GROUPS = [
     verifySql: 'SELECT name, passive_description AS description FROM weapon_roster WHERE name = ANY($1::text[])',
     rosterSql: 'SELECT name FROM weapon_roster ORDER BY name',
   },
+  {
+    label: 'mob',
+    table: 'mob_roster',
+    descriptionColumn: 'skill_description',
+    updates: MOB_UPDATES,
+    updateSql: 'UPDATE mob_roster SET skill_description = $1 WHERE name = $2 RETURNING name',
+    verifySql: 'SELECT name, skill_description AS description FROM mob_roster WHERE name = ANY($1::text[])',
+    rosterSql: 'SELECT name FROM mob_roster ORDER BY name',
+  },
 ];
 
 function validateDefinitions() {
-  if (DEITY_UPDATES.length !== 38 || WEAPON_UPDATES.length !== 5) {
-    throw new Error(`Expected 38 deity + 5 weapon definitions; found ${DEITY_UPDATES.length} + ${WEAPON_UPDATES.length}.`);
+  if (DEITY_UPDATES.length !== 38 || WEAPON_UPDATES.length !== 9 || MOB_UPDATES.length !== 4) {
+    throw new Error(
+      `Expected 38 deity + 9 weapon + 4 mob definitions; found ` +
+      `${DEITY_UPDATES.length} + ${WEAPON_UPDATES.length} + ${MOB_UPDATES.length}.`
+    );
   }
   for (const group of GROUPS) {
     const names = group.updates.map((entry) => entry.name);
@@ -161,7 +184,7 @@ async function run({ apply = process.argv.includes('--apply') } = {}) {
       await client.query('COMMIT');
       inTransaction = false;
       for (const group of GROUPS) await verifyGroup(client, group);
-      console.log('[commit] Applied all 43 passive descriptions in one transaction.');
+      console.log('[commit] Applied all 51 passive descriptions in one transaction.');
     } else {
       await client.query('ROLLBACK');
       inTransaction = false;
@@ -185,4 +208,4 @@ if (require.main === module) {
     .finally(() => pool.end());
 }
 
-module.exports = { DEITY_UPDATES, WEAPON_UPDATES, run, validateDefinitions };
+module.exports = { DEITY_UPDATES, WEAPON_UPDATES, MOB_UPDATES, run, validateDefinitions };

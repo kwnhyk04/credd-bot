@@ -22,7 +22,7 @@
 
 const { CLASSES } = require('../config/classes');
 const { ELITE_SPAWN_CHANCE } = require('../config/raidLoot');
-const { ECHO_BLESSING_KEY_MAP, DIVINE_BLESSING_DEITIES, computeResonanceMods } = require('../config/blessings');
+const { resolveBlessingSlots, computeResonanceMods } = require('../config/blessings');
 const { computeDeityProgressionStats } = require('./deityEnhancement');
 const { envPositiveInt } = require('../utils/runtimeLogs');
 const { registerMemorySource } = require('../utils/memoryRegistry');
@@ -303,23 +303,17 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
     ? { slot2, slot3, resonance }
     : null;
 
-  // Slot 1 blessing: divine key if divine deity, echo key if echo deity.
-  // [Ascension §3.6] A blessing fires ONLY if that deity is Ascended —
-  // un-ascended deities contribute stats only (blessing dormant).
-  let slot1BlessingKey = 'none';
-  if (r.deity_name && r.blessing_key && r.d1_ascended) {
-    if (DIVINE_BLESSING_DEITIES.has(r.deity_name)) {
-      slot1BlessingKey = r.blessing_key;
-    } else {
-      slot1BlessingKey = ECHO_BLESSING_KEY_MAP[r.deity_name] || r.blessing_key;
-    }
-  }
-
-  // Echo blessing from slot 2/3 (chosen via crd deity echo) — same Ascension gate.
-  let echoBlessingKey = 'none';
-  if (r.echo_deity_name && r.echo_ascended) {
-    echoBlessingKey = ECHO_BLESSING_KEY_MAP[r.echo_deity_name] || 'none';
-  }
+  // Blessing channels, shared with the `crd stats` display so the two can never
+  // disagree about which deity supplies each channel. See resolveBlessingSlots().
+  const blessingSlots = resolveBlessingSlots({
+    slot1Name: r.deity_name,
+    slot1BlessingKey: r.blessing_key,
+    slot1Ascended: r.d1_ascended,
+    echoName: r.echo_deity_name,
+    echoAscended: r.echo_ascended,
+  });
+  const slot1BlessingKey = blessingSlots.primary.key;
+  const echoBlessingKey = blessingSlots.secondary.key;
 
   const effLevel = levelOverride != null
     ? Math.max(MOB_LEVEL_MIN, Math.min(50, Math.floor(levelOverride)))

@@ -4,7 +4,7 @@
  * `crd glossary` — reference codex (Ascension Patch §4). Embed/text only, NO
  * canvas: deity/gear art is served via the custom-emoji registry.
  *
- * Header dropdown picks the category (Deities / Weapons / Armors / Runes);
+ * Header dropdown picks the category (Deities / Weapons / Armors / rune groups);
  * Previous/Next buttons page within it. Interaction namespace `gloss`:
  *   gloss:cat:<ownerId>              (select — value = category key)
  *   gloss:<prev|next>:<ownerId>:<cat>:<page>
@@ -23,14 +23,16 @@ const {
 const pool = require('../../db/pool');
 const { registerMemorySource } = require('../../utils/memoryRegistry');
 const { smallDivider: sep } = require('../../utils/componentsV2');
-const { emojiForDisplay } = require('../../utils/emojis');
+const { emojiForDisplay, gearTierEmoji } = require('../../utils/emojis');
 const { TIER_ALIAS } = require('../../config/gachaRates');
 const { RARITY_SYMBOLS } = require('../../engine/renderSummon');
 const {
   TIER_RANGES, TYPE_PROFILES, BAND_FRACTIONS, SUPREME_STATS, GENESIS_STATS,
   ARMOR_TIER_RANGES, ARMOR_TYPE_PROFILES, SUPREME_ARMOR,
 } = require('../../config/dropRates');
-const { runeEmoji, runeDescription } = require('../../config/runes');
+const {
+  runeEmoji, runeDescription, OFFENSE_KEYS, DEFENSE_KEYS,
+} = require('../../config/runes');
 
 const BRAND = 0x9b59b6;
 const PAGE_ENTRY_LIMIT = 10;
@@ -40,7 +42,8 @@ const CATEGORIES = {
   deities: 'Deities',
   weapons: 'Weapons',
   armors: 'Armors',
-  runes: 'Runes',
+  offensive_runes: 'Offensive Runes',
+  defensive_runes: 'Defensive Runes',
 };
 
 // Gear tier ordering (Genesis → Common); deity tiers order via the same CASE.
@@ -265,7 +268,8 @@ async function gearPages(kind) {
         ? `HP ${fmtRange(bandWindow(range.hp, profile.hp))} · DEF ${fmtRange(bandWindow(range.def, profile.def))}`
         : 'HP — · DEF —';
     }
-    const leading = `${icon} **${g.name}** — ${g.tier}\n${statLine}`;
+    const tierIcon = gearTierEmoji(g.tier);
+    const leading = `${tierIcon ? `${tierIcon} ` : ''}${icon} **${g.name}** — ${g.tier}\n${statLine}`;
     return g.passive_name && g.passive_name.toLowerCase() !== 'none'
       ? {
         leading,
@@ -280,14 +284,15 @@ async function gearPages(kind) {
   }));
 }
 
-async function runePages() {
+async function runePages(effectKeys) {
   const { rows } = await pool.query(
     `SELECT name, effect_key, tier, value, description
        FROM rune_roster
       WHERE is_available = TRUE
       ORDER BY ${GEAR_TIER_ORDER_SQL} DESC, name ASC`
   );
-  const entries = rows.map((r) => ({
+  const included = new Set(effectKeys);
+  const entries = rows.filter((r) => included.has(r.effect_key)).map((r) => ({
     leading: `${runeEmoji(r.effect_key)} **${r.name}** — ${r.tier}`,
     passiveName: null,
     descriptionHeading: 'Rune Description',
@@ -300,11 +305,11 @@ async function runePages() {
 }
 
 async function fetchPage(cat, page) {
-  const pages = cat === 'deities'
-    ? await deityPages()
-    : cat === 'runes'
-      ? await runePages()
-      : await gearPages(cat);
+  let pages;
+  if (cat === 'deities') pages = await deityPages();
+  else if (cat === 'offensive_runes') pages = await runePages(OFFENSE_KEYS);
+  else if (cat === 'defensive_runes') pages = await runePages(DEFENSE_KEYS);
+  else pages = await gearPages(cat);
   const selected = circularPage(pages, page);
   return { ...selected, subtitle: pages[selected.page]?.subtitle || '—' };
 }

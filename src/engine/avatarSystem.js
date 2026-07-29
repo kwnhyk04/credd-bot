@@ -381,12 +381,12 @@ function pagePayload(state, userId, page, mode) {
     new ButtonBuilder()
       // Circular carousel: wrap the target page so Previous on page 0 lands on the
       // last page and Next on the last page lands on page 0.
-      .setCustomId(`avat:${mode}:${userId}:${(safePage - 1 + pageCount) % pageCount}`)
+      .setCustomId(`avat:${mode}:${userId}:${(safePage - 1 + pageCount) % pageCount}:prev`)
       .setLabel('Previous')
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(pageCount <= 1),
     new ButtonBuilder()
-      .setCustomId(`avat:${mode}:${userId}:${(safePage + 1) % pageCount}`)
+      .setCustomId(`avat:${mode}:${userId}:${(safePage + 1) % pageCount}:next`)
       .setLabel('Next')
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(pageCount <= 1)

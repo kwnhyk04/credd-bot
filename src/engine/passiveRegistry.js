@@ -6,8 +6,8 @@
  * One flat object keyed by passive_key / blessing_key / skill_key. Every key in
  * passive_registry_keys.md has a function here (coverage is asserted both ways by
  * scripts/battle-selftest.js). Functions are pure state-mutation over a perspective
- * `bs` object conforming to docs/ENGINE_HOOKS.md — they never deal damage, apply
- * mitigation, end the battle, or touch the DB.
+ * `bs` object described below. They never deal damage, apply mitigation, end the
+ * battle, or touch the DB.
  *
  * RANDOMNESS: every probability check draws from bs.rng() (the engine-injected
  * seeded stream). Math.random is forbidden in this file (statically checked by the
@@ -21,17 +21,17 @@
  *   - Stacking buffs are per-turn; bonus/extra hits are riders (advance nothing)
  *   - bs.enemyImmune(tag) gates all enemy-targeted debuffs
  *
- * bs scratch fields (reset by the engine every round, per docs/ENGINE_HOOKS.md §1):
+ * bs scratch fields (reset by the engine every round):
  *   damageBonusPct (proc-granted damage %, summed with the weapon's bonusDmgPct),
- *   bonusIncomingDmgMult (0 = normal, additive delta), playerAtkMult, playerDefMult,
+ *   damageReductionPct, incomingDamageIncreasePct, playerAtkMult, playerDefMult,
  *   ignoreDefPct, nextAttackAutoCrit, nextAttackDouble, isPrimaryAttack,
  *   isAdditionalAttack, allowAdditionalAttackProcs, log.
  * bs.flags.* persists for the whole battle (except the engine-managed per-round
  * derived flags — see battleEngine.js round-start reset list).
  *
  * Most keys are built from the archetype factories below; genuinely unique effects
- * stay bespoke. The key → archetype/bespoke audit matrix lives in
- * docs/phase6_registry_audit.md.
+ * stay bespoke. The canonical key/description ledger lives in
+ * assets/data/passive_registry_keys.md.
  */
 
 const { CANONICAL_ON_HIT_EFFECTS } = require('./combatEffects');
@@ -156,7 +156,8 @@ const timedSelfBuff = (rounds, atk, def) => (bs) => {
 const constantSelfBuff = (atk, def, incoming) => (bs) => {
   if (atk) bs.playerAtkMult += atk;
   if (def) bs.playerDefMult += def;
-  if (incoming) bs.bonusIncomingDmgMult += incoming;
+  if (incoming < 0) bs.damageReductionPct += -incoming;
+  if (incoming > 0) bs.incomingDamageIncreasePct += incoming;
 };
 
 /** Re-roll a defensive check flag each round (block/evade/reflect hooks). */
@@ -231,6 +232,22 @@ const chancePlayerDebuff = (chance, specs, label) => (bs) => {
   }
 };
 
+/** Mob skill: roll only after the mob lands a hit, then apply player debuff(s). */
+const chanceEnemyLandedHitPlayerDebuff = (chance, specs, label) => (bs) => {
+  bs.onEnemyLandedHit(() => {
+    if (bs.rng() >= chance) return;
+    let applied = false;
+    for (const s of specs) {
+      applied = bs.applyPlayerDebuff(
+        s.tag,
+        s.turns,
+        s.valueFn ? s.valueFn(bs) : (s.value || 0),
+      ) || applied;
+    }
+    if (applied) bs.log.push(label);
+  });
+};
+
 /** Mob skill: every Nth round → apply player debuff(s). */
 const everyNthPlayerDebuff = (n, specs, label) => (bs) => {
   if (bs.currentTurn % n === 0) {
@@ -257,11 +274,25 @@ const surtMuspellsFlame = canonicalOnHitEffect(CANONICAL_ON_HIT_EFFECTS.surt);
  *  (mitigated by the player's DEF). pct is the whole multiplier, like a crit: "200% ATK"
  *  = ×2.0 of a normal hit (NOT +200% on top), "150% ATK" = ×1.5, etc. */
 const everyNthEnemyNuke = (n, pctOrFn, labelFn, extraFn) => (bs) => {
-  if (bs.currentTurn % n === 0) {
-    const pct = typeof pctOrFn === 'function' ? pctOrFn(bs) : pctOrFn;
-    bs.flags.enemy_atk_mult = (bs.flags.enemy_atk_mult || 1.0) * pct;
-    if (extraFn) extraFn(bs);
-    bs.log.push(typeof labelFn === 'function' ? labelFn(pct) : labelFn);
+  if (bs.currentTurn % n === 0) bs.flags.enemy_nuke_pending = true;
+  if (bs.flags.enemy_nuke_pending) {
+    let triggered = false;
+    let landedEffectApplied = false;
+    bs.onEnemyAttack(() => {
+      if (!bs.flags.enemy_nuke_pending) return;
+      bs.flags.enemy_nuke_pending = false;
+      triggered = true;
+      const pct = typeof pctOrFn === 'function' ? pctOrFn(bs) : pctOrFn;
+      bs.flags.enemy_atk_mult = (bs.flags.enemy_atk_mult || 1.0) * pct;
+      bs.log.push(typeof labelFn === 'function' ? labelFn(pct) : labelFn);
+    });
+    if (extraFn) {
+      bs.onEnemyLandedHit(() => {
+        if (!triggered || landedEffectApplied) return;
+        landedEffectApplied = true;
+        extraFn(bs);
+      });
+    }
   }
 };
 
@@ -358,12 +389,18 @@ const PASSIVE_REGISTRY = {
   'pilgrims_bordone': chanceLandedHitDebuff(0.50, 'def_down', LANDED_STAT_DEBUFF_TURNS, () => 0.15,
     '🪄 Pilgrim\'s Bordone: Sundering Blow — Enemy DEF -15%!'),
 
-  'vatican_aspis': constantSelfBuff(0.10, 0, -0.10),
+  'vatican_aspis': constantSelfBuff(0.12, 0, -0.08),
 
-  'battersea_shield': timedSelfBuff(2, 0, 0.25),
+  'battersea_shield': (bs) => {
+    const stacks = Math.min((bs.flags.iron_stance_stacks || 0) + 1, 5);
+    bs.flags.iron_stance_stacks = stacks;
+    bs.damageReductionPct += stacks * 0.03;
+    bs.log.push(`🛡️ Iron Stance — damage reduction now ${stacks * 3}% (turn ${bs.currentTurn})`);
+  },
 
-  // Reflection is logged by the engine after the hit that actually triggers it.
-  'enderby_shield': chanceFlag(0.10, 'enderby_reflect_check', null),
+  'enderby_shield': (bs) => {
+    bs.flags.enderby_reflect_pct = 0.12;
+  },
 
   'holmegaard_bow': stackingAtk('holmegaard_stack', 0.03, 0.15),
 
@@ -395,10 +432,11 @@ const PASSIVE_REGISTRY = {
   'thyrsus': chanceEnemyDebuff(0.20, 'bleed', 2, (bs) => bs.playerATK * 0.05,
     '🪄 Thyrsus: Maddening Touch — Bleed applied (5% ATK for 2 turns)!'),
 
-  'dipylon_shield': timedSelfBuff(3, 0, 0.20),
+  'dipylon_shield': timedSelfBuff(3, 0, 0.30),
 
-  'pelte': chanceFlag(0.15, 'pelte_block_check', null,
-    (bs) => { bs.flags.pelte_block_pct = 0.25; }),
+  'pelte': (bs) => {
+    bs.flags.pelte_active = true;
+  },
 
   'arrow_of_eros': attackChanceRider(0.30, 0.45,
     '🏹 Arrow of Eros: Love\'s Arrow — +45% bonus ATK!'),
@@ -407,34 +445,35 @@ const PASSIVE_REGISTRY = {
 
   // ── WEAPON PASSIVES — Legendary PH & Norse ──────────────────────────────
 
-  'juru_pakal': bonusVsState('enemy_is_bleeding', 0.50,
-    '⚔️ Juru Pakal: Bloodhunter — +50% vs bleeding enemy!'),
+  'juru_pakal': (bs) => {
+    bs.playerAtkMult += 0.10;
+    bs.onAttack(() => {
+      if (bs.enemyHasEffectTag('bleed')) {
+        bs.playerAtkMult += 0.50;
+        bs.log.push('🩸 Bloodhunter — target is bleeding, +50% damage.');
+      }
+    });
+  },
 
   'gram': (bs) => {
-    // Ignores 25% of enemy DEF; actual attacks gain +30% above 80% enemy HP.
+    // Ignores 25% of enemy DEF; actual attacks gain +30% above 50% enemy HP.
     if (0.25 > bs.ignoreDefPct) bs.ignoreDefPct = 0.25;
     bs.onAttack(() => {
-      if (bs.enemyHP > bs.enemyMaxHP * 0.80) {
+      if (bs.enemyHP > bs.enemyMaxHP * 0.50) {
         bs.playerAtkMult += 0.30;
-        bs.log.push('⚔️ Gram: Dragonbane — +30% vs a healthy foe (>80% HP)!');
+        bs.log.push('🐉 Dragonbane — target above 50% HP, +30% bonus damage.');
       }
     });
   },
 
   'tyrfing': (bs) => {
-    // ATK +10%/turn stacking to +30%. Once the enemy drops below 30% HP the curse takes
-    // hold: attacks can no longer miss or be evaded (engine reads tyrfing_no_miss, sticky).
     if (!bs.flags.tyrfing_stack) bs.flags.tyrfing_stack = 0;
     if (bs.flags.tyrfing_stack < 0.30) {
       bs.flags.tyrfing_stack = Math.min(bs.flags.tyrfing_stack + 0.10, 0.30);
     }
     bs.playerAtkMult += bs.flags.tyrfing_stack;
-    if (bs.enemyHP < bs.enemyMaxHP * 0.30) {
-      if (!bs.flags.tyrfing_no_miss) {
-        bs.log.push('🗡️ Tyrfing: Cursed Edge — The curse takes hold; attacks cannot miss!');
-      }
-      bs.flags.tyrfing_no_miss = true;
-    }
+    const pct = Math.round(bs.flags.tyrfing_stack * 100);
+    bs.log.push(`🗡️ Cursed Edge — ATK +${pct}% (${pct === 30 ? 'max stacks' : `${pct / 10} stacks`})`);
   },
 
   'laevateinn_sword': (bs) => {
@@ -454,27 +493,34 @@ const PASSIVE_REGISTRY = {
   },
 
   'jarngreipr': (bs) => {
-    // The engine applies the +60% rider only when the attack really lands and its
+    bs.playerAtkMult += 0.20;
+    // The engine applies the +50% rider only when the attack really lands and its
     // Fighter stun succeeds after all immunity/evade checks.
     bs.flags.jarngreipr_on_stun = true;
   },
 
-  'gridr_iron_gloves': chanceFlag(0.20, 'gridr_ignore_check', null),
+  'gridr_iron_gloves': (bs) => {
+    bs.playerAtkMult += 0.20;
+    bs.flags.gridr_ironhide_active = true;
+  },
 
   'alans_reversed_hands': (bs) => {
+    bs.playerAtkMult += 0.20;
     bs.playerStatusImmune = true;
     bs.clearPlayerStatusEffects();
   },
 
   'knuckle_charm_anting_anting': (bs) => {
-    // 5% on landed hit — engine blocks vs bosses and disables entirely in duels.
+    bs.playerAtkMult += 0.10;
     let proc = false;
     bs.onAttack(() => { proc = bs.rng() < 0.05; });
     bs.onLandedHit(() => {
-      bs.flags.instakill_check = proc;
-      if (bs.flags.instakill_check) {
-        bs.log.push('💀 Knuckle Charm Anting-Anting: Death Charm — INSTANT KILL proc!');
+      if (!proc) return;
+      if (bs.enemyImmune('boss_immune')) {
+        bs.log.push('🚫 Death Charm has no effect on bosses.');
+        return;
       }
+      bs.flags.instakill_check = true;
     });
   },
 
@@ -518,7 +564,7 @@ const PASSIVE_REGISTRY = {
     // to -50% (one def_down source, highest-wins per R8 and immunity-gated),
     // +50% armor pierce while the target's DEF is buffed (engine reads
     // moira_pierce_vs_def_buff at DEF time), and attacks cannot miss or be
-    // evaded (engine reads tyrfing_no_miss).
+    // evaded (engine reads attacks_cannot_miss).
     if (!bs.flags.moira_def_stack) bs.flags.moira_def_stack = 0;
     bs.onLandedHit(() => {
       if (!bs.enemyImmune('def_down') && bs.flags.moira_def_stack < 0.50) {
@@ -530,10 +576,10 @@ const PASSIVE_REGISTRY = {
       }
     });
     bs.flags.moira_pierce_vs_def_buff = true;
-    if (!bs.flags.tyrfing_no_miss) {
+    if (!bs.flags.attacks_cannot_miss) {
       bs.log.push('🏹 Moira: Fate Ignores Iron — Every arrow was always meant to land.');
     }
-    bs.flags.tyrfing_no_miss = true;
+    bs.flags.attacks_cannot_miss = true;
   },
 
   'sophia': (bs) => {
@@ -549,7 +595,7 @@ const PASSIVE_REGISTRY = {
       bs.log.push('📖 Sophia: The Price of Knowing — Reality relents; damage +150%!');
     }
     bs.playerAtkMult += bs.flags.sophia_awakened ? 1.50 : 0.75;
-    bs.bonusIncomingDmgMult += 0.20;
+    bs.incomingDamageIncreasePct += 0.20;
   },
 
   'atlas': (bs) => {
@@ -591,8 +637,14 @@ const PASSIVE_REGISTRY = {
     if (bs.flags.titan_atk_bonus > 0) bs.playerAtkMult += bs.flags.titan_atk_bonus;
   },
 
-  'galdrastafir': chanceLandedHitDebuff(0.50, 'def_down', LANDED_STAT_DEBUFF_TURNS, () => 0.30,
-    '🪄 Galdrastafir: Runebreaker — Enemy DEF -30%!'),
+  'galdrastafir': (bs) => {
+    bs.onLandedHit(() => {
+      if (!bs.enemyImmune('def_down')
+          && bs.applyDebuff('def_down', LANDED_STAT_DEBUFF_TURNS, 0.20)) {
+        bs.log.push('🔻 Runebreaker — enemy DEF reduced by 20% for 1 turn.');
+      }
+    });
+  },
 
   'babaylans_ritual_staff': (bs) => {
     const removedCount = bs.rng() < 0.50 ? bs.clearPlayerDebuffs() : 0;
@@ -606,58 +658,77 @@ const PASSIVE_REGISTRY = {
   },
 
   'badiang_stalk': (bs) => {
-    // 30% chance on landed hit: 10% enemy max HP (auto-blocked vs all bosses).
     let proc = false;
     bs.onAttack(() => { proc = bs.rng() < 0.30; });
     bs.onLandedHit(() => {
-      bs.flags.rupture_check = proc && !bs.enemyImmune('hp_pct_dot');
-      if (bs.flags.rupture_check) {
-        bs.flags.rupture_pct = 0.10;
-        bs.log.push('🌿 Badiang Stalk: Venom Burst — Rupture! 10% enemy max HP!');
+      if (!proc) return;
+      const bossBlocked = bs.enemyImmune('boss_immune');
+      bs.flags.rupture_check = !bossBlocked;
+      bs.flags.rupture_boss_blocked = bossBlocked;
+      bs.flags.rupture_pct = 0.10;
+      if (!bossBlocked) {
+        // The marker carries the canonical bleed tag so Bloodhunter can detect
+        // Rupture even when the target separately resists Venom.
+        bs.applyDebuff('rupture', LANDED_STAT_DEBUFF_TURNS);
       }
+      bs.flags.venom_burst_applied = bs.applyDebuff(
+        'venom',
+        2,
+        bs.playerATK * 0.10,
+        { allowOnBoss: true },
+      );
     });
   },
 
   // ── WEAPON PASSIVES — Legendary Norse shields ───────────────────────────
 
   'shield_of_the_valkyrie': (bs) => {
-    // Every individual hit received: DEF +5% and ATK +5%, stacking to 30% each.
-    if (!bs.flags.valkyrie_shield_def) bs.flags.valkyrie_shield_def = 0;
+    // Every individual hit received: reduction +5% and ATK +5%, stacking to 25%.
+    if (!bs.flags.valkyrie_shield_dr) bs.flags.valkyrie_shield_dr = 0;
     if (!bs.flags.valkyrie_shield_atk) bs.flags.valkyrie_shield_atk = 0;
     bs.flags.valkyrie_resolve_active = true;
-    bs.playerDefMult += bs.flags.valkyrie_shield_def;
+    bs.damageReductionPct += bs.flags.valkyrie_shield_dr;
     bs.playerAtkMult += bs.flags.valkyrie_shield_atk;
   },
 
-  'skjaldmaer': chanceFlag(0.15, 'skjaldmaer_ignore_check', null),
+  'skjaldmaer': (bs) => {
+    bs.flags.skjaldmaer_active = true;
+    bs.flags.skjaldmaer_reflect_pct = 0.20;
+  },
 
   'luzon_tribal_shield': (bs) => {
-    // While debuffed: DEF +40% until the debuff expires
+    // While debuffed: DEF +45% until the final debuff is removed.
+    bs.flags.tribal_ward_active = true;
     if (bs.hasPlayerDebuff('any')) {
-      bs.playerDefMult += 0.40;
-      bs.log.push('🛡️ Luzon Tribal Shield: Tribal Ward — DEF +40% while debuffed!');
+      bs.playerDefMult += 0.45;
+      bs.log.push('🪶 Tribal Ward — DEF +45% while debuffed.');
     }
   },
 
   'gusisnautar': (bs) => {
-    // 50% on landed hit: 10% enemy max HP + DEF -15% (boss-blocked).
     let proc = false;
     bs.onAttack(() => { proc = bs.rng() < 0.50; });
     bs.onLandedHit(() => {
-      bs.flags.hemorrhage_check = proc && !bs.enemyImmune('hp_pct_dot');
-      if (bs.flags.hemorrhage_check) {
-        bs.flags.hemorrhage_pct = 0.10;
-        const shredded = !bs.enemyImmune('def_down')
-          && bs.applyDebuff('def_down', LANDED_STAT_DEBUFF_TURNS, 0.15);
-        bs.log.push(
-          `🏹 Gusisnautar: Hemorrhaging Shot — Hemorrhage! 10% max HP${shredded ? ' + DEF -15%' : ''}!`
-        );
+      if (!proc) return;
+      if (bs.enemyImmune('boss_immune')) {
+        bs.log.push('🚫 Hemorrhaging Shot has no effect on bosses.');
+        return;
       }
+      bs.flags.hemorrhage_check = true;
+      bs.flags.hemorrhage_pct = 0.05;
+      bs.applyDebuff('hemorrhage', LANDED_STAT_DEBUFF_TURNS);
+      bs.flags.hemorrhage_shredded = !bs.enemyImmune('def_down')
+        && bs.applyDebuff('def_down', LANDED_STAT_DEBUFF_TURNS, 0.15);
     });
   },
 
-  'freyrs_arrow': attackChanceRider(0.50, 1.00,
-    '🏹 Freyr\'s Arrow: Auto-Fire — +100% ATK bonus hit!'),
+  'freyrs_arrow': (bs) => {
+    bs.onAttack(() => {
+      if (bs.allowAdditionalAttackProcs !== false && bs.rng() < 0.30) {
+        bs.flags.auto_fire_shot = true;
+      }
+    });
+  },
 
   // ── WEAPON PASSIVES — Legendary Greek ───────────────────────────────────
 
@@ -670,7 +741,7 @@ const PASSIVE_REGISTRY = {
       bs.flags.damocles_stack = Math.min(bs.flags.damocles_stack + 0.05, 1.00);
     }
     bs.playerAtkMult += bs.flags.damocles_stack;
-    if (bs.flags.damocles_stack > 0) bs.bonusIncomingDmgMult += 0.10;
+    if (bs.flags.damocles_stack > 0) bs.incomingDamageIncreasePct += 0.10;
   },
 
   'labrys': (bs) => {
@@ -707,29 +778,21 @@ const PASSIVE_REGISTRY = {
     }
   },
 
-  // ATK +10% every turn, cap +40%. The engine grants one immediate stack on defeat.
-  'spear_of_ares': stackingAtk('spear_of_ares_stack', 0.10, 0.40),
+  'spear_of_ares': (bs) => {
+    const stacks = Math.min((bs.flags.spear_of_ares_stacks || 0) + 1, 5);
+    bs.flags.spear_of_ares_stacks = stacks;
+    bs.playerAtkMult += stacks * 0.10;
+    bs.log.push(`🔥 Bloodlust — ATK +${stacks * 10}% (${stacks} stacks)`);
+  },
 
-  // [v5] Promoted to Supreme Light armor — reworked from "enemy miss" to a DEF shred
-  // (matches the v5 armor_roster seed): 30% chance each turn → enemy DEF -50% for 2 turns.
-  'helm_of_darkness': chanceEnemyDebuff(0.30, 'def_down', 2, () => 0.50,
-    '🪖 Helm of Darkness: Invisibility — Enemy DEF -50% for 2 turns!'),
+  'helm_of_darkness': (bs) => {
+    bs.flags.helm_darkness_active = true;
+  },
 
   'aegis': (bs) => {
-    // [v5] Promoted to Supreme armor — 50% chance per landed hit to add Stone.
     if (!bs.flags.aegis_stacks) bs.flags.aegis_stacks = 0;
-    bs.onLandedHit(() => {
-      if (bs.rng() < 0.50) {
-        bs.flags.aegis_stacks += 1;
-        bs.log.push(`🛡️ Aegis: Medusa's Gaze — Stone Stack! (${bs.flags.aegis_stacks}/3)`);
-        if (bs.flags.aegis_stacks >= 3) {
-          bs.flags.aegis_stacks = 0;
-          if (!bs.enemyImmune('stun') && bs.applyDebuff('stun', 1)) {
-            bs.log.push('🛡️ Aegis: Medusa\'s Gaze — 3 Stacks! Enemy STUNNED!');
-          }
-        }
-      }
-    });
+    bs.flags.aegis_active = true;
+    bs.damageReductionPct += bs.flags.aegis_stacks * 0.07;
   },
 
   'apollos_silver_bow': (bs) => {
@@ -809,73 +872,60 @@ const PASSIVE_REGISTRY = {
   // Kalasag — Bulwark Hide: incoming damage −3% (additive incoming lane, post-DEF).
   'kalasag': constantSelfBuff(0, 0, -0.03),
 
-  // Hoplite Panoply — Phalanx Wall: incoming damage −15%.
-  'hoplite_panoply': constantSelfBuff(0, 0, -0.15),
-
-  // Mail of Brokkr — Dwarven Forge: incoming −30% AND reflect 15% of damage taken.
-  // The engine adds mail_brokkr_reflect to the reflect sum on the FINAL applied hit.
-  'mail_of_brokkr': (bs) => {
-    bs.bonusIncomingDmgMult += -0.30;
-    bs.flags.mail_brokkr_reflect = 0.15;
+  'hoplite_panoply': (bs) => {
+    bs.damageReductionPct += 0.20;
+    bs.flags.phalanx_wall_active = true;
   },
 
-  // Wolfskin Cloak — Wolf's Vigor: regen 10% max HP at the start of each round.
-  'wolfskin_cloak': regenSelf(1, 0.10,
-    (heal) => `🐺 Wolfskin Cloak: Wolf's Vigor — Regenerated ${heal} HP!`),
+  'mail_of_brokkr': (bs) => {
+    bs.damageReductionPct += 0.30;
+    bs.flags.mail_brokkr_reflect = 0.18;
+    bs.flags.mail_brokkr_hit_cap = 0.15;
+  },
+
+  'wolfskin_cloak': (bs) => {
+    const pct = bs.playerHP < bs.playerMaxHP * 0.50 ? 0.06 : 0.03;
+    const before = bs.playerHP;
+    bs.playerHP = Math.min(bs.playerHP + Math.floor(bs.playerMaxHP * pct), bs.playerMaxHP);
+    bs.log.push(`🐺 Wolf's Vigor — restored ${bs.playerHP - before} HP.`);
+  },
 
   // Salakot Ward — Spirit Ward: 20% chance to negate an incoming debuff. The roll
   // happens in the engine's addDebuff() at apply-time (see battleEngine §13.1 hook).
   'salakot_ward': (bs) => {
-    bs.flags.salakot_negate_chance = 0.20;
+    bs.flags.salakot_negate_chance = 0.35;
   },
 
-  // Anting-Anting Sash — Charmed Hide: immune to Stun / Petrify / Freeze (typed).
-  // Other debuffs still land; engine addDebuff() honors immune_cc_types.
   'anting_anting_sash': (bs) => {
-    bs.flags.immune_cc_types = ['stun', 'petrify', 'freeze'];
+    bs.flags.charmed_hide_active = true;
   },
 
-  // Valkyrie's Mantle — Chooser's Grace: 20% evade, clamped so TOTAL evade across
-  // all sources (amihan/loki/…) never exceeds 40% (v5 resolver cap). Always draws
-  // once (stream stability), even when the cap leaves zero headroom.
   'valkyrie_mantle': (bs) => {
-    const used = bs.flags.evade_chance_used || 0;
-    const chance = Math.min(0.20, Math.max(0, 0.40 - used));
-    bs.flags.evade_chance_used = used + chance;
-    const roll = bs.rng();
-    bs.flags.valkyrie_evade_check = roll < chance;
-    // The engine logs only after the evade really stops a hit. A no-miss
-    // attacker such as Moira must not produce a contradictory "evaded" event.
+    bs.flags.chooser_grace_active = true;
+    if (!Number.isFinite(bs.flags.chooser_grace_chance)) {
+      bs.flags.chooser_grace_chance = 0.22;
+    }
   },
 
-  // Mantle of Bathala — Divine Aegis: +5% HP and +5% DEF every turn, stacking to
-  // +50% each. DEF via the def multiplier; HP via the engine's Bathala HP ramp
-  // (bathala_hp_fraction → applyBathala). Stack persists for the battle.
   'mantle_of_bathala': (bs) => {
-    if (!bs.flags.mantle_bathala_stacks) bs.flags.mantle_bathala_stacks = 0;
-    if (bs.flags.mantle_bathala_stacks < 0.50) {
-      bs.flags.mantle_bathala_stacks = Math.min(bs.flags.mantle_bathala_stacks + 0.05, 0.50);
-    }
-    const frac = bs.flags.mantle_bathala_stacks;
-    bs.playerDefMult += frac;
-    bs.flags.bathala_hp_fraction = frac;
-    bs.log.push(`🛡️ Mantle of Bathala: Divine Aegis — +${Math.round(frac * 100)}% HP/DEF!`);
+    const stacks = Math.min((bs.flags.mantle_bathala_stacks || 0) + 1, 5);
+    bs.flags.mantle_bathala_stacks = stacks;
+    bs.flags.bathala_hp_fraction = stacks * 0.06;
+    bs.damageReductionPct += stacks * 0.04;
+    bs.flags.mantle_bathala_heal_pct = stacks === 5 ? 0.08 : 0;
+    bs.log.push(`✨ Divine Aegis — +${stacks * 6}% max HP · ${stacks * 4}% reduction (${stacks}/5)`);
   },
 
   // ── DEITY BLESSINGS — Philippine ─────────────────────────────────────────
 
   'bathala_divine_vessel': (bs) => {
-    // At the start of each turn, add 10% of base battle ATK and DEF.
-    // The additive ramp caps at 10 stacks, exactly +100% of each base stat.
-    // NOT compounding. NO HP component anymore — ATK/DEF only. This is a self-buff window, NOT
-    // a debuff: unaffected by the 1-turn rule and never cleansed off Bathala. The engine's HP
-    // ramp stays inert because bathala_hp_fraction is left at its reset default (0).
     if (!bs.flags.bathala_stacks) bs.flags.bathala_stacks = 0;
     if (bs.flags.bathala_stacks < 10) bs.flags.bathala_stacks += 1;
-    const frac = 0.10 * bs.flags.bathala_stacks;
-    bs.playerAtkMult += frac;
-    bs.playerDefMult += frac;
-    bs.log.push(`🌅 Bathala: Divine Vessel — Divine ramp +${Math.round(frac * 100)}% ATK/DEF!`);
+    const atkPct = 0.10 * bs.flags.bathala_stacks;
+    const defPct = 0.04 * bs.flags.bathala_stacks;
+    bs.playerAtkMult += atkPct;
+    bs.playerDefMult += defPct;
+    bs.log.push(`🌅 Bathala: Divine Vessel — Divine ramp +${Math.round(atkPct * 100)}% ATK / +${Math.round(defPct * 100)}% DEF!`);
   },
 
   'sidapa_deaths_reprieve': (bs) => {
@@ -889,8 +939,7 @@ const PASSIVE_REGISTRY = {
   },
 
   'magwayen_soul_drain': (bs) => {
-    // Engine heals 15% of dealt damage and grants the 20% max-HP soul claim on defeat.
-    bs.flags.soul_drain_active = true;
+    bs.flags.soul_drain_pct = Math.max(bs.flags.soul_drain_pct || 0, 0.30);
   },
 
   'mandarangan_war_frenzy': (bs) => {
@@ -1024,7 +1073,7 @@ const PASSIVE_REGISTRY = {
       bs.log.push(`✨ Baldur: Invulnerability — Debuffs cleansed! Healed ${heal} HP! 50% damage reduction!`);
     }
     if (bs.flags.baldur_dr_turns > 0) {
-      bs.bonusIncomingDmgMult -= 0.50;
+      bs.damageReductionPct += 0.50;
       bs.flags.baldur_dr_turns -= 1;
     }
   },
@@ -1080,13 +1129,24 @@ const PASSIVE_REGISTRY = {
 
   // Chain Lightning: 50% proc, +50% attack damage and a persistent 5% DEF-shred stack.
   'zeus_thunder_sovereign': (bs) => {
-    if (bs.rng() >= 0.50) return;
-    bs.playerAtkMult += 0.50;
-    if (!bs.enemyImmune('def_down')) {
-      bs.flags.zeus_def_shred_stacks = Math.min(6, (bs.flags.zeus_def_shred_stacks || 0) + 1);
-    }
-    const shred = Math.min(30, (bs.flags.zeus_def_shred_stacks || 0) * 5);
-    bs.log.push(`⚡ Zeus: Chain Lightning — +50% damage! Enemy DEF -${shred}%!`);
+    let proc = false;
+    bs.onAttack(() => {
+      proc = bs.rng() < 0.50;
+      if (proc) bs.playerAtkMult += 0.50;
+    });
+    bs.onLandedHit(() => {
+      if (!proc) return;
+      if (bs.enemyImmune('def_down')) {
+        bs.log.push('⚡ Zeus: Chain Lightning — +50% damage! Enemy resisted DEF shred.');
+        return;
+      }
+      bs.flags.zeus_def_shred_stacks = Math.min(
+        6,
+        (bs.flags.zeus_def_shred_stacks || 0) + 1,
+      );
+      const shred = bs.flags.zeus_def_shred_stacks * 5;
+      bs.log.push(`⚡ Zeus: Chain Lightning — +50% damage! Enemy DEF -${shred}%!`);
+    });
   },
 
   'ares_blood_frenzy': (bs) => {
@@ -1239,14 +1299,15 @@ const PASSIVE_REGISTRY = {
     (heal) => `🌾 Echo · Freyr: Harvest Bounty — Regenerated ${heal} HP!`),
 
   'echo_vidar': (bs) => {
-    if (bs.flags.player_was_critted) {
-      bs.flags.echo_vidar_revenge = true;
+    if (bs.flags.player_was_critted && !bs.flags.echo_vidar_revenge_pending) {
+      bs.flags.echo_vidar_revenge_pending = true;
       bs.log.push('⚔️ Echo · Vidar: Silent Vengeance — Next attack +30% ATK!');
     }
-    if (bs.flags.echo_vidar_revenge) {
+    bs.onAttack(() => {
+      if (!bs.flags.echo_vidar_revenge_pending) return;
+      bs.flags.echo_vidar_revenge_pending = false;
       bs.playerAtkMult += 0.30;
-      bs.flags.echo_vidar_revenge = false;
-    }
+    });
   },
 
   'echo_magni': (bs) => {
@@ -1271,16 +1332,21 @@ const PASSIVE_REGISTRY = {
   // ── ECHO BLESSINGS — Philippine ─────────────────────────────────────────
 
   'echo_idiyanale': (bs) => {
-    if (bs.currentTurn % 6 === 0) {
-      bs.nextAttackDouble = true;
+    if (bs.currentTurn % 6 === 0 && !bs.flags.echo_idiyanale_double_pending) {
+      bs.flags.echo_idiyanale_double_pending = true;
       bs.log.push('⚙️ Echo · Idiyanale: Persistence — Next attack deals double damage!');
     }
+    bs.onAttack(() => {
+      if (!bs.flags.echo_idiyanale_double_pending) return;
+      bs.flags.echo_idiyanale_double_pending = false;
+      bs.nextAttackDouble = true;
+    });
   },
 
   'echo_lakapati': regenSelf(1, 0.02,
     (heal) => `🌱 Echo · Lakapati: Abundance — Regenerated ${heal} HP!`),
 
-  'echo_habagat': chanceRider(0.15, 0.30,
+  'echo_habagat': attackChanceRider(0.15, 0.30,
     '🌩️ Echo · Habagat: Monsoon Fury — +30% ATK!'),
 
   'echo_mandarangan': (bs) => {
@@ -1289,7 +1355,7 @@ const PASSIVE_REGISTRY = {
   },
 
   'echo_magwayen': (bs) => {
-    bs.flags.echo_soul_drain_active = true;
+    bs.flags.soul_drain_pct = Math.max(bs.flags.soul_drain_pct || 0, 0.30);
   },
 
   'echo_dian_masalanta': hpThresholdBuff(0.30, 0.12, 0),
@@ -1308,7 +1374,7 @@ const PASSIVE_REGISTRY = {
     [{ tag: 'crit_down', turns: 1, value: 0.50 }],
     '👺 White Duwende: Daze — Your CRIT -50% for 1 turn!'),
 
-  'amalanhig_infectious_bite': chancePlayerDebuff(0.30,
+  'amalanhig_infectious_bite': chanceEnemyLandedHitPlayerDebuff(0.30,
     [{ tag: 'hp_pct_dot', turns: 2, value: 0.05 }],
     '🧟 Amalanhig: Infectious Bite — Rot! 5% max HP/turn for 2 turns!'),
 
@@ -1383,8 +1449,8 @@ const PASSIVE_REGISTRY = {
     }
   },
 
-  'dark_elves_curse_of_decay': chancePlayerDebuff(0.25,
-    [{ tag: 'def_down', turns: 1, value: 0.10 }],
+  'dark_elves_curse_of_decay': chanceEnemyLandedHitPlayerDebuff(0.25,
+    [{ tag: 'def_down', turns: LANDED_STAT_DEBUFF_TURNS, value: 0.10 }],
     '🧝 Dark Elf: Curse of Decay — Your DEF -10% for 1 turn!'),
 
   'light_elves_radiant_strike': chancePlayerDebuff(0.20,
@@ -1413,9 +1479,11 @@ const PASSIVE_REGISTRY = {
     '🐐 Satyr: Wild Revelry — Your ATK -15% for 1 turn!'),
 
   'harpy_swooping_talons': everyNthEnemyNuke(3, 1.50,
-    '🦅 Harpy: Swooping Talons — 150% ATK! Your DEF -10%!',
+    '🦅 Harpy: Swooping Talons — 150% ATK!',
     (bs) => {
-      bs.applyPlayerDebuff('def_down', 1, 0.10);
+      if (bs.applyPlayerDebuff('def_down', LANDED_STAT_DEBUFF_TURNS, 0.10)) {
+        bs.log.push('🦅 Harpy: Swooping Talons — Your DEF -10% for 1 turn!');
+      }
     }),
 
   'skeleton_warrior_undying_resolve': (bs) => {
@@ -1432,7 +1500,7 @@ const PASSIVE_REGISTRY = {
     }
   },
 
-  'lamia_serpent_bite': chancePlayerDebuff(0.30,
+  'lamia_serpent_bite': chanceEnemyLandedHitPlayerDebuff(0.30,
     [{ tag: 'bleed', turns: 2, valueFn: (bs) => bs.enemyATK * 0.15 }],
     '🐍 Lamia: Serpent Bite — Bleed applied! (15% enemy ATK for 2 turns)'),
 
@@ -1441,9 +1509,11 @@ const PASSIVE_REGISTRY = {
     (pct) => `🐂 Minotaur: Labyrinth Charge — ${Math.round(pct * 100)}% ATK!`),
 
   'cyclops_boulder_throw': everyNthEnemyNuke(4, 1.60,
-    '🗿 Cyclops: Boulder Throw — 160% ATK + Player Stunned!',
+    '🗿 Cyclops: Boulder Throw — 160% ATK!',
     (bs) => {
-      bs.applyPlayerDebuff('stun', 1);
+      if (bs.applyPlayerDebuff('stun', 1)) {
+        bs.log.push('🗿 Cyclops: Boulder Throw — Player Stunned for 1 turn!');
+      }
     }),
 
   'chimera_tri_form_assault': (bs) => {

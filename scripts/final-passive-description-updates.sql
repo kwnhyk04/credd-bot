@@ -1,6 +1,6 @@
 -- Final passive-description synchronization for the balance patch.
 -- PostgreSQL only. The transaction aborts unless every expected roster row
--- matches exactly one name/key pair and all 43 descriptions verify exactly.
+-- matches exactly one name/key pair and all 51 descriptions verify exactly.
 -- The requested weapon name "Laevateinn" is stored as "Laevateinn Staff".
 
 BEGIN;
@@ -11,7 +11,7 @@ DECLARE
     affected INTEGER;
 BEGIN
 CREATE TEMP TABLE _final_passive_updates (
-    roster_type TEXT NOT NULL CHECK (roster_type IN ('deity', 'weapon')),
+    roster_type TEXT NOT NULL CHECK (roster_type IN ('deity', 'weapon', 'mob')),
     roster_name TEXT NOT NULL,
     registry_key TEXT NOT NULL,
     description TEXT NOT NULL,
@@ -21,7 +21,7 @@ CREATE TEMP TABLE _final_passive_updates (
 
 INSERT INTO _final_passive_updates (roster_type, roster_name, registry_key, description)
 VALUES
-    ('deity', 'Magwayen', 'magwayen_soul_drain', 'Heals 15% of all damage dealt. When an enemy is defeated, recover 20% max HP as their soul is claimed.'),
+    ('deity', 'Magwayen', 'magwayen_soul_drain', 'Heals 30% of all damage actually dealt after mitigation, up to max HP.'),
     ('deity', 'Mandarangan', 'mandarangan_war_frenzy', 'End of each turn: +10% ATK, stacking up to +50% (reached turn 5). Stacks persist all battle.'),
     ('deity', 'Sidapa', 'sidapa_deaths_reprieve', 'Once per battle, the first lethal hit leaves the user at 1 HP. The user then heals 30% max HP and gains +50% ATK for the rest of the battle.'),
     ('deity', 'Apolaki', 'apolaki_solar_burn', 'Each attack burns the enemy for 10% of the user''s base ATK for 1 turn.'),
@@ -59,15 +59,24 @@ VALUES
     ('deity', 'Dionysus', 'dionysus_drunken_haze', '30% chance each turn to make the enemy attack itself for 30% of its own ATK.'),
     ('deity', 'Nike', 'nike_wings_of_victory', 'ATK +15% for the whole battle.'),
     ('deity', 'Persephone', 'persephone_cycle_of_renewal', 'Once per battle, when HP drops below 50%, restore 15% max HP.'),
-    ('weapon', 'Gram', 'gram', 'Ignores 25% of enemy DEF. Deals +30% bonus damage to enemies above 80% HP.'),
+    ('weapon', 'Gram', 'gram', 'Ignores 25% of enemy DEF and deals 30% more damage while the target is above 50% max HP.'),
     ('weapon', 'Laevateinn Staff', 'laevateinn_staff', 'Attacks ignore 15% of enemy DEF and apply Burn equal to 10% of ATK for 2 turns.'),
-    ('weapon', 'Spear of Ares', 'spear_of_ares', 'ATK +10% every turn, stacking up to +40%. Whenever you defeat an enemy, immediately gain a stack.'),
+    ('weapon', 'Spear of Ares', 'spear_of_ares', 'ATK +10% at the start of each turn, stacking up to +50% for the battle.'),
     ('weapon', 'Sword of Damocles', 'sword_of_damocles', 'ATK +5% every turn, stacking up to +100%. While any stacks are active, you take +10% damage.'),
-    ('weapon', 'Tyrfing', 'tyrfing', 'ATK +10% every turn, stacking up to +30%. Once the enemy drops below 30% HP, the curse takes hold: your attacks can no longer miss or be evaded.');
+    ('weapon', 'Tyrfing', 'tyrfing', 'ATK +10% at the start of each turn, stacking up to +30%. Attacks execute non-boss targets below 10% max HP.'),
+    ('weapon', 'Gungnir', 'gungnir', 'Each attack ignores 40% of enemy DEF and has a 25% chance to pierce all DEF (zero mitigation).'),
+    ('weapon', 'Thunderbolt of Zeus', 'thunderbolt_of_zeus', 'Each critical attack deals +100% bonus ATK and applies Paralyze for 1 turn.'),
+    ('weapon', 'Katana', 'katana', 'Each attack deals 30% additional damage (×1.30 on a normal hit; ×2.30 on a critical hit).'),
+    ('weapon', 'Kiri', 'kiri', 'Each attack increases damage by 20%, stacking up to +120%. Each attack has a 25% chance to strike twice.'),
+    ('mob', 'Lamia', 'lamia_serpent_bite', 'Each attack has a 30% chance to add Bleed equal to 15% of Lamia''s ATK per turn for 2 turns.'),
+    ('mob', 'Chimera', 'chimera_tri_form_assault', 'Each phase cycles through Lion Claw, which deals 140% ATK; Goat Ram, which reduces the player''s DEF by 20% for 1 turn; and Serpent Bite, which adds Burn equal to 20% of Chimera''s ATK per turn for 2 turns.'),
+    ('mob', 'Amalanhig', 'amalanhig_infectious_bite', 'Each attack has a 30% chance to inflict Rot equal to 5% of the player''s max HP per turn for 2 turns.'),
+    ('mob', 'Dark Elf', 'dark_elves_curse_of_decay', 'Each attack has a 25% chance to reduce the player''s DEF by 10% for 1 turn.');
 
     IF (SELECT COUNT(*) FROM _final_passive_updates WHERE roster_type = 'deity') <> 38
-       OR (SELECT COUNT(*) FROM _final_passive_updates WHERE roster_type = 'weapon') <> 5 THEN
-        RAISE EXCEPTION 'Expected 38 deity and 5 weapon passive updates';
+       OR (SELECT COUNT(*) FROM _final_passive_updates WHERE roster_type = 'weapon') <> 9
+       OR (SELECT COUNT(*) FROM _final_passive_updates WHERE roster_type = 'mob') <> 4 THEN
+        RAISE EXCEPTION 'Expected 38 deity, 9 weapon, and 4 mob passive updates';
     END IF;
 
     FOR target IN
@@ -80,11 +89,16 @@ VALUES
                SET blessing_description = target.description
              WHERE name = target.roster_name
                AND blessing_key = target.registry_key;
-        ELSE
+        ELSIF target.roster_type = 'weapon' THEN
             UPDATE weapon_roster
                SET passive_description = target.description
              WHERE name = target.roster_name
                AND passive_key = target.registry_key;
+        ELSE
+            UPDATE mob_roster
+               SET skill_description = target.description
+             WHERE name = target.roster_name
+               AND skill_key = target.registry_key;
         END IF;
 
         GET DIAGNOSTICS affected = ROW_COUNT;
@@ -119,6 +133,18 @@ VALUES
            AND roster.passive_description IS DISTINCT FROM update_row.description
     ) THEN
         RAISE EXCEPTION 'One or more weapon passive descriptions failed exact verification';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+          FROM _final_passive_updates AS update_row
+          LEFT JOIN mob_roster AS roster
+            ON roster.name = update_row.roster_name
+           AND roster.skill_key = update_row.registry_key
+         WHERE update_row.roster_type = 'mob'
+           AND roster.skill_description IS DISTINCT FROM update_row.description
+    ) THEN
+        RAISE EXCEPTION 'One or more mob passive descriptions failed exact verification';
     END IF;
 END;
 $passive_updates$;

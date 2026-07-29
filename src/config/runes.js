@@ -53,7 +53,7 @@ const RUNE_VALUE_RANGES = {
     Rare: [1, 3], Mythic: [4, 7], Legendary: [8, 12], Supreme: [15, 20],
   },
   thorns: {
-    Rare: [2, 4], Mythic: [5, 7], Legendary: [8, 13], Supreme: [15, 20],
+    Rare: [5, 10], Mythic: [12, 15], Legendary: [18, 20], Supreme: [25, 30],
   },
   warding: {
     Rare: [3, 5], Mythic: [7, 9], Legendary: [10, 13], Supreme: [15, 20],

@@ -106,6 +106,64 @@ function computeResonanceMods(deities) {
   return mods;
 }
 
+/**
+ * Resolve the two blessing CHANNELS a character has, as combat sees them.
+ *
+ * The channel (primary vs secondary) is NOT the same axis as the blessing type
+ * (Divine vs Echo): an Echo-type deity equipped in slot 1 still supplies the
+ * PRIMARY channel. Callers must never derive the channel from
+ * DIVINE_BLESSING_DEITIES / ECHO_BLESSING_DEITIES membership.
+ *
+ * A blessing fires only if its deity is Ascended; unascended
+ * deities contribute stats only (blessing dormant), so `key` stays 'none'.
+ *
+ * `blessingName` is carried through so display surfaces and combat resolve the
+ * same deity for each channel and cannot disagree. `echoBlessingKey` is part of
+ * the API for symmetry but is deliberately unused: the echo channel always maps
+ * through ECHO_BLESSING_KEY_MAP, matching the original statAssembly behavior.
+ */
+function resolveBlessingSlots({
+  slot1Name,
+  slot1BlessingName,
+  slot1BlessingKey,
+  slot1Ascended,
+  echoName,
+  echoBlessingName,
+  echoBlessingKey, // accepted for API symmetry; unused, as noted above
+  echoAscended,
+}) {
+  // Slot 1 channel: divine key for a divine deity, echo key for an echo deity.
+  let primaryKey = 'none';
+  if (slot1Name && slot1BlessingKey && slot1Ascended) {
+    if (DIVINE_BLESSING_DEITIES.has(slot1Name)) {
+      primaryKey = slot1BlessingKey;
+    } else {
+      primaryKey = ECHO_BLESSING_KEY_MAP[slot1Name] || slot1BlessingKey;
+    }
+  }
+
+  // Echo channel: the slot 2/3 deity chosen via `crd deity echo`, with the same gate.
+  let secondaryKey = 'none';
+  if (echoName && echoAscended) {
+    secondaryKey = ECHO_BLESSING_KEY_MAP[echoName] || 'none';
+  }
+
+  return {
+    primary: {
+      deityName: slot1Name || null,
+      blessingName: slot1BlessingName || null,
+      ascended: Boolean(slot1Ascended),
+      key: primaryKey,
+    },
+    secondary: {
+      deityName: echoName || null,
+      blessingName: echoBlessingName || null,
+      ascended: Boolean(echoAscended),
+      key: secondaryKey,
+    },
+  };
+}
+
 module.exports = {
   DIVINE_BLESSING_DEITIES,
   ECHO_BLESSING_DEITIES,
@@ -114,4 +172,5 @@ module.exports = {
   MYTHOLOGY_RESONANCES,
   DOMAIN_RESONANCES,
   computeResonanceMods,
+  resolveBlessingSlots,
 };

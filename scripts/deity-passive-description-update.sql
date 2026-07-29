@@ -2,7 +2,7 @@ BEGIN;
 
 UPDATE deity_roster
    SET blessing_name = 'Divine Vessel',
-       blessing_description = 'At the start of each turn before attacking, gains 10% of base battle ATK and DEF, stacking additively up to 10 times (100%). Resets after battle.'
+       blessing_description = 'At the start of each turn before attacking, gains 10% of base battle ATK and 4% of base battle DEF, stacking additively up to 10 times (+100% ATK and +40% DEF). Resets after battle.'
  WHERE blessing_key = 'bathala_divine_vessel';
 
 UPDATE deity_roster
@@ -12,7 +12,7 @@ UPDATE deity_roster
 
 UPDATE deity_roster
    SET blessing_name = 'Chain Lightning',
-       blessing_description = 'On each attack, has a 50% chance to deal 50% additional damage and apply a 5% DEF shred. DEF shred stacks up to 6 times (30%) and resets after battle.'
+       blessing_description = 'Each attack has a 50% chance to deal 50% additional damage and add a 5% DEF shred. The DEF shred stacks up to 6 times (30%) and resets after battle.'
  WHERE blessing_key = 'zeus_thunder_sovereign';
 
 COMMIT;

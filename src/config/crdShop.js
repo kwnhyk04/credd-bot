@@ -20,11 +20,11 @@ const { phtWeek } = require('./ranked');
 const CRD_SHOP = Object.freeze([
   Object.freeze({ id: 1, name: 'Character Class Change', emojiName: 'change_class',  price: 5_000_000, column: 'change_class',      limit: null }),
   Object.freeze({ id: 2, name: 'Lesser Bag',             emojiName: 'lesser_bag',    price: 1_000_000,  column: 'lesser_rune_bag',   limit: Object.freeze({ cap: 10, period: 'monthly' }) }),
-  Object.freeze({ id: 3, name: 'Greater Bag',            emojiName: 'greater_bag',   price: 5_000_000,  column: 'greater_rune_bag',  limit: Object.freeze({ cap: 5,  period: 'monthly' }) }),
-  Object.freeze({ id: 4, name: 'Divine Bag',             emojiName: 'divine_bag',    price: 10_000_000, column: 'divine_rune_bag',   limit: Object.freeze({ cap: 3,  period: 'monthly' }) }),
+  Object.freeze({ id: 3, name: 'Greater Bag',            emojiName: 'greater_bag',   price: 2_000_000,  column: 'greater_rune_bag',  limit: Object.freeze({ cap: 5,  period: 'monthly' }) }),
+  Object.freeze({ id: 4, name: 'Divine Bag',             emojiName: 'divine_bag',    price: 5_000_000,  column: 'divine_rune_bag',   limit: Object.freeze({ cap: 3,  period: 'monthly' }) }),
   Object.freeze({ id: 5, name: 'Silver Chest',           emojiName: 'silver_chest',  price: 5_000,     column: 'silver_chest',      limit: Object.freeze({ cap: 10, period: 'daily' }) }),
   Object.freeze({ id: 6, name: 'Gold Chest',             emojiName: 'gold_chest',    price: 50_000,     column: 'gold_chest',        limit: Object.freeze({ cap: 5,  period: 'daily' }) }),
-  Object.freeze({ id: 7, name: 'Diamond Chest',          emojiName: 'diamond_chest', price: 2_500_000,  column: 'diamond_chest',     limit: Object.freeze({ cap: 1,  period: 'weekly' }) }),
+  Object.freeze({ id: 7, name: 'Diamond Chest',          emojiName: 'diamond_chest', price: 500_000,    column: 'diamond_chest',     limit: Object.freeze({ cap: 1,  period: 'weekly' }) }),
 ]);
 
 const PHT_OFFSET_MS = 8 * 3600 * 1000; // Asia/Manila is UTC+8, no DST

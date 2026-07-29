@@ -343,9 +343,7 @@ function buildView(d) {
     deity_label: 'DEITIES',
     deities,
     deity_value: deities.join('  ·  '),
-    blessing: d.deityName
-      ? `Divine: ${d.blessingName || '—'}   ·   Echo: ${d.echoBlessing || '—'}`
-      : '',
+    blessing: `Primary: ${d.blessingName}   ·   Secondary: ${d.echoBlessing}`,
     stats_label: 'CHARACTER STATS',
     stats: {
       atk: fmt(d.atk), hp: fmt(d.hp), def: fmt(d.def), crit: `${Number(d.crit || 0).toFixed(1)}%`,

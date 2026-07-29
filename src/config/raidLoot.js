@@ -20,9 +20,9 @@ const ELITE_SPAWN_CHANCE = 0.20;
 const RAID_LOOT = {
   regular: {
     win: {
-      credux: [100, 500],
-      exp: [100, 200],
-      shards: [3, 5],          // was 1–3 @ ~50% — now guaranteed
+      credux: [500, 1000],
+      exp: [200, 300],
+      shards: [5, 10],         // was 3–5
       shardChance: 1.0,
       chest: 'silver_chest',
       chestChance: 0.10,
@@ -31,9 +31,9 @@ const RAID_LOOT = {
   },
   elite: {
     win: {
-      credux: [600, 1000],
-      exp: [300, 500],
-      shards: [8, 10],         // was 3–5
+      credux: [1500, 2000],
+      exp: [400, 600],
+      shards: [15, 20],        // was 8–10
       shardChance: 1.0,
       chest: 'gold_chest',
       chestChance: 0.20,

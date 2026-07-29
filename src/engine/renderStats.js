@@ -375,15 +375,18 @@ async function renderStatsImage(d) {
     if (d.deity3Name) deitySegments.push({ icon: null, text: ',  ' }, { icon: deity3Icon, text: d.deity3Name });
     drawSegments(deitySegments, PAD, by, bodyW);
     by += LH;
-    ctx.font = F(12);
-    ctx.fillStyle = SUB_COLOR;
-    ctx.fillText(fitText(ctx, `Divine Blessing: ${d.blessingName || '—'}`, bodyW), PAD, by);
-    by += LH - 4;
-    ctx.fillText(fitText(ctx, `Echo Blessing: ${d.echoBlessing || '—'}`, bodyW), PAD, by);
   } else {
     ctx.fillStyle = SUB_COLOR;
     ctx.fillText('None', PAD, by);
+    by += LH;
   }
+  // Blessing channels always render, even with no deity equipped. stats.js
+  // resolves these to Locked / None / Deity not ascended / the blessing name.
+  ctx.font = F(12);
+  ctx.fillStyle = SUB_COLOR;
+  ctx.fillText(fitText(ctx, `Primary Blessing: ${d.blessingName}`, bodyW), PAD, by);
+  by += LH - 4;
+  ctx.fillText(fitText(ctx, `Secondary Blessing: ${d.echoBlessing}`, bodyW), PAD, by);
   by += LH + 10;   // blank space
 
   // Character stats.

@@ -20,7 +20,7 @@ const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../..
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 
 // Bump when renderPortraitCard / the deities-grid visuals change (busts cached cards).
-const DEITY_RENDER_REV = 3;
+const DEITY_RENDER_REV = 4;
 const {
   assetPath,
   isRemoteAssetsEnabled,
@@ -36,8 +36,20 @@ const {
 const {
   computeDeityStats, computeDeityProgressionStats, nextDeityAttempt,
 } = require('../../engine/deityEnhancement');
-const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const { releaseCanvas } = require('../../utils/canvasEncode');
+
+// Bundled font. The host may have no system fonts, and an unresolved
+// generic family renders every label as tofu. Regular + Bold under one family
+// allows bold text to resolve correctly.
+const FONT_FAMILY = 'DejaVu Sans';
+for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
+  try {
+    GlobalFonts.registerFromPath(path.join(__dirname, '..', '..', '..', 'assets', 'fonts', file), FONT_FAMILY);
+  } catch (err) {
+    console.error(`[deity] font ${file} failed to register:`, err.message);
+  }
+}
 const {
   DIVINE_BLESSING_DEITIES, ECHO_BLESSING_DEITIES, ECHO_BLESSING_KEY_MAP,
   SLOT_UNLOCK_GATES, computeResonanceMods, DOMAIN_RESONANCES, MYTHOLOGY_RESONANCES,
@@ -1084,7 +1096,7 @@ function slotUnlocked(slot, believerLevel) {
 function drawCenteredFitText(ctx, text, x, y, maxWidth, size, weight = 'bold') {
   let fontSize = size;
   do {
-    ctx.font = `${weight} ${fontSize}px sans-serif`;
+    ctx.font = `${weight} ${fontSize}px "${FONT_FAMILY}"`;
     if (ctx.measureText(text).width <= maxWidth || fontSize <= 9) break;
     fontSize -= 1;
   } while (fontSize > 9);
@@ -1139,7 +1151,7 @@ async function deities(message) {
 
     // Slot label on top
     ctx.fillStyle = '#9CA3AF';
-    ctx.font = 'bold 13px sans-serif';
+    ctx.font = `bold 13px "${FONT_FAMILY}"`;
     ctx.textAlign = 'center';
     ctx.fillText(layout.label, x + BOX_W / 2, BOX_Y - 8);
 
@@ -1179,7 +1191,7 @@ async function deities(message) {
 
       // Deity name below box
       ctx.fillStyle = TIER_SLOT_COLOR[s.tier] || '#FFFFFF';
-      ctx.font = 'bold 14px sans-serif';
+      ctx.font = `bold 14px "${FONT_FAMILY}"`;
       ctx.textAlign = 'center';
       ctx.fillText(s.name, x + BOX_W / 2, BOX_Y + BOX_H + 20);
     } else {
@@ -1192,10 +1204,10 @@ async function deities(message) {
       ctx.fillStyle = '#6B7280';
       ctx.textAlign = 'center';
       if (unlocked) {
-        ctx.font = '36px sans-serif';
+        ctx.font = `36px "${FONT_FAMILY}"`;
         ctx.fillText('—', x + BOX_W / 2, BOX_Y + BOX_H / 2 + 12);
       } else {
-        ctx.font = 'bold 18px sans-serif';
+        ctx.font = `bold 18px "${FONT_FAMILY}"`;
         ctx.fillText('LOCKED', x + BOX_W / 2, BOX_Y + BOX_H / 2 + 6);
         ctx.fillStyle = '#FBBF24';
         drawCenteredFitText(ctx, SLOT_UNLOCK_TEXT[layout.slot], x + BOX_W / 2, BOX_Y + BOX_H + 20, BOX_W, 12);

@@ -9,7 +9,7 @@ const {
 const pool = require('../../db/pool');
 const { buildBagOverview, buildChestsView, buildItemsView, getChestCounts } = require('../../engine/bagViews');
 const { smallDivider: sep } = require('../../utils/componentsV2');
-const { emojiForDisplay, emoji } = require('../../utils/emojis');
+const { emojiForDisplay, emoji, gearTierEmoji } = require('../../utils/emojis');
 
 // Rune-slot indicator for inventory rows (custom emoji, 💠 fallback).
 function slotIcon() { const e = emoji('rune_slot'); return e === '▫️' ? '💠' : e; }
@@ -173,10 +173,11 @@ function buildWeaponsPage({ user, weapons, total, page }) {
       const badges = `${w.equipped ? ' ✅' : ''}${w.is_locked ? ' 🔒' : ''}`;
       const critTxt = Number(w.crit) > 0 ? ` · CRIT ${Number(w.crit).toFixed(1)}%` : '';
       const sockets = w.socket_count > 0 ? ` · ${slotIcon()} ${w.socket_count}` : '';
-      // ID leads as inline code (tap-to-copy); enhancement lives on line 1.
+      // ID and item identity stay on line 1. The tier icon leads the stats line.
+      const tier = gearTierEmoji(w.tier);
       return (
         `\`${w.weapon_id}\` ${icon} **${w.name}** +${w.enhancement - 1}${badges}\n` +
-        `-# ${w.tier} • ATK ${w.curr_atk}${critTxt}${sockets}`
+        `-# ${tier ? `${tier} ` : ''}${w.tier} • ATK ${w.curr_atk}${critTxt}${sockets}`
       );
     });
 
@@ -291,9 +292,10 @@ function buildArmorsPage({ user, armors, total, page }) {
       const icon = emojiForDisplay(a.name, ARMOR_TYPE_EMOJI[a.type] ?? '🛡️');
       const badges = `${a.equipped ? ' ✅' : ''}${a.is_locked ? ' 🔒' : ''}`;
       const sockets = a.socket_count > 0 ? ` · ${slotIcon()} ${a.socket_count}` : '';
+      const tier = gearTierEmoji(a.tier);
       return (
         `\`${a.armor_id}\` ${icon} **${a.name}** +${a.enhancement - 1}${badges}\n` +
-        `-# ${a.tier} • HP ${a.curr_hp} · DEF ${a.curr_def}${sockets}`
+        `-# ${tier ? `${tier} ` : ''}${a.tier} • HP ${a.curr_hp} · DEF ${a.curr_def}${sockets}`
       );
     });
     container.addTextDisplayComponents((td) => td.setContent(rows.join('\n\n')));
@@ -357,5 +359,7 @@ module.exports = {
   handleArmorsButton,
   fetchWeapons,
   fetchArmors,
+  buildWeaponsPage,
+  buildArmorsPage,
   GEAR_TIER_STRENGTH,
 };

@@ -82,6 +82,20 @@ const DEITY_TIER_EMOJI_NAMES = Object.freeze({
   Primordial: 'supreme_icon',
 });
 
+// Gear (weapon/armor) database tiers mapped to uploaded equipment-tier icons from
+// game_items.txt. Mirrors DEITY_TIER_EMOJI_NAMES so gear surfaces lead with a
+// tier icon the same way deity surfaces do.
+// The database tier is 'Mythic'; the registry display text says "Mythical".
+// 'Common' is intentionally absent: no asset, and Common does not drop from
+//     chests, so those rows render with no tier icon.
+const GEAR_TIER_EMOJI_NAMES = Object.freeze({
+  Genesis: 'eqgenesis_icon',
+  Supreme: 'eqsupreme_icon',
+  Legendary: 'eqlegendary_icon',
+  Mythic: 'eqmythic_icon',
+  Rare: 'eqrare_icon',
+});
+
 // Valid Discord custom-emoji parts — anything else falls back, never emitted.
 const VALID_NAME = /^[a-z0-9_]{2,32}$/i;
 const VALID_ID = /^\d+$/;
@@ -169,6 +183,20 @@ function emojiForDisplay(display, fallback = '▫️') {
 function deityTierEmoji(tierOrAlias, fallback = '◆') {
   load();
   const name = DEITY_TIER_EMOJI_NAMES[String(tierOrAlias || '').trim()];
+  if (!name) return fallback;
+  const e = registry.get(name);
+  return (e && tag(name, e.id, e.animated)) || fallback;
+}
+
+/**
+ * Resolve a gear (weapon/armor) database tier to its equipment-tier icon.
+ * Unknown, malformed, missing, unsupported or differently-cased values resolve
+ * to `fallback` (empty by default), never `undefined` or a malformed tag.
+ * Callers must resolve per rendered row: the registry loads lazily.
+ */
+function gearTierEmoji(tier, fallback = '') {
+  load();
+  const name = GEAR_TIER_EMOJI_NAMES[String(tier ?? '').trim()];
   if (!name) return fallback;
   const e = registry.get(name);
   return (e && tag(name, e.id, e.animated)) || fallback;
@@ -295,6 +323,8 @@ module.exports = {
   emojiForDisplay,
   deityTierEmoji,
   DEITY_TIER_EMOJI_NAMES,
+  gearTierEmoji,
+  GEAR_TIER_EMOJI_NAMES,
   resolveName,
   auditWeaponEmojis,
   reconcileEmojiIds,

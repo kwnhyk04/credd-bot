@@ -6,24 +6,27 @@ const EFFECT_CATEGORY = Object.freeze({
 });
 
 const defineEffect = (category, options = {}) => Object.freeze({ category, ...options });
+const BLEED_TAG = 'bleed';
 
 const EFFECT_DEFINITIONS = Object.freeze({
-  stun: defineEffect(EFFECT_CATEGORY.STATUS),
-  freeze: defineEffect(EFFECT_CATEGORY.STATUS),
-  petrify: defineEffect(EFFECT_CATEGORY.STATUS),
-  paralyze: defineEffect(EFFECT_CATEGORY.STATUS),
-  thor_paralyze: defineEffect(EFFECT_CATEGORY.STATUS),
-  dizzy: defineEffect(EFFECT_CATEGORY.STATUS),
-  miss: defineEffect(EFFECT_CATEGORY.STATUS),
+  stun: defineEffect(EFFECT_CATEGORY.STATUS, { crowdControl: true }),
+  freeze: defineEffect(EFFECT_CATEGORY.STATUS, { crowdControl: true }),
+  petrify: defineEffect(EFFECT_CATEGORY.STATUS, { crowdControl: true }),
+  paralyze: defineEffect(EFFECT_CATEGORY.STATUS, { crowdControl: true }),
+  thor_paralyze: defineEffect(EFFECT_CATEGORY.STATUS, { crowdControl: true }),
+  dizzy: defineEffect(EFFECT_CATEGORY.STATUS, { crowdControl: true }),
+  miss: defineEffect(EFFECT_CATEGORY.STATUS, { crowdControl: true }),
   frostbite: defineEffect(EFFECT_CATEGORY.STATUS),
-  charm: defineEffect(EFFECT_CATEGORY.STATUS),
-  confuse: defineEffect(EFFECT_CATEGORY.STATUS),
+  charm: defineEffect(EFFECT_CATEGORY.STATUS, { crowdControl: true }),
+  confuse: defineEffect(EFFECT_CATEGORY.STATUS, { crowdControl: true }),
   atk_down: defineEffect(EFFECT_CATEGORY.STATUS),
   def_down: defineEffect(EFFECT_CATEGORY.STATUS),
   crit_down: defineEffect(EFFECT_CATEGORY.STATUS),
+  hemorrhage: defineEffect(EFFECT_CATEGORY.STATUS, { tags: [BLEED_TAG] }),
+  rupture: defineEffect(EFFECT_CATEGORY.STATUS, { tags: [BLEED_TAG] }),
   bleed: defineEffect(EFFECT_CATEGORY.DOT, { recurringDamage: true }),
   burn: defineEffect(EFFECT_CATEGORY.DOT, { recurringDamage: true }),
-  venom: defineEffect(EFFECT_CATEGORY.DOT, { recurringDamage: true }),
+  venom: defineEffect(EFFECT_CATEGORY.DOT, { recurringDamage: true, tags: [BLEED_TAG] }),
   poison: defineEffect(EFFECT_CATEGORY.DOT, { recurringDamage: true }),
   hp_pct_dot: defineEffect(EFFECT_CATEGORY.DOT, { recurringDamage: true }),
   thor_paralyze_dot: defineEffect(EFFECT_CATEGORY.DOT, { recurringDamage: true }),
@@ -66,6 +69,14 @@ function isRecurringDamageEffect(effectId) {
   return effectDefinition(effectId)?.recurringDamage === true;
 }
 
+function isCrowdControlEffect(effectId) {
+  return effectDefinition(effectId)?.crowdControl === true;
+}
+
+function effectHasTag(effectId, tag) {
+  return effectDefinition(effectId)?.tags?.includes(tag) === true;
+}
+
 function removeEffectsByCategory(activeEffects, categories) {
   const selected = new Set(categories);
   let removedCount = 0;
@@ -87,12 +98,15 @@ function removeEffectsByCategory(activeEffects, categories) {
 
 module.exports = {
   EFFECT_CATEGORY,
+  BLEED_TAG,
   EFFECT_DEFINITIONS,
   CANONICAL_ON_HIT_EFFECTS,
   effectDefinition,
   effectCategory,
+  effectHasTag,
   isStatusEffect,
   isDotEffect,
   isRecurringDamageEffect,
+  isCrowdControlEffect,
   removeEffectsByCategory,
 };
