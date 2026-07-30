@@ -16,10 +16,8 @@ const { FONT_FAMILY } = require('./renderBagItems');
 const { assetSource, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
 
 const ROOT = path.join(__dirname, '..', '..');
-for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
-  try { GlobalFonts.registerFromPath(path.join(ROOT, 'assets', 'fonts', file), FONT_FAMILY); }
-  catch { /* already registered */ }
-}
+// Font registration is centralized in src/utils/fontRegistry.js, pulled in transitively
+// by renderBagItems (required above) before any canvas here is drawn.
 
 /* ── Layout ─────────────────────────────────────────────────────────────── */
 const W = 760;

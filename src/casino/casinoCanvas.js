@@ -29,11 +29,12 @@ const { envNumber, envPositiveInt } = require('../utils/runtimeLogs');
 const { registerMemorySource } = require('../utils/memoryRegistry');
 
 const ROOT = path.join(__dirname, '..', '..');
-const FONT = 'DejaVu Sans';
-for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
-  try { GlobalFonts.registerFromPath(path.join(ROOT, 'assets', 'fonts', file), FONT); }
-  catch (err) { console.error(`[casinoCanvas] font ${file}:`, err.message); }
-}
+// Fonts come from the single registry (src/utils/fontRegistry.js), which registers
+// everything in assets/fonts synchronously at require time. FONT is the whole CSS
+// family list — primary first, Unicode fallbacks after — so it is interpolated
+// UNQUOTED into ctx.font.
+const { fontStack } = require('../utils/fontRegistry');
+const FONT = fontStack();
 
 const PANEL_W = 460;
 const COLORS = {

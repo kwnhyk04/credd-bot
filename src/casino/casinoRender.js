@@ -34,7 +34,7 @@ const ACCENT = {
 };
 // Padded-canvas sizes for the SPIN GIFs (smaller per feedback).
 const DIM = { coin: { W: 460, H: 132, contentH: 92 }, dice: { W: 200, H: 120, contentH: 84 } };
-const CASINO_CANVAS_RENDER_REV = 1;
+const CASINO_CANVAS_RENDER_REV = 2;
 
 const fmt = (n) => Number(n).toLocaleString();
 const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1);

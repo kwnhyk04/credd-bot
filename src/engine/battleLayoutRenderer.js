@@ -33,14 +33,9 @@ const { encodeOpaqueCanvas, releaseCanvas } = require('../utils/canvasEncode');
 const { registerMemorySource } = require('../utils/memoryRegistry');
 
 const ROOT = path.join(__dirname, '..', '..');
-const FONT_FALLBACK = 'DejaVu Sans';
-for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
-  try {
-    GlobalFonts.registerFromPath(path.join(ROOT, 'assets', 'fonts', file), FONT_FALLBACK);
-  } catch {
-    // battleRender registers the same fonts at boot; duplicate registration is harmless.
-  }
-}
+// Fonts come from the single registry (src/utils/fontRegistry.js), which registers
+// everything in assets/fonts synchronously at require time.
+const { PRIMARY_FAMILY: FONT_FALLBACK, familyList } = require('../utils/fontRegistry');
 
 const BATTLE_BASE_CACHE_MAX_ENTRIES = envPositiveInt(
   'BATTLE_STATIC_LAYER_CACHE_MAX',
@@ -218,8 +213,10 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 function fontOf(style, size = style.size) {
-  const family = style.font || FONT_FALLBACK;
-  return `${style.weight === 'bold' ? 'bold ' : ''}${Math.max(10, Number(size) || 16)}px "${family}"`;
+  // familyList() already emits a quoted CSS family list (skin font first, then the
+  // Unicode fallback chain) — it must NOT be wrapped in quotes again.
+  const family = familyList(style.font || FONT_FALLBACK);
+  return `${style.weight === 'bold' ? 'bold ' : ''}${Math.max(10, Number(size) || 16)}px ${family}`;
 }
 
 function anchorOf(style) {

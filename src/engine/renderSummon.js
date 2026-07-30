@@ -22,17 +22,12 @@ const path = require('path');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const { encodeCanvas } = require('../utils/canvasEncode');
 
-// Bundled font. The host may have no system fonts, and an unresolved
-// generic family renders every label as tofu. Regular + Bold under one family
-// allows bold text to resolve correctly.
-const FONT_FAMILY = 'DejaVu Sans';
-for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
-  try {
-    GlobalFonts.registerFromPath(path.join(__dirname, '..', '..', 'assets', 'fonts', file), FONT_FAMILY);
-  } catch (err) {
-    console.error(`[renderSummon] font ${file} failed to register:`, err.message);
-  }
-}
+// Fonts come from the single registry (src/utils/fontRegistry.js), which registers
+// everything in assets/fonts synchronously at require time. FONT_FAMILY is the whole
+// CSS family list — primary first, Unicode fallbacks after — so it is interpolated
+// UNQUOTED into ctx.font.
+const { fontStack } = require('../utils/fontRegistry');
+const FONT_FAMILY = fontStack();
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji, emojiForDisplay, deityTierEmoji } = require('../utils/emojis');
 const {

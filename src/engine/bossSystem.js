@@ -480,9 +480,15 @@ async function bossLore(name) {
 /* ── boss status card — raid-card style, rendered at banner width so it
  *    lines up with the image above it. Name+Lv left / "· Boss" / HP text on
  *    the right, passive line, percentage-colored HP bar, stats row. Rendered
- *    fresh per update (HP changes); fonts registered by battleRender. ────── */
-const FONT = 'DejaVu Sans';
-const BOSS_STATUS_RENDER_REV = 1;
+ *    fresh per update (HP changes). ─────────────────────────────────────── */
+// This module used to draw with a bare 'DejaVu Sans' and register nothing, relying on
+// battleRender having been required first. That made correct text vs. empty boxes a
+// function of module load order. Fonts now come from the one registry, which registers
+// assets/fonts synchronously at require time; FONT is the full CSS family list
+// (primary + Unicode fallbacks) and is interpolated UNQUOTED into ctx.font.
+const { fontStack } = require('../utils/fontRegistry');
+const FONT = fontStack();
+const BOSS_STATUS_RENDER_REV = 2;
 const CARD_COLORS = {
   bg: '#1f2125', card: '#26282d', cardLine: '#36393f',
   enemy: '#f23f43', text: '#e7e9ec', dim: '#9aa0a8', barBg: '#3b3e44',

@@ -28,9 +28,11 @@ const {
 
 const ROOT = path.join(__dirname, '..', '..');
 
-for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
-  GlobalFonts.registerFromPath(path.join(ROOT, 'assets', 'fonts', file), 'DejaVu Sans');
-}
+// Fonts come from the single registry (src/utils/fontRegistry.js): every file in
+// assets/fonts is registered synchronously at require time, so this module cannot draw
+// before initialization finishes. familyList() appends the Unicode fallback chain to the
+// skin's declared family, which is what keeps CJK/Hangul names from rendering as boxes.
+const { familyList, reportGlyphCoverage } = require('../utils/fontRegistry');
 
 function layoutPathFor(skinPath) {
   return profileSkinLayoutPath(skinPath, 'profile');
@@ -70,8 +72,9 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 function fontOf(style) {
+  // familyList() already emits a quoted CSS family list — do NOT re-quote it.
   return `${style.italic ? 'italic ' : ''}${style.weight === 'bold' ? 'bold ' : ''}` +
-    `${style.size}px "${style.font}"`;
+    `${style.size}px ${familyList(style.font)}`;
 }
 
 function fitSize(ctx, text, style, reserved = 0) {
@@ -155,6 +158,10 @@ async function drawText(ctx, key, content, layout, view, images) {
   }
 
   const text = style.uppercase ? String(content).toUpperCase() : String(content);
+  // Diagnostic only — the text is drawn unchanged. This reports when a username,
+  // title, deity name or label needs the fallback chain, which is the signal that
+  // used to surface silently as empty boxes.
+  reportGlyphCoverage(`profileLayoutRenderer:${key}`, text, { family: drawStyle.font });
   const icon = await iconFor(drawStyle, layout, images);
   const iconSize = icon ? (drawStyle.icon_size || drawStyle.size) : 0;
   const iconGap = icon ? (drawStyle.icon_gap || 0) : 0;
@@ -234,7 +241,7 @@ function drawStats(ctx, style, values) {
       ctx.fill();
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.font = `${style.weight === 'bold' ? 'bold ' : ''}${style.size}px "${style.font}"`;
+      ctx.font = `${style.weight === 'bold' ? 'bold ' : ''}${style.size}px ${familyList(style.font)}`;
       ctx.fillStyle = col.color;
       ctx.fillText(col.label, col.x + style.marker_size + style.marker_gap, style.y);
       ctx.fillStyle = style.value_color;
@@ -255,7 +262,7 @@ function drawStats(ctx, style, values) {
     ctx.stroke();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = `${style.weight === 'bold' ? 'bold ' : ''}${style.size}px "${style.font}"`;
+    ctx.font = `${style.weight === 'bold' ? 'bold ' : ''}${style.size}px ${familyList(style.font)}`;
     ctx.fillStyle = col.color;
     ctx.fillText(col.label, col.x, style.y + style.label_gap);
     ctx.fillStyle = style.value_color;
@@ -276,10 +283,10 @@ function drawRecord(ctx, style, values) {
     ctx.stroke();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = `${style.label_weight === 'bold' ? 'bold ' : ''}${style.label_size}px "${style.label_font}"`;
+    ctx.font = `${style.label_weight === 'bold' ? 'bold ' : ''}${style.label_size}px ${familyList(style.label_font)}`;
     ctx.fillStyle = style.label_color;
     ctx.fillText(col.label, col.x, style.y + 18);
-    ctx.font = `${style.value_weight === 'bold' ? 'bold ' : ''}${style.value_size}px "${style.value_font}"`;
+    ctx.font = `${style.value_weight === 'bold' ? 'bold ' : ''}${style.value_size}px ${familyList(style.value_font)}`;
     ctx.fillStyle = style.value_color;
     ctx.fillText(String(values[col.key] ?? 0), col.x, style.y + 40);
     ctx.restore();

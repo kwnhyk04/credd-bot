@@ -90,6 +90,13 @@
 
 const PASSIVE_REGISTRY = require('./passiveRegistry');
 const {
+  LOG_PRIORITY: LOG,
+  CombatLog,
+  orderEvents,
+  finalizeRound,
+  dotOrderIndex,
+} = require('./combatLog');
+const {
   CRIT_MULT, OVERCHARGE_MULT, hitMultiplier,
   AEGIS_DR_PER_STACK, AEGIS_STACKS_TO_PETRIFY, AEGIS_PETRIFY_DAMAGE_AMP,
   PETRIFY_DEFAULT_DAMAGE_AMP,
@@ -327,7 +334,9 @@ function resolveBattle(a, b, opts = {}) {
   // damageDealtToEnemy/enemyLocalRegen feed the boss net-damage rule;
   // damageDealtToPlayer is the symmetric A-side tally (pvp_logs opponent_damage).
   const totals = { damageDealtToEnemy: 0, damageDealtToPlayer: 0, enemyLocalRegen: 0, netDamage: 0 };
-  const shared = { round: 0, events: [] };
+  const shared = { round: 0, events: new CombatLog() };
+  /** Push under an explicit source category (see combatLog.LOG_PRIORITY). */
+  const logAt = (priority, ...texts) => shared.events.at(priority, () => shared.events.push(...texts));
   const hasEquippedPassive = (side, key) =>
     side.weaponPassiveKey === key || side.armorPassiveKey === key;
 
@@ -351,7 +360,7 @@ function resolveBattle(a, b, opts = {}) {
     heal(side, requested);
     const restored = side.hp - before;
     const icon = passiveName === 'Soul Drain' ? '🌊' : '🩸';
-    shared.events.push(`${icon} ${passiveName} — healed ${restored.toLocaleString()} HP.`);
+    logAt(LOG.POST_ATTACK, `${icon} ${passiveName} — healed ${restored.toLocaleString()} HP.`);
   };
 
   // ── debuff helpers (§13.1: refresh don't stack/extend; highest value wins) ─
@@ -377,9 +386,8 @@ function resolveBattle(a, b, opts = {}) {
     for (let i = 0; i < removedCount; i++) {
       const before = side.hp;
       heal(side, side.maxHp * 0.08);
-      shared.events.push(
-        `🪶 Tribal Ward — debuff ${reason}, restored ${(side.hp - before).toLocaleString()} HP.`
-      );
+      logAt(LOG.ARMOR,
+        `🪶 Tribal Ward — debuff ${reason}, restored ${(side.hp - before).toLocaleString()} HP.`);
     }
   };
   const removePlayerEffects = (side, categories, reason = 'cleansed') => {
@@ -513,17 +521,22 @@ function resolveBattle(a, b, opts = {}) {
     get allowAdditionalAttackProcs() {
       return self.scratch?.attackContext?.allowAdditionalAttackProcs !== false;
     },
+    // Attack-bound hooks are REGISTERED in the passive phase but FIRE inside the
+    // action. shared.events.bind captures the channel that is ambient right now, so a
+    // weapon's queued proc still logs as a weapon effect (and a blessing's as a
+    // blessing) even though both resolve mid-attack. This is what keeps the ordering
+    // category-driven instead of name-driven.
     onAttack: (fn) => {
-      if (typeof fn === 'function') self.scratch.attackHooks.push(fn);
+      if (typeof fn === 'function') self.scratch.attackHooks.push(shared.events.bind(shared.events.channel, fn));
     },
     onLandedHit: (fn) => {
-      if (typeof fn === 'function') self.scratch.landedHitHooks.push(fn);
+      if (typeof fn === 'function') self.scratch.landedHitHooks.push(shared.events.bind(shared.events.channel, fn));
     },
     onEnemyAttack: (fn) => {
-      if (typeof fn === 'function') self.scratch.enemyAttackHooks.push(fn);
+      if (typeof fn === 'function') self.scratch.enemyAttackHooks.push(shared.events.bind(shared.events.channel, fn));
     },
     onEnemyLandedHit: (fn) => {
-      if (typeof fn === 'function') self.scratch.enemyLandedHitHooks.push(fn);
+      if (typeof fn === 'function') self.scratch.enemyLandedHitHooks.push(shared.events.bind(shared.events.channel, fn));
     },
     enemyImmune: (tag) => {
       const immune = debuffImmune(opp, tag);
@@ -552,6 +565,9 @@ function resolveBattle(a, b, opts = {}) {
   let result = null;
   const win = (side, outcome, causeOfDeath = null) => {
     if (result) return;
+    // Every branch below is a defeat message: DEFEAT priority guarantees the logger
+    // hoists it to the very end of the round, so nothing can print after a death.
+    shared.events.channel = LOG.DEFEAT;
     result = { winner: side === A ? 'a' : 'b', outcome, causeOfDeath };
     const loser = side === A ? B : A;
     const tag = (f) => (f.kind === 'player' ? (f.in?.mention || f.name) : f.name);
@@ -572,6 +588,7 @@ function resolveBattle(a, b, opts = {}) {
     } else {
       shared.events.push(`💀 ${loseTag} was defeated by ${winTag}!`); // mob/boss slain by the player
     }
+    shared.events.channel = LOG.STATUS;
   };
   /** Death check in causal order (§35.3 first-to-0). Returns true if battle over. */
   const checkDeaths = (outcome, causeOfDeath = null) => {
@@ -707,7 +724,7 @@ function resolveBattle(a, b, opts = {}) {
     const before = attacker.hp;
     damage(attacker, reflected);
     const applied = before - attacker.hp;
-    shared.events.push(`🌵 ${source} reflects ${applied} damage back to ${attacker.name}.`);
+    logAt(LOG.REFLECT, `🌵 ${source} reflects ${applied} damage back to ${attacker.name}.`);
     if (applied > 0 && defender.hp > 0 && defender.flags.soul_drain_pct > 0) {
       applyLifesteal(defender, applied, defender.flags.soul_drain_pct, 'Soul Drain');
     }
@@ -764,7 +781,7 @@ function resolveBattle(a, b, opts = {}) {
         const appliedCounter = Math.floor(effectDamage(S, counter));
         const counterTargetHpBefore = S.hp;
         damage(S, appliedCounter);
-        shared.events.push(`🃏 Loki's counter strikes ${S.name} for ${appliedCounter} DMG!`);
+        logAt(LOG.REFLECT, `🃏 Loki's counter strikes ${S.name} for ${appliedCounter} DMG!`);
         if (appliedCounter > 0 && O.hp > 0 && O.flags.soul_drain_pct > 0) {
           applyLifesteal(
             O,
@@ -821,10 +838,19 @@ function resolveBattle(a, b, opts = {}) {
     const incomingIncrease = Math.max(0, O.scratch.incomingDamageIncreasePct || 0);
     let odinReduction = 0;
 
-    if (F.phalanx_wall_active && !F.phalanx_first_hit_used) {
-      F.phalanx_first_hit_used = true;
-      damageReduction += 0.30;
-      shared.events.push('🛡️ Phalanx Wall — first hit absorbed, damage reduced by 50%.');
+    // Phalanx Wall: the registry already folded its base 20% into damageReductionPct
+    // this round. The first incoming hit of the battle adds the 30% first-hit bonus and
+    // reports the COMBINED 50%; every later hit reports the base 20%. Exactly one line
+    // per incoming attack, at DEFENSIVE priority so it sits directly under the attack
+    // that triggered it and above Thorns/DOT. Numbers are unchanged — only the logging.
+    if (F.phalanx_wall_active) {
+      if (!F.phalanx_first_hit_used) {
+        F.phalanx_first_hit_used = true;
+        damageReduction += 0.30;
+        shared.events.push(`🛡️ ${O.name}'s Phalanx Wall — first hit absorbed, damage reduced by 50%.`);
+      } else {
+        shared.events.push(`🛡️ ${O.name}'s Phalanx Wall — damage taken reduced by 20%.`);
+      }
     }
     if (F.heimdall_first_hit_available && !F.heimdall_first_hit_used) {
       damageReduction += 0.50;
@@ -962,13 +988,19 @@ function resolveBattle(a, b, opts = {}) {
   // log lines belong after the attack that caused them.
   const applyHitWithReactions = (S, O, dmg, info = {}) => {
     const reactionStart = shared.events.length;
-    const hit = applyHitToDefender(S, O, dmg, info);
+    // Everything the defender stack logs is a defensive reaction unless it overrides
+    // the channel itself (reflect, counter, defeat) — so guards, evades, absorbs and
+    // damage-reduction lines all land right after the attack that caused them.
+    const hit = shared.events.at(LOG.DEFENSIVE, () => applyHitToDefender(S, O, dmg, info));
     const reactions = shared.events.splice(reactionStart);
     return { hit, reactions };
   };
 
   /** Resolve effects whose final text says an attack/hit applies or rolls them. */
   const applyLandedHitPassives = (S, O, info = {}) => {
+    // A dead target takes no new stacks: every effect below needs a living victim.
+    if (result || O.hp <= 0) return;
+    shared.events.channel = LOG.STATUS;
     const targetWasStunned = Boolean(findDebuff(O, 'stun'));
     for (const hook of S.scratch.landedHitHooks) hook(info);
     if (S.flags.laevateinn_staff_on_hit) {
@@ -1021,7 +1053,7 @@ function resolveBattle(a, b, opts = {}) {
       const bash = Math.max(0, Math.floor((Number(info.damage) || 0) * 0.50));
       const targetHpBeforeBash = O.hp;
       const { hit, reactions } = applyHitWithReactions(S, O, bash, { crit: false });
-      shared.events.push(`⚡ Thunder Grip — enemy Stunned, Bash deals ${hit.applied} bonus damage!`);
+      logAt(LOG.ATTACK, `⚡ Thunder Grip — enemy Stunned, Bash deals ${hit.applied} bonus damage!`);
       shared.events.push(...reactions);
       if (hit.applied > 0 && S.hp > 0 && S.flags.soul_drain_pct > 0) {
         applyLifesteal(
@@ -1263,18 +1295,22 @@ function resolveBattle(a, b, opts = {}) {
       const attackLabel = attackSource === 'auto_fire'
         ? `🏹 ${S.name}'s Auto-Fire triggered — additional shot`
         : `⚔️ ${S.name} ${mainHit ? 'attacks' : 'strikes again'}`;
-      shared.events.push(res.evaded
+      // ATTACK priority also opens a new ordering block, so this attack's modifiers
+      // can never be sorted under the previous attack's line.
+      logAt(LOG.ATTACK, res.evaded
         ? `${attackLabel} — **Evaded!**`
         : `${attackLabel} for **${res.applied} DMG**${tag}`);
-      if (mainHit) shared.events.push(...attackHookEvents.splice(0));
-      shared.events.push(...preHitEvents);
+      // Queued hook entries already carry their source category; the two bare strings
+      // pushed into this buffer below are deity effects, hence the BLESSING channel.
+      if (mainHit) shared.events.at(LOG.BLESSING, () => shared.events.push(...attackHookEvents.splice(0)));
+      shared.events.at(LOG.BLESSING, () => shared.events.push(...preHitEvents));
       shared.events.push(...reactions);
       if (!res.negated && surtVsBurning) {
-        shared.events.push("🔥 Surt: Muspell's Flame — +50% vs a burning enemy!");
+        logAt(LOG.BLESSING, "🔥 Surt: Muspell's Flame — +50% vs a burning enemy!");
       }
       if (!res.negated && thunderboltTriggered) {
         const paralyzed = !result && tryApplyDebuff(O, 'paralyze', 1, 0, S);
-        shared.events.push(`⚡ Thunderbolt of Zeus: Divine Thunder — +100% ATK${paralyzed ? ' + Paralyze' : ''}!`);
+        logAt(LOG.WEAPON, `⚡ Thunderbolt of Zeus: Divine Thunder — +100% ATK${paralyzed ? ' + Paralyze' : ''}!`);
       }
       // Lifesteal is based on damage dealt, including a lethal blow. This must run
       // before the result return so Japanese Bo does not lose its finishing-hit heal.
@@ -1307,9 +1343,9 @@ function resolveBattle(a, b, opts = {}) {
             ? fighterStunned
             : addDebuff(O, 'stun', fighterStunTurns);
           if (stunned) {
-            shared.events.push(`👊 ${S.name}'s blow stuns ${O.name} for ${fighterStunTurns} turn!`);
+            logAt(LOG.CLASS, `👊 ${S.name}'s blow stuns ${O.name} for ${fighterStunTurns} turn!`);
             if (jarngreiprTriggered) {
-              shared.events.push('⚡ Thunder Grip — enemy Stunned, Bash deals +50% bonus damage!');
+              logAt(LOG.WEAPON, '⚡ Thunder Grip — enemy Stunned, Bash deals +50% bonus damage!');
             }
             const bash = Math.max(0, Math.floor(dmg * FIGHTER_BASH_DAMAGE_PCT));
             const bashTargetHpBefore = O.hp;
@@ -1319,7 +1355,7 @@ function resolveBattle(a, b, opts = {}) {
               bash,
               { crit: false },
             );
-            shared.events.push(`💥 ${S.name} follows with Bash for **${bashResult.applied} DMG**!`);
+            logAt(LOG.ATTACK, `💥 ${S.name} follows with Bash for **${bashResult.applied} DMG**!`);
             shared.events.push(...bashReactions);
             if (bashResult.applied > 0 && S.hp > 0 && S.flags.soul_drain_pct > 0) {
               applyLifesteal(
@@ -1330,9 +1366,8 @@ function resolveBattle(a, b, opts = {}) {
               );
             }
             O.flags.dizzy_pending = true;
-            shared.events.push(
-              `💫 ${O.name} becomes Dizzy and is stunned for ${fighterStunTurns} turn!`
-            );
+            logAt(LOG.CLASS,
+              `💫 ${O.name} becomes Dizzy and is stunned for ${fighterStunTurns} turn!`);
             if (result) return;
           }
         }
@@ -1346,7 +1381,10 @@ function resolveBattle(a, b, opts = {}) {
       // Requires the swordsman to actually act — a skip-CC'd turn never reaches here.
       // The per-attack rng draw is KEPT (consumed, unused) for draw-order stream stability
       // now that the value is deterministic.
-      if (S.classPassive === 'bleed' && !res.negated && !debuffImmune(O, 'bleed')) {
+      // `O.hp > 0` is the death gate: a stack can only be applied to a target that
+      // survived the damage that triggered it. `result` alone is not enough, because a
+      // boss pool can reach 0 without ending the battle.
+      if (S.classPassive === 'bleed' && !res.negated && O.hp > 0 && !debuffImmune(O, 'bleed')) {
         rng(); // reserved draw — stream stability (bleed value is deterministic now)
         const ex = findDebuff(O, 'bleed');
         const stacks = Math.min(BLEED_MAX_STACKS, (ex && ex.stacks ? ex.stacks : 0) + 1);
@@ -1367,6 +1405,9 @@ function resolveBattle(a, b, opts = {}) {
             source: S,
           });
         }
+        const pct = Math.round(Math.min(BLEED_MAX_PCT, stacks * BLEED_PCT_PER_STACK) * 100);
+        logAt(LOG.CLASS,
+          `🩸 Swordsman Passive — applied Bleed. Current stack: ${stacks}/${BLEED_MAX_STACKS} (${pct}% ATK/turn).`);
       }
       if (mainHit) {
         S.flags.crossbow_pierce = false;
@@ -1444,6 +1485,7 @@ function resolveBattle(a, b, opts = {}) {
           source: 'labrys',
           atkScale: S.flags.labrys_second_hit_pct || 0.70,
           log: '🪓 Labrys: Double Strike activated! (70% ATK additional attack)',
+          logPriority: LOG.WEAPON,
         });
       }
       if (S.flags.extra_turn) {
@@ -1451,6 +1493,7 @@ function resolveBattle(a, b, opts = {}) {
           source: 'glacial_bow',
           atkScale: 1,
           log: '🏹 Glacial Bow: Frostwind Volley activated!',
+          logPriority: LOG.WEAPON,
         });
       }
       if (S.flags.auto_fire_shot) {
@@ -1464,6 +1507,7 @@ function resolveBattle(a, b, opts = {}) {
           source: 'archer',
           atkScale: 1,
           log: `🏹 ${S.name}'s Double Attack activated!`,
+          logPriority: LOG.CLASS,
         });
       }
     }
@@ -1473,7 +1517,7 @@ function resolveBattle(a, b, opts = {}) {
 
     for (const additional of additionalAttacks) {
       if (result || O.hp <= 0) break;
-      if (additional.log) shared.events.push(additional.log);
+      if (additional.log) logAt(additional.logPriority || LOG.WEAPON, additional.log);
       rerollDefensiveChecks(S, O);
       playerAttack(S, O, {
         isPrimaryAttack: false,
@@ -1512,10 +1556,10 @@ function resolveBattle(a, b, opts = {}) {
       dmg = Math.max(0, Math.floor(dmg));
       const { hit: res, reactions } = applyHitWithReactions(S, O, dmg, { crit: critApplied });
       const attackLabel = `💀 ${S.name} strikes${subHits > 1 ? ` (hit ${i + 1}/${subHits})` : ''}`;
-      shared.events.push(res.evaded
+      logAt(LOG.ATTACK, res.evaded
         ? `${attackLabel} — **Evaded!**`
         : `${attackLabel} for **${res.applied} DMG**${critApplied ? ' *(CRIT!)*' : ''}`);
-      if (i === 0) shared.events.push(...attackHookEvents);
+      if (i === 0) shared.events.at(LOG.MOB_SKILL, () => shared.events.push(...attackHookEvents));
       shared.events.push(...reactions);
       if (!res.negated && !result) {
         for (const hook of O.scratch.enemyLandedHitHooks) {
@@ -1532,6 +1576,9 @@ function resolveBattle(a, b, opts = {}) {
 
   const act = (S) => {
     if (result) return;
+    // Pre-action lines (CC skips, Dizzy recovery, Mage charge) are class/status
+    // reporting; the attack itself re-channels to ATTACK when it fires.
+    shared.events.channel = LOG.CLASS;
     const O = oppOf(S);
     if (S.flags.attacks_cannot_miss) {
       const armedMisses = S.debuffs.filter((d) => d.tag === 'miss' && d.armed);
@@ -1751,7 +1798,7 @@ function resolveBattle(a, b, opts = {}) {
   const rounds = [];
   for (let round = 1; round <= MAX_ROUNDS && !result; round++) {
     shared.round = round;
-    shared.events = [];
+    shared.events = new CombatLog();
     const actionStartA = actionState(A);
     const actionStartB = actionState(B);
 
@@ -1759,24 +1806,33 @@ function resolveBattle(a, b, opts = {}) {
       const actionEndA = actionState(A);
       const actionEndB = actionState(B);
       lastActions = {
-        a: summarizeAction(A, B, actionStartA, actionStartB, actionEndA, actionEndB, shared.events),
-        b: summarizeAction(B, A, actionStartB, actionStartA, actionEndB, actionEndA, shared.events),
+        a: summarizeAction(A, B, actionStartA, actionStartB, actionEndA, actionEndB, shared.events.texts()),
+        b: summarizeAction(B, A, actionStartB, actionStartA, actionEndB, actionEndA, shared.events.texts()),
       };
     };
     const captureActionFor = (actor) => {
       const actionEndA = actionState(A);
       const actionEndB = actionState(B);
       if (actor === A) {
-        lastActions.a = summarizeAction(A, B, actionStartA, actionStartB, actionEndA, actionEndB, shared.events);
+        lastActions.a = summarizeAction(A, B, actionStartA, actionStartB, actionEndA, actionEndB, shared.events.texts());
       } else {
-        lastActions.b = summarizeAction(B, A, actionStartB, actionStartA, actionEndB, actionEndA, shared.events);
+        lastActions.b = summarizeAction(B, A, actionStartB, actionStartA, actionEndB, actionEndA, shared.events.texts());
       }
     };
     const tickDotsForSide = (side) => {
       if (result) return;
+      shared.events.channel = LOG.DOT;
       let expired = 0;
-      for (const d of side.debuffs) {
-        if (!DOT_TAGS.includes(d.tag)) continue;
+      // combatLog.DOT_RESOLUTION_ORDER is the single source of truth for DOT sequence
+      // (Poison → Burn → Bleed → …), so raid, boss, duel and ranked all resolve and
+      // print them identically no matter what order the debuffs were applied in.
+      const dots = side.debuffs
+        .filter((d) => DOT_TAGS.includes(d.tag))
+        .sort((a, b) => dotOrderIndex(a.tag) - dotOrderIndex(b.tag));
+      for (const d of dots) {
+        // A DOT that kills the target ends the tick: nothing else resolves against a
+        // defeated combatant, and the remaining stacks keep their turn counters.
+        if (result || side.hp <= 0) break;
         let tick = d.tag === 'hp_pct_dot'
           ? Math.floor(side.maxHp * d.value)
           : Math.floor(d.value);
@@ -1808,6 +1864,8 @@ function resolveBattle(a, b, opts = {}) {
           }
           const dotSource = DOT_DEATH_CAUSE[d.tag] || DOT_DEATH_TEXT[d.tag] || 'damage over time';
           if (checkDeaths('dot', { type: 'dot', source: dotSource })) {
+            d.turnsLeft -= 1;
+            if (d.turnsLeft <= 0) expired += 1;
             break;
           }
         }
@@ -1848,9 +1906,12 @@ function resolveBattle(a, b, opts = {}) {
 
     // 3. passive phase — each active passive exactly once per round (§35.1)
     const passiveEvents = new Map([[A, []], [B, []]]);
-    const collectPassiveEvents = (side, fn) => {
+    // The SOURCE decides the category — never the passive's name. Anything a registry
+    // entry logs (and anything its queued hooks log later) inherits the channel set
+    // here, so a new weapon/blessing/rune slots into the right place for free.
+    const collectPassiveEvents = (side, priority, fn) => {
       const start = shared.events.length;
-      fn();
+      shared.events.at(priority, fn);
       if (shared.events.length > start) {
         passiveEvents.get(side).push(...shared.events.slice(start));
       }
@@ -1858,19 +1919,19 @@ function resolveBattle(a, b, opts = {}) {
     if (mode === 'duel') {
       for (const side of order) {
         const P = perspectiveOf(side);
-        collectPassiveEvents(side, () => runRegistry(side.weaponPassiveKey, P));
-        collectPassiveEvents(side, () => runRegistry(side.deityBlessingKey, P));
-        collectPassiveEvents(side, () => runRegistry(side.echoBlessingKey, P));  // [v5 Phase 3] echo blessing
-        collectPassiveEvents(side, () => runRegistry(side.armorPassiveKey, P));
-        collectPassiveEvents(side, () => applyRunes(side, P));
+        collectPassiveEvents(side, LOG.WEAPON, () => runRegistry(side.weaponPassiveKey, P));
+        collectPassiveEvents(side, LOG.BLESSING, () => runRegistry(side.deityBlessingKey, P));
+        collectPassiveEvents(side, LOG.ECHO_BLESSING, () => runRegistry(side.echoBlessingKey, P));  // [v5 Phase 3] echo blessing
+        collectPassiveEvents(side, LOG.ARMOR, () => runRegistry(side.armorPassiveKey, P));
+        collectPassiveEvents(side, LOG.RUNE, () => applyRunes(side, P));
       }
     } else {
-      collectPassiveEvents(A, () => runRegistry(A.weaponPassiveKey, PA));
-      collectPassiveEvents(A, () => runRegistry(A.deityBlessingKey, PA));
-      collectPassiveEvents(A, () => runRegistry(A.echoBlessingKey, PA));      // [v5 Phase 3] echo blessing
-      collectPassiveEvents(A, () => runRegistry(A.armorPassiveKey, PA));
-      collectPassiveEvents(A, () => applyRunes(A, PA));
-      collectPassiveEvents(B, () => runRegistry(B.skillKey, PA));
+      collectPassiveEvents(A, LOG.WEAPON, () => runRegistry(A.weaponPassiveKey, PA));
+      collectPassiveEvents(A, LOG.BLESSING, () => runRegistry(A.deityBlessingKey, PA));
+      collectPassiveEvents(A, LOG.ECHO_BLESSING, () => runRegistry(A.echoBlessingKey, PA));      // [v5 Phase 3] echo blessing
+      collectPassiveEvents(A, LOG.ARMOR, () => runRegistry(A.armorPassiveKey, PA));
+      collectPassiveEvents(A, LOG.RUNE, () => applyRunes(A, PA));
+      collectPassiveEvents(B, LOG.MOB_SKILL, () => runRegistry(B.skillKey, PA));
     }
     // consume hydra local regen (local mirror only — never the shared pool)
     if (!result && A.flags.hydra_local_regen > 0) {
@@ -1878,7 +1939,7 @@ function resolveBattle(a, b, opts = {}) {
       A.flags.hydra_local_regen = 0;
     }
     for (const side of order) {
-      if (side.kind === 'player') collectPassiveEvents(side, () => applyBathala(side));
+      if (side.kind === 'player') collectPassiveEvents(side, LOG.BLESSING, () => applyBathala(side));
     }
     for (const side of order) {
       side.flags.player_was_critted = false; // latches consumed by deity/echo passives
@@ -1886,7 +1947,11 @@ function resolveBattle(a, b, opts = {}) {
     }
     if (result) {
       captureActions();
-      rounds.push({ round, events: shared.events, actions: lastActions });
+      rounds.push({
+        round,
+        events: finalizeRound(orderEvents(shared.events.slice(0))).map((e) => e.text),
+        actions: lastActions,
+      });
       break;
     }
 
@@ -1933,35 +1998,33 @@ function resolveBattle(a, b, opts = {}) {
         }
         if (drained.length) {
           const who = drained.length > 1 ? 'Both combatants lose' : 'The challenger loses';
-          shared.events.push(`☠️ Sudden death! ${who} 10% max HP (${drained.join(', ')}).`);
+          logAt(LOG.ROUND_END, `☠️ Sudden death! ${who} 10% max HP (${drained.join(', ')}).`);
           if (A.hp <= 0 && B.hp <= 0) win(B, 'sudden_death');
           else checkDeaths('sudden_death');
         }
       }
     }
 
-    // [Phase 6] Log DISPLAY order only (execution is unchanged — passives still resolve
-    // before the attacks to set up the hits). Interleave per the per-turn template:
-    //   [actor-1 attack + weapon procs/reactive] → [actor-1 passive logs] →
-    //   [actor-1 DOT] → [actor-2 attack + dodge/thorns] → [actor-2 passive logs] →
-    //   [actor-2 DOT] → [sudden death].
-    // Weapon procs, dodge/evade and reflect are pushed inside each actor's own segment,
-    // so they stay attached to the right attack. Registry logs are grouped by owner.
+    // Log DISPLAY order only — execution is unchanged (passives still resolve before
+    // the attacks to set up the hits). Each actor's own segment is [its action events]
+    // PLUS [its registry logs], merged rather than appended: combatLog then sorts the
+    // merged run by source category, so an outgoing-damage modifier from the passive
+    // phase lands immediately under the attack it modified instead of after the whole
+    // segment (which is what used to push it past the defeat message).
     const seg2 = act2Start < 0 ? actionEnd : act2Start;
     const seg1Dot = act1DotStart < 0 ? seg2 : act1DotStart;
     const seg2Dot = act2DotStart < 0 ? actionEnd : act2DotStart;
     const actor1 = order[0];
     const actor2 = order[1];
-    shared.events = [
-      ...shared.events.slice(procEnd, seg1Dot),  // actor 1: attack + weapon procs + reactive
-      ...(passiveEvents.get(actor1) || []),       // actor 1: weapon/deity/skill/rune logs
-      ...shared.events.slice(seg1Dot, seg2),     // actor 1: post-action DOT
-      ...shared.events.slice(seg2, seg2Dot),     // actor 2: attack + dodge/thorns
-      ...(passiveEvents.get(actor2) || []),       // actor 2: weapon/deity/skill/rune logs
-      ...shared.events.slice(seg2Dot, actionEnd), // actor 2: post-action DOT
-      ...shared.events.slice(actionEnd),         // sudden death
+    const segments = [
+      [...shared.events.slice(procEnd, seg1Dot), ...(passiveEvents.get(actor1) || [])],
+      shared.events.slice(seg1Dot, seg2),        // actor 1: post-action DOT
+      [...shared.events.slice(seg2, seg2Dot), ...(passiveEvents.get(actor2) || [])],
+      shared.events.slice(seg2Dot, actionEnd),   // actor 2: post-action DOT
+      shared.events.slice(actionEnd),            // end-of-round bookkeeping
     ];
-    rounds.push({ round, events: shared.events, actions: lastActions });
+    const orderedRound = finalizeRound(segments.flatMap((segment) => orderEvents(segment)));
+    rounds.push({ round, events: orderedRound.map((e) => e.text), actions: lastActions });
     // [v4.8] snapshot cadence is mode-dependent: raid + duel snapshot on rounds 1,4,16,…
     // (multiplying the previous snapshot turn by 4), boss every 3rd (3,6,9…).
     // The start + final snapshots are always present regardless.

@@ -34,14 +34,12 @@ const {
 const ROOT = path.join(__dirname, '..', '..');
 const WEAPONS_DIR = path.join(ROOT, 'assets', 'weapons');
 
-const FONT_FAMILY = 'DejaVu Sans';
-for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
-  try {
-    GlobalFonts.registerFromPath(path.join(ROOT, 'assets', 'fonts', file), FONT_FAMILY);
-  } catch (err) {
-    console.error(`[weaponResultRenderer] font ${file} failed to register:`, err.message);
-  }
-}
+// Fonts come from the single registry (src/utils/fontRegistry.js), which registers
+// everything in assets/fonts synchronously at require time. FONT_FAMILY is the whole
+// CSS family list — primary first, Unicode fallbacks after — so it is interpolated
+// UNQUOTED into ctx.font.
+const { fontStack } = require('../utils/fontRegistry');
+const FONT_FAMILY = fontStack();
 
 // ---- tier visual config (project weapon tiers, colors match open/weapon.js) ----
 const TIERS = {

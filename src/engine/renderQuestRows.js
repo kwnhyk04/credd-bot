@@ -16,11 +16,8 @@ const { getEmojiIcon, FONT_FAMILY } = require('./renderBagItems');
 const { assetPath, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
 
 const ROOT = path.join(__dirname, '..', '..');
-for (const file of ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf']) {
-  try {
-    GlobalFonts.registerFromPath(path.join(ROOT, 'assets', 'fonts', file), FONT_FAMILY);
-  } catch { /* already registered by renderBagItems */ }
-}
+// Font registration is centralized in src/utils/fontRegistry.js, pulled in transitively
+// by renderBagItems (required above) before any canvas here is drawn.
 
 // Per-type quest icons live in `assets/quest icons/` (PNG; loaded from disk, cached).
 const QUEST_ICON_FILE = {

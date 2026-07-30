@@ -22,7 +22,7 @@ const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../..
 const { emoji } = require('../../utils/emojis');
 
 const BRAND = 0x9b59b6;
-const CLASS_CARD_RENDER_REV = 1;
+const CLASS_CARD_RENDER_REV = 2;
 
 // Class art (Roster Conventions Part 4): assets/classes/{class_lowercase}.png
 // — swordsman/fighter/mage/knight/archer.

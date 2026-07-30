@@ -49,7 +49,7 @@ const { grantTokensTx } = require('../../engine/supporterTokens');
 
 // Independent Change Character configuration (S14: copied, never shared).
 const CHANGE_BRAND = 0x9b59b6;
-const CHANGE_CARD_RENDER_REV = 1;
+const CHANGE_CARD_RENDER_REV = 2;
 const GRANT_ONLY_STYLES = new Set(['founder', 'tester']);
 
 const CLASSES_DIR = path.join(__dirname, '..', '..', '..', 'assets', 'classes');

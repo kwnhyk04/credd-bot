@@ -995,8 +995,11 @@ const PASSIVE_REGISTRY = {
   'hoplite_panoply': (bs) => {
     bs.damageReductionPct += 0.20;
     bs.flags.phalanx_wall_active = true;
-    logOnce(bs, 'hoplite_panoply_logged',
-      '🛡️ Phalanx Wall — damage taken reduced by 20%; first-hit guard armed.');
+    // No round-phase log here. Phalanx Wall is a DEFENSIVE REACTION, so the engine
+    // reports it once per incoming hit from the defender stack (battleEngine's
+    // applyHitToDefender) — 50% on the first hit (this 20% + the 30% first-hit bonus),
+    // 20% on every hit after. Announcing it here as well printed both lines for the
+    // same first attack.
   },
 
   'mail_of_brokkr': (bs) => {

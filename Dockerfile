@@ -11,6 +11,7 @@ RUN apt-get update \
     fonts-dejavu-core \
     fonts-liberation \
     fonts-noto-core \
+    fonts-noto-cjk \
     fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
 
