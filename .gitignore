@@ -35,7 +35,14 @@ assets/skins/testers/*
 tmp/
 
 # Local documentation — not pushed
-docs/
+# ...except architecture decision records. ADRs exist to be read by whoever picks up
+# the system next, so they have to travel with the code. Everything else under docs/
+# stays local.
+#
+# This must be `docs/*` and not `docs/`: a trailing-slash exclusion stops git from
+# descending into the directory at all, so no negation inside it can ever match.
+docs/*
+!docs/adr/
 AGENTS.md
 AGENT.md
 Handoff.md
