@@ -1460,7 +1460,13 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
         [attackerIds, reward.credux, reward.shards, chest.qty]
       );
 
-      expResults = await awardCombatExpMany(dbc, attackerIds, reward.exp);
+      // [Progression v2] Boss EXP scales off each attacker's OWN combat level, not the
+      // boss's. Boss level is AVG(combat_level) of active players, so scaling off it
+      // would let a low-level participant in a high-level fight earn more from a single
+      // boss than from every level they had gained to that point.
+      expResults = await awardCombatExpMany(dbc, attackerIds, reward.exp, {
+        scaleByParticipantLevel: true,
+      });
 
       // [v5 Phase 4] boss participation kill — boss died + you attacked (Blueprint §4.4)
       const killRes = await dbc.query(

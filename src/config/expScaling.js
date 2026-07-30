@@ -55,6 +55,13 @@
 const MOB_LEVEL_MIN = 1;
 const MOB_LEVEL_MAX = 120;
 
+// Mob level = playerLevel + uniform integer in [MIN_OFFSET, MAX_OFFSET]. These live
+// here rather than in statAssembly so rollMobLevel (which draws one) and the auto-raid
+// path (which needs the expected value of the draw) cannot disagree about the spread.
+const MOB_LEVEL_OFFSET_MIN = -2;
+const MOB_LEVEL_OFFSET_MAX = 15;
+const MOB_LEVEL_OFFSET_MEAN = (MOB_LEVEL_OFFSET_MIN + MOB_LEVEL_OFFSET_MAX) / 2; // 6.5
+
 const SCALING_PIVOT_LEVEL = 30;
 const SCALING_EXPONENT = 2;
 const SCALING_FLOOR = 1.0;
@@ -79,9 +86,32 @@ function scaleExpForMobLevel(baseExp, levelForScaling) {
   return Math.round(base * multiplier);
 }
 
+/**
+ * Expected mob level a player of `playerLevel` faces, for reward paths that pay out a
+ * DETERMINISTIC average rather than rolling individual mobs (auto-raid). Manual raids
+ * know their actual mob level and must pass that instead.
+ *
+ * This is E[level], and the multiplier is quadratic, so scaling by it slightly
+ * understates the true E[multiplier] (Jensen's gap: 2.0% at player level 30, 0.8% at
+ * 50, 0.2% at 100 — it shrinks as the offset spread becomes proportionally smaller).
+ * Accepted: the alternative is computing the full distribution on every claim to
+ * recover under two percent.
+ */
+function expectedMobLevelFor(playerLevel) {
+  const lv = Math.max(MOB_LEVEL_MIN, Math.floor(Number(playerLevel) || MOB_LEVEL_MIN));
+  return Math.max(
+    MOB_LEVEL_MIN,
+    Math.min(MOB_LEVEL_MAX, Math.round(lv + MOB_LEVEL_OFFSET_MEAN)),
+  );
+}
+
 module.exports = {
   MOB_LEVEL_MIN,
   MOB_LEVEL_MAX,
+  MOB_LEVEL_OFFSET_MIN,
+  MOB_LEVEL_OFFSET_MAX,
+  MOB_LEVEL_OFFSET_MEAN,
+  expectedMobLevelFor,
   SCALING_PIVOT_LEVEL,
   SCALING_EXPONENT,
   SCALING_FLOOR,

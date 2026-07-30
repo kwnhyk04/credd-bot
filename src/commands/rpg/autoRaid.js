@@ -30,6 +30,7 @@ const {
 } = require('discord.js');
 const pool = require('../../db/pool');
 const { RAID_LOOT, ELITE_SPAWN_CHANCE } = require('../../config/raidLoot');
+const { scaleExpForMobLevel, expectedMobLevelFor } = require('../../config/expScaling');
 const { awardCombatExp } = require('../../utils/awardCombatExp');
 const { formatLevelRewardLine } = require('../../config/levelRewards');
 const { smallDivider: sep } = require('../../utils/componentsV2');
@@ -69,7 +70,13 @@ function computeRewards(level) {
   const reg = RAID_LOOT.regular.win;
   const elite = RAID_LOOT.elite.win;
 
-  const exp = Math.round((regRaids * avg(reg.exp) + eliteRaids * avg(elite.exp)) * EXP_SCALE);
+  // [Progression v2] Auto-raid pays a deterministic average rather than rolling mobs, so
+  // it scales by the EXPECTED mob level for this player level. EXP only — the credux and
+  // shard lines below are computed independently and must not inherit the multiplier.
+  const exp = scaleExpForMobLevel(
+    Math.round((regRaids * avg(reg.exp) + eliteRaids * avg(elite.exp)) * EXP_SCALE),
+    expectedMobLevelFor(level),
+  );
   const credux = Math.round((regRaids * avg(reg.credux) + eliteRaids * avg(elite.credux)) * CREDUX_SCALE);
   const shards = Math.round(
     (regRaids * avg(reg.shards) * reg.shardChance

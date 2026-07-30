@@ -17,7 +17,17 @@
  */
 
 const { applyCombatExp } = require('../config/combatExp');
+const { scaleExpForMobLevel } = require('../config/expScaling');
 const { grantCombatLevelRewards, grantCombatLevelRewardsMany } = require('./grantLevelRewards');
+
+/**
+ * [Progression v2] The gain applyCombatExp will actually consume. Kept in one place so
+ * the value written to lifetime_exp can never drift from the value applied to
+ * level/exp — that equality IS the invariant the whole design rests on.
+ */
+function appliedGain(gain) {
+  return Math.max(0, Number(gain) || 0);
+}
 
 /**
  * Grant `gain` combat EXP to one player (raid path).
@@ -35,9 +45,13 @@ async function awardCombatExp(client, discordId, gain) {
   }
   const { combat_level: level, combat_exp: exp } = res.rows[0];
   const next = applyCombatExp(level, exp, gain);
+  // lifetime_exp is the v2 source of truth; level/exp are its derived cache. Increment
+  // by the same clamped value applyCombatExp consumed so the two can never diverge.
   await client.query(
-    'UPDATE user_character SET combat_level = $2, combat_exp = $3 WHERE discord_id = $1',
-    [discordId, next.level, next.exp]
+    `UPDATE user_character
+        SET combat_level = $2, combat_exp = $3, lifetime_exp = lifetime_exp + $4
+      WHERE discord_id = $1`,
+    [discordId, next.level, next.exp, appliedGain(gain)]
   );
   const rewards = next.level > level
     ? await grantCombatLevelRewards(client, discordId, level, next.level)
@@ -58,7 +72,7 @@ async function awardCombatExp(client, discordId, gain) {
  * the curve in JS, persists with ONE set-based UPDATE.
  * @returns {Map<string, { levelsGained, newLevel, newExp, leveledUp, previousLevel }>}
  */
-async function awardCombatExpMany(client, discordIds, gain) {
+async function awardCombatExpMany(client, discordIds, gain, { scaleByParticipantLevel = false } = {}) {
   const out = new Map();
   if (!discordIds || discordIds.length === 0) return out;
   const ids = [...discordIds].sort();
@@ -67,27 +81,38 @@ async function awardCombatExpMany(client, discordIds, gain) {
       WHERE discord_id = ANY($1) ORDER BY discord_id FOR UPDATE`,
     [ids]
   );
-  const updIds = [], updLvls = [], updExps = [];
+  const updIds = [], updLvls = [], updExps = [], updGains = [];
   for (const r of res.rows) {
-    const next = applyCombatExp(r.combat_level, r.combat_exp, gain);
+    // [Progression v2] Boss EXP scales off each ATTACKER'S OWN level, never the boss's.
+    // Boss level is AVG(combat_level) of active players, so scaling off it would let a
+    // level 20 player in a level 60 fight out-earn levels 1-20 combined. The per-row
+    // loop already existed, so this needs no change to the set-based UPDATE's shape.
+    const rowGain = appliedGain(
+      scaleByParticipantLevel ? scaleExpForMobLevel(gain, r.combat_level) : gain
+    );
+    const next = applyCombatExp(r.combat_level, r.combat_exp, rowGain);
     updIds.push(r.discord_id);
     updLvls.push(next.level);
     updExps.push(next.exp);
+    updGains.push(rowGain);
     out.set(r.discord_id, {
       levelsGained: next.level - r.combat_level,
       newLevel: next.level,
       newExp: next.exp,
       leveledUp: next.leveledUp,
       previousLevel: r.combat_level,
+      expGained: rowGain,
     });
   }
   if (updIds.length > 0) {
     await client.query(
       `UPDATE user_character uc
-          SET combat_level = u.lvl, combat_exp = u.exp
-         FROM unnest($1::varchar[], $2::smallint[], $3::bigint[]) AS u(discord_id, lvl, exp)
+          SET combat_level = u.lvl, combat_exp = u.exp,
+              lifetime_exp = uc.lifetime_exp + u.gain
+         FROM unnest($1::varchar[], $2::smallint[], $3::bigint[], $4::bigint[])
+              AS u(discord_id, lvl, exp, gain)
         WHERE uc.discord_id = u.discord_id`,
-      [updIds, updLvls, updExps]
+      [updIds, updLvls, updExps, updGains]
     );
   }
   // Per-level rewards for everyone who leveled (set-based, same transaction).

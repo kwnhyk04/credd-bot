@@ -27,8 +27,19 @@ const { computeDeityProgressionStats } = require('./deityEnhancement');
 const { envPositiveInt } = require('../utils/runtimeLogs');
 const { registerMemorySource } = require('../utils/memoryRegistry');
 
-const MOB_LEVEL_MIN = 1;
-const MOB_LEVEL_MAX = 55;
+// [Progression v2] Mob-level bounds and the roll offset live in config/expScaling.js so
+// the clamp used when scaling EXP and the clamp used when rolling a mob can never drift
+// apart. MOB_LEVEL_MAX is 120 (was 55) — load-bearing for the curve, since EXP now
+// scales with mob level and a level 100 player capped at level 55 mobs would take 10.2
+// years to reach the cap instead of 5.6.
+const {
+  MOB_LEVEL_MIN,
+  MOB_LEVEL_MAX,
+  MOB_LEVEL_OFFSET_MIN,
+  MOB_LEVEL_OFFSET_MAX,
+} = require('../config/expScaling');
+// The duel `level N` override clamps to the player cap, not a hardcoded 50.
+const { MAX_COMBAT_LEVEL } = require('../config/combatExp');
 const MOB_ROSTER_CACHE_TTL_MS = Math.max(0, Number(process.env.MOB_ROSTER_CACHE_TTL_MS || 300_000));
 const MOB_ROSTER_CACHE_MAX = envPositiveInt('MOB_ROSTER_CACHE_MAX', 32, { max: 500 });
 const MOB_SELECT_COLUMNS = `
@@ -210,9 +221,10 @@ function computeMobStats(row, level) {
   };
 }
 
-/** Mob level = player level + random(−2..+15), clamped [1, 55] (§35.6). */
+/** Mob level = player level + random(−2..+15), clamped [MOB_LEVEL_MIN, MOB_LEVEL_MAX]. */
 function rollMobLevel(playerLevel, rng) {
-  const offset = Math.floor(rng() * 18) - 2;
+  const span = MOB_LEVEL_OFFSET_MAX - MOB_LEVEL_OFFSET_MIN + 1;
+  const offset = Math.floor(rng() * span) + MOB_LEVEL_OFFSET_MIN;
   return Math.max(MOB_LEVEL_MIN, Math.min(MOB_LEVEL_MAX, playerLevel + offset));
 }
 
@@ -316,7 +328,7 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
   const echoBlessingKey = blessingSlots.secondary.key;
 
   const effLevel = levelOverride != null
-    ? Math.max(MOB_LEVEL_MIN, Math.min(50, Math.floor(levelOverride)))
+    ? Math.max(MOB_LEVEL_MIN, Math.min(MAX_COMBAT_LEVEL, Math.floor(levelOverride)))
     : r.combat_level;
   const { mods: runeMods, effects: effectRunes } = await accumulateRuneStats(db, r, discordId);
   const stats = assemblePlayerStats(r.class, effLevel, weapon, armor, deity, runeMods, pantheonMods);

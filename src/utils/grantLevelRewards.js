@@ -23,7 +23,7 @@
 
 const {
   MIN_REWARD_LEVEL,
-  MAX_REWARD_LEVEL,
+  maxRewardLevelFor,
   REWARD_CHEST_COLUMNS,
   sumLevelRewards,
 } = require('../config/levelRewards');
@@ -35,9 +35,15 @@ const TABLES = Object.freeze({
 
 const LOG_ACTION = 'Level Reward';
 
-function clampRange(previousLevel, newLevel) {
+/**
+ * [Progression v2] The cap is per kind — combat and believer have different ceilings.
+ * This returning null is what keeps levels above the cap out of the tracking tables:
+ * grantLevelRewardsFor INSERTs before it computes rewards, so a level that slipped past
+ * here would be marked granted while paying nothing, and could never be paid later.
+ */
+function clampRange(kind, previousLevel, newLevel) {
   const from = Math.max(Number(previousLevel) + 1, MIN_REWARD_LEVEL);
-  const to = Math.min(Number(newLevel), MAX_REWARD_LEVEL);
+  const to = Math.min(Number(newLevel), maxRewardLevelFor(kind));
   return from <= to ? { from, to } : null;
 }
 
@@ -87,7 +93,7 @@ async function writeGameLogs(client, discordId, rewards, bagAfter) {
  * @returns {{ credux, chests, levels }|null} null when nothing new was granted.
  */
 async function grantLevelRewardsFor(kind, client, discordId, previousLevel, newLevel, source = 'levelup') {
-  const range = clampRange(previousLevel, newLevel);
+  const range = clampRange(kind, previousLevel, newLevel);
   if (!range) return null;
 
   // Exactly-once filter: only levels inserted right now are credited.
@@ -135,7 +141,7 @@ async function grantCombatLevelRewardsMany(client, levelUps, source = 'levelup')
   const out = new Map();
   const ids = [], froms = [], tos = [];
   for (const [discordId, info] of levelUps || []) {
-    const range = clampRange(info.previousLevel, info.newLevel);
+    const range = clampRange('combat', info.previousLevel, info.newLevel);
     if (!range) continue;
     ids.push(discordId);
     froms.push(range.from);

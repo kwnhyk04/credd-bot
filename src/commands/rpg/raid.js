@@ -27,6 +27,7 @@ const {
 const { runBattle } = require('../../engine/battleRender');
 const { resolveSkin } = require('../../engine/skinResolver');
 const { RAID_LOOT, rollRaidChest } = require('../../config/raidLoot');
+const { scaleExpForMobLevel } = require('../../config/expScaling');
 const { awardCombatExp } = require('../../utils/awardCombatExp');
 const { formatLevelRewardLine } = require('../../config/levelRewards');
 const { progressQuests } = require('../../utils/questProgress');
@@ -113,7 +114,7 @@ async function claimBattleSlot(discordId, channelId, sim, mobRow, level) {
  * rows (one per currency/item changed, action 'Raid'), then the immutable
  * raid_logs row. Returns the reward summary for the panel footer.
  */
-async function commitRewards(discordId, sim, mobRow, rng) {
+async function commitRewards(discordId, sim, mobRow, rng, mobLevel) {
   const won = sim.winner === 'a';
   const loot = RAID_LOOT[mobRow.mob_type];
   if (!loot) throw new Error(`no loot table for mob_type ${mobRow.mob_type}`);
@@ -130,6 +131,11 @@ async function commitRewards(discordId, sim, mobRow, rng) {
   } else {
     exp = loot.loss.exp;
   }
+  // [Progression v2] Scale EXP by the mob's level, AFTER the rolls so the RNG stream is
+  // unchanged, and to EXP only — credux, shards and the chest roll above must not
+  // inherit the multiplier. Losses scale too: left flat they would decay toward
+  // worthless as levels climb, compounding the higher loss rate against tougher mobs.
+  exp = scaleExpForMobLevel(exp, mobLevel);
 
   const client = await pool.connect();
   try {
@@ -259,7 +265,7 @@ async function execute(message) {
       }
 
       // the summary object renders as battleRender's rewards strip
-      const rewards = await commitRewards(discordId, sim, mobRow, rng);
+      const rewards = await commitRewards(discordId, sim, mobRow, rng, level);
       let battleSkinPath = null;
       let resultSkinPath = null;
       try {

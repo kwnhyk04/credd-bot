@@ -11,7 +11,28 @@
  */
 
 const MIN_REWARD_LEVEL = 2;
-const MAX_REWARD_LEVEL = 50;
+
+/**
+ * [Progression v2] The reward cap is PER KIND. Combat now runs to level 100 while
+ * believer progression is a separate, uncapped system whose brackets still stop at 50,
+ * so a single shared constant is a trap: raising it to 100 would let believer levels
+ * 51-100 reach the INSERT in grantLevelRewardsFor, violate believer_level_rewards'
+ * CHECK (level BETWEEN 2 AND 50), throw, and roll back the believer EXP grant.
+ *
+ * MAX_COMBAT_REWARD_LEVEL deliberately stays 50 even though the combat cap is now 100.
+ * grantLevelRewardsFor INSERTs its exactly-once tracking rows BEFORE it computes the
+ * reward, so raising this to 100 while COMBAT_REWARD_BRACKETS still stops at 50 would
+ * mark levels 51-100 as granted while paying nothing — and the deferred brackets PR
+ * could then never pay them, because the ON CONFLICT DO NOTHING filter would already
+ * have claimed those rows. Raise this to 100 in the SAME change that adds the brackets,
+ * not before.
+ */
+const MAX_COMBAT_REWARD_LEVEL = 50;
+const MAX_BELIEVER_REWARD_LEVEL = 50;
+
+// Back-compat alias for callers that predate the split (level-reward-compensation.js,
+// level-rewards-selftest.js). Tracks the combat cap.
+const MAX_REWARD_LEVEL = MAX_COMBAT_REWARD_LEVEL;
 
 const COMBAT_REWARD_BRACKETS = Object.freeze([
   Object.freeze({ min: 1,  max: 10, credux: 100_000,   chests: Object.freeze({ gold_chest: 1 }) }),
@@ -38,21 +59,26 @@ const CHEST_LABELS = Object.freeze({
   boss_golden_chest: 'Boss Golden Chest',
 });
 
-function rewardForLevel(brackets, level) {
+function rewardForLevel(brackets, level, maxLevel) {
   const lvl = Number(level);
-  if (!Number.isInteger(lvl) || lvl < MIN_REWARD_LEVEL || lvl > MAX_REWARD_LEVEL) return null;
+  if (!Number.isInteger(lvl) || lvl < MIN_REWARD_LEVEL || lvl > maxLevel) return null;
   const bracket = brackets.find((b) => lvl >= b.min && lvl <= b.max);
   return bracket ? { credux: bracket.credux, chests: bracket.chests } : null;
 }
 
 /** Reward for one Combat Level (null when the level grants nothing). */
 function combatRewardForLevel(level) {
-  return rewardForLevel(COMBAT_REWARD_BRACKETS, level);
+  return rewardForLevel(COMBAT_REWARD_BRACKETS, level, MAX_COMBAT_REWARD_LEVEL);
 }
 
 /** Reward for one Believer Level (null when the level grants nothing). */
 function believerRewardForLevel(level) {
-  return rewardForLevel(BELIEVER_REWARD_BRACKETS, level);
+  return rewardForLevel(BELIEVER_REWARD_BRACKETS, level, MAX_BELIEVER_REWARD_LEVEL);
+}
+
+/** The reward cap for a grant kind — the single place clampRange should ask. */
+function maxRewardLevelFor(kind) {
+  return kind === 'believer' ? MAX_BELIEVER_REWARD_LEVEL : MAX_COMBAT_REWARD_LEVEL;
 }
 
 /**
@@ -109,6 +135,9 @@ function formatBelieverLevelUpNotice(levelUp) {
 module.exports = {
   MIN_REWARD_LEVEL,
   MAX_REWARD_LEVEL,
+  MAX_COMBAT_REWARD_LEVEL,
+  MAX_BELIEVER_REWARD_LEVEL,
+  maxRewardLevelFor,
   COMBAT_REWARD_BRACKETS,
   BELIEVER_REWARD_BRACKETS,
   REWARD_CHEST_COLUMNS,
