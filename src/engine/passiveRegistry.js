@@ -55,6 +55,10 @@ const logOnce = (bs, flagKey, label) => {
 // the attacker's next action instead of expiring before it can affect damage.
 const LANDED_STAT_DEBUFF_TURNS = 2;
 
+// Aegis tuning lives in config/combat.js — shared with battleEngine's grantAegisStone
+// so the reduction applied here and the reduction rolled back on Petrify cannot drift.
+const { AEGIS_DR_PER_STACK } = require('../config/combat');
+
 /** First player action of the battle deals +pct of its damage (one-shot flag).
  *  The attack hook means crowd control cannot consume the opener before an attack starts.
  *  Routed through the ATK multiplier (pre-mitigation), so the bonus is +pct of the
@@ -695,6 +699,12 @@ const PASSIVE_REGISTRY = {
   },
 
   'galdrastafir': (bs) => {
+    // Runebreaker: +10% damage, and landed hits shred 20% enemy DEF for 1 turn.
+    // The DEF shred already behaved correctly (LANDED_STAT_DEBUFF_TURNS = 2 is the
+    // encoding for a one-turn user-facing window — see the constant's comment); only
+    // the damage component was missing.
+    bs.playerAtkMult += 0.10;
+    logOnce(bs, 'galdrastafir_logged', '🔻 Runebreaker — outgoing damage +10%.');
     bs.onLandedHit(() => {
       if (!bs.enemyImmune('def_down')
           && bs.applyDebuff('def_down', LANDED_STAT_DEBUFF_TURNS, 0.20)) {
@@ -840,13 +850,22 @@ const PASSIVE_REGISTRY = {
   },
 
   'caduceus': (bs) => {
-    // Every 3rd turn: cleanse all player debuffs + restore 8% max HP
-    if (bs.currentTurn % 3 === 0) {
-      bs.clearPlayerDebuffs();
-      const heal = Math.floor(bs.playerMaxHP * 0.08);
-      bs.playerHP = Math.min(bs.playerHP + heal, bs.playerMaxHP);
-      bs.log.push(`🐍 Caduceus: Herald's Touch — Debuffs cleansed, healed ${heal} HP!`);
-    }
+    // Herald's Touch: +10% damage, incoming DOT reduced 10%.
+    //
+    // This REPLACES the previous every-3rd-turn cleanse + 8% max-HP heal outright. It
+    // is a role change (sustain -> damage), not an addition, and is worth calling out
+    // in patch notes for anyone who built around the cleanse.
+    //
+    // The bonus routes through playerAtkMult rather than damageBonusPct because
+    // mitigation is linear in ATK (mitigated = atk * (1 - def/(def+K))), so +10% ATK is
+    // exactly +10% damage. damageBonusPct instead lands inside the additive crit
+    // multiplier and would not be a clean 10%.
+    bs.playerAtkMult += 0.10;
+    // Separate flag from rune_warding_pct: the rune runner overwrites that one every
+    // round, so sharing it would make the two silently clobber each other.
+    bs.flags.caduceus_dot_reduction = 0.10;
+    logOnce(bs, 'caduceus_logged',
+      '🐍 Herald\'s Touch — outgoing damage +10%; incoming damage-over-time -10%.');
   },
 
   'spear_of_ares': (bs) => {
@@ -866,21 +885,38 @@ const PASSIVE_REGISTRY = {
   'aegis': (bs) => {
     if (!bs.flags.aegis_stacks) bs.flags.aegis_stacks = 0;
     bs.flags.aegis_active = true;
-    bs.damageReductionPct += bs.flags.aegis_stacks * 0.07;
+    // 10% per Stone stack. Effective maximum is 20%, not 30%: the third stack is
+    // consumed by the Petrify and the accrued reduction is rolled back in the same
+    // step (see grantAegisStone in battleEngine). That is deliberate — 30% stacking
+    // reduction PLUS a Petrify would make Aegis strictly better than Mail of Brokkr's
+    // flat 30%.
+    bs.damageReductionPct += bs.flags.aegis_stacks * AEGIS_DR_PER_STACK;
   },
 
   'apollos_silver_bow': (bs) => {
-    // Ignores 25% DEF; every 4th turn guaranteed CRIT
+    // Ignores 25% DEF; every 3rd ATTACK TURN is a guaranteed CRIT.
+    //
+    // "Every 3rd turn" counts the WIELDER'S OWN attack turns, not the round clock, so
+    // the counter lives in an onAttack hook rather than testing bs.currentTurn. Those
+    // hooks fire only when an attack really begins, which means a turn lost to stun,
+    // freeze or any other skip does NOT burn a count — the third actual swing crits,
+    // whenever it happens. This makes Apollo the only turn-cycle weapon off the shared
+    // round clock (mjolnir and trident_of_poseidon still use bs.currentTurn).
+    //
+    // bs.flags is recreated per battle by initSide, so the counter resets each battle
+    // with no explicit teardown.
     if (0.25 > bs.ignoreDefPct) bs.ignoreDefPct = 0.25;
     logOnce(bs, 'apollos_silver_bow_pierce_logged',
       '🏹 Apollo\'s Silver Bow: Unerring Arrow — 25% of enemy DEF ignored.');
-    if (bs.currentTurn % 4 === 0) {
-      bs.onAttack(() => {
-        if (bs.isPrimaryAttack === false) return;
+    bs.onAttack(() => {
+      // Additional attacks ride along on the primary's turn and must not advance it.
+      if (bs.isPrimaryAttack === false) return;
+      bs.flags.apollo_attack_turns = (bs.flags.apollo_attack_turns || 0) + 1;
+      if (bs.flags.apollo_attack_turns % 3 === 0) {
         bs.nextAttackAutoCrit = true;
         bs.log.push('🏹 Apollo\'s Silver Bow: Unerring Arrow — Guaranteed CRIT!');
-      });
-    }
+      }
+    });
   },
 
   // ── WEAPON PASSIVES — Supreme ────────────────────────────────────────────
@@ -900,12 +936,14 @@ const PASSIVE_REGISTRY = {
   },
 
   'gungnir': (bs) => {
-    // [v5] Ignores 40% DEF; each actual attack has a 25% full-pierce chance.
-    if (0.40 > bs.ignoreDefPct) bs.ignoreDefPct = 0.40;
+    // Ignores 30% DEF; each actual attack has a separate 10% full-pierce roll. The two
+    // are independent rolls and full-pierce SUPERSEDES rather than stacks — the engine
+    // zeroes DEF entirely on a pierce, so the 30% is simply not consulted.
+    if (0.30 > bs.ignoreDefPct) bs.ignoreDefPct = 0.30;
     logOnce(bs, 'gungnir_pierce_logged',
-      '🏹 Gungnir: Never Misses — 40% of enemy DEF ignored.');
+      '🏹 Gungnir: Never Misses — 30% of enemy DEF ignored.');
     bs.onAttack(() => {
-      bs.flags.gungnir_full_pierce = bs.rng() < 0.25;
+      bs.flags.gungnir_full_pierce = bs.rng() < 0.10;
       if (bs.flags.gungnir_full_pierce) {
         bs.log.push('🏹 Gungnir: Never Misses — ALL DEF PIERCED!');
       }
@@ -963,10 +1001,10 @@ const PASSIVE_REGISTRY = {
 
   'mail_of_brokkr': (bs) => {
     bs.damageReductionPct += 0.30;
-    bs.flags.mail_brokkr_reflect = 0.18;
+    bs.flags.mail_brokkr_reflect = 0.20;
     bs.flags.mail_brokkr_hit_cap = 0.15;
     logOnce(bs, 'mail_of_brokkr_logged',
-      '⚒️ Dwarven Forge — 30% reduction · 18% reflect · 15% max-HP hit cap.');
+      '⚒️ Dwarven Forge — 30% reduction · 20% reflect · 15% max-HP hit cap.');
   },
 
   'wolfskin_cloak': (bs) => {
@@ -983,7 +1021,10 @@ const PASSIVE_REGISTRY = {
   },
 
   'anting_anting_sash': (bs) => {
+    bs.damageReductionPct += 0.10;
     bs.flags.charmed_hide_active = true;
+    logOnce(bs, 'anting_anting_sash_logged',
+      '🪬 Charmed Hide — damage taken reduced by 10%; first crowd-control nullified.');
   },
 
   'valkyrie_mantle': (bs) => {

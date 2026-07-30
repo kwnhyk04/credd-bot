@@ -44,20 +44,20 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `pelte` — Deflection: 20% chance per incoming hit to halve that hit's damage.
 - `arrow_of_eros` — Love's Arrow: 30% chance to deal +45% bonus ATK.
 - `cretan_bow` — Hunter's Focus: ATK +4% every turn, stacking up to 20%.
-- `juru_pakal` — Bloodhunter: Increases outgoing damage by 10% and deals 50% more damage to targets affected by a bleed-tagged effect.
+- `juru_pakal` — Bloodhunter: Increases outgoing damage by 10% and deals 50% more damage to targets affected by Bleed, Hemorrhage, Rupture, or Venom.
 - `gram` — Dragonbane: Ignores 25% of enemy DEF and deals 30% more damage while the target is above 50% max HP.
-- `tyrfing` — Cursed Edge: ATK +10% at the start of each turn, stacking up to +30%. Attacks execute non-boss targets below 10% max HP.
+- `tyrfing` — Cursed Edge: ATK +10% at the start of each turn, stacking up to +30%. Attacks execute non-boss targets below 10% max HP, and player-character targets below 5% max HP. Bosses are immune to the execute entirely.
 - `laevateinn_sword` — Sundering Flame: Reduces enemy DEF by 10% every turn, stacking up to 30%.
 - `jarngreipr` — Thunder Grip: Increases outgoing damage by 20%. Applying Stun immediately triggers Bash for 50% bonus damage on that attack.
 - `gridr_iron_gloves` — Ironhide: Increases outgoing damage by 20% and has a 20% chance per incoming hit to ignore that hit entirely.
 - `alans_reversed_hands` — Untouchable: Increases outgoing damage by 20% and grants immunity to status effects; damage-over-time effects still apply.
 - `knuckle_charm_anting_anting` — Death Charm: Increases outgoing damage by 10% and has a 5% chance on attack to instantly kill a non-boss target.
 - `laevateinn_staff` — Flickering Flame: Attacks ignore 15% of enemy DEF and apply Burn equal to 10% of ATK for 2 turns.
-- `galdrastafir` — Runebreaker: Every successful attack reduces the target's DEF by 20% for 1 turn, refreshing rather than stacking.
+- `galdrastafir` — Runebreaker: Increases damage by 10%. Every successful attack reduces the target's DEF by 20% for 1 turn, refreshing rather than stacking.
 - `babaylans_ritual_staff` — Sacred Cleansing: Each turn has a 50% chance to remove all status and damage-over-time debuffs. If at least one debuff is removed, grants +100% ATK for 1 turn.
 - `badiang_stalk` — Venom Burst: 30% chance on attack to Rupture for 10% of the target's max HP, then apply Venom for 10% ATK per turn for 2 turns. Bosses block Rupture but not Venom.
 - `shield_of_the_valkyrie` — Valkyrie's Resolve: Each hit taken grants 5% damage reduction and +5% ATK, stacking up to 25% each for the battle.
-- `skjaldmaer` — Shieldmaiden's Guard: Reflects 20% of damage taken. Each hit also has a 15% chance to be negated and reflect 100% of its would-be damage.
+- `skjaldmaer` — Shieldmaiden's Guard: Reflects 20% of damage taken. Each hit also has a 10% chance to be fully negated and reflect 75% of its would-be damage instead — the two reflects never double-dip.
 - `luzon_tribal_shield` — Tribal Ward: Gains +45% DEF while debuffed and heals 8% max HP whenever a debuff expires or is cleansed.
 - `gusisnautar` — Hemorrhaging Shot: 50% chance on attack to deal 5% of the target's max HP and reduce its DEF by 15% for 1 turn. Bosses block both effects.
 - `freyrs_arrow` — Auto-Fire: 30% chance on attack to fire one additional shot for 100% ATK damage.
@@ -65,13 +65,13 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `sword_of_damocles` — Impending Doom: ATK +5% every turn, stacking up to +100%. While any stacks are active, you take +10% damage.
 - `labrys` — Double Strike: Every 3rd eligible turn, the primary attack is followed by one 70% ATK additional strike. Both attacks can CRIT and trigger eligible attack effects.
 - `hephaestus_hammer` — Forged Armor: DEF +20% for the whole battle; every 4th turn, lands a 150% ATK forge strike.
-- `caduceus` — Herald's Touch: Every 3rd turn, cleanses all debuffs and restores 8% max HP.
+- `caduceus` — Herald's Touch: Increases damage by 10%. Incoming damage-over-time reduced by 10%.
 - `spear_of_ares` — Bloodlust: ATK +10% at the start of each turn, stacking up to +50% for the battle.
 - `helm_of_darkness` — Veil of Hades: 30% chance to evade each incoming hit. A successful evade grants Unseen, causing the next attack to ignore 50% of the target's DEF.
-- `aegis` — Medusa's Gaze: Each hit taken adds a Stone stack and 7% damage reduction. At 3 stacks, Petrifies the attacker for 1 turn and resets the stacks.
-- `apollos_silver_bow` — Unerring Arrow: Ignores 25% of enemy DEF; every 4th turn, the attack is a guaranteed CRIT.
+- `aegis` — Medusa's Gaze: Each hit taken adds a Stone stack, each granting 10% damage reduction. At 3 stacks the attacker is Petrified for 1 turn and takes 50% more damage while petrified, then the stacks reset. The third stack becomes the Petrify rather than more reduction, so the effective maximum is 2 stacks (20%).
+- `apollos_silver_bow` — Unerring Arrow: Ignores 25% of enemy DEF. Every 3rd turn, the attack is a guaranteed CRIT — counted in the wielder's own attack turns, so a turn lost to crowd control does not burn a count. Resets each battle.
 - `mjolnir` — Crushing Force: Attacks deal +30% ATK; every 3rd turn, the attack deals an additional +200% ATK.
-- `gungnir` — Never Misses: Each attack ignores 40% of enemy DEF and has a 25% chance to pierce all DEF (zero mitigation).
+- `gungnir` — Never Misses: Each attack ignores 30% of enemy DEF and has a separate 10% chance to pierce all DEF (zero mitigation). Full-pierce supersedes the 30% rather than stacking with it.
 - `thunderbolt_of_zeus` — Divine Thunder: Each critical attack deals +100% bonus ATK and applies Paralyze for 1 turn.
 - `trident_of_poseidon` — Tidal Wrath: Every 2nd turn, deals +100% bonus ATK and reduces enemy DEF by 20% for 1 turn, with a 30% chance to stun for 1 turn.
 - `kiri` — Thousand Partings: [Genesis] Each attack increases damage by 20%, stacking up to +120%. Each attack has a 25% chance to strike twice.
@@ -89,10 +89,10 @@ new and defensive:
 
 - `kalasag` — Bulwark Hide: reduces incoming damage by 3% (post-DEF).
 - `hoplite_panoply` — Phalanx Wall: Reduces damage taken by 20%; the first hit taken each battle gains another 30% reduction.
-- `mail_of_brokkr` — Dwarven Forge: Reduces damage taken by 30%, reflects 18% of post-mitigation damage, and caps each hit at 15% max HP.
+- `mail_of_brokkr` — Dwarven Forge: Reduces damage taken by 30%, caps each hit at 15% max HP, then reflects 20% of the final post-mitigation damage. Order is reduction, then cap, then reflect.
 - `wolfskin_cloak` — Wolf's Vigor: Heals 3% max HP at the start of each turn, or 6% while below 50% max HP.
 - `salakot_ward` — Spirit Ward: Has a 35% chance per application to negate an incoming debuff or crowd-control effect.
-- `anting_anting_sash` — Charmed Hide: Nullifies the first crowd-control effect each battle; later crowd-control effects have a 40% chance to be resisted.
+- `anting_anting_sash` — Charmed Hide: Takes 10% less damage. The first crowd-control effect each battle is fully nullified, of any type. Afterward, a 40% chance to resist Stun, Petrify, or Freeze specifically.
 - `valkyrie_mantle` — Chooser's Grace: Starts with a 22% evade chance, gains 8 percentage points after each consecutive hit taken, and resets to 22% after evading.
 - `mantle_of_bathala` — Divine Aegis: Gains 6% max HP and 4% damage reduction each turn, stacking to 30% and 20%. At max stacks, also heals 8% max HP each turn.
 

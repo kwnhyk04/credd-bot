@@ -89,7 +89,11 @@
  */
 
 const PASSIVE_REGISTRY = require('./passiveRegistry');
-const { CRIT_MULT, OVERCHARGE_MULT, hitMultiplier } = require('../config/combat');
+const {
+  CRIT_MULT, OVERCHARGE_MULT, hitMultiplier,
+  AEGIS_DR_PER_STACK, AEGIS_STACKS_TO_PETRIFY, AEGIS_PETRIFY_DAMAGE_AMP,
+  PETRIFY_DEFAULT_DAMAGE_AMP,
+} = require('../config/combat');
 const { CLASS_PASSIVE_VALUES } = require('../config/classes');
 const {
   EFFECT_CATEGORY,
@@ -116,6 +120,16 @@ const FIGHTER_STUN_TURNS = CLASS_PASSIVE_VALUES.Fighter.stunTurns;
 const FIGHTER_BASH_DAMAGE_PCT = CLASS_PASSIVE_VALUES.Fighter.bashDamage;
 const KNIGHT_DAMAGE_REDUCTION = 0.25;
 const MAX_DAMAGE_REDUCTION = 0.70;
+
+// Charmed Hide's ongoing resist covers only these three. The first-CC nullify is
+// separate and applies to any crowd-control tag.
+const CHARMED_HIDE_RESIST_TAGS = new Set(['stun', 'petrify', 'freeze']);
+
+// Tyrfing execute thresholds, as a fraction of the target's max HP. Player-character
+// targets (both sides of a duel are kind 'player') use the lower bar; bosses are
+// immune entirely and are checked before either threshold applies.
+const TYRFING_EXECUTE_PCT_MOB = 0.10;
+const TYRFING_EXECUTE_PCT_PLAYER = 0.05;
 const OVERCHARGE_EVERY = 3;       // [v4.2] fires on rounds 3, 6, 9, …
 const BLEED_PCT_PER_STACK = CLASS_PASSIVE_VALUES.Swordsman.bleedPerAttack;
 const BLEED_MAX_PCT = CLASS_PASSIVE_VALUES.Swordsman.bleedMax;
@@ -346,7 +360,16 @@ function resolveBattle(a, b, opts = {}) {
   const effectDamage = (side, amount) => {
     let adjusted = amount;
     if (findDebuff(side, 'frostbite')) adjusted *= 1.5;
-    if (findDebuff(side, 'petrify')) adjusted *= 1.25;
+    const petrify = findDebuff(side, 'petrify');
+    if (petrify) {
+      // The petrify debuff carries its own damage amplification as `value`, so a
+      // source can specify how much more damage its victim takes. Aegis passes 0.50
+      // (+50%); every other source passes 0 and keeps the default +25%, which is why
+      // buffing Aegis does not silently buff Medusa mobs' stone_stare by proxy.
+      // Petrify is a SKIP_TAG whose `value` was previously unused, and addDebuff's
+      // Math.max merge means the strongest amp wins on refresh.
+      adjusted *= 1 + (petrify.value > 0 ? petrify.value : PETRIFY_DEFAULT_DAMAGE_AMP);
+    }
     return adjusted;
   };
   const healTribalWard = (side, removedCount, reason) => {
@@ -384,7 +407,11 @@ function resolveBattle(a, b, opts = {}) {
           shared.events.push('🪬 Charmed Hide — the first crowd-control effect was nullified!');
           return false;
         }
-        if (rng() < 0.40) {
+        // After the one-time nullify is spent, the 40% resist applies ONLY to Stun,
+        // Petrify and Freeze — not to every crowd-control tag. The nullify itself is
+        // deliberately broad ("the first crowd-control effect of any type"); the
+        // ongoing resist is deliberately narrow. That asymmetry is the description.
+        if (CHARMED_HIDE_RESIST_TAGS.has(tag) && rng() < 0.40) {
           shared.events.push(`🪬 Charmed Hide — resisted ${ACTION_TAG_LABELS[tag] || tag}!`);
           return false;
         }
@@ -642,24 +669,34 @@ function resolveBattle(a, b, opts = {}) {
     if (!defender.flags.aegis_active) return;
     const oldStacks = defender.flags.aegis_stacks || 0;
     const nextStacks = oldStacks + 1;
-    if (nextStacks >= 3) {
+    if (nextStacks >= AEGIS_STACKS_TO_PETRIFY) {
+      // The third stack becomes the Petrify rather than more damage reduction: stacks
+      // reset to zero and the accrued reduction is rolled back in the same step, so the
+      // effective maximum is 2 stacks / 20%. Deliberate — 30% stacking reduction plus a
+      // Petrify would strictly dominate Mail of Brokkr's flat 30%.
       defender.flags.aegis_stacks = 0;
       defender.scratch.damageReductionPct = Math.max(
         0,
-        defender.scratch.damageReductionPct - oldStacks * 0.07,
+        defender.scratch.damageReductionPct - oldStacks * AEGIS_DR_PER_STACK,
       );
-      const petrified = tryApplyDebuff(attacker, 'petrify', 1, 0, defender);
+      // The amp rides on the debuff's `value`, so it dies with the Petrify — nothing
+      // leaks if the attacker cleanses it, and no side flag needs tearing down.
+      const petrified = tryApplyDebuff(
+        attacker, 'petrify', 1, AEGIS_PETRIFY_DAMAGE_AMP, defender,
+      );
       shared.events.push(
         petrified
-          ? `🗿 Medusa's Gaze — 3 Stone stacks! ${attacker.name} is Petrified for 1 turn.`
+          ? `🗿 Medusa's Gaze — 3 Stone stacks! ${attacker.name} is Petrified for 1 turn `
+            + `and takes ${Math.round(AEGIS_PETRIFY_DAMAGE_AMP * 100)}% more damage.`
           : "🗿 Medusa's Gaze — 3 Stone stacks! Petrify was resisted."
       );
       return;
     }
     defender.flags.aegis_stacks = nextStacks;
-    defender.scratch.damageReductionPct += 0.07;
+    defender.scratch.damageReductionPct += AEGIS_DR_PER_STACK;
     shared.events.push(
-      `🗿 Medusa's Gaze — ${nextStacks} Stone stack${nextStacks === 1 ? '' : 's'} (${nextStacks * 7}% reduction)`
+      `🗿 Medusa's Gaze — ${nextStacks} Stone stack${nextStacks === 1 ? '' : 's'} `
+      + `(${Math.round(nextStacks * AEGIS_DR_PER_STACK * 100)}% reduction)`
     );
   };
   const applyReflectedDamage = (defender, attacker, baseDamage, pct, source) => {
@@ -760,10 +797,19 @@ function resolveBattle(a, b, opts = {}) {
       return { applied: 0, negated: true };
     }
 
+    // Shieldmaiden's Guard: 10% chance to fully negate a hit and reflect 75% of it.
+    // Returning here is what prevents the double-dip — the flat 20% reflect entry in
+    // reflectSources below is never reached on a negated hit.
+    //
+    // 75% of WHAT: `wouldBeDamage` is post-DEF-mitigation and post Frostbite/Petrify
+    // amplification, but before the defender's percentage reduction lane. That lane
+    // never runs on a negated hit, so no post-reduction figure exists to use instead —
+    // this is the only well-defined basis, and it is the same one the passive already
+    // used at 100%.
     const wouldBeDamage = effectDamage(O, dmg);
-    if (F.skjaldmaer_active && rng() < 0.15) {
+    if (F.skjaldmaer_active && rng() < 0.10) {
       shared.events.push("🛡️ Shieldmaiden's Guard — incoming hit negated!");
-      applyReflectedDamage(O, S, wouldBeDamage, 1, "Shieldmaiden's Guard");
+      applyReflectedDamage(O, S, wouldBeDamage, 0.75, "Shieldmaiden's Guard");
       return { applied: 0, negated: true };
     }
 
@@ -1066,7 +1112,10 @@ function resolveBattle(a, b, opts = {}) {
       allowAdditionalAttackProcs,
       source: attackSource,
     };
-    if (S.weaponPassiveKey === 'tyrfing' && O.hp < O.maxHp * 0.10) {
+    const tyrfingThreshold = O.kind === 'player'
+      ? TYRFING_EXECUTE_PCT_PLAYER
+      : TYRFING_EXECUTE_PCT_MOB;
+    if (S.weaponPassiveKey === 'tyrfing' && O.hp < O.maxHp * tyrfingThreshold) {
       if (sideImmune(O, 'boss_immune')) {
         shared.events.push('🚫 Cursed Edge has no effect on bosses.');
       } else {
@@ -1583,6 +1632,9 @@ function resolveBattle(a, b, opts = {}) {
     // [v5 Phase 2] socketed effect-rune per-round flags (the rune runner re-sets them).
     side.flags.rune_thorns_reflect = 0;
     side.flags.rune_warding_pct = 0;
+    // [Caduceus] Its own flag rather than sharing rune_warding_pct, which the rune
+    // runner overwrites every round — sharing would make the two clobber each other.
+    side.flags.caduceus_dot_reduction = 0;
     side.flags.rune_lifesteal_pct = 0;
   };
 
@@ -1731,6 +1783,12 @@ function resolveBattle(a, b, opts = {}) {
         tick = Math.floor(effectDamage(side, tick));
         // [v5 Phase 2] Warding rune reduces incoming DOT damage on the bearer.
         if (side.flags.rune_warding_pct > 0) tick = Math.floor(tick * (1 - side.flags.rune_warding_pct));
+        // [Caduceus] Herald's Touch reduces incoming DOT by 10%. Applied AFTER the
+        // Warding rune and multiplicatively, so the two compound rather than one
+        // overwriting the other.
+        if (side.flags.caduceus_dot_reduction > 0) {
+          tick = Math.floor(tick * (1 - side.flags.caduceus_dot_reduction));
+        }
         if (tick > 0) {
           const before = side.hp;
           damage(side, tick);

@@ -44,10 +44,32 @@ function hitMultiplier(crit, damagePct) {
   return (crit ? CRIT_MULT : 1) + (Number(damagePct) || 0) / 100;
 }
 
+// ── Aegis / Medusa's Gaze ───────────────────────────────────────────────────
+// Shared because the value is applied in passiveRegistry (per-stack reduction) and
+// rolled back in battleEngine (grantAegisStone, when the third stack becomes a
+// Petrify). Duplicating them is exactly how the two halves drift apart.
+//
+// Effective maximum reduction is 2 stacks = 20%, NOT 30%: the third stack is consumed
+// by the Petrify and the accrued reduction is removed in the same step. Deliberate —
+// 30% stacking reduction plus a Petrify would strictly dominate Mail of Brokkr's flat
+// 30%.
+//
+// AEGIS_PETRIFY_DAMAGE_AMP is carried as the petrify debuff's `value`, which
+// effectDamage reads as an override. Other petrify sources pass 0 and keep the default
+// +25%, so this does not buff Medusa mobs' stone_stare by proxy.
+const AEGIS_DR_PER_STACK = 0.10;
+const AEGIS_STACKS_TO_PETRIFY = 3;
+const AEGIS_PETRIFY_DAMAGE_AMP = 0.50;
+const PETRIFY_DEFAULT_DAMAGE_AMP = 0.25;
+
 module.exports = {
   CRIT_MULT,
   OVERCHARGE_MULT,
   TIER_DAMAGE_PCT,
   KATANA_DAMAGE_PCT,
   hitMultiplier,
+  AEGIS_DR_PER_STACK,
+  AEGIS_STACKS_TO_PETRIFY,
+  AEGIS_PETRIFY_DAMAGE_AMP,
+  PETRIFY_DEFAULT_DAMAGE_AMP,
 };
