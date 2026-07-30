@@ -1,6 +1,31 @@
 const fs = require('fs');
 const path = require('path');
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
+
+// ── int8 (BIGINT, OID 20) → JS number ────────────────────────────────────────
+// pg returns BIGINT as a STRING by default, to avoid silent precision loss above
+// Number.MAX_SAFE_INTEGER. That default is a correctness hazard for this codebase:
+// `lifetime_exp + gain` would CONCATENATE rather than add, silently, and every
+// comparison against a numeric literal would be a string comparison. Progression v2
+// makes user_character.lifetime_exp the source of truth for levels, so this parser is
+// what makes JS-side arithmetic on it safe — do not remove it without converting every
+// read site to an explicit Number().
+//
+// Safety, verified against the LIVE database rather than the committed dump (the dump
+// was stale — 37 columns vs 40 in production):
+//   SELECT table_name, column_name FROM information_schema.columns
+//    WHERE data_type='bigint' AND table_schema='public';
+// returns 40 columns, ALL of them economy/stat counters (credux, combat_exp,
+// believer_exp, bet_amount, payout, max_hp, total_damage, ...), surrogate sequence PKs,
+// or internal avatar_id catalog keys. ZERO are Discord snowflakes — every discord_id,
+// guild_id, channel_id and message_id is character varying(20). Snowflakes exceed
+// MAX_SAFE_INTEGER by ~137x and WOULD be silently rounded by this parser, so re-run
+// that query before adding any bigint column that could hold an ID.
+//
+// Residual risk: values above 9,007,199,254,740,991 round. The v2 curve tops out at
+// 3.63e9 so it is nowhere near, but users_bag.credux and lifetime_credux_earned are
+// unbounded accumulators and are the pair to watch long-term.
+types.setTypeParser(20, (value) => (value === null ? null : Number(value)));
 
 const trackedSockets = new Map();
 const networkStats = {
