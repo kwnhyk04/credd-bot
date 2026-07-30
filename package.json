@@ -33,7 +33,10 @@
     "preflight": "node scripts/production-preflight.js",
     "preflight:prod": "node scripts/production-preflight.js --prod",
     "compensate:levels:dry": "node scripts/level-reward-compensation.js --dry-run",
-    "compensate:levels": "node scripts/level-reward-compensation.js --execute"
+    "compensate:levels": "node scripts/level-reward-compensation.js --execute",
+    "progression:v2:dry": "node scripts/progression-v2-migrate.js --dry-run",
+    "progression:v2": "node scripts/progression-v2-migrate.js --execute",
+    "model:exp-pacing": "node scripts/exp-pacing-model.js"
   },
   "engines": {
     "node": ">=20.9.0"
