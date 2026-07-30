@@ -152,10 +152,38 @@ function bossImageMaxWidth() {
   return Math.floor(envNumber('BOSS_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 }));
 }
 
+// [Progression v2] The override ceiling is DERIVED from the design cap, additively.
+// Boss EXP scales with participant level, so the daily attack cap is what keeps bosses
+// a minority EXP source (~14% at level 100) instead of the dominant one. The old
+// { max: 100 } ceiling let one env var take bosses to 89% of throughput and collapse
+// time-to-level-100 from ~5.6 years to ~0.7. The ceiling is ADDITIVE (+2, not x2)
+// because the case it exists for — granting players a retry after a boss bug — is a
+// fixed quantity, not a proportion of the cap. A multiplier would scale the blast
+// radius with the cap (a cap of 10 permitting 20); +2 stays one retry forever.
+// Anything beyond that should be a reviewed code change, not a deploy-config edit.
+const BOSS_DAILY_ATTACK_LIMIT_MAX = MAX_BOSS_ATTACKS_PER_DAY + 2;
+
 function bossDailyAttackLimit() {
   // §1.4: cap lives in config (MAX_BOSS_ATTACKS_PER_DAY); env may override for ops.
-  return envPositiveInt('BOSS_DAILY_ATTACK_LIMIT', MAX_BOSS_ATTACKS_PER_DAY, { max: 100 });
+  return envPositiveInt('BOSS_DAILY_ATTACK_LIMIT', MAX_BOSS_ATTACKS_PER_DAY, {
+    max: BOSS_DAILY_ATTACK_LIMIT_MAX,
+  });
 }
+
+// Startup diagnostic: an overridden cap is legitimate but must never be silent, since
+// it moves the progression curve by months. Fires once when this module is first
+// required, which happens during boot when the boss commands load. The ceiling above
+// is the actual guard — this is visibility, not enforcement.
+(function warnIfBossLimitOverridden() {
+  const effective = bossDailyAttackLimit();
+  if (effective === MAX_BOSS_ATTACKS_PER_DAY) return;
+  console.warn(
+    `[boss] BOSS_DAILY_ATTACK_LIMIT override active: ${effective} attacks/day `
+    + `(design cap ${MAX_BOSS_ATTACKS_PER_DAY}, ceiling ${BOSS_DAILY_ATTACK_LIMIT_MAX}). `
+    + 'Boss EXP scales with participant level — this accelerates progression. '
+    + 'Unset the variable to restore the modeled curve.'
+  );
+})();
 
 function bossCrit(mobRow) {
   return Number(mobRow?.base_crit || 0);
