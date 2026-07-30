@@ -24,7 +24,9 @@ const EFFECT_DEFINITIONS = Object.freeze({
   crit_down: defineEffect(EFFECT_CATEGORY.STATUS),
   hemorrhage: defineEffect(EFFECT_CATEGORY.STATUS, { tags: [BLEED_TAG] }),
   rupture: defineEffect(EFFECT_CATEGORY.STATUS, { tags: [BLEED_TAG] }),
-  bleed: defineEffect(EFFECT_CATEGORY.DOT, { recurringDamage: true }),
+  // Ordinary Bleed now belongs to the same semantic family as Hemorrhage,
+  // Rupture, and Venom. Bloodhunter therefore recognizes the visible Bleed DOT.
+  bleed: defineEffect(EFFECT_CATEGORY.DOT, { recurringDamage: true, tags: [BLEED_TAG] }),
   burn: defineEffect(EFFECT_CATEGORY.DOT, { recurringDamage: true }),
   venom: defineEffect(EFFECT_CATEGORY.DOT, { recurringDamage: true, tags: [BLEED_TAG] }),
   poison: defineEffect(EFFECT_CATEGORY.DOT, { recurringDamage: true }),

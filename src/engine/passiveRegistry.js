@@ -43,6 +43,13 @@ const { CANONICAL_ON_HIT_EFFECTS } = require('./combatEffects');
 /** Shared no-op (basic weapons, immunity-only bosses). */
 const noop = () => {};
 
+/** Announce a persistent passive state once per battle without spamming every round. */
+const logOnce = (bs, flagKey, label) => {
+  if (bs.flags[flagKey]) return;
+  bs.flags[flagKey] = true;
+  bs.log.push(label);
+};
+
 // A stat debuff applied after a landed hit is decremented at the end of that same
 // round. Store it for two engine ticks so its user-facing one-turn window covers
 // the attacker's next action instead of expiring before it can affect damage.
@@ -81,12 +88,19 @@ const attackChanceRider = (chance, pct, label) => (bs) => {
 };
 
 /** ATK +step every everyN turns, stacking up to cap (stack persists in flags). */
-const stackingAtk = (flagKey, step, cap, everyN = 1) => (bs) => {
+const stackingAtk = (flagKey, step, cap, everyN = 1, labelFn = null) => (bs) => {
   if (!bs.flags[flagKey]) bs.flags[flagKey] = 0;
+  const previous = bs.flags[flagKey];
   if ((everyN === 1 || bs.currentTurn % everyN === 0) && bs.flags[flagKey] < cap) {
     bs.flags[flagKey] = Math.min(bs.flags[flagKey] + step, cap);
   }
   bs.playerAtkMult += bs.flags[flagKey];
+  if (labelFn && bs.flags[flagKey] > previous) {
+    bs.log.push(labelFn(
+      Math.round(bs.flags[flagKey] * 100),
+      Math.round(bs.flags[flagKey] / step),
+    ));
+  }
 };
 
 /** chance → apply an enemy debuff (draw always happens; immunity gated after). */
@@ -351,12 +365,15 @@ const PASSIVE_REGISTRY = {
   'katana': (bs) => {
     // +30% damage (unified §35.2). Applies to crit AND non-crit: ×1.30 normal / ×2.30 crit.
     bs.damageBonusPct += 30;
+    logOnce(bs, 'katana_passive_logged',
+      '🗡️ Katana: Lethal Edge — each attack deals +30% damage.');
   },
 
   'gladius': attackChanceRider(0.30, 0.50,
     '⚔️ Gladius: Brutal Swing — +50% bonus ATK!'),
 
-  'scimitar': stackingAtk('scimitar_stack', 0.03, 0.15),
+  'scimitar': stackingAtk('scimitar_stack', 0.03, 0.15, 1,
+    (pct, stacks) => `⚔️ Scimitar: Rising Slash — ATK +${pct}% (${stacks}/5 stacks).`),
 
   'roman_cestus': bonusVsState('enemy_is_stunned', 0.50,
     '👊 Roman Cestus: Executioner — +50% vs stunned!'),
@@ -364,7 +381,8 @@ const PASSIVE_REGISTRY = {
   'pata': onHitEnemyDot('bleed', 0.05,
     '🗡️ Pata: Rending Claws — Bleed applied (5% ATK for 2 turns)!'),
 
-  'bagh_nakh': stackingAtk('bagh_nakh_stack', 0.05, 0.25),
+  'bagh_nakh': stackingAtk('bagh_nakh_stack', 0.05, 0.25, 1,
+    (pct, stacks) => `🗡️ Bagh Nakh: Frenzied Claws — ATK +${pct}% (${stacks}/5 stacks).`),
 
   'japanese_bo': (bs) => {
     bs.onAttack(() => {
@@ -378,31 +396,45 @@ const PASSIVE_REGISTRY = {
   'egyptian_asa': (bs) => {
     // +3% DEF ignore every turn, stacking to 15% (merged into ignoreDefPct, highest wins)
     if (!bs.flags.egyptian_asa_pierce) bs.flags.egyptian_asa_pierce = 0;
+    const previous = bs.flags.egyptian_asa_pierce;
     if (bs.flags.egyptian_asa_pierce < 0.15) {
       bs.flags.egyptian_asa_pierce = Math.min(bs.flags.egyptian_asa_pierce + 0.03, 0.15);
     }
     if (bs.flags.egyptian_asa_pierce > bs.ignoreDefPct) {
       bs.ignoreDefPct = bs.flags.egyptian_asa_pierce;
     }
+    if (bs.flags.egyptian_asa_pierce > previous) {
+      const pct = Math.round(bs.flags.egyptian_asa_pierce * 100);
+      const stacks = Math.round(bs.flags.egyptian_asa_pierce / 0.03);
+      bs.log.push(`🪄 Egyptian Asa: Armor Breaker — DEF ignored ${pct}% (${stacks}/5 stacks).`);
+    }
   },
 
   'pilgrims_bordone': chanceLandedHitDebuff(0.50, 'def_down', LANDED_STAT_DEBUFF_TURNS, () => 0.15,
     '🪄 Pilgrim\'s Bordone: Sundering Blow — Enemy DEF -15%!'),
 
-  'vatican_aspis': constantSelfBuff(0.12, 0, -0.08),
+  'vatican_aspis': (bs) => {
+    constantSelfBuff(0.12, 0, -0.08)(bs);
+    logOnce(bs, 'vatican_aspis_logged',
+      '🛡️ Vatican Aspis: Sacred Guard — +12% outgoing damage · 8% damage reduction.');
+  },
 
   'battersea_shield': (bs) => {
-    const stacks = Math.min((bs.flags.iron_stance_stacks || 0) + 1, 5);
+    const previous = bs.flags.iron_stance_stacks || 0;
+    const stacks = Math.min(previous + 1, 5);
     bs.flags.iron_stance_stacks = stacks;
     bs.damageReductionPct += stacks * 0.03;
-    bs.log.push(`🛡️ Iron Stance — damage reduction now ${stacks * 3}% (turn ${bs.currentTurn})`);
+    if (stacks > previous) {
+      bs.log.push(`🛡️ Iron Stance — damage reduction now ${stacks * 3}% (turn ${bs.currentTurn})`);
+    }
   },
 
   'enderby_shield': (bs) => {
     bs.flags.enderby_reflect_pct = 0.12;
   },
 
-  'holmegaard_bow': stackingAtk('holmegaard_stack', 0.03, 0.15),
+  'holmegaard_bow': stackingAtk('holmegaard_stack', 0.03, 0.15, 1,
+    (pct, stacks) => `🏹 Holmegaard Bow: Steady Aim — ATK +${pct}% (${stacks}/5 stacks).`),
 
   'scandinavian_glacial_wooden_bow': (bs) => {
     // 10% chance on the primary attack to add one attack. Generated attacks
@@ -416,7 +448,8 @@ const PASSIVE_REGISTRY = {
   'scythian_composite_bow': attackChanceRider(0.20, 0.50,
     '🏹 Scythian Composite Bow: Power Draw — +50% bonus ATK!'),
 
-  'xiphos': stackingAtk('xiphos_stack', 0.04, 0.20),
+  'xiphos': stackingAtk('xiphos_stack', 0.04, 0.20, 1,
+    (pct, stacks) => `⚔️ Xiphos: Honed Edge — ATK +${pct}% (${stacks}/5 stacks).`),
 
   'kopis': attackChanceRider(0.25, 0.60,
     '⚔️ Kopis: Cleaving Blow — +60% bonus ATK!'),
@@ -427,12 +460,18 @@ const PASSIVE_REGISTRY = {
   'myrmex': bonusVsState('enemy_is_stunned', 0.40,
     '👊 Myrmex: Predator\'s Grip — +40% vs stunned!'),
 
-  'dory': stackingAtk('dory_stack', 0.06, 0.18, 2),
+  'dory': stackingAtk('dory_stack', 0.06, 0.18, 2,
+    (pct, stacks) => `🔱 Dory: Phalanx Momentum — ATK +${pct}% (${stacks}/3 stacks).`),
 
   'thyrsus': chanceEnemyDebuff(0.20, 'bleed', 2, (bs) => bs.playerATK * 0.05,
     '🪄 Thyrsus: Maddening Touch — Bleed applied (5% ATK for 2 turns)!'),
 
-  'dipylon_shield': timedSelfBuff(3, 0, 0.30),
+  'dipylon_shield': (bs) => {
+    timedSelfBuff(3, 0, 0.30)(bs);
+    if (bs.currentTurn <= 3) {
+      bs.log.push(`🛡️ Dipylon Shield: Hoplite Wall — DEF +30% (turn ${bs.currentTurn}/3).`);
+    }
+  },
 
   'pelte': (bs) => {
     bs.flags.pelte_active = true;
@@ -441,12 +480,15 @@ const PASSIVE_REGISTRY = {
   'arrow_of_eros': attackChanceRider(0.30, 0.45,
     '🏹 Arrow of Eros: Love\'s Arrow — +45% bonus ATK!'),
 
-  'cretan_bow': stackingAtk('cretan_bow_stack', 0.04, 0.20),
+  'cretan_bow': stackingAtk('cretan_bow_stack', 0.04, 0.20, 1,
+    (pct, stacks) => `🏹 Cretan Bow: Hunter's Focus — ATK +${pct}% (${stacks}/5 stacks).`),
 
   // ── WEAPON PASSIVES — Legendary PH & Norse ──────────────────────────────
 
   'juru_pakal': (bs) => {
     bs.playerAtkMult += 0.10;
+    logOnce(bs, 'juru_pakal_base_logged',
+      '🩸 Bloodhunter — outgoing damage +10%.');
     bs.onAttack(() => {
       if (bs.enemyHasEffectTag('bleed')) {
         bs.playerAtkMult += 0.50;
@@ -458,6 +500,8 @@ const PASSIVE_REGISTRY = {
   'gram': (bs) => {
     // Ignores 25% of enemy DEF; actual attacks gain +30% above 50% enemy HP.
     if (0.25 > bs.ignoreDefPct) bs.ignoreDefPct = 0.25;
+    logOnce(bs, 'gram_pierce_logged',
+      '🐉 Dragonbane — 25% of enemy DEF ignored.');
     bs.onAttack(() => {
       if (bs.enemyHP > bs.enemyMaxHP * 0.50) {
         bs.playerAtkMult += 0.30;
@@ -468,12 +512,15 @@ const PASSIVE_REGISTRY = {
 
   'tyrfing': (bs) => {
     if (!bs.flags.tyrfing_stack) bs.flags.tyrfing_stack = 0;
+    const previous = bs.flags.tyrfing_stack;
     if (bs.flags.tyrfing_stack < 0.30) {
       bs.flags.tyrfing_stack = Math.min(bs.flags.tyrfing_stack + 0.10, 0.30);
     }
     bs.playerAtkMult += bs.flags.tyrfing_stack;
-    const pct = Math.round(bs.flags.tyrfing_stack * 100);
-    bs.log.push(`🗡️ Cursed Edge — ATK +${pct}% (${pct === 30 ? 'max stacks' : `${pct / 10} stacks`})`);
+    if (bs.flags.tyrfing_stack > previous) {
+      const pct = Math.round(bs.flags.tyrfing_stack * 100);
+      bs.log.push(`🗡️ Cursed Edge — ATK +${pct}% (${pct === 30 ? 'max stacks' : `${pct / 10} stacks`})`);
+    }
   },
 
   'laevateinn_sword': (bs) => {
@@ -494,6 +541,8 @@ const PASSIVE_REGISTRY = {
 
   'jarngreipr': (bs) => {
     bs.playerAtkMult += 0.20;
+    logOnce(bs, 'jarngreipr_base_logged',
+      '⚡ Thunder Grip — outgoing damage +20%.');
     // The engine applies the +50% rider only when the attack really lands and its
     // Fighter stun succeeds after all immunity/evade checks.
     bs.flags.jarngreipr_on_stun = true;
@@ -502,16 +551,22 @@ const PASSIVE_REGISTRY = {
   'gridr_iron_gloves': (bs) => {
     bs.playerAtkMult += 0.20;
     bs.flags.gridr_ironhide_active = true;
+    logOnce(bs, 'gridr_ironhide_logged',
+      '🛡️ Ironhide — outgoing damage +20%; hit-ignore guard active.');
   },
 
   'alans_reversed_hands': (bs) => {
     bs.playerAtkMult += 0.20;
     bs.playerStatusImmune = true;
     bs.clearPlayerStatusEffects();
+    logOnce(bs, 'alans_reversed_hands_logged',
+      '✋ Untouchable — outgoing damage +20%; status immunity active.');
   },
 
   'knuckle_charm_anting_anting': (bs) => {
     bs.playerAtkMult += 0.10;
+    logOnce(bs, 'death_charm_base_logged',
+      '🔮 Death Charm — outgoing damage +10%; execute chance armed.');
     let proc = false;
     bs.onAttack(() => { proc = bs.rng() < 0.05; });
     bs.onLandedHit(() => {
@@ -529,6 +584,8 @@ const PASSIVE_REGISTRY = {
     // for 2 turns after each landed hit, so a skipped/evaded attack cannot burn.
     if (0.15 > bs.ignoreDefPct) bs.ignoreDefPct = 0.15;
     bs.flags.laevateinn_staff_on_hit = true;
+    logOnce(bs, 'laevateinn_staff_base_logged',
+      '🔥 Flickering Flame — ignores 15% enemy DEF; Burn armed on hit.');
   },
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -732,16 +789,28 @@ const PASSIVE_REGISTRY = {
 
   // ── WEAPON PASSIVES — Legendary Greek ───────────────────────────────────
 
-  'harpe': flatPierce(0.30),
+  'harpe': (bs) => {
+    flatPierce(0.30)(bs);
+    logOnce(bs, 'harpe_pierce_logged',
+      '🗡️ Harpe: Gorgon Slayer — 30% of enemy DEF ignored.');
+  },
 
   'sword_of_damocles': (bs) => {
     // ATK +5%/turn stacking to +100%; while any stacks are active, +10% damage taken
     if (!bs.flags.damocles_stack) bs.flags.damocles_stack = 0;
+    const previous = bs.flags.damocles_stack;
     if (bs.flags.damocles_stack < 1.00) {
       bs.flags.damocles_stack = Math.min(bs.flags.damocles_stack + 0.05, 1.00);
     }
     bs.playerAtkMult += bs.flags.damocles_stack;
     if (bs.flags.damocles_stack > 0) bs.incomingDamageIncreasePct += 0.10;
+    if (bs.flags.damocles_stack > previous) {
+      const pct = Math.round(bs.flags.damocles_stack * 100);
+      const stacks = Math.round(bs.flags.damocles_stack / 0.05);
+      bs.log.push(
+        `⚔️ Sword of Damocles: Impending Doom — ATK +${pct}% (${stacks}/20 stacks) · damage taken +10%.`
+      );
+    }
   },
 
   'labrys': (bs) => {
@@ -759,6 +828,8 @@ const PASSIVE_REGISTRY = {
   'hephaestus_hammer': (bs) => {
     // DEF +20% for the battle; every 4th actual attack gains the 150% ATK rider.
     bs.playerDefMult += 0.20;
+    logOnce(bs, 'hephaestus_hammer_def_logged',
+      '🔨 Hephaestus Hammer: Forged Armor — DEF +20% for the battle.');
     if (bs.currentTurn % 4 === 0) {
       bs.onAttack(() => {
         if (bs.isPrimaryAttack === false) return;
@@ -779,10 +850,13 @@ const PASSIVE_REGISTRY = {
   },
 
   'spear_of_ares': (bs) => {
-    const stacks = Math.min((bs.flags.spear_of_ares_stacks || 0) + 1, 5);
+    const previous = bs.flags.spear_of_ares_stacks || 0;
+    const stacks = Math.min(previous + 1, 5);
     bs.flags.spear_of_ares_stacks = stacks;
     bs.playerAtkMult += stacks * 0.10;
-    bs.log.push(`🔥 Bloodlust — ATK +${stacks * 10}% (${stacks} stacks)`);
+    if (stacks > previous) {
+      bs.log.push(`🔥 Bloodlust — ATK +${stacks * 10}% (${stacks} stacks)`);
+    }
   },
 
   'helm_of_darkness': (bs) => {
@@ -798,6 +872,8 @@ const PASSIVE_REGISTRY = {
   'apollos_silver_bow': (bs) => {
     // Ignores 25% DEF; every 4th turn guaranteed CRIT
     if (0.25 > bs.ignoreDefPct) bs.ignoreDefPct = 0.25;
+    logOnce(bs, 'apollos_silver_bow_pierce_logged',
+      '🏹 Apollo\'s Silver Bow: Unerring Arrow — 25% of enemy DEF ignored.');
     if (bs.currentTurn % 4 === 0) {
       bs.onAttack(() => {
         if (bs.isPrimaryAttack === false) return;
@@ -826,6 +902,8 @@ const PASSIVE_REGISTRY = {
   'gungnir': (bs) => {
     // [v5] Ignores 40% DEF; each actual attack has a 25% full-pierce chance.
     if (0.40 > bs.ignoreDefPct) bs.ignoreDefPct = 0.40;
+    logOnce(bs, 'gungnir_pierce_logged',
+      '🏹 Gungnir: Never Misses — 40% of enemy DEF ignored.');
     bs.onAttack(() => {
       bs.flags.gungnir_full_pierce = bs.rng() < 0.25;
       if (bs.flags.gungnir_full_pierce) {
@@ -870,17 +948,25 @@ const PASSIVE_REGISTRY = {
   // in the weapon section above (shared keys, updated for their Supreme armor form).
 
   // Kalasag — Bulwark Hide: incoming damage −3% (additive incoming lane, post-DEF).
-  'kalasag': constantSelfBuff(0, 0, -0.03),
+  'kalasag': (bs) => {
+    constantSelfBuff(0, 0, -0.03)(bs);
+    logOnce(bs, 'kalasag_logged',
+      '🛡️ Kalasag: Bulwark Hide — damage taken reduced by 3%.');
+  },
 
   'hoplite_panoply': (bs) => {
     bs.damageReductionPct += 0.20;
     bs.flags.phalanx_wall_active = true;
+    logOnce(bs, 'hoplite_panoply_logged',
+      '🛡️ Phalanx Wall — damage taken reduced by 20%; first-hit guard armed.');
   },
 
   'mail_of_brokkr': (bs) => {
     bs.damageReductionPct += 0.30;
     bs.flags.mail_brokkr_reflect = 0.18;
     bs.flags.mail_brokkr_hit_cap = 0.15;
+    logOnce(bs, 'mail_of_brokkr_logged',
+      '⚒️ Dwarven Forge — 30% reduction · 18% reflect · 15% max-HP hit cap.');
   },
 
   'wolfskin_cloak': (bs) => {
