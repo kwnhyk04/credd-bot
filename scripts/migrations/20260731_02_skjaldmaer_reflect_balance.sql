@@ -13,7 +13,7 @@ DECLARE
     expected_description CONSTANT TEXT :=
       'Reflects 20% of damage taken. Each hit also has a 10% chance to be fully negated and reflect 60% of its would-be damage instead. The two reflects never apply to the same hit.';
 BEGIN
-    UPDATE public.weapon_roster
+    UPDATE public.armor_roster
        SET passive_description = expected_description
      WHERE name = 'Skjaldmaer'
        AND passive_key = 'skjaldmaer';
@@ -26,7 +26,7 @@ BEGIN
 
     IF NOT EXISTS (
         SELECT 1
-          FROM public.weapon_roster
+          FROM public.armor_roster
          WHERE name = 'Skjaldmaer'
            AND passive_key = 'skjaldmaer'
            AND passive_description = expected_description
