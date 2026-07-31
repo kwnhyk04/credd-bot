@@ -30,7 +30,7 @@ const CLASS_PASSIVE_VALUES = Object.freeze({
   Fighter: Object.freeze({
     stunChance: 0.25,
     stunTurns: 1,
-    bashDamage: 0.50,
+    bashDamage: 1.00,
   }),
 });
 
@@ -39,7 +39,7 @@ const CLASSES = {
     emoji: '⚔️',
     passiveName: 'Bleed',
     base: { hp: 700, atk: 225, def: 225, crit: 5.0 },
-    scaling: { hp: 105, atk: 55, def: 55, crit: 0.7 },
+    scaling: { hp: 150, atk: 75, def: 75, crit: 0.7 },
     flavor:
       'A warrior forged for the battlefield. Neither the strongest nor the fastest, but the most reliable. ' +
       'The Swordsman walks the line between offense and defense, adapting to any fight. Every strike leaves a mark, and every mark bleeds.',
@@ -50,18 +50,18 @@ const CLASSES = {
     emoji: '👊',
     passiveName: 'Stun',
     base: { hp: 850, atk: 300, def: 150, crit: 1.0 },
-    scaling: { hp: 120, atk: 70, def: 25, crit: 0.5 },
+    scaling: { hp: 150, atk: 100, def: 50, crit: 0.5 },
     flavor:
       'A warrior who does not wait for the fight to come — they bring it. The Fighter is built on aggression, raw power, ' +
       "and the unshakable belief that the best defense is a fist to the jaw. When a Fighter lands, the enemy feels it. And sometimes, they don't get back up.",
     passiveLine:
-      '**Passive: Stun** — Attacks have a 25% chance to Stun the target for 1 turn. Bash deals 50% of the triggering hit and leaves the target Dizzy.',
+      '**Passive: Stun** — Attacks have a 25% chance to Stun the target for 1 turn. Bash deals 100% of the triggering hit and leaves the target Dizzy.',
   },
   Mage: {
     emoji: '🔮',
     passiveName: 'Overcharge',
     base: { hp: 600, atk: 350, def: 100, crit: 1.0 },
-    scaling: { hp: 90, atk: 100, def: 25, crit: 0.5 },
+    scaling: { hp: 100, atk: 150, def: 50, crit: 0.5 },
     flavor:
       'The Mage does not swing a sword. They do not need to. While others close the distance, the Mage is already three moves ahead, ' +
       'building energy that no armor can absorb. When the charge is ready, there is no blocking what comes next.',
@@ -72,7 +72,7 @@ const CLASSES = {
     emoji: '🛡️',
     passiveName: 'Damage Reduction',
     base: { hp: 1000, atk: 200, def: 300, crit: 5.0 },
-    scaling: { hp: 150, atk: 50, def: 50, crit: 0.0 },
+    scaling: { hp: 200, atk: 50, def: 100, crit: 0.0 },
     flavor:
       'The Knight does not fall easily. Where others break under pressure, the Knight absorbs it, holds the line, and keeps fighting. ' +
       'Every blow the enemy lands is one they will regret. Endurance is not passive — it is a weapon.',
@@ -83,7 +83,7 @@ const CLASSES = {
     emoji: '🏹',
     passiveName: 'Armor Pierce & Double Attack',
     base: { hp: 600, atk: 300, def: 150, crit: 5.0 },
-    scaling: { hp: 105, atk: 85, def: 25, crit: 0.7 },
+    scaling: { hp: 125, atk: 125, def: 50, crit: 0.7 },
     flavor:
       'Swift, precise, and deadly from a distance. The Archer does not wait for the enemy to come — they are already gone before the enemy arrives. ' +
       'Every arrow finds its mark, and no armor is thick enough to stop what cannot be seen coming.',

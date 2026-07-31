@@ -1,6 +1,6 @@
 -- Final passive-description synchronization for the balance patch.
 -- PostgreSQL only. The transaction aborts unless every expected roster row
--- matches exactly one name/key pair and all 51 descriptions verify exactly.
+-- matches exactly one name/key pair and all 52 descriptions verify exactly.
 -- The requested weapon name "Laevateinn" is stored as "Laevateinn Staff".
 
 BEGIN;
@@ -34,7 +34,7 @@ VALUES
     ('deity', 'Freya', 'freya_valkyries_embrace', 'ATK +30% for the whole battle. Once per battle, at 40% HP or below, restore 20% max HP.'),
     ('deity', 'Loki', 'loki_illusory_double', '25% chance each turn to evade an attack and counter for 100% ATK.'),
     ('deity', 'Skadi', 'skadi_winters_hunt', 'Each attack has a 30% chance to Freeze the enemy, causing it to skip its next turn. After Freeze ends, the enemy suffers Frostbite, taking 50% more damage for 1 turn.'),
-    ('deity', 'Surt', 'surt_muspells_flame', 'Each attack adds Burn equal to 5% of the user''s base ATK per turn for 2 turns, stacking up to 30%. Attacks deal 50% more damage to enemies that are already burning.'),
+    ('deity', 'Surt', 'surt_muspells_flame', 'Each attack adds Burn equal to 3% of the user''s base ATK per turn for 2 turns, stacking up to 15%. Attacks deal 50% more damage to enemies that are already burning.'),
     ('deity', 'Thor', 'thor_mjolnirs_wrath', 'Each attack has a 30% chance to Stun the enemy and Paralyze it for 3 turns. While Paralyzed, the enemy takes damage equal to 20% of the user''s base ATK each turn and has a 10% chance to skip its turn.'),
     ('deity', 'Tyr', 'tyr_oathkeeper', 'DEF +30% for the whole battle; while below 50% HP, reflects 20% of incoming damage.'),
     ('deity', 'Baldur', 'baldur_invulnerability', 'Once per battle, the first time the user is debuffed or drops below 50% HP, remove all debuffs, restore 15% max HP, and reduce damage taken by 50% for 1 turn.'),
@@ -68,15 +68,16 @@ VALUES
     ('weapon', 'Thunderbolt of Zeus', 'thunderbolt_of_zeus', 'Each critical attack deals +100% bonus ATK and applies Paralyze for 1 turn.'),
     ('weapon', 'Katana', 'katana', 'Each attack deals 30% additional damage (×1.30 on a normal hit; ×2.30 on a critical hit).'),
     ('weapon', 'Kiri', 'kiri', 'Each attack increases damage by 20%, stacking up to +120%. Each attack has a 25% chance to strike twice.'),
+    ('weapon', 'Juru Pakal', 'juru_pakal', 'Increases outgoing damage by 10% and deals 50% more damage to targets affected by Bleed, Hemorrhage, Rupture, or Venom.'),
     ('mob', 'Lamia', 'lamia_serpent_bite', 'Each attack has a 30% chance to add Bleed equal to 15% of Lamia''s ATK per turn for 2 turns.'),
     ('mob', 'Chimera', 'chimera_tri_form_assault', 'Each phase cycles through Lion Claw, which deals 140% ATK; Goat Ram, which reduces the player''s DEF by 20% for 1 turn; and Serpent Bite, which adds Burn equal to 20% of Chimera''s ATK per turn for 2 turns.'),
     ('mob', 'Amalanhig', 'amalanhig_infectious_bite', 'Each attack has a 30% chance to inflict Rot equal to 5% of the player''s max HP per turn for 2 turns.'),
     ('mob', 'Dark Elf', 'dark_elves_curse_of_decay', 'Each attack has a 25% chance to reduce the player''s DEF by 10% for 1 turn.');
 
     IF (SELECT COUNT(*) FROM _final_passive_updates WHERE roster_type = 'deity') <> 38
-       OR (SELECT COUNT(*) FROM _final_passive_updates WHERE roster_type = 'weapon') <> 9
+       OR (SELECT COUNT(*) FROM _final_passive_updates WHERE roster_type = 'weapon') <> 10
        OR (SELECT COUNT(*) FROM _final_passive_updates WHERE roster_type = 'mob') <> 4 THEN
-        RAISE EXCEPTION 'Expected 38 deity, 9 weapon, and 4 mob passive updates';
+        RAISE EXCEPTION 'Expected 38 deity, 10 weapon, and 4 mob passive updates';
     END IF;
 
     FOR target IN

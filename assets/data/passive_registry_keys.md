@@ -57,7 +57,7 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `babaylans_ritual_staff` — Sacred Cleansing: Each turn has a 50% chance to remove all status and damage-over-time debuffs. If at least one debuff is removed, grants +100% ATK for 1 turn.
 - `badiang_stalk` — Venom Burst: 30% chance on attack to Rupture for 10% of the target's max HP, then apply Venom for 10% ATK per turn for 2 turns. Bosses block Rupture but not Venom.
 - `shield_of_the_valkyrie` — Valkyrie's Resolve: Each hit taken grants 5% damage reduction and +5% ATK, stacking up to 25% each for the battle.
-- `skjaldmaer` — Shieldmaiden's Guard: Reflects 20% of damage taken. Each hit also has a 10% chance to be fully negated and reflect 75% of its would-be damage instead — the two reflects never double-dip.
+- `skjaldmaer` — Shieldmaiden's Guard: Reflects 20% of damage taken. Each hit also has a 10% chance to be fully negated and reflect 60% of its would-be damage instead — the two reflects never double-dip.
 - `luzon_tribal_shield` — Tribal Ward: Gains +45% DEF while debuffed and heals 8% max HP whenever a debuff expires or is cleansed.
 - `gusisnautar` — Hemorrhaging Shot: 50% chance on attack to deal 5% of the target's max HP and reduce its DEF by 15% for 1 turn. Bosses block both effects.
 - `freyrs_arrow` — Auto-Fire: 30% chance on attack to fire one additional shot for 100% ATK damage.
@@ -115,7 +115,7 @@ new and defensive:
 - `loki_illusory_double` — Illusory Double: 25% chance each turn to evade an attack and counter for 100% ATK.
 - `tyr_oathkeeper` — Oathkeeper: DEF +30% for the whole battle; while below 50% HP, reflects 20% of incoming damage.
 - `skadi_winters_hunt` — Winter's Hunt: Each attack has a 30% chance to Freeze the enemy, causing it to skip its next turn. After Freeze ends, the enemy suffers Frostbite, taking 50% more damage for 1 turn.
-- `surt_muspells_flame` — Muspell's Flame: Each attack adds Burn equal to 5% of the user's base ATK per turn for 2 turns, stacking up to 30%. Attacks deal 50% more damage to enemies that are already burning.
+- `surt_muspells_flame` — Muspell's Flame: Each attack adds Burn equal to 3% of the user's base ATK per turn for 2 turns, stacking up to 15%. Attacks deal 50% more damage to enemies that are already burning.
 - `heimdall_eternal_vigilance` — Eternal Vigilance: The first hit taken each battle is reduced by 50%. For the rest of the battle, damage from incoming critical hits is reduced by 30%.
 - `baldur_invulnerability` — Invulnerability: Once per battle, the first time the user is debuffed or drops below 50% HP, remove all debuffs, restore 15% max HP, and reduce damage taken by 50% for 1 turn.
 - `hel_half_dead` — Half-Dead: While below 50% HP, ATK +30% and DEF +30%.
@@ -157,7 +157,7 @@ new and defensive:
 - `echo_njord` — Echo · Njord: 10% chance each turn to reduce incoming damage by 20%.
 - `echo_freya` — Echo · Freya: While HP is below 40%, DEF +20%.
 - `echo_tyr` — Echo · Tyr: DEF +10% for the whole battle.
-- `echo_surt` — Echo · Surt: Inherits Muspell's Flame exactly: every landed hit adds 5% base ATK Burn for 2 turns, stacking up to 30%.
+- `echo_surt` — Echo · Surt: Inherits Muspell's Flame exactly: every landed hit adds 3% base ATK Burn for 2 turns, stacking up to 15%.
 - `echo_hel` — Echo · Hel: While HP is below 50%, ATK +8% and DEF +8%.
 - `echo_mimir` — Echo · Mimir: Every 5 turns, gains +30% ATK for that turn.
 - `echo_idiyanale` — Echo · Idiyanale: Every 6 turns, the next attack deals double damage.

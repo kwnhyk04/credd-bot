@@ -37,7 +37,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { GlobalFonts } = require('@napi-rs/canvas');
+const { GlobalFonts, createCanvas } = require('@napi-rs/canvas');
 const { envBool, envPositiveInt } = require('./runtimeLogs');
 
 const ROOT = path.join(__dirname, '..', '..');
@@ -303,6 +303,51 @@ function missingGlyphs(text) {
   return out;
 }
 
+const fallbackGlyphCache = new Map();
+let missingGlyphSignature = null;
+
+function renderedGlyphSignature(text) {
+  const canvas = createCanvas(64, 64);
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, 64, 64);
+  ctx.fillStyle = '#fff';
+  ctx.font = fontSpec(32);
+  ctx.fillText(text, 4, 42);
+  const pixels = ctx.getImageData(0, 0, 64, 64).data;
+  let ink = 0;
+  let hash = 2166136261;
+  for (let i = 3; i < pixels.length; i += 4) {
+    const alpha = pixels[i];
+    ink += alpha;
+    hash ^= alpha;
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${Math.round(ctx.measureText(text).width * 1000)}:${ink}:${hash >>> 0}`;
+}
+
+/**
+ * Codepoints that the complete configured stack still renders as the same missing-glyph
+ * placeholder as an unassigned Unicode sentinel. Results are cached by codepoint.
+ */
+function unsupportedGlyphs(text) {
+  if (!text) return [];
+  if (missingGlyphSignature == null) {
+    missingGlyphSignature = renderedGlyphSignature(String.fromCodePoint(0x10FFFF));
+  }
+  const out = [];
+  const seen = new Set();
+  for (const ch of String(text)) {
+    const cp = ch.codePointAt(0);
+    if (cp < 0x21 || seen.has(cp)) continue;
+    seen.add(cp);
+    if (!fallbackGlyphCache.has(cp)) {
+      fallbackGlyphCache.set(cp, renderedGlyphSignature(ch) === missingGlyphSignature);
+    }
+    if (fallbackGlyphCache.get(cp)) out.push(ch);
+  }
+  return out;
+}
+
 const glyphWarnThrottleMs = () =>
   envPositiveInt('FONT_GLYPH_WARN_THROTTLE_MS', 60_000, { max: 3_600_000 });
 const lastGlyphWarn = new Map(); // renderer -> timestamp
@@ -318,6 +363,7 @@ const lastGlyphWarn = new Map(); // renderer -> timestamp
 function reportGlyphCoverage(renderer, text, { family = null } = {}) {
   const missing = missingGlyphs(text);
   if (missing.length === 0) return missing;
+  const unsupported = unsupportedGlyphs(missing.join(''));
   const now = Date.now();
   if (now - (lastGlyphWarn.get(renderer) || 0) < glyphWarnThrottleMs()) return missing;
   lastGlyphWarn.set(renderer, now);
@@ -326,7 +372,10 @@ function reportGlyphCoverage(renderer, text, { family = null } = {}) {
   const codepoints = missing
     .map((ch) => `U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`)
     .join(',');
-  const emit = state.fallbackFamilies.length ? console.warn : console.error;
+  const unsupportedCodepoints = unsupported
+    .map((ch) => `U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`)
+    .join(',');
+  const emit = unsupported.length > 0 ? console.error : console.warn;
   emit(
     `[fontRegistry] glyphs outside "${PRIMARY_FAMILY}" · renderer=${renderer}`
     + ` · text=${JSON.stringify(String(text).slice(0, 64))}`
@@ -339,6 +388,12 @@ function reportGlyphCoverage(renderer, text, { family = null } = {}) {
     + ` · assetPath=${FONT_DIR}`
     + (state.fallbackFamilies.length ? '' : ' · NO FALLBACK — these will render as boxes')
   );
+  if (unsupported.length > 0) {
+    console.error(
+      `[fontRegistry] configured stack has no glyph coverage`
+      + ` · renderer=${renderer} · codepoints=${unsupportedCodepoints}`
+    );
+  }
   return missing;
 }
 
@@ -364,6 +419,7 @@ module.exports = {
   familyList,
   fontSpec,
   missingGlyphs,
+  unsupportedGlyphs,
   reportGlyphCoverage,
   fontRegistryState,
 };

@@ -45,8 +45,8 @@ const CANONICAL_ON_HIT_EFFECTS = Object.freeze({
   surt: Object.freeze({
     flag: 'surt_on_hit',
     tag: 'burn',
-    atkPctPerHit: 0.05,
-    maxAtkPct: 0.30,
+    atkPctPerHit: 0.03,
+    maxAtkPct: 0.15,
     turns: 2,
   }),
 });

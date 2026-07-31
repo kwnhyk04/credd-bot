@@ -96,10 +96,10 @@ function roundRect(ctx, x, y, w, h, r) {
 
 function fitText(ctx, text, maxWidth, basePx, weight = 'bold') {
   let px = basePx;
-  ctx.font = `${weight} ${px}px "${FONT_FAMILY}"`;
+  ctx.font = `${weight} ${px}px ${FONT_FAMILY}`;
   while (ctx.measureText(text).width > maxWidth && px > 9) {
     px -= 1;
-    ctx.font = `${weight} ${px}px "${FONT_FAMILY}"`;
+    ctx.font = `${weight} ${px}px ${FONT_FAMILY}`;
   }
   return px;
 }
@@ -155,7 +155,7 @@ async function drawCard(ctx, item, x, y) {
   let cy = y + 10;
 
   // unique weapon id — small, top-left corner
-  ctx.font = `10px "${FONT_FAMILY}"`;
+  ctx.font = `10px ${FONT_FAMILY}`;
   ctx.fillStyle = 'rgba(255,255,255,0.45)';
   ctx.textAlign = 'left';
   ctx.fillText(`#${item.id}`, x + 9, cy + 8);
@@ -181,7 +181,7 @@ async function drawCard(ctx, item, x, y) {
     }
   }
   if (!drawn) {
-    ctx.font = `34px "${FONT_FAMILY}"`;
+    ctx.font = `34px ${FONT_FAMILY}`;
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(255,255,255,0.25)';
     ctx.fillText('?', x + CARD_W / 2, cy + SPRITE / 2 + 12);
@@ -199,7 +199,7 @@ async function drawCard(ctx, item, x, y) {
   cy += 18;
 
   // tier
-  ctx.font = `bold 11px "${FONT_FAMILY}"`;
+  ctx.font = `bold 11px ${FONT_FAMILY}`;
   ctx.fillStyle = t.color;
   ctx.fillText(`${t.icon} ${capitalizeLower(item.tier)}`, cx, cy);
   cy += 18;
@@ -224,7 +224,7 @@ async function drawCard(ctx, item, x, y) {
   // [v5 #7] socket count — its own centered line under the stats.
   if (item.sockets != null) {
     cy += 16;
-    ctx.font = `bold 11px "${FONT_FAMILY}"`;
+    ctx.font = `bold 11px ${FONT_FAMILY}`;
     ctx.fillStyle = '#c9b8e8';
     ctx.textAlign = 'center';
     ctx.fillText(`◇ ${item.sockets} Rune slot${item.sockets === 1 ? '' : 's'}`, cx, cy);

@@ -166,11 +166,11 @@ async function renderSummonGrid(results) {
     ctx.shadowOffsetY = 2;
 
     const nameY = dy + cardH * TEXT_Y;
-    ctx.font = `bold ${Math.round(cardW * NAME_FONT_SCALE)}px "${FONT_FAMILY}"`;
+    ctx.font = `bold ${Math.round(cardW * NAME_FONT_SCALE)}px ${FONT_FAMILY}`;
     ctx.fillStyle = NAME_COLORS[god.rarity] ?? '#FFFFFF';
     ctx.fillText(god.name, dx + cardW / 2, nameY, cardW * 0.82);
 
-    ctx.font = `${Math.round(cardW * RARITY_FONT_SCALE)}px "${FONT_FAMILY}"`;
+    ctx.font = `${Math.round(cardW * RARITY_FONT_SCALE)}px ${FONT_FAMILY}`;
     ctx.fillStyle = '#B9BDCB';
     ctx.fillText(god.rarity, dx + cardW / 2, nameY + cardW * 0.105, cardW * 0.82);
 
@@ -184,7 +184,7 @@ async function renderSummonGrid(results) {
     const badgeColor = god.isNew ? '#F0B232' : '#B9BDCB';
     const badgeCY = dy + cardH * 0.82;
     const iconSize = Math.round(cardW * 0.05); // ~0.05·cardW
-    ctx.font = `bold ${Math.round(cardW * 0.06)}px "${FONT_FAMILY}"`;
+    ctx.font = `bold ${Math.round(cardW * 0.06)}px ${FONT_FAMILY}`;
     const textW = Math.min(ctx.measureText(badgeText).width, cardW * 0.62);
     const gap = Math.round(cardW * 0.02);
 
@@ -456,10 +456,10 @@ async function renderDeityCard({ name, rarity, portraitPath }) {
     ctx.shadowBlur = 6;
     ctx.shadowOffsetY = 2;
     const nameY = cardH * TEXT_Y;
-    ctx.font = `bold ${Math.round(cardW * NAME_FONT_SCALE)}px "${FONT_FAMILY}"`;
+    ctx.font = `bold ${Math.round(cardW * NAME_FONT_SCALE)}px ${FONT_FAMILY}`;
     ctx.fillStyle = NAME_COLORS[rarity] ?? '#FFFFFF';
     ctx.fillText(name, cardW / 2, nameY, cardW * 0.82);
-    ctx.font = `${Math.round(cardW * RARITY_FONT_SCALE)}px "${FONT_FAMILY}"`;
+    ctx.font = `${Math.round(cardW * RARITY_FONT_SCALE)}px ${FONT_FAMILY}`;
     ctx.fillStyle = '#B9BDCB';
     ctx.fillText(rarity, cardW / 2, nameY + cardW * 0.105, cardW * 0.82);
     ctx.shadowBlur = 0;

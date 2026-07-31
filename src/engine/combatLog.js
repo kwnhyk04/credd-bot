@@ -12,16 +12,16 @@
  * message, which read as effects being applied to a corpse.
  *
  * THE MODEL
- * Every event carries a PRIORITY drawn from its SOURCE CATEGORY, never from the
- * passive's name. The engine sets an ambient channel while it runs each phase
- * (weapon registry, blessing registry, defender stack, DOT tick, …) and every
- * `log.push(...)` inside that phase inherits it — so a passive added tomorrow lands
- * in the right slot with no logger change and no per-passive branch.
+ * Every event carries a PRIORITY. The engine sets an ambient source channel while it
+ * runs each phase (weapon registry, blessing registry, defender stack, DOT tick, etc.),
+ * and every `log.push(...)` inside that phase inherits it. Hooks that apply statuses
+ * explicitly select STATUS priority, keeping event type separate from source category.
  *
  * Attack-bound hooks (`bs.onAttack` / `bs.onLandedHit` / the enemy variants) are
  * registered during the passive phase but fire during the action. They capture the
- * channel that was ambient AT REGISTRATION, so a weapon's queued proc still logs as a
- * weapon effect even though it resolves inside the attack.
+ * channel that was ambient at registration unless the hook supplies an explicit event
+ * priority, so one proc can log its damage modifier under WEAPON and its debuff under
+ * STATUS without hard-coding the passive's name into the logger.
  *
  * ORDERING
  * A round's events are grouped into BLOCKS, each starting at an ATTACK-priority

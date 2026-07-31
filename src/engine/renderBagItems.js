@@ -56,9 +56,9 @@ const NAME_COLOR = '#FFFFFF';
 const CMD_COLOR = '#8E919A';
 
 // Typography (bundled DejaVu Sans)
-const NAME_FONT = `bold 15px "${FONT_FAMILY}"`;
-const COUNT_FONT = `15px "${FONT_FAMILY}"`;
-const CMD_FONT = `11px "${FONT_FAMILY}"`;
+const NAME_FONT = `bold 15px ${FONT_FAMILY}`;
+const COUNT_FONT = `15px ${FONT_FAMILY}`;
+const CMD_FONT = `11px ${FONT_FAMILY}`;
 
 // emojiName → loaded Image (successes only, so transient failures retry later)
 const ICON_CACHE_MAX_ENTRIES = envPositiveInt('EMOJI_IMAGE_CACHE_MAX', 256, { max: 2000 });
@@ -345,7 +345,7 @@ async function renderBagItemsImage(items) {
     if (icon) {
       ctx.drawImage(icon, leftX, midY - ICON / 2, ICON, ICON);
     } else if (item.glyph) {
-      ctx.font = `${ICON - 4}px "${FONT_FAMILY}"`;
+      ctx.font = `${ICON - 4}px ${FONT_FAMILY}`;
       ctx.fillStyle = NAME_COLOR;
       ctx.fillText(item.glyph, leftX, midY);
     }
@@ -368,7 +368,7 @@ async function renderBagItemsImage(items) {
     // font) → `right` string (auto-shrunk) → numeric count.
     ctx.fillStyle = NAME_COLOR;
     if (Array.isArray(item.rightSegments)) {
-      const SEG_FONT = `15px "${FONT_FAMILY}"`;
+      const SEG_FONT = `15px ${FONT_FAMILY}`;
       const SEG_ICON = 20;
       ctx.font = SEG_FONT;
       ctx.textAlign = 'left';
@@ -399,9 +399,9 @@ async function renderBagItemsImage(items) {
       ctx.textAlign = 'right';
       const avail = (W - PAD - 14) - (cmdEnd + 14);
       let px = 15;
-      ctx.font = `${px}px "${FONT_FAMILY}"`;
+      ctx.font = `${px}px ${FONT_FAMILY}`;
       while (px > 9 && ctx.measureText(String(item.right)).width > avail) {
-        px -= 1; ctx.font = `${px}px "${FONT_FAMILY}"`;
+        px -= 1; ctx.font = `${px}px ${FONT_FAMILY}`;
       }
       ctx.fillText(String(item.right), W - PAD - 14, midY);
     } else {

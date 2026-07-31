@@ -521,22 +521,20 @@ function resolveBattle(a, b, opts = {}) {
     get allowAdditionalAttackProcs() {
       return self.scratch?.attackContext?.allowAdditionalAttackProcs !== false;
     },
-    // Attack-bound hooks are REGISTERED in the passive phase but FIRE inside the
-    // action. shared.events.bind captures the channel that is ambient right now, so a
-    // weapon's queued proc still logs as a weapon effect (and a blessing's as a
-    // blessing) even though both resolve mid-attack. This is what keeps the ordering
-    // category-driven instead of name-driven.
-    onAttack: (fn) => {
-      if (typeof fn === 'function') self.scratch.attackHooks.push(shared.events.bind(shared.events.channel, fn));
+    // Attack-bound hooks are registered in the passive phase but fire inside the
+    // action. By default they keep their source category; status-producing hooks can
+    // explicitly use STATUS so their application logs follow all damage modifiers.
+    onAttack: (fn, priority = shared.events.channel) => {
+      if (typeof fn === 'function') self.scratch.attackHooks.push(shared.events.bind(priority, fn));
     },
-    onLandedHit: (fn) => {
-      if (typeof fn === 'function') self.scratch.landedHitHooks.push(shared.events.bind(shared.events.channel, fn));
+    onLandedHit: (fn, priority = shared.events.channel) => {
+      if (typeof fn === 'function') self.scratch.landedHitHooks.push(shared.events.bind(priority, fn));
     },
-    onEnemyAttack: (fn) => {
-      if (typeof fn === 'function') self.scratch.enemyAttackHooks.push(shared.events.bind(shared.events.channel, fn));
+    onEnemyAttack: (fn, priority = shared.events.channel) => {
+      if (typeof fn === 'function') self.scratch.enemyAttackHooks.push(shared.events.bind(priority, fn));
     },
-    onEnemyLandedHit: (fn) => {
-      if (typeof fn === 'function') self.scratch.enemyLandedHitHooks.push(shared.events.bind(shared.events.channel, fn));
+    onEnemyLandedHit: (fn, priority = shared.events.channel) => {
+      if (typeof fn === 'function') self.scratch.enemyLandedHitHooks.push(shared.events.bind(priority, fn));
     },
     enemyImmune: (tag) => {
       const immune = debuffImmune(opp, tag);
@@ -814,11 +812,11 @@ function resolveBattle(a, b, opts = {}) {
       return { applied: 0, negated: true };
     }
 
-    // Shieldmaiden's Guard: 10% chance to fully negate a hit and reflect 75% of it.
+    // Shieldmaiden's Guard: 10% chance to fully negate a hit and reflect 60% of it.
     // Returning here is what prevents the double-dip — the flat 20% reflect entry in
     // reflectSources below is never reached on a negated hit.
     //
-    // 75% of WHAT: `wouldBeDamage` is post-DEF-mitigation and post Frostbite/Petrify
+    // 60% of WHAT: `wouldBeDamage` is post-DEF-mitigation and post Frostbite/Petrify
     // amplification, but before the defender's percentage reduction lane. That lane
     // never runs on a negated hit, so no post-reduction figure exists to use instead —
     // this is the only well-defined basis, and it is the same one the passive already
@@ -826,7 +824,7 @@ function resolveBattle(a, b, opts = {}) {
     const wouldBeDamage = effectDamage(O, dmg);
     if (F.skjaldmaer_active && rng() < 0.10) {
       shared.events.push("🛡️ Shieldmaiden's Guard — incoming hit negated!");
-      applyReflectedDamage(O, S, wouldBeDamage, 0.75, "Shieldmaiden's Guard");
+      applyReflectedDamage(O, S, wouldBeDamage, 0.60, "Shieldmaiden's Guard");
       return { applied: 0, negated: true };
     }
 
@@ -1310,7 +1308,8 @@ function resolveBattle(a, b, opts = {}) {
       }
       if (!res.negated && thunderboltTriggered) {
         const paralyzed = !result && tryApplyDebuff(O, 'paralyze', 1, 0, S);
-        logAt(LOG.WEAPON, `⚡ Thunderbolt of Zeus: Divine Thunder — +100% ATK${paralyzed ? ' + Paralyze' : ''}!`);
+        logAt(LOG.WEAPON, '⚡ Thunderbolt of Zeus: Divine Thunder — +100% ATK!');
+        if (paralyzed) logAt(LOG.STATUS, `⚡ ${O.name} is Paralyzed!`);
       }
       // Lifesteal is based on damage dealt, including a lethal blow. This must run
       // before the result return so Japanese Bo does not lose its finishing-hit heal.
@@ -1365,10 +1364,10 @@ function resolveBattle(a, b, opts = {}) {
                 'Soul Drain',
               );
             }
+            if (result || O.hp <= 0) return;
             O.flags.dizzy_pending = true;
             logAt(LOG.CLASS,
               `💫 ${O.name} becomes Dizzy and is stunned for ${fighterStunTurns} turn!`);
-            if (result) return;
           }
         }
       }
@@ -1753,7 +1752,7 @@ function resolveBattle(a, b, opts = {}) {
         if (!P.enemyImmune('poison')) {
           P.applyDebuff('poison', 2, P.playerATK * poisonPct);
         }
-      });
+      }, LOG.STATUS);
     }
     checkDeaths('passive');
   };
@@ -1873,7 +1872,7 @@ function resolveBattle(a, b, opts = {}) {
         if (d.turnsLeft <= 0) expired += 1;
       }
       side.debuffs = side.debuffs.filter((d) => !DOT_TAGS.includes(d.tag) || d.turnsLeft > 0);
-      healTribalWard(side, expired, 'expired');
+      if (!result && side.hp > 0) healTribalWard(side, expired, 'expired');
     };
 
     // 1. round start: scratch + latches

@@ -70,7 +70,7 @@ function fitFont(ctx, text, startPx, maxW, bold = false) {
   return px;
 }
 
-const F = (px, bold = false) => `${bold ? 'bold ' : ''}${px}px "${FONT_FAMILY}"`;
+const F = (px, bold = false) => `${bold ? 'bold ' : ''}${px}px ${FONT_FAMILY}`;
 
 function roundRectPath(ctx, x, y, w, h, r) {
   ctx.beginPath();

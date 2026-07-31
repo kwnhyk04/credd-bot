@@ -30,6 +30,7 @@ const { resolveName } = require('../utils/emojis');
 const { assetPath, loadAssetImage: loadAssetImageSource } = require('../utils/assets');
 const { SUPPORTER_BADGE_HEIGHT } = require('../config/cosmetics');
 const { badgeRect } = require('./identityLayout');
+const { reportGlyphCoverage } = require('../utils/fontRegistry');
 
 /* ── Background template ([v4.6]) ───────────────────────────────────────────
  * The profile card is drawn on top of a template image. TEMPLATE_FILE is a single
@@ -74,7 +75,7 @@ const STAT = {
 const REC_COLOR = '#43d675';
 
 /* ── Typography ─────────────────────────────────────────────────────────── */
-const F = (px, bold = false) => `${bold ? 'bold ' : ''}${px}px "${FONT_FAMILY}"`;
+const F = (px, bold = false) => `${bold ? 'bold ' : ''}${px}px ${FONT_FAMILY}`;
 
 /* ── Myth quotes — deterministic per discord_id (stable per user) ───────── */
 const QUOTES = [
@@ -145,6 +146,17 @@ async function loadAvatar(avatarUrl, fallbackUrl) {
  * @returns {Promise<Buffer>} PNG
  */
 async function renderProfileImage(d) {
+  reportGlyphCoverage('renderProfile', [
+    d.displayName,
+    d.equippedTitle,
+    d.believerTitle,
+    d.className,
+    d.weaponName,
+    d.armorName,
+    d.deityName,
+    d.blessingName,
+  ].filter(Boolean).join(' '));
+
   // Supporter/tester/founder skins with colocated layout configs use the exact same
   // data-driven renderer as the design previews. Skins without a config retain the
   // original profile layout below.
@@ -195,7 +207,7 @@ async function renderProfileImage(d) {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       const fs = Math.round(template.height * 0.032);
-      ctx.font = `bold ${fs}px "${FONT_FAMILY}"`;
+      ctx.font = `bold ${fs}px ${FONT_FAMILY}`;
       ctx.fillStyle = '#F5E6C8';
       ctx.shadowColor = 'rgba(0,0,0,0.85)';
       ctx.shadowBlur = 6;

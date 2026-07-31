@@ -20,7 +20,7 @@ const DEITY_UPDATES = Object.freeze([
   { name: 'Freya', key: 'freya_valkyries_embrace', description: 'ATK +30% for the whole battle. Once per battle, at 40% HP or below, restore 20% max HP.' },
   { name: 'Loki', key: 'loki_illusory_double', description: '25% chance each turn to evade an attack and counter for 100% ATK.' },
   { name: 'Skadi', key: 'skadi_winters_hunt', description: "Each attack has a 30% chance to Freeze the enemy, causing it to skip its next turn. After Freeze ends, the enemy suffers Frostbite, taking 50% more damage for 1 turn." },
-  { name: 'Surt', key: 'surt_muspells_flame', description: "Each attack adds Burn equal to 5% of the user's base ATK per turn for 2 turns, stacking up to 30%. Attacks deal 50% more damage to enemies that are already burning." },
+  { name: 'Surt', key: 'surt_muspells_flame', description: "Each attack adds Burn equal to 3% of the user's base ATK per turn for 2 turns, stacking up to 15%. Attacks deal 50% more damage to enemies that are already burning." },
   { name: 'Thor', key: 'thor_mjolnirs_wrath', description: "Each attack has a 30% chance to Stun the enemy and Paralyze it for 3 turns. While Paralyzed, the enemy takes damage equal to 20% of the user's base ATK each turn and has a 10% chance to skip its turn." },
   { name: 'Tyr', key: 'tyr_oathkeeper', description: 'DEF +30% for the whole battle; while below 50% HP, reflects 20% of incoming damage.' },
   { name: 'Baldur', key: 'baldur_invulnerability', description: 'Once per battle, the first time the user is debuffed or drops below 50% HP, remove all debuffs, restore 15% max HP, and reduce damage taken by 50% for 1 turn.' },
@@ -63,6 +63,7 @@ const WEAPON_UPDATES = Object.freeze([
   { name: 'Thunderbolt of Zeus', key: 'thunderbolt_of_zeus', description: 'Each critical attack deals +100% bonus ATK and applies Paralyze for 1 turn.' },
   { name: 'Katana', key: 'katana', description: 'Each attack deals 30% additional damage (×1.30 on a normal hit; ×2.30 on a critical hit).' },
   { name: 'Kiri', key: 'kiri', description: 'Each attack increases damage by 20%, stacking up to +120%. Each attack has a 25% chance to strike twice.' },
+  { name: 'Juru Pakal', key: 'juru_pakal', description: 'Increases outgoing damage by 10% and deals 50% more damage to targets affected by Bleed, Hemorrhage, Rupture, or Venom.' },
 ]);
 
 const MOB_UPDATES = Object.freeze([
@@ -103,9 +104,9 @@ const GROUPS = [
 ];
 
 function validateDefinitions() {
-  if (DEITY_UPDATES.length !== 38 || WEAPON_UPDATES.length !== 9 || MOB_UPDATES.length !== 4) {
+  if (DEITY_UPDATES.length !== 38 || WEAPON_UPDATES.length !== 10 || MOB_UPDATES.length !== 4) {
     throw new Error(
-      `Expected 38 deity + 9 weapon + 4 mob definitions; found ` +
+      `Expected 38 deity + 10 weapon + 4 mob definitions; found ` +
       `${DEITY_UPDATES.length} + ${WEAPON_UPDATES.length} + ${MOB_UPDATES.length}.`
     );
   }
@@ -184,7 +185,7 @@ async function run({ apply = process.argv.includes('--apply') } = {}) {
       await client.query('COMMIT');
       inTransaction = false;
       for (const group of GROUPS) await verifyGroup(client, group);
-      console.log('[commit] Applied all 51 passive descriptions in one transaction.');
+      console.log('[commit] Applied all 52 passive descriptions in one transaction.');
     } else {
       await client.query('ROLLBACK');
       inTransaction = false;

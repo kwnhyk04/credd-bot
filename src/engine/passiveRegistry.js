@@ -35,6 +35,7 @@
  */
 
 const { CANONICAL_ON_HIT_EFFECTS } = require('./combatEffects');
+const { LOG_PRIORITY: LOG } = require('./combatLog');
 
 // ───────────────────────────────────────────────────────────────────────────
 // Archetype factories
@@ -124,7 +125,7 @@ const chanceLandedHitDebuff = (chance, tag, turns, valueFn, label) => (bs) => {
     if (proc && !bs.enemyImmune(tag)) {
       if (bs.applyDebuff(tag, turns, valueFn ? valueFn(bs) : 0)) bs.log.push(label);
     }
-  });
+  }, LOG.STATUS);
 };
 
 /** Roll and apply only after a hit lands. */
@@ -134,7 +135,7 @@ const chancePerLandedHitDebuff = (chance, tag, turns, valueFn, label) => (bs) =>
         && bs.applyDebuff(tag, turns, valueFn ? valueFn(bs) : 0)) {
       bs.log.push(label);
     }
-  });
+  }, LOG.STATUS);
 };
 
 /** Apply an enemy DOT on every hit (refreshes; highest value wins in the engine). */
@@ -143,7 +144,7 @@ const onHitEnemyDot = (tag, pct, label) => (bs) => {
     if (!bs.enemyImmune(tag) && bs.applyDebuff(tag, 2, bs.playerATK * pct)) {
       bs.log.push(label);
     }
-  });
+  }, LOG.STATUS);
 };
 
 /** +pct damage while an engine-set state flag is true (stunned/bleeding).
@@ -263,7 +264,7 @@ const chanceEnemyLandedHitPlayerDebuff = (chance, specs, label) => (bs) => {
       ) || applied;
     }
     if (applied) bs.log.push(label);
-  });
+  }, LOG.STATUS);
 };
 
 /** Mob skill: every Nth round → apply player debuff(s). */
@@ -309,7 +310,7 @@ const everyNthEnemyNuke = (n, pctOrFn, labelFn, extraFn) => (bs) => {
         if (!triggered || landedEffectApplied) return;
         landedEffectApplied = true;
         extraFn(bs);
-      });
+      }, LOG.STATUS);
     }
   }
 };
@@ -635,7 +636,7 @@ const PASSIVE_REGISTRY = {
           bs.log.push(`🏹 Moira: Fate Ignores Iron — Enemy DEF reduced (total -${Math.round(nextStack * 100)}%)!`);
         }
       }
-    });
+    }, LOG.STATUS);
     bs.flags.moira_pierce_vs_def_buff = true;
     if (!bs.flags.attacks_cannot_miss) {
       bs.log.push('🏹 Moira: Fate Ignores Iron — Every arrow was always meant to land.');
@@ -710,7 +711,7 @@ const PASSIVE_REGISTRY = {
           && bs.applyDebuff('def_down', LANDED_STAT_DEBUFF_TURNS, 0.20)) {
         bs.log.push('🔻 Runebreaker — enemy DEF reduced by 20% for 1 turn.');
       }
-    });
+    }, LOG.STATUS);
   },
 
   'babaylans_ritual_staff': (bs) => {
@@ -744,7 +745,7 @@ const PASSIVE_REGISTRY = {
         bs.playerATK * 0.10,
         { allowOnBoss: true },
       );
-    });
+    }, LOG.STATUS);
   },
 
   // ── WEAPON PASSIVES — Legendary Norse shields ───────────────────────────
@@ -786,7 +787,7 @@ const PASSIVE_REGISTRY = {
       bs.applyDebuff('hemorrhage', LANDED_STAT_DEBUFF_TURNS);
       bs.flags.hemorrhage_shredded = !bs.enemyImmune('def_down')
         && bs.applyDebuff('def_down', LANDED_STAT_DEBUFF_TURNS, 0.15);
-    });
+    }, LOG.STATUS);
   },
 
   'freyrs_arrow': (bs) => {
@@ -976,7 +977,7 @@ const PASSIVE_REGISTRY = {
           && bs.applyDebuff('def_down', LANDED_STAT_DEBUFF_TURNS, 0.20);
         if (stunned) bs.log.push('🔱 Trident of Poseidon: Enemy Stunned!');
         if (shredded) bs.log.push('🔱 Trident of Poseidon: Enemy DEF -20%!');
-      });
+      }, LOG.STATUS);
     }
   },
 
@@ -1265,9 +1266,12 @@ const PASSIVE_REGISTRY = {
       if (proc) bs.playerAtkMult += 0.50;
     });
     bs.onLandedHit(() => {
+      if (proc) bs.log.push('⚡ Zeus: Chain Lightning — +50% damage!');
+    });
+    bs.onLandedHit(() => {
       if (!proc) return;
       if (bs.enemyImmune('def_down')) {
-        bs.log.push('⚡ Zeus: Chain Lightning — +50% damage! Enemy resisted DEF shred.');
+        bs.log.push('⚡ Zeus: Chain Lightning — Enemy resisted DEF shred.');
         return;
       }
       bs.flags.zeus_def_shred_stacks = Math.min(
@@ -1275,8 +1279,8 @@ const PASSIVE_REGISTRY = {
         (bs.flags.zeus_def_shred_stacks || 0) + 1,
       );
       const shred = bs.flags.zeus_def_shred_stacks * 5;
-      bs.log.push(`⚡ Zeus: Chain Lightning — +50% damage! Enemy DEF -${shred}%!`);
-    });
+      bs.log.push(`⚡ Zeus: Chain Lightning — Enemy DEF -${shred}%!`);
+    }, LOG.STATUS);
   },
 
   'ares_blood_frenzy': (bs) => {
