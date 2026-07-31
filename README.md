@@ -21,7 +21,7 @@ crd
 
 ## Deployment
 
-This discord bot is deployed via <u>[Railway](https://railway.com/)</u> and uses <u>[Supabase](https://supabase.com/)</u> for its database.
+This discord bot is deployed via <u>[Google Cloud Platform](https://cloud.google.com/)</u> and uses <u>[Supabase](https://supabase.com/)</u> for its database.
 
 ## License
 
