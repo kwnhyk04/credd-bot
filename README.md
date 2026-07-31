@@ -21,7 +21,10 @@ crd
 
 ## Deployment
 
-This discord bot is deployed via <u>[Google Cloud Platform](https://cloud.google.com/)</u> and uses <u>[Supabase](https://supabase.com/)</u> for its database.
+* **Runtime Environment:** Google Compute Engine (Linux VM)
+* **Containerization:** <u>[Docker](https://docker.com/)</u>
+* **Cloud Provider:** <u>[Google Cloud Platform](https://cloud.google.com/)</u> (GCP)
+* **Database:** <u>[Supabase](https://supabase.com/)</u> (PostgreSQL)
 
 ## License
 
