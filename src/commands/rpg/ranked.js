@@ -203,6 +203,26 @@ async function fight(message) {
        VALUES ($1, $2, $3, $4, $5)`,
       [me, opp.discord_id, won ? 'win' : 'loss', ratingBefore, newRating]
     );
+    if (won) {
+      await client.query(
+        `WITH ordered AS (
+           SELECT result,
+                  ROW_NUMBER() OVER (ORDER BY "timestamp" DESC, id DESC) AS rn
+             FROM ranked_logs
+            WHERE player_id = $1
+         ), current_run AS (
+           SELECT COUNT(*)::int AS length
+             FROM ordered
+            WHERE result = 'win'
+              AND rn < COALESCE((SELECT MIN(rn) FROM ordered WHERE result <> 'win'), 2147483647)
+         )
+         UPDATE user_character
+            SET highest_rank_streak = GREATEST(highest_rank_streak, current_run.length)
+           FROM current_run
+          WHERE discord_id = $1`,
+        [me]
+      );
+    }
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});

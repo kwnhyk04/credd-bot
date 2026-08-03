@@ -14,12 +14,14 @@ function generateWeaponId() {
   return id;
 }
 
-/** True if `id` is free in both user_weapons and user_armors (cross-table uniqueness). */
+/** True if `id` is free in all tables that share the short-id namespace. */
 async function gearIdFree(client, id) {
   const { rows } = await client.query(
     `SELECT 1 FROM user_weapons WHERE weapon_id = $1
      UNION ALL
      SELECT 1 FROM user_armors WHERE armor_id = $1
+     UNION ALL
+     SELECT 1 FROM tickets WHERE ticket_id = $1
      LIMIT 1`,
     [id]
   );
@@ -41,6 +43,7 @@ async function generateUniqueGearId(client) {
 // Back-compat aliases — both now enforce cross-table uniqueness.
 const generateUniqueWeaponId = generateUniqueGearId;
 const generateUniqueArmorId = generateUniqueGearId;
+const generateUniqueTicketId = generateUniqueGearId;
 
 /**
  * Generate an 8-char rune_uid unique within user_runes (own namespace per
@@ -62,5 +65,6 @@ module.exports = {
   generateUniqueGearId,
   generateUniqueWeaponId,
   generateUniqueArmorId,
+  generateUniqueTicketId,
   generateUniqueRuneUid,
 };

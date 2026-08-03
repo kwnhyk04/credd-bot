@@ -7,6 +7,8 @@ const pool = require('../../db/pool');
 const { assemblePlayerStats, accumulateRuneStats } = require('../../engine/statAssembly');
 const { computeResonanceMods } = require('../../config/blessings');
 const { computeDeityProgressionStats } = require('../../engine/deityEnhancement');
+const { getActiveLoadout } = require('../../engine/loadout');
+const { characterRecords } = require('../../engine/characterRecords');
 const { EXP_REQUIRED, MAX_COMBAT_LEVEL } = require('../../config/combatExp');
 const { BELIEVER_EXP_PER_LEVEL, believerTitle } = require('../../config/believerProgression');
 const { renderProfileImage } = require('../../engine/renderProfile');
@@ -30,7 +32,8 @@ const {
 // 5: shared supporter badge dimensions and identity-stack spacing.
 // 8: dedicated, centered tester2 profile layout.
 // 9: tester2 avatar optical x alignment.
-const PROFILE_RENDER_REV = 10;
+// 12: show global PvP rank instead of the current rating points.
+const PROFILE_RENDER_REV = 12;
 const PROFILE_IMAGE_OPTIONS = Object.freeze({
   maxWidth: Math.floor(envNumber('PROFILE_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 })),
 });
@@ -52,45 +55,7 @@ async function executeProfile(message, db = pool) {
     fallbackAvatarUrl,
   } = resolveProfileTarget(message);
   const [characterResult, raidStreakResult, rankedResult] = await Promise.all([
-    db.query(
-      `SELECT uc.class, uc.combat_level, uc.combat_exp,
-            uc.believer_level, uc.believer_exp,
-            uc.raids_won, uc.raids_lost, uc.pvp_wins, uc.pvp_losses,
-            wr.name  AS weapon_name,
-            uw.enhancement AS weapon_enh,
-            uw.curr_atk AS w_atk, uw.crit AS w_crit, uw.native_sockets AS w_native,
-            ar.name  AS armor_name, ar.type AS armor_type,
-            ua.enhancement AS armor_enh, ua.curr_hp AS a_hp, ua.curr_def AS a_def,
-            ua.native_sockets AS a_native,
-            dr.name AS deity_name, dr.blessing_name,
-            COALESCE(ud.sigils, 0) AS d1_unlocked_sigils,
-            COALESCE(ud.ascended, FALSE) AS d1_ascended, ud.enhancement AS d1_enhancement,
-            dr.base_atk AS d1_batk, dr.base_hp AS d1_bhp, dr.base_def AS d1_bdef,
-            dr.mythology AS d1_myth,
-            d2r.name AS deity2_name, COALESCE(ud2.sigils, 0) AS d2_unlocked_sigils,
-            COALESCE(ud2.ascended, FALSE) AS d2_ascended, ud2.enhancement AS d2_enhancement,
-            d2r.base_atk AS d2_batk, d2r.base_hp AS d2_bhp, d2r.base_def AS d2_bdef,
-            d2r.mythology AS d2_myth,
-            d3r.name AS deity3_name, COALESCE(ud3.sigils, 0) AS d3_unlocked_sigils,
-            COALESCE(ud3.ascended, FALSE) AS d3_ascended, ud3.enhancement AS d3_enhancement,
-            d3r.base_atk AS d3_batk, d3r.base_hp AS d3_bhp, d3r.base_def AS d3_bdef,
-            d3r.mythology AS d3_myth,
-            tcq.display AS equipped_title
-       FROM user_character uc
-       LEFT JOIN user_weapons  uw ON uc.equipped_weapon_id = uw.weapon_id
-       LEFT JOIN weapon_roster wr ON uw.weapon_roster_id   = wr.weapon_roster_id
-       LEFT JOIN user_armors   ua ON uc.equipped_armor_id  = ua.armor_id
-       LEFT JOIN armor_roster  ar ON ua.armor_roster_id    = ar.armor_roster_id
-       LEFT JOIN user_deities  ud ON uc.active_deity_id     = ud.user_deity_id
-       LEFT JOIN deity_roster  dr ON ud.deity_id            = dr.deity_id
-       LEFT JOIN user_deities  ud2 ON uc.active_deity_id_2  = ud2.user_deity_id
-       LEFT JOIN deity_roster  d2r ON ud2.deity_id          = d2r.deity_id
-       LEFT JOIN user_deities  ud3 ON uc.active_deity_id_3  = ud3.user_deity_id
-       LEFT JOIN deity_roster  d3r ON ud3.deity_id          = d3r.deity_id
-       LEFT JOIN title_catalog tcq ON tcq.title_id          = uc.equipped_title_id
-       WHERE uc.discord_id = $1`,
-      [discordId]
-    ),
+    getActiveLoadout(db, discordId),
     // Raid streak = CURRENT win streak (leading wins from the most recent raid).
     db.query(
       `WITH ordered AS (
@@ -104,7 +69,8 @@ async function executeProfile(message, db = pool) {
           AND rn < COALESCE((SELECT MIN(rn) FROM ordered WHERE result <> 'win'), 2147483647)`,
       [discordId]
     ),
-    // Rank record from ranked_logs (challenger-only rows; result win|loss). rank streak = CURRENT.
+    // Rank record from ranked_logs (challenger-only rows; result win|loss). rank streak = CURRENT;
+    // global_rank is the player's position across all current pvp_rating values.
     db.query(
       `WITH ordered AS (
          SELECT result, ROW_NUMBER() OVER (ORDER BY timestamp DESC, id DESC) AS rn
@@ -116,13 +82,18 @@ async function executeProfile(message, db = pool) {
          (SELECT COUNT(*)::int FROM ordered WHERE result = 'win')     AS wins,
          (SELECT COUNT(*)::int FROM ordered
             WHERE result = 'win'
-              AND rn < COALESCE((SELECT MIN(rn) FROM ordered WHERE result <> 'win'), 2147483647)) AS streak`,
+              AND rn < COALESCE((SELECT MIN(rn) FROM ordered WHERE result <> 'win'), 2147483647)) AS streak,
+         (SELECT 1 + COUNT(*)::int
+            FROM user_character higher
+           WHERE higher.pvp_rating > (
+             SELECT target.pvp_rating
+               FROM user_character target
+              WHERE target.discord_id = $1
+           )) AS global_rank`,
       [discordId]
     ),
   ]);
-  const { rows } = characterResult;
-
-  if (rows.length === 0) {
+  if (!characterResult) {
     // For self this is unreachable (middleware requiresCharacter); for a mentioned
     // user it's a real "they have no character" case.
     await message.reply({
@@ -134,7 +105,7 @@ async function executeProfile(message, db = pool) {
     return;
   }
 
-  const r = rows[0];
+  const r = characterResult;
 
   // Assemble totals through the engine's stat path ([v5]: class + weapon ATK/CRIT +
   // armor HP/DEF + active deity curr_*).
@@ -203,23 +174,14 @@ async function executeProfile(message, db = pool) {
     deity2Name: r.deity2_name || null,
     deity3Name: r.deity3_name || null,
     deityEnh,
-    blessingName: r.deity_name ? (r.blessing_name || null) : null,
+    blessingName: r.deity_name ? (r.deity_blessing_name || null) : null,
 
     atk: stats.atk,
     hp: stats.hp,
     def: stats.def,
     crit: stats.crit,
 
-    // Rank Combat Record. raidStreak = current raid win streak; the duel* keys carry RANKED data
-    // (rank duels/wins/current rank streak) — renderers relabel them to RANK.
-    records: {
-      raids: (r.raids_won || 0) + (r.raids_lost || 0),
-      raidsWon: r.raids_won || 0,
-      raidStreak: raidStreakResult.rows[0]?.current || 0,
-      duels: rankedResult.rows[0]?.total || 0,
-      duelWins: rankedResult.rows[0]?.wins || 0,
-      duelStreak: rankedResult.rows[0]?.streak || 0,
-    },
+    records: characterRecords(r, raidStreakResult, rankedResult),
   };
 
   // [Supporter-stage §6] Resolve the equipped/override/base profile skin + top-label word.

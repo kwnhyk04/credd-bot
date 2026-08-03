@@ -22,6 +22,7 @@ const EFFECT_DEFINITIONS = Object.freeze({
   atk_down: defineEffect(EFFECT_CATEGORY.STATUS),
   def_down: defineEffect(EFFECT_CATEGORY.STATUS),
   crit_down: defineEffect(EFFECT_CATEGORY.STATUS),
+  darkened: defineEffect(EFFECT_CATEGORY.STATUS),
   hemorrhage: defineEffect(EFFECT_CATEGORY.STATUS, { tags: [BLEED_TAG] }),
   rupture: defineEffect(EFFECT_CATEGORY.STATUS, { tags: [BLEED_TAG] }),
   // Ordinary Bleed now belongs to the same semantic family as Hemorrhage,

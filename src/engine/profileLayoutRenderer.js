@@ -17,6 +17,7 @@ const { profileSkinLayoutPath } = require('./profileLayoutAliases');
 const { envPositiveInt } = require('../utils/runtimeLogs');
 const { registerMemorySource } = require('../utils/memoryRegistry');
 const { encodeCanvas } = require('../utils/canvasEncode');
+const { drawRecordRow } = require('./recordText');
 const {
   assetSource,
   assetExistsSync,
@@ -272,25 +273,7 @@ function drawStats(ctx, style, values) {
 }
 
 function drawRecord(ctx, style, values) {
-  for (const col of style.cols) {
-    const x = col.x - style.box_w / 2;
-    ctx.save();
-    roundRect(ctx, x, style.y, style.box_w, style.box_h, style.radius);
-    ctx.fillStyle = style.box_fill;
-    ctx.fill();
-    ctx.strokeStyle = style.box_outline;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = `${style.label_weight === 'bold' ? 'bold ' : ''}${style.label_size}px ${familyList(style.label_font)}`;
-    ctx.fillStyle = style.label_color;
-    ctx.fillText(col.label, col.x, style.y + 18);
-    ctx.font = `${style.value_weight === 'bold' ? 'bold ' : ''}${style.value_size}px ${familyList(style.value_font)}`;
-    ctx.fillStyle = style.value_color;
-    ctx.fillText(String(values[col.key] ?? 0), col.x, style.y + 40);
-    ctx.restore();
-  }
+  return drawRecordRow(ctx, style, values);
 }
 
 function profileTitle(d) {
@@ -327,19 +310,9 @@ function buildView(d) {
     stats: {
       atk: fmt(d.atk), hp: fmt(d.hp), def: fmt(d.def), crit: `${Number(d.crit || 0).toFixed(1)}%`,
     },
-    record_label: 'RANK COMBAT RECORD',
+    record_label: 'Character Records',
     record: d.records || {},
     quote: d.quote || '',
-  };
-}
-
-// Relabel the (formerly duel) record columns to RANK without editing every per-skin layout JSON.
-const RANK_LABELS = { duels: 'RANK DUELS', duelWins: 'RANK WINS', duelStreak: 'RANK STREAK' };
-function relabelRankCols(record) {
-  if (!record || !Array.isArray(record.cols)) return record;
-  return {
-    ...record,
-    cols: record.cols.map((c) => (RANK_LABELS[c.key] ? { ...c, label: RANK_LABELS[c.key] } : c)),
   };
 }
 
@@ -414,7 +387,7 @@ async function renderProfileLayoutImage(d, options = {}) {
     });
     ctx.drawImage(images.supporterBadge, rect.x, rect.y, rect.w, rect.h);
   }
-  drawRecord(ctx, relabelRankCols(layout.record), view.record);
+  drawRecord(ctx, layout.record, view.record);
   return encodeCanvas(canvas);
 }
 

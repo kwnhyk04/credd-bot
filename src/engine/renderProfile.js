@@ -13,7 +13,7 @@
  *   separator
  *   body block   — class + combat level / combat EXP bar / weapon / deity blessing / stats
  *   separator
- *   records      — four boxed stat cells (Raids · Raids Won · Duels · Duel Wins)
+ *   records      — six boxed character record cells
  *   footer       — italic myth quote (deterministic per discord_id)
  *
  * All displayed totals come from the caller, which assembles them through the SAME
@@ -31,6 +31,7 @@ const { assetPath, loadAssetImage: loadAssetImageSource } = require('../utils/as
 const { SUPPORTER_BADGE_HEIGHT } = require('../config/cosmetics');
 const { badgeRect } = require('./identityLayout');
 const { reportGlyphCoverage } = require('../utils/fontRegistry');
+const { drawRecordRow } = require('./recordText');
 
 /* ── Background template ([v4.6]) ───────────────────────────────────────────
  * The profile card is drawn on top of a template image. TEMPLATE_FILE is a single
@@ -142,7 +143,7 @@ async function loadAvatar(avatarUrl, fallbackUrl) {
  *   className, combatLevel, combatExp, combatExpMax  (combatExpMax null at cap)
  *   weaponName|null, weaponEnh (0 = +0), deityName|null, deityEnh, blessingName|null
  *   atk, hp, def, crit
- *   records: { raids, raidsWon, duels, duelWins }
+  *   records: six values from characterRecords.js
  * @returns {Promise<Buffer>} PNG
  */
 async function renderProfileImage(d) {
@@ -315,34 +316,22 @@ async function renderProfileImage(d) {
   ctx.textAlign = 'left';
   ctx.font = F(12, true);
   ctx.fillStyle = DIM_COLOR;
-  ctx.fillText('Rank Combat Record', PAD, y + 14);
+  ctx.fillText('Character Records', PAD, y + 14);
   y += 26;
 
-  // raidStreak = current raid win streak; rank cells are ranked PvP (rank streak = current).
-  const cells = [
-    { label: 'Raids', value: d.records.raids },
-    { label: 'Raids Won', value: d.records.raidsWon },
-    { label: 'Raid Streak', value: d.records.raidStreak },
-    { label: 'Rank Duels', value: d.records.duels },
-    { label: 'Rank Wins', value: d.records.duelWins },
-    { label: 'Rank Streak', value: d.records.duelStreak },
-  ];
   const gap = 6;
-  const cellW = (W - PAD * 2 - gap * (cells.length - 1)) / cells.length;
+  const cellW = (W - PAD * 2 - gap * 5) / 6;
   const cellH = 58;
-  for (let i = 0; i < cells.length; i++) {
-    const cx = PAD + i * (cellW + gap);
-    roundRectPath(ctx, cx, y, cellW, cellH, RADIUS);
-    ctx.fillStyle = BOX;
-    ctx.fill();
-    ctx.textAlign = 'center';
-    ctx.font = F(7);
-    ctx.fillStyle = DIM_COLOR;
-    ctx.fillText(cells[i].label.toUpperCase(), cx + cellW / 2, y + 22);
-    ctx.font = F(16, true);
-    ctx.fillStyle = REC_COLOR;
-    ctx.fillText(String(cells[i].value), cx + cellW / 2, y + 45);
-  }
+  drawRecordRow(ctx, {
+    y, box_w: cellW, box_h: cellH, radius: RADIUS,
+    box_fill: BOX, box_outline: null,
+    label_font: FONT_FAMILY, label_weight: 'normal', label_size: 7, label_color: DIM_COLOR,
+    value_font: FONT_FAMILY, value_weight: 'bold', value_size: 16, value_color: REC_COLOR,
+    label_y: 22, value_y: 45,
+    cols: Array.from({ length: 6 }, (_, index) => ({
+      x: PAD + index * (cellW + gap) + cellW / 2,
+    })),
+  }, d.records);
   ctx.textAlign = 'left';
   y += cellH;
 

@@ -46,7 +46,7 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `cretan_bow` — Hunter's Focus: ATK +4% every turn, stacking up to 20%.
 - `juru_pakal` — Bloodhunter: Increases outgoing damage by 10% and deals 50% more damage to targets affected by Bleed, Hemorrhage, Rupture, or Venom.
 - `gram` — Dragonbane: Ignores 25% of enemy DEF and deals 30% more damage while the target is above 50% max HP.
-- `tyrfing` — Cursed Edge: ATK +10% at the start of each turn, stacking up to +30%. Attacks execute non-boss targets below 10% max HP, and player-character targets below 5% max HP. Bosses are immune to the execute entirely.
+- `tyrfing` — Cursed Edge: ATK +10% at the start of each turn, stacking up to +30%. Attacks execute non-boss targets below 10% max HP.
 - `laevateinn_sword` — Sundering Flame: Reduces enemy DEF by 10% every turn, stacking up to 30%.
 - `jarngreipr` — Thunder Grip: Increases outgoing damage by 20%. Applying Stun immediately triggers Bash for 50% bonus damage on that attack.
 - `gridr_iron_gloves` — Ironhide: Increases outgoing damage by 20% and has a 20% chance per incoming hit to ignore that hit entirely.
@@ -71,7 +71,7 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `aegis` — Medusa's Gaze: Each hit taken adds a Stone stack, each granting 10% damage reduction. At 3 stacks the attacker is Petrified for 1 turn and takes 50% more damage while petrified, then the stacks reset. The third stack becomes the Petrify rather than more reduction, so the effective maximum is 2 stacks (20%).
 - `apollos_silver_bow` — Unerring Arrow: Ignores 25% of enemy DEF. Every 3rd turn, the attack is a guaranteed CRIT — counted in the wielder's own attack turns, so a turn lost to crowd control does not burn a count. Resets each battle.
 - `mjolnir` — Crushing Force: Attacks deal +30% ATK; every 3rd turn, the attack deals an additional +200% ATK.
-- `gungnir` — Never Misses: Each attack ignores 30% of enemy DEF and has a separate 10% chance to pierce all DEF (zero mitigation). Full-pierce supersedes the 30% rather than stacking with it.
+- `gungnir` — Never Misses: Each attack ignores 40% of enemy DEF and has a 25% chance to pierce all DEF (zero mitigation).
 - `thunderbolt_of_zeus` — Divine Thunder: Each critical attack deals +100% bonus ATK and applies Paralyze for 1 turn.
 - `trident_of_poseidon` — Tidal Wrath: Every 2nd turn, deals +100% bonus ATK and reduces enemy DEF by 20% for 1 turn, with a 30% chance to stun for 1 turn.
 - `kiri` — Thousand Partings: [Genesis] Each attack increases damage by 20%, stacking up to +120%. Each attack has a 25% chance to strike twice.
@@ -201,3 +201,4 @@ new and defensive:
 - `none` — (shared no-op)
 - `hydra_regen` — Regeneration: Regenerates 1% max HP every 3rd turn (local instance; only NET damage commits to the shared pool).
 - `stone_stare` — Stone Stare: Every 3rd turn, petrifies the player for 1 turn, then resets the counter.
+- `bakunawa_seven_moons` — Seven Moons: Every 4th turn, Eclipse reduces the player's CRIT to 0% for 1 turn.

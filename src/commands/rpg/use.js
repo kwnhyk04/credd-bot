@@ -14,6 +14,7 @@ const ent = require('../../engine/supporterEntitlements');
 const { skinEmojiByCode } = require('../../engine/skinEmojis');
 const { resolveBagItem, CHEST_IDS, RUNE_BAG_IDS } = require('../../config/crdBagItems');
 const { emoji } = require('../../utils/emojis');
+const { redeemToken, buildTokenRedemptionReply } = require('../../engine/customContentTickets');
 
 const CAT_WORD = { profile: 'profile', battle: 'battle', battle_result: 'battle result', summon: 'summon' };
 
@@ -61,6 +62,19 @@ async function useItem(message, args) {
     // transaction — the relic only leaves the bag on COMMIT.
     const { openRelic } = require('./open');
     return openRelic(message, item.id);
+  }
+
+  if (item.use === 'ticket') {
+    try {
+      const result = await redeemToken(message.author.id, item);
+      if (result.status === 'insufficient') {
+        return reply(message, `You don't own a ${emoji(item.emojiName)} **${item.name}**.`);
+      }
+      return reply(message, buildTokenRedemptionReply(message, item, result.ticketId));
+    } catch (err) {
+      console.error('[use ticket]', err.message);
+      return reply(message, 'Redemption failed - your token was not consumed.');
+    }
   }
 
   if (item.use === 'classChange') {

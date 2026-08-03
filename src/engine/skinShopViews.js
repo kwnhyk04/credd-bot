@@ -46,6 +46,47 @@ const CAT_LABEL = { profile: 'Profile', battle: 'Battle', battle_result: 'Battle
 
 function clampPage(p) { const n = Math.max(1, PAGES.length); return (((p | 0) % n) + n) % n; } // carousel wrap
 
+function wrapPreviewIndex(index, total) {
+  const count = Math.max(0, Number(total) || 0);
+  if (count <= 1) return 0;
+  const value = Number.isFinite(Number(index)) ? Math.trunc(Number(index)) : 0;
+  return ((value % count) + count) % count;
+}
+
+function createPreviewContainer(title, help = null) {
+  const container = new ContainerBuilder().setAccentColor(BRAND);
+  container.addTextDisplayComponents((td) => td.setContent(title));
+  if (help) {
+    container.addSeparatorComponents(sep);
+    container.addTextDisplayComponents((td) => td.setContent(help));
+  }
+  return container;
+}
+
+function previewNavigationButtons({
+  previousId,
+  nextId,
+  backId,
+  previousLabel = 'Prev',
+  nextLabel = 'Next',
+  backLabel = 'Back to list',
+  previousEmoji = '◀️',
+  nextEmoji = '▶️',
+  backEmoji = '↩️',
+  disablePaging = false,
+  extra = [],
+}) {
+  return [
+    new ButtonBuilder().setCustomId(previousId).setEmoji(previousEmoji)
+      .setLabel(previousLabel).setStyle(ButtonStyle.Secondary).setDisabled(disablePaging),
+    new ButtonBuilder().setCustomId(nextId).setEmoji(nextEmoji)
+      .setLabel(nextLabel).setStyle(ButtonStyle.Secondary).setDisabled(disablePaging),
+    new ButtonBuilder().setCustomId(backId).setEmoji(backEmoji)
+      .setLabel(backLabel).setStyle(ButtonStyle.Primary),
+    ...extra,
+  ];
+}
+
 // Collection ordering: Founder → Beta (tester default) → Base → shop skins
 // (ascending by code) → other tester customs.
 function collectionRank(s) {
@@ -192,7 +233,7 @@ async function buildPreview(db, viewerId, { page = 0, idx = 0, ctx = 'shop', var
   page = clampPage(page);
   const { category, skins, owned, equippedId } = await gather(db, viewerId, page, ctx);
   if (skins.length === 0) return buildShopPage(db, viewerId, { page, ctx });
-  idx = ((idx % skins.length) + skins.length) % skins.length; // wrap
+  idx = wrapPreviewIndex(idx, skins.length);
   const skin = skins[idx];
 
   const emo = skinEmojiByCode(skin.skin_code, skin.category, skin.cosmetic_key);
@@ -206,10 +247,10 @@ async function buildPreview(db, viewerId, { page = 0, idx = 0, ctx = 'shop', var
     ? `Equip: \`crd equip skin ${skin.skin_code}\``
     : `Buy: \`crd buy ${skin.skin_code}\`  ·  Equip: \`crd equip skin ${skin.skin_code}\``;
 
-  const container = new ContainerBuilder().setAccentColor(BRAND);
-  container.addTextDisplayComponents((td) => td.setContent(`## ${emo} ${skin.display_name}${codeTxt}  ${ownedMark}`));
-  container.addSeparatorComponents(sep);
-  container.addTextDisplayComponents((td) => td.setContent(`-# ${help}`));
+  const container = createPreviewContainer(
+    `## ${emo} ${skin.display_name}${codeTxt}  ${ownedMark}`,
+    `-# ${help}`
+  );
   container.addSeparatorComponents(sep);
 
   const files = [];
@@ -238,20 +279,20 @@ async function buildPreview(db, viewerId, { page = 0, idx = 0, ctx = 'shop', var
   }
 
   // Buttons: Prev / Next (cycle category) / Back · result skins also get a Victory⇄Defeated toggle.
-  const rowBtns = [
-    new ButtonBuilder().setCustomId(`sprev:prev:${viewerId}:${page}:${idx}:${ctx}:${variant}`)
-      .setEmoji('◀️').setLabel('Prev').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`sprev:next:${viewerId}:${page}:${idx}:${ctx}:${variant}`)
-      .setEmoji('▶️').setLabel('Next').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`sprev:back:${viewerId}:${page}:${idx}:${ctx}:${variant}`)
-      .setEmoji('↩️').setLabel('Back to list').setStyle(ButtonStyle.Primary),
-  ];
+  const extras = [];
   if (skin.category === 'battle_result') {
     const nextVar = variant === 'd' ? 'v' : 'd';
-    rowBtns.push(new ButtonBuilder()
+    extras.push(new ButtonBuilder()
       .setCustomId(`sprev:toggle:${viewerId}:${page}:${idx}:${ctx}:${nextVar}`)
       .setLabel(variant === 'd' ? 'Show Victory' : 'Show Defeated').setStyle(ButtonStyle.Secondary));
   }
+  const rowBtns = previewNavigationButtons({
+    previousId: `sprev:prev:${viewerId}:${page}:${idx}:${ctx}:${variant}`,
+    nextId: `sprev:next:${viewerId}:${page}:${idx}:${ctx}:${variant}`,
+    backId: `sprev:back:${viewerId}:${page}:${idx}:${ctx}:${variant}`,
+    disablePaging: skins.length <= 1,
+    extra: extras,
+  });
   container.addActionRowComponents((row) => row.setComponents(...rowBtns));
 
   return { components: [container], files, flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
@@ -298,4 +339,14 @@ async function handlePreviewButton(interaction) {
   await interaction.editReply(await buildPreview(pool, owner, { page, idx: nextIdx, ctx, variant: 'x' }));
 }
 
-module.exports = { buildShopPage, buildPreview, handleShopButton, handlePreviewButton, PAGES };
+module.exports = {
+  buildShopPage,
+  buildPreview,
+  handleShopButton,
+  handlePreviewButton,
+  ownerGate,
+  PAGES,
+  wrapPreviewIndex,
+  createPreviewContainer,
+  previewNavigationButtons,
+};

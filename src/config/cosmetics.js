@@ -58,9 +58,9 @@ const PRICE_OVERRIDES = {
   e_aurora_ribbon_s2: 6, e_eternal_supernova_s3: 6, e_stardust_constellation_s4: 6,
 };
 // Monthly stipend by tier; eternal is a ONE-TIME grant at founder purchase.
-// [Patch 2 §2.3] believer 2/mo, chosen 4/mo, eternal 20 one-time (was 1/3/18).
-const MONTHLY_TOKENS = { believer: 2, chosen: 4 };
-const ETERNAL_ONE_TIME_TOKENS = 20;
+// Monthsary supporter grants: believer 10/mo, chosen 20/mo, eternal 60 one-time.
+const MONTHLY_TOKENS = { believer: 10, chosen: 20 };
+const ETERNAL_ONE_TIME_TOKENS = 60;
 
 // [Patch 2 §2.5] Supporter badge drawn below the Title on profile/stats cards.
 // Height in px; width scales proportionally. Assets live at

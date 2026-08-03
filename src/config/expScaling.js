@@ -30,12 +30,9 @@
  *   largest (~1.5x) at level 30+.
  *
  * ── Why the parameter is `levelForScaling` and not `mobLevel` ────────────────────
- * Raids scale on the MOB's level. Bosses scale on the ATTACKING PLAYER's own level,
- * not the boss's — boss level is AVG(combat_level) of active players, so scaling off it
- * would let a level 20 player in a level 60 fight earn 40,000 x 4 = 160,000 EXP, more
- * than levels 1-20 combined. The parameter is deliberately named for its role, not its
- * usual source, so a caller passing a participant level is not writing something that
- * reads like a bug.
+ * Raids scale on the MOB's level. Boss rewards scale on the ATTACKING PLAYER's own
+ * level; boss combat stats are fixed roster values and have no level input. The
+ * parameter is deliberately named for its role, not its usual source.
  *
  * ── The clamp is a safety bound, not a formality ─────────────────────────────────
  * MOB_LEVEL_MAX bounds worst-case reward inflation at 4,800 EXP per kill. It lives here
@@ -70,7 +67,7 @@ const SCALING_FLOOR = 1.0;
  * Scale a base EXP reward by the level of the thing that produced it.
  *
  * @param {number} baseExp          unscaled EXP (a raid roll, a boss reward, a loss payout)
- * @param {number} levelForScaling  mob level for raids; the participant's OWN level for bosses
+ * @param {number} levelForScaling  mob level for raids; participant level for boss rewards
  * @returns {number} integer EXP, never less than `baseExp` (see FLOOR above)
  */
 function scaleExpForMobLevel(baseExp, levelForScaling) {

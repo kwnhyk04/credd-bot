@@ -37,6 +37,7 @@ const { grantBelieverLevelRewards } = require('../utils/grantLevelRewards');
 const { believerTitlesFor, COLLECTION_PANTHEON_KEEPER, MYTHOLOGY_COLLECTION } = require('../config/titles');
 const { performanceLog } = require('../utils/runtimeLogs');
 const { getSelectionPool, pickRandomRow } = require('../utils/selectionPools');
+const { getActiveLoadout, updateActiveLoadout } = require('./loadout');
 
 // Whitelisted essence columns — interpolated into SQL only from this constant
 // map keyed by our own tier strings (never raw user input).
@@ -100,7 +101,7 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
 
   // ── Read character (active deity + reputation) + PHT "today" ─────────────
   const charRes = await client.query(
-    `SELECT active_deity_id, believer_level, believer_exp,
+    `SELECT believer_level, believer_exp,
             reputation_exp_today, reputation_exp_reset_date,
             (NOW() AT TIME ZONE 'Asia/Manila')::date AS pht_today
        FROM user_character WHERE discord_id = $1 FOR UPDATE`,
@@ -108,6 +109,8 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
   );
   if (charRes.rows.length === 0) throw new Error('runSummon: user_character row missing');
   const char = charRes.rows[0];
+  const activeLoadout = await getActiveLoadout(client, discordId);
+  if (!activeLoadout) throw new Error('runSummon: active preset row missing');
 
   // ── In-memory ownership set (seeded from DB, updated on insert) ───────────
   const ownedRes = await client.query(
@@ -178,7 +181,7 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
       );
       userDeityId = ins.rows[0].user_deity_id;
       ownedSet.add(d.deity_id);
-      if (char.active_deity_id == null && pendingActiveId == null) {
+      if (activeLoadout.equipped_deity_1_id == null && pendingActiveId == null) {
         pendingActiveId = userDeityId;
       }
       // No game_logs row for a new deity: there's no column for WHICH deity, and
@@ -235,12 +238,8 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
   }
 
   // ── Auto-set active deity to the first new pull (if none was active) ──────
-  if (pendingActiveId != null) {
-    await client.query(
-      `UPDATE user_character SET active_deity_id = $2
-        WHERE discord_id = $1 AND active_deity_id IS NULL`,
-      [discordId, pendingActiveId]
-    );
+  if (pendingActiveId != null && activeLoadout.equipped_deity_1_id == null) {
+    await updateActiveLoadout(client, discordId, { equipped_deity_1_id: pendingActiveId });
   }
 
   // ── Reputation: +10/pull, 1,500/day PHT cap, 3,000-flat level roll-up ────

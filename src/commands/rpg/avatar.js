@@ -2,8 +2,8 @@
 
 const pool = require('../../db/pool');
 const { MessageFlags } = require('discord.js');
-const { spendTokensTx } = require('../../engine/supporterTokens');
 const avatar = require('../../engine/avatarSystem');
+const { ownerGate } = require('../../engine/skinShopViews');
 
 function reply(ctx, content) {
   return ctx.reply({ content, allowedMentions: { repliedUser: false } });
@@ -11,16 +11,39 @@ function reply(ctx, content) {
 
 function usage(ctx) {
   return reply(ctx,
-    'Usage: `crd avatars`, `crd avatar shop`, `crd avatar buy <id>`, `crd avatar equip <id>`, or `crd avatar default`.'
+    'Usage: `crd avatars`, `crd avatar shop`, `crd avatar buy <id>` (or `at` for a Custom Avatar Token), `crd avatar equip <id>`, or `crd avatar default`.'
   );
 }
 
+function disableButtons(components) {
+  return (components || []).map((component) => {
+    const raw = typeof component?.toJSON === 'function' ? component.toJSON() : component;
+    if (!raw) return raw;
+    const disabled = { ...raw };
+    if (Array.isArray(raw.components)) disabled.components = disableButtons(raw.components);
+    if (raw.type === 2) disabled.disabled = true;
+    return disabled;
+  });
+}
+
+function attachAvatarCollector(message) {
+  if (!message || typeof message.createMessageComponentCollector !== 'function') return;
+  const collector = message.createMessageComponentCollector({ time: 150_000 });
+  collector.once('end', () => {
+    message.edit({ components: disableButtons(message.components) }).catch(() => {});
+  });
+}
+
 async function collection(ctx) {
-  return ctx.reply({ ...(await avatar.buildAvatarPage(pool, ctx.userId, { page: 0, mode: 'collection' })), allowedMentions: { repliedUser: false } });
+  const message = await ctx.reply({ ...(await avatar.buildAvatarPage(pool, ctx.userId, { page: 0, mode: 'collection' })), allowedMentions: { repliedUser: false } });
+  attachAvatarCollector(message);
+  return message;
 }
 
 async function shop(ctx) {
-  return ctx.reply({ ...(await avatar.buildAvatarPage(pool, ctx.userId, { page: 0, mode: 'shop' })), allowedMentions: { repliedUser: false } });
+  const message = await ctx.reply({ ...(await avatar.buildAvatarPage(pool, ctx.userId, { page: 0, mode: 'shop' })), allowedMentions: { repliedUser: false } });
+  attachAvatarCollector(message);
+  return message;
 }
 
 async function buy(ctx, key) {
@@ -38,6 +61,17 @@ async function buy(ctx, key) {
     return reply(ctx, 'Avatar shop is not available yet.');
   }
   if (!character) return reply(ctx, 'Create a character first with `crd create character`.');
+  if (['at', 'token', 'custom_avatar_token'].includes(code)) {
+    try {
+      const result = await avatar.purchaseCustomAvatarToken(ctx.userId);
+      if (result.status === 'insufficient') return reply(ctx, `Not enough supporter tokens - the Custom Avatar Token costs ${avatar.CUSTOM_AVATAR_TOKEN_PRICE}, you have ${result.balance}.`);
+      if (result.status === 'not_supporter') return reply(ctx, 'Custom Avatar Tokens require an active supporter token balance.');
+      return reply(ctx, avatar.customAvatarTokenPurchaseMessage(result.balance));
+    } catch (err) {
+      console.error('[avatar token buy]', err.message);
+      return reply(ctx, 'Custom Avatar Token purchase failed - nothing was spent.');
+    }
+  }
   if (!row) return reply(ctx, `No avatar with id \`${code}\`. See \`crd avatar shop\`.`);
   if (String(row.class_name).toLowerCase() !== String(character.class).toLowerCase()) {
     return reply(ctx, `That avatar is for **${row.class_name}**. Your current class is **${character.class}**.`);
@@ -45,36 +79,22 @@ async function buy(ctx, key) {
   if (avatar.isGrantOnlyAvatarRow(row)) {
     return reply(ctx, `**${avatar.displayName(row)}** isn't available in the shop.`);
   }
-  if (await avatar.ownsAvatar(pool, ctx.userId, row.avatar_id, character.class)) {
-    return reply(ctx, `You already own **${avatar.displayName(row)}**. Equip it with \`crd avatar equip ${avatar.avatarShortId(row)}\`.`);
-  }
-
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    const spend = await spendTokensTx(client, ctx.userId, Number(row.token_cost), 'avatar_buy', row.avatar_key);
-    if (!spend.ok) {
-      await client.query('ROLLBACK');
-      return reply(ctx, spend.reason === 'insufficient'
-        ? `Not enough supporter tokens - **${row.display_name}** costs ${row.token_cost}, you have ${spend.balance}.`
+    const result = await avatar.purchaseAvatar(ctx.userId, row);
+    if (result.status === 'owned') {
+      return reply(ctx, `You already own **${avatar.displayName(row)}**. Equip it with \`crd avatar equip ${avatar.avatarShortId(row)}\`.`);
+    }
+    if (result.status !== 'bought') {
+      return reply(ctx, result.status === 'insufficient'
+        ? `Not enough supporter tokens - **${row.display_name}** costs ${row.token_cost}, you have ${result.balance}.`
         : 'Avatar purchases require an active supporter token balance.');
     }
-    await client.query(
-      `INSERT INTO user_avatars (discord_id, avatar_id, source, acquired_at)
-       VALUES ($1, $2, 'shop', NOW())
-       ON CONFLICT (discord_id, avatar_id) DO NOTHING`,
-      [ctx.userId, row.avatar_id]
-    );
-    await client.query('COMMIT');
     return reply(ctx,
-      `Bought **${avatar.displayName(row)}** (\`${avatar.avatarShortId(row)}\`) for ${row.token_cost} supporter tokens. Balance: **${spend.balance}**. Equip: \`crd avatar equip ${avatar.avatarShortId(row)}\`.`
+      `Bought **${avatar.displayName(row)}** (\`${avatar.avatarShortId(row)}\`) for ${row.token_cost} supporter tokens. Balance: **${result.balance}**. Equip: \`crd avatar equip ${avatar.avatarShortId(row)}\`.`
     );
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
     console.error('[avatar buy]', err.message);
     return reply(ctx, 'Avatar purchase failed - nothing was spent.');
-  } finally {
-    client.release();
   }
 }
 
@@ -139,12 +159,79 @@ async function handleAvatarButton(interaction) {
   const mode = parts[1] === 'shop' ? 'shop' : 'collection';
   const ownerId = parts[2];
   const page = Number(parts[3] || 0);
-  if (interaction.user.id !== ownerId) {
-    await interaction.reply({ content: 'These buttons are not for you.', flags: MessageFlags.Ephemeral });
+  const action = parts[4] || 'next';
+  if (!ownerGate(interaction, ownerId)) return;
+  if (action === 'preview') {
+    const payload = await avatar.buildAvatarPreview(pool, ownerId, { page });
+    await interaction.reply({ ...payload, flags: payload.flags | MessageFlags.Ephemeral });
+    attachAvatarCollector(await interaction.fetchReply());
     return;
   }
   await interaction.deferUpdate();
-  await interaction.editReply(await avatar.buildAvatarPage(pool, ownerId, { page, mode }));
+  let notice = null;
+  if (action === 'buy' || action === 'buytoken') {
+    if (action === 'buytoken') {
+      const result = await avatar.purchaseCustomAvatarToken(ownerId);
+      notice = result.status === 'bought'
+        ? avatar.customAvatarTokenPurchaseMessage(result.balance)
+        : result.status === 'insufficient'
+          ? `Not enough supporter tokens - the Custom Avatar Token costs ${avatar.CUSTOM_AVATAR_TOKEN_PRICE}, you have ${result.balance}.`
+          : 'Custom Avatar Tokens require an active supporter token balance.';
+    } else {
+      const row = await avatar.getShopAvatarAtPage(pool, ownerId, page);
+      if (!row) {
+        notice = 'That avatar is no longer available.';
+      } else {
+        const result = await avatar.purchaseAvatar(ownerId, row);
+        notice = result.status === 'bought'
+          ? `✅ Bought **${avatar.displayName(row)}**. Balance: **${result.balance}** supporter tokens.`
+          : result.status === 'owned'
+            ? `You already own **${avatar.displayName(row)}**.`
+            : result.status === 'insufficient'
+              ? `Not enough supporter tokens - **${avatar.displayName(row)}** costs ${row.token_cost}, you have ${result.balance}.`
+              : 'Avatar purchases require an active supporter token balance.';
+      }
+    }
+  }
+  await interaction.editReply(await avatar.buildAvatarPage(pool, ownerId, { page, mode, notice }));
 }
 
-module.exports = { execute, collection, handleAvatarButton };
+async function handleAvatarPreviewButton(interaction) {
+  const [, action, ownerId, pageStr] = interaction.customId.split(':');
+  const page = Number(pageStr || 0);
+  if (!ownerGate(interaction, ownerId)) return;
+  await interaction.deferUpdate();
+  if (action === 'back') {
+    await interaction.editReply(await avatar.buildAvatarPage(pool, ownerId, {
+      page: Math.floor(page / 10),
+      mode: 'shop',
+    }));
+    return;
+  }
+  let notice = null;
+  if (action === 'buytoken') {
+    const result = await avatar.purchaseCustomAvatarToken(ownerId);
+    notice = result.status === 'bought'
+      ? avatar.customAvatarTokenPurchaseMessage(result.balance)
+      : result.status === 'insufficient'
+        ? `Not enough supporter tokens - the Custom Avatar Token costs ${avatar.CUSTOM_AVATAR_TOKEN_PRICE}, you have ${result.balance}.`
+        : 'Custom Avatar Tokens require an active supporter token balance.';
+  } else if (action === 'buy') {
+    const row = await avatar.getShopAvatarAtPage(pool, ownerId, page);
+    if (!row) {
+      notice = 'That avatar is no longer available.';
+    } else {
+      const result = await avatar.purchaseAvatar(ownerId, row);
+      notice = result.status === 'bought'
+        ? `✅ Bought **${avatar.displayName(row)}**. Balance: **${result.balance}** supporter tokens.`
+        : result.status === 'owned'
+          ? `You already own **${avatar.displayName(row)}**.`
+          : result.status === 'insufficient'
+            ? `Not enough supporter tokens - **${avatar.displayName(row)}** costs ${row.token_cost}, you have ${result.balance}.`
+            : 'Avatar purchases require an active supporter token balance.';
+    }
+  }
+  await interaction.editReply(await avatar.buildAvatarPreview(pool, ownerId, { page, notice }));
+}
+
+module.exports = { execute, collection, handleAvatarButton, handleAvatarPreviewButton };

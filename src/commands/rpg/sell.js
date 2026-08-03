@@ -9,6 +9,7 @@ const {
   sellPriceBreakdown,
 } = require('../../config/sellPrices');
 const { RUNE_SELL_PRICE } = require('../../config/runes');
+const { getActiveLoadout, findPresetsReferencing } = require('../../engine/loadout');
 
 function reply(message, content) {
   return message.reply({ content, allowedMentions: { repliedUser: false } });
@@ -71,12 +72,9 @@ function sumPrices(rows) {
  *            rows:{gear_id:string,tier:string,enhancement:number,kind:'weapon'|'armor'}[]}}
  */
 async function resolveSellSet(executor, discordId, { mode, arg, forUpdate = false }) {
-  const eqRes = await executor.query(
-    'SELECT equipped_weapon_id, equipped_armor_id FROM user_character WHERE discord_id = $1',
-    [discordId]
-  );
-  const equippedW = eqRes.rows[0]?.equipped_weapon_id ?? null;
-  const equippedA = eqRes.rows[0]?.equipped_armor_id ?? null;
+  const loadout = await getActiveLoadout(executor, discordId);
+  const equippedW = loadout?.equipped_weapon_id ?? null;
+  const equippedA = loadout?.equipped_armor_id ?? null;
 
   const rows = [];
 
@@ -148,26 +146,25 @@ async function execute(message, { args }) {
   }
 
   let count, total, descLine, priceDetail;
+  let rowsToSell = [];
+  let presetLosses = [];
+  const activeLoadout = await getActiveLoadout(pool, discordId);
 
   if (mode === 'id') {
     // Rune first (own namespace, immediate sell). Then gear (weapon then armor).
     if (await trySellRune(message, discordId, arg)) return;
     // Specific, friendly rejections for the single-gear path (weapon then armor).
     const wq = await pool.query(
-      `SELECT uw.is_locked, uw.enhancement, wr.name, wr.tier,
-              (uw.weapon_id = uc.equipped_weapon_id) AS equipped
-         FROM user_weapons uw
-         JOIN weapon_roster wr ON uw.weapon_roster_id = wr.weapon_roster_id
-         JOIN user_character uc ON uc.discord_id = uw.discord_id
+      `SELECT uw.weapon_id, uw.is_locked, uw.enhancement, wr.name, wr.tier
+              FROM user_weapons uw
+               JOIN weapon_roster wr ON uw.weapon_roster_id = wr.weapon_roster_id
         WHERE uw.weapon_id = $1 AND uw.discord_id = $2`,
       [arg, discordId]
     );
     const aq = wq.rows.length === 0 ? await pool.query(
-      `SELECT ua.is_locked, ua.enhancement, ar.name, ar.tier,
-              (ua.armor_id = uc.equipped_armor_id) AS equipped
-         FROM user_armors ua
-         JOIN armor_roster ar ON ua.armor_roster_id = ar.armor_roster_id
-         JOIN user_character uc ON uc.discord_id = ua.discord_id
+      `SELECT ua.armor_id, ua.is_locked, ua.enhancement, ar.name, ar.tier
+              FROM user_armors ua
+               JOIN armor_roster ar ON ua.armor_roster_id = ar.armor_roster_id
         WHERE ua.armor_id = $1 AND ua.discord_id = $2`,
       [arg, discordId]
     ) : { rows: [] };
@@ -176,7 +173,11 @@ async function execute(message, { args }) {
       await reply(message, 'You don\'t own equipment with that ID.');
       return;
     }
-    if (g.equipped) {
+    const isWeapon = wq.rows.length > 0;
+    const equipped = isWeapon
+      ? activeLoadout?.equipped_weapon_id === arg
+      : activeLoadout?.equipped_armor_id === arg;
+    if (equipped) {
       await reply(message, 'That equipment is equipped. Unequip it first.');
       return;
     }
@@ -192,6 +193,7 @@ async function execute(message, { args }) {
       ? `\n-# ${pricing.basePrice.toLocaleString()} base + ${pricing.enhancementRefund.toLocaleString()} enhancement refund ` +
         `(30% of ${pricing.successfulCost.toLocaleString()} for successful levels).`
       : '';
+    rowsToSell = [{ gear_id: arg, kind: isWeapon ? 'weapon' : 'armor' }];
   } else {
     const { rows } = await resolveSellSet(pool, discordId, { mode, arg });
     if (rows.length === 0) {
@@ -205,13 +207,30 @@ async function execute(message, { args }) {
     const noun = count === 1 ? 'item' : 'items';
     descLine = mode === 'tier' ? `**${count}** ${arg} ${noun}` : `**${count}** ${noun}`;
     priceDetail = '\n-# Total includes 30% of each item\'s successful enhancement-level costs.';
+    rowsToSell = rows;
   }
+
+  for (const row of rowsToSell) {
+    const refs = await findPresetsReferencing(pool, discordId,
+      row.kind === 'weapon' ? { weaponId: row.gear_id } : { armorId: row.gear_id });
+    presetLosses.push(...refs.map((ref) => ({ ...ref, kind: row.kind })));
+  }
+  const lossByKey = new Map(presetLosses.map((loss) => [`${loss.slot}:${loss.field}`, loss]));
+  const fieldLabel = {
+    equipped_weapon_id: 'weapon',
+    equipped_armor_id: 'armor',
+  };
+  const lossText = [...lossByKey.values()].length > 0
+    ? ` Warning: ${[...lossByKey.values()]
+      .map((loss) => `Preset ${loss.slot} will lose its ${fieldLabel[loss.field] || loss.kind} slot`)
+      .join('; ')}.`
+    : '';
 
   const subject = count === 1 ? 'it' : 'them';
   const content =
     `⚠️ Sell ${descLine} for **${total.toLocaleString()} Credux**? ` +
     `This will **permanently delete** ${subject} and cannot be undone. Locked and equipped gear is excluded.` +
-    priceDetail;
+    priceDetail + lossText;
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`sell:confirm:${mode}:${arg}:${discordId}`).setLabel('✅ Confirm').setStyle(ButtonStyle.Danger),

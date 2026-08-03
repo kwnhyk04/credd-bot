@@ -15,6 +15,7 @@ const statsCmd = require('../commands/rpg/stats');
 const bagCmd = require('../commands/rpg/bag');
 const openCmd = require('../commands/rpg/open');
 const equipCmd = require('../commands/rpg/equip');
+const presetCmd = require('../commands/rpg/preset');
 const summonCmd = require('../commands/rpg/summon');
 const deityCmd = require('../commands/rpg/deity');
 const enhanceCmd = require('../commands/rpg/enhance');
@@ -43,6 +44,7 @@ const skinCmd = require('../commands/rpg/skin');
 const avatarCmd = require('../commands/rpg/avatar');
 const buyCmd = require('../commands/rpg/buy');
 const useCmd = require('../commands/rpg/use');
+const ticketsCmd = require('../commands/rpg/tickets');
 const glossaryCmd = require('../commands/rpg/glossary');
 const compareCmd = require('../commands/rpg/compare');
 const setCmd = require('../commands/rpg/set');
@@ -72,6 +74,7 @@ const IMPLEMENTED = {
   bag:      { mw: 'full', run: bagCmd.execute },
   open:     { mw: 'full', run: openCmd.execute },
   equip:    { mw: 'full', run: equipCmd.execute },
+  preset:   { mw: 'full', run: presetCmd.execute },
   summon:   { mw: 'full', run: summonCmd.execute },
   deity:    { mw: 'full', run: deityCmd.execute },
   deities:  { mw: 'full', run: deityCmd.deities },
@@ -108,6 +111,8 @@ const IMPLEMENTED = {
   avatar:   { mw: 'full', run: avatarCmd.execute },
   buy:      { mw: 'full', run: buyCmd.execute },
   use:      { mw: 'full', run: useCmd.execute },
+  supporter: { mw: 'dev', run: ticketsCmd.execute },
+  update:   { mw: 'dev', run: ticketsCmd.update },
   set:      { mw: 'full', run: setCmd.execute },
   glossary: { mw: 'full', run: glossaryCmd.execute },
   compare:  { mw: 'full', run: compareCmd.execute },
@@ -138,6 +143,7 @@ const COMMAND_MAP = {
   bag:       { requiresCharacter: true },
   open:      { requiresCharacter: true },
   equip:     { requiresCharacter: true },
+  preset:    { requiresCharacter: true },
   enhance:   { requiresCharacter: true },
   lock:      { requiresCharacter: true },
   unlock:    { requiresCharacter: true },
@@ -172,6 +178,8 @@ const COMMAND_MAP = {
   avatar:    { requiresCharacter: true },
   buy:       { requiresCharacter: false }, // buy a skin by code
   use:       { requiresCharacter: false }, // equip a skin by code
+  supporter: { requiresCharacter: false }, // dev-only supporter ticket queue
+  update:    { requiresCharacter: false }, // dev-only ticket status update
   set:       { requiresCharacter: false }, // reset all skins to default templates
   glossary:  { requiresCharacter: false }, // reference codex (§4) — open to all
   compare:   { requiresCharacter: true },  // owned-item compare (needs a character to own items)

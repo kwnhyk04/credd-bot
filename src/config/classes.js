@@ -72,7 +72,7 @@ const CLASSES = {
     emoji: '🛡️',
     passiveName: 'Damage Reduction',
     base: { hp: 1000, atk: 200, def: 300, crit: 5.0 },
-    scaling: { hp: 200, atk: 50, def: 100, crit: 0.0 },
+    scaling: { hp: 200, atk: 70, def: 100, crit: 0.0 },
     flavor:
       'The Knight does not fall easily. Where others break under pressure, the Knight absorbs it, holds the line, and keeps fighting. ' +
       'Every blow the enemy lands is one they will regret. Endurance is not passive — it is a weapon.',

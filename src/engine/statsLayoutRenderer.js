@@ -16,6 +16,7 @@ const { formatIntegerEnUS: fmt } = require('../utils/textFormat');
 const { envPositiveInt, performanceLog } = require('../utils/runtimeLogs');
 const { registerMemorySource } = require('../utils/memoryRegistry');
 const { encodeCanvas } = require('../utils/canvasEncode');
+const { drawRecordRow } = require('./recordText');
 const { SUPPORTER_BADGE_HEIGHT } = require('../config/cosmetics');
 const { containRect, badgeRect } = require('./identityLayout');
 const { profileSkinLayoutPath, profileSkinLayoutOverrides } = require('./profileLayoutAliases');
@@ -294,25 +295,7 @@ function drawStats(ctx, style, values) {
 }
 
 function drawRecord(ctx, style, values) {
-  for (const col of style.cols) {
-    const x = col.x - style.box_w / 2;
-    ctx.save();
-    roundRect(ctx, x, style.y, style.box_w, style.box_h, style.radius);
-    ctx.fillStyle = style.box_fill;
-    ctx.fill();
-    ctx.strokeStyle = style.box_outline;
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = `${style.label_weight === 'bold' ? 'bold ' : ''}${style.label_size}px ${familyList(style.label_font)}`;
-    ctx.fillStyle = style.label_color;
-    ctx.fillText(col.label, col.x, style.y + 18);
-    ctx.font = `${style.value_weight === 'bold' ? 'bold ' : ''}${style.value_size}px ${familyList(style.value_font)}`;
-    ctx.fillStyle = style.value_color;
-    ctx.fillText(String(values[col.key] ?? 0), col.x, style.y + 40);
-    ctx.restore();
-  }
+  return drawRecordRow(ctx, style, values);
 }
 
 function buildView(d) {
@@ -355,7 +338,7 @@ function buildView(d) {
     stats: {
       atk: fmt(d.atk), hp: fmt(d.hp), def: fmt(d.def), crit: `${Number(d.crit || 0).toFixed(1)}%`,
     },
-    record_label: 'COMBAT STATS',
+    record_label: 'Character Records',
     record: d.records || {},
     quote: d.quote || '',
   };
@@ -467,17 +450,6 @@ function drawDeitiesRow(ctx, layout, deities, icons = []) {
     cx += widths[i] + gap;
   }
   ctx.restore();
-}
-
-// Relabel the record columns so the (formerly duel) PvP cells read as RANK. Keys are unchanged
-// so values still resolve; only the displayed labels are swapped. Works for any skin's layout.
-const RANK_LABELS = { duels: 'RANK DUELS', duelWins: 'RANK WINS', duelStreak: 'RANK STREAK' };
-function relabelRankCols(record) {
-  if (!record || !Array.isArray(record.cols)) return record;
-  return {
-    ...record,
-    cols: record.cols.map((c) => (RANK_LABELS[c.key] ? { ...c, label: RANK_LABELS[c.key] } : c)),
-  };
 }
 
 /**
@@ -695,9 +667,8 @@ async function renderStatsLayoutImage(d, options = {}) {
     .map((ic, i) => (view.deities[i] && view.deities[i] !== '—' ? ic : null));
   drawDeitiesRow(ctx, layout, view.deities, deityIcons);
   drawStats(ctx, layout.stats, view.stats);
-  // Relabel the duel record columns to RANK (PvP duels became ranked) without editing every
-  // per-skin stats.layout.json: re-map the labels by column key at draw time.
-  drawRecord(ctx, relabelRankCols(layout.record), view.record);
+  // Record labels are supplied by the shared text helper; the layout remains geometry-only.
+  drawRecord(ctx, layout.record, view.record);
   return encodeCanvas(canvas);
 }
 

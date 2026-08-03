@@ -130,32 +130,32 @@
       {
         "key": "raids",
         "x": 735,
-        "label": "RAIDS"
+        "label": "BEST RAID STK"
       },
       {
         "key": "raidsWon",
         "x": 854,
-        "label": "RAID WINS"
+        "label": "RAID STREAK"
       },
       {
         "key": "raidStreak",
         "x": 973,
-        "label": "RAID STREAK"
+        "label": "RANK"
       },
       {
         "key": "duels",
         "x": 1093,
-        "label": "DUELS"
+        "label": "GLOBAL RANK #"
       },
       {
         "key": "duelWins",
         "x": 1212,
-        "label": "DUEL WINS"
+        "label": "BEST RANK STK"
       },
       {
         "key": "duelStreak",
         "x": 1331,
-        "label": "DUEL STREAK"
+        "label": "WIN RATE"
       }
     ]
   },

@@ -56,6 +56,9 @@ scripts/*selftest.js
 !scripts/battle-selftest.js
 !scripts/combat-log-order-selftest.js
 !scripts/font-render-selftest.js
+!scripts/monthsary-remediation-db-selftest.js
+!scripts/schema-drift-selftest.js
+!scripts/genesis-avatar-selftest.js
 scripts/*benchmark.js
 scripts/alignSkins.js
 scripts/analyze-resource-logs.js
@@ -68,12 +71,13 @@ scripts/recompress-assets.js
 scripts/render-requested-preview.js
 scripts/renderSkinDesignPreview.js
 scripts/skinPreview.js
-scripts/v5_wipe_test_gear.js
+!scripts/v5_wipe_test_gear.js
 
 # SQL scratch/backup dumps — deployment schema (and v4 rules schema) stay tracked
 *.sql
 !scripts/production-consolidated-schema.sql
 !scripts/credd_schema_v4.sql
+!scripts/schema.sql
 !scripts/canvas-cache-schema.sql
 !scripts/avatar-system-schema.sql
 !scripts/avatar-dev-owner-grants.sql

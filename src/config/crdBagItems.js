@@ -15,6 +15,8 @@ const CRD_BAG_ITEMS = Object.freeze([
   Object.freeze({ id: 'cc',   name: 'Character Class Change', emojiName: 'change_class',  column: 'change_class',   use: 'classChange' }),
   Object.freeze({ id: 'sr',   name: 'Sacred Relic',           emojiName: 'sacred_relic',  column: 'sacred_relics',  use: 'relicOpen' }),
   Object.freeze({ id: 'supr', name: 'Supreme Relic',          emojiName: 'supreme_relic', column: 'supreme_relics', use: 'relicOpen' }),
+  Object.freeze({ id: 'at',   name: 'Custom Avatar Token',    emojiName: 'custom_avatar', column: 'custom_avatar_token', type: 'avatar', use: 'ticket' }),
+  Object.freeze({ id: 'dt',   name: 'Custom Deity Token',     emojiName: 'custom_deity',  column: 'custom_deity_token',  type: 'deity',  use: 'ticket' }),
 ]);
 
 /** Resolve a user-supplied id against the registry (case-insensitive). */

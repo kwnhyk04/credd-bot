@@ -10,6 +10,7 @@ const pool = require('../../db/pool');
 const { buildBagOverview, buildChestsView, buildItemsView, getChestCounts } = require('../../engine/bagViews');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay, emoji, gearTierEmoji } = require('../../utils/emojis');
+const { getActiveLoadout } = require('../../engine/loadout');
 
 // Rune-slot indicator for inventory rows (custom emoji, 💠 fallback).
 function slotIcon() { const e = emoji('rune_slot'); return e === '▫️' ? '💠' : e; }
@@ -130,16 +131,16 @@ async function fetchWeapons(discordId, page) {
   const { rows: weapons } = await pool.query(
     `SELECT uw.weapon_id, wr.name, wr.tier, wr.type, uw.enhancement, uw.is_locked,
             uw.curr_atk, uw.crit,
-            COALESCE(jsonb_array_length(uw.native_sockets), 0) AS socket_count,
-            (uw.weapon_id = uc.equipped_weapon_id) AS equipped
+            COALESCE(jsonb_array_length(uw.native_sockets), 0) AS socket_count
        FROM user_weapons uw
        JOIN weapon_roster wr ON uw.weapon_roster_id = wr.weapon_roster_id
-       LEFT JOIN user_character uc ON uc.discord_id = uw.discord_id
       WHERE uw.discord_id = $1
       ORDER BY ${TIER_ORDER_SQL} DESC, uw.enhancement DESC, uw.obtained_at ASC
       LIMIT $2 OFFSET $3`,
     [discordId, WEAPONS_PER_PAGE, offset]
   );
+  const loadout = await getActiveLoadout(pool, discordId);
+  for (const weapon of weapons) weapon.equipped = weapon.weapon_id === loadout?.equipped_weapon_id;
 
   return { weapons, total, page: clampedPage };
 }
@@ -258,16 +259,16 @@ async function fetchArmors(discordId, page) {
   const { rows: armors } = await pool.query(
     `SELECT ua.armor_id, ar.name, ar.tier, ar.type, ua.enhancement, ua.is_locked,
             ua.curr_hp, ua.curr_def,
-            COALESCE(jsonb_array_length(ua.native_sockets), 0) AS socket_count,
-            (ua.armor_id = uc.equipped_armor_id) AS equipped
+            COALESCE(jsonb_array_length(ua.native_sockets), 0) AS socket_count
        FROM user_armors ua
        JOIN armor_roster ar ON ua.armor_roster_id = ar.armor_roster_id
-       LEFT JOIN user_character uc ON uc.discord_id = ua.discord_id
       WHERE ua.discord_id = $1
       ORDER BY ${ARMOR_TIER_ORDER_SQL} DESC, ua.enhancement DESC, ua.obtained_at ASC
       LIMIT $2 OFFSET $3`,
     [discordId, WEAPONS_PER_PAGE, offset]
   );
+  const loadout = await getActiveLoadout(pool, discordId);
+  for (const armor of armors) armor.equipped = armor.armor_id === loadout?.equipped_armor_id;
 
   return { armors, total, page: clampedPage };
 }

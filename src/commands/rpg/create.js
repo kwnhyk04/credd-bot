@@ -15,6 +15,7 @@ const {
   GRANT_BELIEF_SHARDS, GRANT_SILVER_CHESTS,
 } = require('../../config/starter');
 const { generateUniqueGearId } = require('../../utils/weaponId');
+const { createPresets } = require('../../engine/loadout');
 const { renderPortraitCard } = require('../../engine/renderPortraitCard');
 const { assetPath, isRemoteAssetsEnabled } = require('../../utils/assets');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
@@ -247,7 +248,7 @@ async function handleConfirm(interaction, className, ownerId) {
     }
     const armorRosterId = armorRoster.rows[0].armor_roster_id;
 
-    // Gear rows first (FK-safe), then character with both equip slots already set.
+    // Gear rows first (FK-safe), then character and both preset rows in this transaction.
     // [v5] weapon = ATK + CRIT only; armor = HP + DEF only.
     const weaponId = await generateUniqueGearId(client);
     await client.query(
@@ -266,9 +267,10 @@ async function handleConfirm(interaction, className, ownerId) {
     );
 
     await client.query(
-      'INSERT INTO user_character (discord_id, class, equipped_weapon_id, equipped_armor_id) VALUES ($1, $2, $3, $4)',
-      [discordId, className, weaponId, armorId]
+      'INSERT INTO user_character (discord_id, class) VALUES ($1, $2)',
+      [discordId, className]
     );
+    await createPresets(client, discordId, { weaponId, armorId });
 
     // Starter grant (creation only, §35.6).
     await client.query(

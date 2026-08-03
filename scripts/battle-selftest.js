@@ -50,10 +50,10 @@ const { applyCombatExp, EXP_REQUIRED, MAX_COMBAT_LEVEL } = require(path.join(ROO
 const { CLASSES } = require(path.join(ROOT, 'src', 'config', 'classes'));
 const { runeDescription } = require(path.join(ROOT, 'src', 'config', 'runes'));
 const {
-  GREATER_BOSSES, GREATER_SPAWN_CHANCE, GREATER_CHEST_GOLDEN_CHANCE,
-  GREATER_TWIN_REWARD, GREATER_GOLDEN_REWARD,
+  GREATER_BOSSES, CALAMITY_BOSSES, CALAMITY_SPAWN_CHANCE, GREATER_SPAWN_CHANCE, NORMAL_SPAWN_CHANCE,
+  GREATER_CHEST_GOLDEN_CHANCE, GREATER_TWIN_REWARD, GREATER_GOLDEN_REWARD,
   bossRewards, rollBossChest, hpMultiplierForChest, bossMaxHpForChest,
-  inferChestFromGreaterHp, pickWeightedBoss,
+  inferChestFromGreaterHp, bossChestForSpawn, pickWeightedBoss,
 } = require(path.join(ROOT, 'src', 'config', 'bosses'));
 
 // ── tiny test framework ─────────────────────────────────────────────────────
@@ -116,7 +116,7 @@ section('1. Coverage — registry ⇄ passive_registry_keys.md');
   // 8 armor passives and 26 echo blessing keys; aegis & helm_of_darkness were
   // already counted (migrated from shields). [Genesis update] +5 Genesis weapon
   // passives (kiri, moira, sophia, atlas, titan).
-  check('expected key count (176 incl. none)', regKeys.size === 176, `got ${regKeys.size}`);
+  check('expected key count (177 incl. none)', regKeys.size === 177, `got ${regKeys.size}`);
   for (const k of regKeys) {
     if (typeof PASSIVE_REGISTRY[k] !== 'function') check(`key ${k} is a function`, false);
   }
@@ -183,7 +183,7 @@ check('class base and per-level scaling match the balance table',
     },
     Knight: {
       base: { hp: 1000, atk: 200, def: 300, crit: 5.0 },
-      scaling: { hp: 200, atk: 50, def: 100, crit: 0.0 },
+      scaling: { hp: 200, atk: 70, def: 100, crit: 0.0 },
     },
     Archer: {
       base: { hp: 600, atk: 300, def: 150, crit: 5.0 },
@@ -609,8 +609,8 @@ check('class base and per-level scaling match the balance table',
   check('C1: boss Lv40 spot check', s40.hp === 76100 && s40.atk === 4600 && s40.def === 1690,
     `got hp=${s40.hp} atk=${s40.atk} def=${s40.def}`);
   const boss60 = computeBossStats(boss, 60);
-  check('C1: boss Lv60 uses direct DB formula without a runtime multiplier',
-    boss60.hp === 82400 && boss60.atk === 6080 && boss60.def === 2230 && boss60.crit === 20,
+  check('C1: boss stats stay fixed at authored base values',
+    boss60.hp === 63500 && boss60.atk === 1640 && boss60.def === 610 && boss60.crit === 20,
     `got hp=${boss60.hp} atk=${boss60.atk} def=${boss60.def} crit=${boss60.crit}`);
   // [Progression v2] MOB_LEVEL_MAX rose 55 -> 120 with the player cap. Level 99 is now
   // BELOW the ceiling, so it scales normally; the clamp is asserted separately above it.
@@ -2560,45 +2560,65 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
   const bossConfigSource = fs.readFileSync(path.join(ROOT, 'src', 'config', 'bosses.js'), 'utf8');
   check('same-spawn upsert resets the daily counter', /attacks = CASE[\s\S]*?ELSE 1[\s\S]*?last_daily_reset =/.test(bossSource));
   check('no lifetime per-spawn attack gate remains', !/SELECT attacks FROM boss_attack_log WHERE boss_spawn_id/.test(bossSource));
-  check('boss spawn applies the variant to base HP before level scaling',
-    /const stats = computeBossStats\(row, level\);/.test(bossSource)
+  check('boss spawn uses fixed roster stats and no level scaling',
+    /const stats = computeBossStats\(row\);/.test(bossSource)
       && /const maxHp = bossMaxHpForChest\(/.test(bossSource)
-      && /hpScaleOrder:\s*'base_hp\*variant \+ hp_per_level\*level'/.test(bossSource));
+      && !/bossLevel|hpScaleOrder/.test(bossSource));
   check('boss spawn path has no global or ATK/DEF stat multiplier',
     !/scaledBossStats|bossStatMultiplier|bossAttackDefenseMultiplier|BOSS_STAT_MULTIPLIER|BOSS_ATK_DEF_MULTIPLIER/.test(bossSource)
       && !/stats\.(?:atk|def|crit)\s*\*/.test(bossSource));
   check('Greater HP multiplier follows the rolled chest only',
-    hpMultiplierForChest(rollBossChest('Jotun', () => 0.99)) === 2
-      && hpMultiplierForChest(rollBossChest('Jotun', () => 0)) === 3
+    hpMultiplierForChest(rollBossChest('Jotun', () => 0.99)) === 1.5
+      && hpMultiplierForChest(rollBossChest('Jotun', () => 0)) === 2
       && hpMultiplierForChest({ column: 'boss_treasure_chest', qty: 1 }) === 1
-      && bossMaxHpForChest(100, 10, 5, rollBossChest('Jotun', () => 0.99)) === 250
-      && bossMaxHpForChest(100, 10, 5, rollBossChest('Jotun', () => 0)) === 350
-      && inferChestFromGreaterHp(100, 250, { hpPerLevel: 10, level: 5 })?.column === 'boss_treasure_chest'
-      && inferChestFromGreaterHp(100, 350, { hpPerLevel: 10, level: 5 })?.column === 'boss_golden_chest'
-      && inferChestFromGreaterHp(100, 225, { hpPerLevel: 10, level: 5 })?.column === 'boss_treasure_chest'
-      && inferChestFromGreaterHp(100, 300, { hpPerLevel: 10, level: 5 })?.column === 'boss_golden_chest'
+      && bossMaxHpForChest(100, 10, 5, rollBossChest('Jotun', () => 0.99)) === 150
+      && bossMaxHpForChest(100, 10, 5, rollBossChest('Jotun', () => 0)) === 200
+      && inferChestFromGreaterHp(100, 150)?.column === 'boss_treasure_chest'
+      && inferChestFromGreaterHp(100, 200)?.column === 'boss_golden_chest'
       && inferChestFromGreaterHp(100, 100) === null
       && /const hpMultiplier = greater \? hpMultiplierForChest\(spawnChest\) : 1;/.test(bossSource)
-      && /GREATER_TREASURE_HP_MULTIPLIER\s*=\s*2/.test(bossConfigSource)
-      && /GREATER_GOLDEN_HP_MULTIPLIER\s*=\s*3/.test(bossConfigSource));
+      && /GREATER_TREASURE_HP_MULTIPLIER\s*=\s*1\.5/.test(bossConfigSource)
+      && /GREATER_GOLDEN_HP_MULTIPLIER\s*=\s*2/.test(bossConfigSource));
   check('Greater chest outcome is recoverable from persisted max HP after restart',
-    /inferChestFromGreaterHp\(baseHp, maxHp, \{ hpPerLevel, level \}\)/.test(bossSource)
-      && /RETURNING mob_id, boss_level, max_hp/.test(bossSource));
+    /inferChestFromGreaterHp\(baseHp, maxHp\)/.test(bossSource)
+      && /RETURNING mob_id, max_hp, spawn_source/.test(bossSource));
   check('Greater identity and chest rewards remain configured',
-    GREATER_BOSSES.size === 5
+    GREATER_BOSSES.size === 3
+      && CALAMITY_BOSSES.size === 2
       && rollBossChest('Jotun', () => 0).column === 'boss_golden_chest'
       && rollBossChest('Jotun', () => 0.99).qty === 2
       && rollBossChest('Medusa', () => 0).qty === 1
-      && GREATER_SPAWN_CHANCE === 0.30
+      && CALAMITY_SPAWN_CHANCE === 0.05
+      && GREATER_SPAWN_CHANCE === 0.25
+      && NORMAL_SPAWN_CHANCE === 0.70
       && GREATER_CHEST_GOLDEN_CHANCE === 0.25
       && bossRewards('Jotun', rollBossChest('Jotun', () => 0.99)) === GREATER_TWIN_REWARD
       && bossRewards('Jotun', rollBossChest('Jotun', () => 0)) === GREATER_GOLDEN_REWARD
       && !bossConfigSource.includes('Golden Treasure Chest'));
+  check('Calamity rewards and spawn chest variants are fixed',
+    bossChestForSpawn('Fenrir', 'natural').qty === 3
+      && bossChestForSpawn('Fenrir', 'dev').column === 'supreme_chest'
+      && bossRewards('Fenrir').credux === 400000);
+  const eclipseSim = resolveBattle(
+    player({ atk: 1, hp: 100000, def: 100000, crit: 100, classPassive: null }),
+    mob({
+      name: 'Bakunawa', mobType: 'boss', atk: 0, hp: 100000, def: 0, crit: 0,
+      skillKey: 'bakunawa_seven_moons', specialFlags: { no_immunities: true },
+    }),
+    { mode: 'boss', seed: 42, rng: () => 0.5 },
+  );
+  const round3 = eclipseSim.rounds.find((r) => r.round === 3)?.events || [];
+  const round4 = eclipseSim.rounds.find((r) => r.round === 4)?.events || [];
+  check('Bakunawa Eclipse applies darkened every fourth turn and suppresses crits for one turn',
+    round3.some((event) => event.includes('(CRIT!)'))
+      && round4.some((event) => event.includes('Bakunawa: Eclipse'))
+      && round4.some((event) => event.includes('Hero attacks') && !event.includes('(CRIT!)'))
+      && eclipseSim.rounds.find((r) => r.round === 5)?.events.some((event) => event.includes('(CRIT!)')));
   const weightedBossRows = [{ name: 'Jotun' }, { name: 'Medusa' }];
   check('Greater/normal weighted selection remains enabled',
     pickWeightedBoss(weightedBossRows, scripted([0.29, 0])).row.name === 'Jotun'
       && pickWeightedBoss(weightedBossRows, scripted([0.31, 0])).row.name === 'Medusa'
-      && /const spawnChest = greater \? rollBossChest\(row\.name\) : null;/.test(bossSource));
+      && /const spawnChest = greater \|\| calamity/.test(bossSource));
   const survivingRefresh = /if \(remaining <= 0\) \{[\s\S]*?\} else \{([\s\S]*?)\n\s*\}/.exec(bossSource)?.[1] || '';
   check('surviving boss attacks schedule a coalesced progress refresh',
     /scheduleBossLiveRefresh/.test(survivingRefresh) && !/bossStatusImage/.test(survivingRefresh));
@@ -2897,6 +2917,37 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
 
 // ════════════════════════════════════════════════════════════════════════════
 console.log(`\n${'═'.repeat(50)}`);
+{
+  const bossSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'bossSystem.js'), 'utf8');
+  const engineSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'battleEngine.js'), 'utf8');
+  const bakunawa = mob({
+    name: 'Bakunawa', mobType: 'boss', hp: 1000, poolHp: 1000, poolMaxHp: 1000,
+    atk: 1, def: 0, skillKey: 'bakunawa_seven_moons',
+    immunityTags: ['all_debuffs'], specialFlags: { no_immunities: true },
+  });
+  const thresholdSim = resolveBattle(
+    player({ atk: 1000, hp: 100000, def: 100000, crit: 0, classPassive: null }),
+    bakunawa,
+    { mode: 'boss', seed: 1, rng: () => 0.5 },
+  );
+  check('Bakunawa crosses all six thresholds once and caps at +60% ATK',
+    thresholdSim.b.bossPassiveState.atkBonusPct === 0.6
+      && JSON.stringify(thresholdSim.b.bossPassiveState.crossedThresholds) === JSON.stringify([85, 70, 55, 40, 25, 10])
+      && thresholdSim.bossThresholdEvents.length === 6);
+  const resumed = resolveBattle(
+    player({ atk: 1, hp: 100000, def: 100000, crit: 0, classPassive: null }),
+    mob({ ...bakunawa, hp: 500, poolHp: 500, poolMaxHp: 1000, bossPassiveState: thresholdSim.b.bossPassiveState }),
+    { mode: 'boss', seed: 2, rng: () => 0.5 },
+  );
+  check('Bakunawa threshold state persists without retriggering crossed thresholds',
+    resumed.b.bossPassiveState.atkBonusPct === 0.6 && resumed.bossThresholdEvents.length === 0);
+  check('no_immunities bypasses boss immunity gates',
+    /side\.isBoss && side\.specialFlags\.no_immunities === true\) return false/.test(engineSource));
+  check('boss simulation follows the row lock and omits legacy level writes',
+    bossSource.indexOf('FOR UPDATE') < bossSource.indexOf('resolveBattle(fighter, boss')
+      && !/boss_level|enemy_level/.test(bossSource));
+}
+
 console.log(`SELFTEST: ${passed} passed, ${failed} failed`);
 if (failed > 0) {
   console.log('\nFailures:');

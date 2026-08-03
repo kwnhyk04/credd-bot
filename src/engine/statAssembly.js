@@ -9,8 +9,8 @@
  *     CRIT is NEVER scaled by weapon or deity enhancement. The weapon's unified
  *     damage % (bonus_dmg_pct) is read straight off the row.
  *   - buildMobFighter: base + per_level × level (C1 — Master §16 formula, NOT
- *     level − 1), level clamped [1, 55]. Carries skill_key / immunity_tags /
- *     special_flags for the engine.
+ *     level − 1), level clamped to the configured mob range. Carries skill_key /
+ *     immunity_tags / special_flags for the engine.
  *
  * The ONLY SQL in Phase 6 — read-only SELECTs, no transactions, no mutations.
  * is_available is intentionally ignored for owned rows: owned rows always fight.
@@ -24,6 +24,7 @@ const { CLASSES } = require('../config/classes');
 const { ELITE_SPAWN_CHANCE } = require('../config/raidLoot');
 const { resolveBlessingSlots, computeResonanceMods } = require('../config/blessings');
 const { computeDeityProgressionStats } = require('./deityEnhancement');
+const { getActiveLoadout } = require('./loadout');
 const { envPositiveInt } = require('../utils/runtimeLogs');
 const { registerMemorySource } = require('../utils/memoryRegistry');
 
@@ -239,48 +240,8 @@ function rollMobLevel(playerLevel, rng) {
  * @returns fighter struct or null when the user has no character.
  */
 async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) {
-  const res = await db.query(
-    `SELECT uc.class, uc.combat_level, u.username,
-            w.curr_atk  AS w_atk, w.crit AS w_crit,
-            w.bonus_dmg_pct,
-            w.native_sockets AS w_native, w.opposite_sockets AS w_opposite,
-            wr.name     AS weapon_name, wr.passive_key,
-            am.curr_hp  AS a_hp, am.curr_def AS a_def,
-            am.native_sockets AS a_native, am.opposite_sockets AS a_opposite,
-            ar.name     AS armor_name, ar.passive_key AS armor_passive_key,
-            COALESCE(ud.sigils, 0) AS d1_unlocked_sigils,
-            COALESCE(ud.ascended, FALSE) AS d1_ascended, ud.enhancement AS d1_enhancement,
-            dr.base_atk AS d1_batk, dr.base_hp AS d1_bhp, dr.base_def AS d1_bdef,
-            dr.name     AS deity_name, dr.blessing_key, dr.mythology AS d1_myth,
-            COALESCE(ud2.sigils, 0) AS d2_unlocked_sigils,
-            COALESCE(ud2.ascended, FALSE) AS d2_ascended, ud2.enhancement AS d2_enhancement,
-            dr2.base_atk AS d2_batk, dr2.base_hp AS d2_bhp, dr2.base_def AS d2_bdef,
-            dr2.name     AS deity2_name, dr2.blessing_key AS blessing_key_2, dr2.mythology AS d2_myth,
-            COALESCE(ud3.sigils, 0) AS d3_unlocked_sigils,
-            COALESCE(ud3.ascended, FALSE) AS d3_ascended, ud3.enhancement AS d3_enhancement,
-            dr3.base_atk AS d3_batk, dr3.base_hp AS d3_bhp, dr3.base_def AS d3_bdef,
-            dr3.name     AS deity3_name, dr3.blessing_key AS blessing_key_3, dr3.mythology AS d3_myth,
-            ude.user_deity_id AS echo_udid, ude.ascended AS echo_ascended,
-            dre.name     AS echo_deity_name, dre.blessing_key AS echo_blessing_key
-       FROM user_character uc
-       JOIN users u            ON u.discord_id = uc.discord_id
-       LEFT JOIN user_weapons w  ON w.weapon_id = uc.equipped_weapon_id
-       LEFT JOIN weapon_roster wr ON wr.weapon_roster_id = w.weapon_roster_id
-       LEFT JOIN user_armors am  ON am.armor_id = uc.equipped_armor_id
-       LEFT JOIN armor_roster ar ON ar.armor_roster_id = am.armor_roster_id
-       LEFT JOIN user_deities ud ON ud.user_deity_id = uc.active_deity_id
-       LEFT JOIN deity_roster dr ON dr.deity_id = ud.deity_id
-       LEFT JOIN user_deities ud2 ON ud2.user_deity_id = uc.active_deity_id_2
-       LEFT JOIN deity_roster dr2 ON dr2.deity_id = ud2.deity_id
-       LEFT JOIN user_deities ud3 ON ud3.user_deity_id = uc.active_deity_id_3
-       LEFT JOIN deity_roster dr3 ON dr3.deity_id = ud3.deity_id
-       LEFT JOIN user_deities ude ON ude.user_deity_id = uc.active_echo_deity_id
-       LEFT JOIN deity_roster dre ON dre.deity_id = ude.deity_id
-      WHERE uc.discord_id = $1`,
-    [discordId]
-  );
-  if (res.rows.length === 0) return null;
-  const r = res.rows[0];
+  const r = await getActiveLoadout(db, discordId);
+  if (!r) return null;
 
   const weapon = r.w_atk != null
     ? { curr_atk: r.w_atk, crit: r.w_crit }
@@ -378,17 +339,13 @@ function buildMobFighter(row, level) {
   };
 }
 
-/**
- * Boss stats per §16: base + per_level × level. Bosses are EXEMPT from the
- * §35.6 [1,55] clamp (that rule governs raid mobs only) — server avg 50 +
- * random(1–10) may legitimately produce a level-60 boss. Defensive floor at 1.
- */
+/** Boss stats are fixed roster values; the legacy level argument is ignored. */
 function computeBossStats(row, level) {
-  const lv = Math.max(1, level);
+  void level;
   return {
-    hp: Math.floor(row.base_hp + row.hp_per_level * lv),
-    atk: Math.floor(row.base_atk + row.atk_per_level * lv),
-    def: Math.floor(row.base_def + row.def_per_level * lv),
+    hp: Math.floor(Number(row.base_hp) || 0),
+    atk: Math.floor(Number(row.base_atk) || 0),
+    def: Math.floor(Number(row.base_def) || 0),
     crit: Number(row.base_crit) || 0,
   };
 }
@@ -405,7 +362,6 @@ function buildBossFighter(row, bossState) {
     name: row.name,
     kind: 'mob',
     mobType: 'boss',
-    level: bossState.boss_level,
     atk: bossState.scaled_atk,
     hp: Number(bossState.max_hp),
     def: bossState.scaled_def,
@@ -415,6 +371,7 @@ function buildBossFighter(row, bossState) {
     skillDescription: row.skill_description || null,
     immunityTags: Array.isArray(row.immunity_tags) ? row.immunity_tags : [],
     specialFlags: row.special_flags || {},
+    bossPassiveState: bossState.passive_state || {},
     poolHp: Number(bossState.current_hp),
     poolMaxHp: Number(bossState.max_hp),
   };

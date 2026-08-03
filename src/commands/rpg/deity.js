@@ -11,6 +11,7 @@ const {
 const fs = require('fs');
 const path = require('path');
 const pool = require('../../db/pool');
+const { getActiveLoadout, updateActiveLoadout } = require('../../engine/loadout');
 const { registerMemorySource } = require('../../utils/memoryRegistry');
 const { TIER_ALIAS, TIER_COLOR, TIER_ESSENCE_COLUMN } = require('../../config/gachaRates');
 const { smallDivider: sep } = require('../../utils/componentsV2');
@@ -904,8 +905,6 @@ async function handleSigilButton(interaction, userDeityId, ownerId) {
 }
 
 // ── crd deity equip <name> [slot] ─────────────────────────────────────────
-const SLOT_COLUMNS = { 1: 'active_deity_id', 2: 'active_deity_id_2', 3: 'active_deity_id_3' };
-
 async function equip(message, rest) {
   if (!rest) {
     await reply(message, { content: 'Usage: `crd deity equip <deity name> [1|2|3]`' });
@@ -920,14 +919,12 @@ async function equip(message, rest) {
     parts.pop();
   }
   const name = parts.join(' ');
+  const loadout = await getActiveLoadout(pool, discordId);
+  if (!loadout) { await reply(message, { content: 'No character found.' }); return; }
 
   // Check believer level gate for slots 2/3
   if (slot > 1) {
-    const charRes = await pool.query(
-      'SELECT believer_level FROM user_character WHERE discord_id = $1', [discordId]
-    );
-    if (charRes.rows.length === 0) { await reply(message, { content: 'No character found.' }); return; }
-    const blvl = charRes.rows[0].believer_level || 0;
+    const blvl = loadout.believer_level || 0;
     const required = SLOT_UNLOCK_GATES[slot];
     if (blvl < required) {
       await reply(message, { content: `Slot ${slot} requires **Believer Level ${required}**. You are level ${blvl}.` });
@@ -950,15 +947,11 @@ async function equip(message, rest) {
   const { user_deity_id, name: deityName, tier } = rows[0];
 
   // Check deity not already in another slot
-  const slotRes = await pool.query(
-    `SELECT active_deity_id, active_deity_id_2, active_deity_id_3 FROM user_character WHERE discord_id = $1`,
-    [discordId]
-  );
-  const current = slotRes.rows[0];
+  const current = loadout;
   const occupied = [
-    { s: 1, id: current.active_deity_id },
-    { s: 2, id: current.active_deity_id_2 },
-    { s: 3, id: current.active_deity_id_3 },
+    { s: 1, id: current.equipped_deity_1_id },
+    { s: 2, id: current.equipped_deity_2_id },
+    { s: 3, id: current.equipped_deity_3_id },
   ];
   const dup = occupied.find(o => o.id === user_deity_id && o.s !== slot);
   if (dup) {
@@ -966,26 +959,19 @@ async function equip(message, rest) {
     return;
   }
 
-  // If removing from the slot that was the echo source, clear echo
-  const col = SLOT_COLUMNS[slot];
-  const echoCol = slot === 2 || slot === 3 ? '' : '';
-  // Check if the old deity in this slot was the echo source
-  let clearEcho = '';
-  if (slot === 2 || slot === 3) {
-    const echoRes = await pool.query(
-      'SELECT active_echo_deity_id FROM user_character WHERE discord_id = $1', [discordId]
-    );
-    const echoId = echoRes.rows[0]?.active_echo_deity_id;
-    const oldSlotId = slot === 2 ? current.active_deity_id_2 : current.active_deity_id_3;
-    if (echoId && echoId === oldSlotId) {
-      clearEcho = ', active_echo_deity_id = NULL';
-    }
+  const slotChanges = {
+    1: { equipped_deity_1_id: user_deity_id },
+    2: { equipped_deity_2_id: user_deity_id },
+    3: { equipped_deity_3_id: user_deity_id },
+  };
+  const changes = { ...slotChanges[slot] };
+  const oldSlotId = occupied.find((entry) => entry.s === slot)?.id;
+  if ((slot === 2 || slot === 3)
+      && current.equipped_echo_deity_id != null
+      && current.equipped_echo_deity_id === oldSlotId) {
+    changes.equipped_echo_deity_id = null;
   }
-
-  await pool.query(
-    `UPDATE user_character SET ${col} = $1${clearEcho} WHERE discord_id = $2`,
-    [user_deity_id, discordId]
-  );
+  await updateActiveLoadout(pool, discordId, changes);
   await reply(message, { content: `**${deityName}** (${TIER_ALIAS[tier]}) equipped to **Slot ${slot}**.` });
 }
 
@@ -997,21 +983,25 @@ async function unequip(message, rest) {
     return;
   }
   const discordId = message.author.id;
-  const col = SLOT_COLUMNS[slot];
-
-  // If this slot was the echo source, clear echo too
-  let clearEcho = '';
-  if (slot === 2 || slot === 3) {
-    const res = await pool.query(
-      `SELECT ${col}, active_echo_deity_id FROM user_character WHERE discord_id = $1`, [discordId]
-    );
-    const row = res.rows[0];
-    if (row && row.active_echo_deity_id && row.active_echo_deity_id === row[col]) {
-      clearEcho = ', active_echo_deity_id = NULL';
-    }
+  const loadout = await getActiveLoadout(pool, discordId);
+  if (!loadout) { await reply(message, { content: 'No character found.' }); return; }
+  const slotChanges = {
+    1: { equipped_deity_1_id: null },
+    2: { equipped_deity_2_id: null },
+    3: { equipped_deity_3_id: null },
+  };
+  const slotIds = {
+    1: loadout.equipped_deity_1_id,
+    2: loadout.equipped_deity_2_id,
+    3: loadout.equipped_deity_3_id,
+  };
+  const changes = { ...slotChanges[slot] };
+  if ((slot === 2 || slot === 3)
+      && loadout.equipped_echo_deity_id != null
+      && loadout.equipped_echo_deity_id === slotIds[slot]) {
+    changes.equipped_echo_deity_id = null;
   }
-
-  await pool.query(`UPDATE user_character SET ${col} = NULL${clearEcho} WHERE discord_id = $1`, [discordId]);
+  await updateActiveLoadout(pool, discordId, changes);
   await reply(message, { content: `Slot ${slot} cleared.` });
 }
 
@@ -1024,19 +1014,15 @@ async function echo(message, name) {
   const discordId = message.author.id;
 
   // Check slot 3 unlocked
-  const charRes = await pool.query(
-    'SELECT believer_level, active_deity_id_2, active_deity_id_3 FROM user_character WHERE discord_id = $1',
-    [discordId]
-  );
-  if (charRes.rows.length === 0) { await reply(message, { content: 'No character found.' }); return; }
-  const char = charRes.rows[0];
+  const char = await getActiveLoadout(pool, discordId);
+  if (!char) { await reply(message, { content: 'No character found.' }); return; }
   if ((char.believer_level || 0) < SLOT_UNLOCK_GATES[3]) {
     await reply(message, { content: `Echo Blessings unlock at **Believer Level ${SLOT_UNLOCK_GATES[3]}**.` });
     return;
   }
 
   // Find the deity in slot 2 or 3
-  const slotIds = [char.active_deity_id_2, char.active_deity_id_3].filter(Boolean);
+  const slotIds = [char.equipped_deity_2_id, char.equipped_deity_3_id].filter(Boolean);
   if (slotIds.length === 0) {
     await reply(message, { content: 'You need a deity in Slot 2 or 3 to set an Echo Blessing.' });
     return;
@@ -1061,10 +1047,7 @@ async function echo(message, name) {
     return;
   }
 
-  await pool.query(
-    'UPDATE user_character SET active_echo_deity_id = $1 WHERE discord_id = $2',
-    [deity.user_deity_id, discordId]
-  );
+  await updateActiveLoadout(pool, discordId, { equipped_echo_deity_id: deity.user_deity_id });
   const echoKey = ECHO_BLESSING_KEY_MAP[deity.name] || deity.name;
   await reply(message, { content: `**Echo Blessing** set: **${deity.name}** (${TIER_ALIAS[deity.tier]}).` });
 }
@@ -1100,35 +1083,19 @@ function drawCenteredFitText(ctx, text, x, y, maxWidth, size, weight = 'bold') {
 
 async function deities(message) {
   const discordId = message.author.id;
-  const res = await pool.query(
-    `SELECT uc.active_deity_id, uc.active_deity_id_2, uc.active_deity_id_3,
-            uc.active_echo_deity_id, uc.believer_level,
-            d1.ascended AS a1, de.ascended AS echo_ascended,
-            d1r.name AS n1, d1r.tier AS t1, d1r.mythology AS m1, d1r.image_filename AS img1,
-            d1r.blessing_name AS bn1, d1r.blessing_description AS bd1,
-            d2r.name AS n2, d2r.tier AS t2, d2r.mythology AS m2, d2r.image_filename AS img2,
-            d3r.name AS n3, d3r.tier AS t3, d3r.mythology AS m3, d3r.image_filename AS img3,
-            der.name AS echo_name, der.blessing_name AS echo_bn, der.blessing_description AS echo_bd
-       FROM user_character uc
-       LEFT JOIN user_deities d1  ON d1.user_deity_id = uc.active_deity_id
-       LEFT JOIN deity_roster d1r ON d1r.deity_id = d1.deity_id
-       LEFT JOIN user_deities d2  ON d2.user_deity_id = uc.active_deity_id_2
-       LEFT JOIN deity_roster d2r ON d2r.deity_id = d2.deity_id
-       LEFT JOIN user_deities d3  ON d3.user_deity_id = uc.active_deity_id_3
-       LEFT JOIN deity_roster d3r ON d3r.deity_id = d3.deity_id
-       LEFT JOIN user_deities de  ON de.user_deity_id = uc.active_echo_deity_id
-       LEFT JOIN deity_roster der ON der.deity_id = de.deity_id
-      WHERE uc.discord_id = $1`,
-    [discordId]
-  );
-  if (res.rows.length === 0) { await reply(message, { content: 'No character found.' }); return; }
-  const r = res.rows[0];
+  const r = await getActiveLoadout(pool, discordId);
+  if (!r) { await reply(message, { content: 'No character found.' }); return; }
+  // Keep the existing renderer's local display aliases; the accessor remains
+  // the only source of the active preset data.
+  r.n1 = r.deity_name;
+  r.echo_name = r.echo_deity_name;
+  r.a1 = r.d1_ascended;
   const believerLevel = Number(r.believer_level) || 0;
 
   const slots = [
-    { name: r.n1, tier: r.t1, mythology: r.m1, img: r.img1 },
-    { name: r.n2, tier: r.t2, mythology: r.m2, img: r.img2 },
-    { name: r.n3, tier: r.t3, mythology: r.m3, img: r.img3 },
+    { name: r.deity_name, tier: r.deity_tier, mythology: r.d1_myth, img: r.deity_image_filename },
+    { name: r.deity2_name, tier: r.deity2_tier, mythology: r.d2_myth, img: r.deity2_image_filename },
+    { name: r.deity3_name, tier: r.deity3_tier, mythology: r.d3_myth, img: r.deity3_image_filename },
   ];
 
   // Canvas: 3 slot boxes — image fills each box exactly
@@ -1264,11 +1231,11 @@ async function deities(message) {
   // Blessing info — [Ascension §3.6] a blessing fires only if that deity is
   // Ascended; un-ascended deities show it as dormant.
   let blessingText = '';
-  if (r.n1) {
-    const btype = DIVINE_BLESSING_DEITIES.has(r.n1) ? 'Divine' : 'Echo';
+  if (r.deity_name) {
+    const btype = DIVINE_BLESSING_DEITIES.has(r.deity_name) ? 'Divine' : 'Echo';
     if (r.a1) {
-      blessingText += `**${btype} Blessing:** ${r.bn1 || r.n1}`;
-      if (r.bd1) blessingText += `\n-# ${r.bd1}`;
+      blessingText += `**${btype} Blessing:** ${r.deity_blessing_name || r.deity_name}`;
+      if (r.deity_blessing_description) blessingText += `\n-# ${r.deity_blessing_description}`;
     } else {
       blessingText += `**${btype} Blessing:** Dormant — ascend ${r.n1} to awaken it.`;
     }
@@ -1276,13 +1243,13 @@ async function deities(message) {
     blessingText += '**Divine Blessing:** None';
   }
   const echoSlot =
-    r.active_echo_deity_id && r.active_echo_deity_id === r.active_deity_id_2 ? 2 :
-    r.active_echo_deity_id && r.active_echo_deity_id === r.active_deity_id_3 ? 3 :
+    r.equipped_echo_deity_id && r.equipped_echo_deity_id === r.equipped_deity_2_id ? 2 :
+    r.equipped_echo_deity_id && r.equipped_echo_deity_id === r.equipped_deity_3_id ? 3 :
     null;
-  if (r.echo_name && echoSlot != null && slotUnlocked(echoSlot, believerLevel)) {
+  if (r.echo_deity_name && echoSlot != null && slotUnlocked(echoSlot, believerLevel)) {
     if (r.echo_ascended) {
-      blessingText += `\n**Echo Blessing:** ${r.echo_bn || r.echo_name}`;
-      if (r.echo_bd) blessingText += `\n-# ${r.echo_bd}`;
+      blessingText += `\n**Echo Blessing:** ${r.echo_blessing_name || r.echo_deity_name}`;
+      if (r.echo_blessing_description) blessingText += `\n-# ${r.echo_blessing_description}`;
     } else {
       blessingText += `\n**Echo Blessing:** Dormant — ascend ${r.echo_name} to awaken it.`;
     }

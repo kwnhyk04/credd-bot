@@ -207,6 +207,27 @@ async function commitRewards(discordId, sim, mobRow, rng, mobLevel) {
 
     // daily-quest progress (§20) — bag lock already held → bag → character → quests
     // order. Raid win → raid_wins; an elite win also progresses elite_defeats.
+    if (won) {
+      await client.query(
+        `WITH ordered AS (
+           SELECT result,
+                  ROW_NUMBER() OVER (ORDER BY "timestamp" DESC, id DESC) AS rn
+             FROM raid_logs
+            WHERE discord_id = $1 AND battle_type = 'raid'
+         ), current_run AS (
+           SELECT COUNT(*)::int AS length
+             FROM ordered
+            WHERE result = 'win'
+              AND rn < COALESCE((SELECT MIN(rn) FROM ordered WHERE result <> 'win'), 2147483647)
+         )
+         UPDATE user_character
+            SET highest_raid_streak = GREATEST(highest_raid_streak, current_run.length)
+           FROM current_run
+          WHERE discord_id = $1`,
+        [discordId]
+      );
+    }
+
     let questNotices = [];
     if (won) {
       const deltas = { raid_wins: 1 };

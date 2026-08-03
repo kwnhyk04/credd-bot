@@ -1681,6 +1681,10 @@ const PASSIVE_REGISTRY = {
     [{ tag: 'petrify', turns: 1 }],
     '🗿 Medusa: Stone Stare — You are petrified! Skip your next turn!'),
 
+  'bakunawa_seven_moons': everyNthPlayerDebuff(4,
+    [{ tag: 'darkened', turns: 1 }],
+    'Bakunawa: Eclipse — your critical chance is reduced to 0 for 1 turn.'),
+
 };
 
 module.exports = PASSIVE_REGISTRY;

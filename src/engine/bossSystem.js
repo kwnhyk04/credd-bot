@@ -69,11 +69,10 @@ const {
 } = require('../utils/runtimeLogs');
 const { registerMemorySource } = require('../utils/memoryRegistry');
 const { beginActivity } = require('../utils/networkTelemetry');
-const { range: secureRange } = require('../utils/secureRng');
 const { bossFeatTitlesFor } = require('../config/titles');
 const {
-  isGreaterBoss, bossRewards, rollBossChest, hpMultiplierForChest,
-  bossMaxHpForChest, greaterVariantForChest, inferChestFromGreaterHp,
+  isGreaterBoss, isCalamityBoss, CALAMITY_BOSSES, bossRewards, rollBossChest, hpMultiplierForChest,
+  bossMaxHpForChest, greaterVariantForChest, inferChestFromGreaterHp, bossChestForSpawn,
   pickWeightedBoss,
   MAX_BOSS_ATTACKS_PER_DAY, bossAttackDecision,
 } = require('../config/bosses');
@@ -85,14 +84,17 @@ const {
 
 const RESPAWN_COOLDOWN = '15 minutes';   // spawns every 15 min after defeat
 const RESPAWN_COOLDOWN_MS = 15 * 60_000;
+const CALAMITY_CLAIM_TIMEOUT = '5 minutes';
+const CALAMITY_IDLE_MS = 2 * 60 * 60_000;
 const ACTIVE_BOSS_EXPIRES_AT_SQL = "NOW() + INTERVAL '100 years'";
 const NON_OFFICIAL_REDIRECT_COOLDOWN_MS = 6 * 60 * 60_000;
 const BOSS_PROGRESS_REFRESH_MAX_RETRIES = 2;
 const BOSS_REFRESH_RECONCILE_COOLDOWN_MS = 10 * 60_000;
 const TOP_N = 15;
 const BOSS_STATE_COLUMNS = `
-  guild_id, spawn_id, mob_id, boss_level, max_hp, current_hp,
-  scaled_atk, scaled_def, expires_at, status
+  guild_id, spawn_id, mob_id, max_hp, current_hp,
+  scaled_atk, scaled_def, spawn_at, expires_at, status,
+  spawn_source, last_attack_at, passive_state
 `;
 const MOB_BATTLE_COLUMNS = `
   mob_id, name, mythology, mob_type, base_hp, hp_per_level, base_atk,
@@ -125,10 +127,8 @@ const lastBossStatusUrls = new Map(); // guildId -> { spawnId, url }
 // chestForSpawn reconstructs the outcome from persisted max_hp before falling
 // back to a roll for legacy spawns that predate chest-linked HP.
 const greaterChests = new Map(); // spawnId → { column, qty, label }
-// spawn_ids created by `crd dev spawnboss` — the daily attack rule is BYPASSED
-// for these (multi-attack smoke testing). Regular scheduler
-// spawns keep every rule. In-memory: a restart reverts a test boss to normal
-// rules, which is fine for testing.
+// Legacy in-memory cache for dev-spawn diagnostics; persisted spawn_source is
+// authoritative, so dev behavior survives a process restart.
 const devSpawns = new Set();
 
 function bossProgressRefreshDebounceMs() {
@@ -324,13 +324,14 @@ function clearBossRuntimeForGuild(guildId, reason = 'guild-removed') {
 function chestForSpawn(
   spawnId,
   bossName,
-  { baseHp = null, hpPerLevel = 0, level = 0, maxHp = null } = {}
+  { baseHp = null, maxHp = null, spawnSource = 'natural' } = {}
 ) {
+  if (isCalamityBoss(bossName)) return bossChestForSpawn(bossName, spawnSource);
   if (!isGreaterBoss(bossName)) return rollBossChest(bossName); // fixed 1× treasure
   if (!greaterChests.has(spawnId)) {
     greaterChests.set(
       spawnId,
-      inferChestFromGreaterHp(baseHp, maxHp, { hpPerLevel, level })
+      inferChestFromGreaterHp(baseHp, maxHp)
         || rollBossChest(bossName)
     );
   }
@@ -478,7 +479,7 @@ async function bossLore(name) {
 }
 
 /* ── boss status card — raid-card style, rendered at banner width so it
- *    lines up with the image above it. Name+Lv left / "· Boss" / HP text on
+ *    lines up with the image above it. Name / "· Boss" / HP text on
  *    the right, passive line, percentage-colored HP bar, stats row. Rendered
  *    fresh per update (HP changes). ─────────────────────────────────────── */
 // This module used to draw with a bare 'DejaVu Sans' and register nothing, relying on
@@ -488,7 +489,7 @@ async function bossLore(name) {
 // (primary + Unicode fallbacks) and is interpolated UNQUOTED into ctx.font.
 const { fontStack } = require('../utils/fontRegistry');
 const FONT = fontStack();
-const BOSS_STATUS_RENDER_REV = 2;
+const BOSS_STATUS_RENDER_REV = 3;
 const CARD_COLORS = {
   bg: '#1f2125', card: '#26282d', cardLine: '#36393f',
   enemy: '#f23f43', text: '#e7e9ec', dim: '#9aa0a8', barBg: '#3b3e44',
@@ -531,11 +532,11 @@ function renderBossStatusCard(state, mobRow) {
   const L = PAD + 26, R = W - PAD - 26;
   ctx.textAlign = 'left';
 
-  // row 1 — "✦ Name  Lv.N · Boss" left, "cur / max" HP right (same as raid card)
+  // row 1 — "✦ Name · Boss" left, "cur / max" HP right (same as raid card)
   let y = PAD + 40;
   ctx.font = `bold 28px ${FONT}`;
   ctx.fillStyle = CARD_COLORS.enemy;
-  const nameText = `✦ ${mobRow.name}  Lv.${state.boss_level}`;
+  const nameText = `✦ ${mobRow.name}`;
   ctx.fillText(nameText, L, y);
   const nw = ctx.measureText(nameText).width;
   ctx.font = `24px ${FONT}`; ctx.fillStyle = CARD_COLORS.dim;
@@ -615,7 +616,6 @@ function bossStatusCacheParts(state, mobRow) {
     spawnId: state.spawn_id,
     status: state.status,
     mobId: state.mob_id,
-    bossLevel: Number(state.boss_level),
     currentHp: Number(state.current_hp),
     maxHp: Number(state.max_hp),
     scaledAtk: Number(state.scaled_atk),
@@ -699,8 +699,9 @@ async function bossStatusImage(state, mobRow, {
 /** Fetch everything the message needs in one place. Null when no boss_state row. */
 async function fetchBossView(guildId) {
   const stateRes = await pool.query(
-    `SELECT guild_id, spawn_id, mob_id, boss_level, max_hp, current_hp,
-            scaled_atk, scaled_def, expires_at, status
+    `SELECT guild_id, spawn_id, mob_id, max_hp, current_hp,
+            scaled_atk, scaled_def, spawn_at, expires_at, status,
+            spawn_source, last_attack_at, passive_state
        FROM boss_state
       WHERE guild_id = $1`,
     [guildId]
@@ -736,7 +737,7 @@ async function fetchBossView(guildId) {
     mobRow: mobRes.rows[0],
     attackers: atkRes.rows,
     attackerCount: Number(countRes.rows[0]?.attacker_count || 0),
-    isDev: devSpawns.has(state.spawn_id),
+    isDev: state.spawn_source === 'dev',
   };
 }
 
@@ -757,11 +758,11 @@ async function buildBossMessage(view, {
   const { status } = state;
 
   const greater = isGreaterBoss(mobRow.name);
+  const calamity = isCalamityBoss(mobRow.name);
   const spawnChest = chestForSpawn(state.spawn_id, mobRow.name, {
     baseHp: mobRow.base_hp,
-    hpPerLevel: mobRow.hp_per_level,
-    level: Number(state.boss_level),
     maxHp: state.max_hp,
+    spawnSource: state.spawn_source,
   });
   const spawnVariant = greaterVariantForChest(spawnChest);
   const reward = bossRewards(mobRow.name, spawnChest);
@@ -770,7 +771,8 @@ async function buildBossMessage(view, {
   // the boss name; terminal states swap the flavor for a small status subtext
   let header;
   if (status === 'active') {
-    const flavor = greater ? GREATER_FLAVOR : (BOSS_FLAVOR[mobRow.mythology] || BOSS_FLAVOR._default);
+    const flavor = calamity ? '☄️ **CALAMITY BOSS** — *A catastrophe takes form…*'
+      : greater ? GREATER_FLAVOR : (BOSS_FLAVOR[mobRow.mythology] || BOSS_FLAVOR._default);
     const variantLine = spawnVariant
       ? `\n⚔️ **${spawnVariant.label} Variant** · ${spawnVariant.hpMultiplier}× base HP`
       : '';
@@ -889,16 +891,18 @@ async function buildBossMessage(view, {
   const expIcon = emojiForDisplay('Combat Exp', '✨');
   const chestIcon = emojiForDisplay('Boss Treasure Chest', '🗝️');
   const goldChestIcon = emojiForDisplay('Boss Golden Chest', '🪙');
+  const supremeChestIcon = emojiForDisplay('Supreme Chest', '👑');
   const shardIcon = emojiForDisplay('Belief Shards', '🔮');
   // [v4.6] Greater chest is rolled ONCE at spawn — show the ACTUAL chest this fight awards
   // (not the 75/25 rule), keyed off the same source the payout uses so they never disagree.
-  const spawnChestIcon = spawnChest.column === 'boss_golden_chest' ? goldChestIcon : chestIcon;
+  const spawnChestIcon = spawnChest.column === 'supreme_chest'
+    ? supremeChestIcon : spawnChest.column === 'boss_golden_chest' ? goldChestIcon : chestIcon;
   // [v4.8] drop the "(this fight)" qualifier — redundant; rewards are understood to be this boss's.
   const chestLine = `${spawnChestIcon} ${spawnChest.label} ×${spawnChest.qty}`;
   container
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(
-      `**Participation rewards if defeated:**${greater ? '  ☠️ *Greater*' : ''}\n` +
+      `**Participation rewards if defeated:**${calamity ? '  ☄️ *Calamity*' : greater ? '  ☠️ *Greater*' : ''}\n` +
       `${creduxIcon} Credux ×${reward.credux.toLocaleString()}\n` +
       `${expIcon} Combat EXP ×${reward.exp.toLocaleString()}\n` +
       `${chestLine}\n` +
@@ -918,7 +922,7 @@ async function buildBossMessage(view, {
   let footerText;
   if (status === 'active') {
     footerText = isDev
-      ? '-# The boss remains until defeated. 🧪 Test boss — unlimited attacks until restart.'
+      ? '-# The boss remains until defeated. 🧪 Dev boss — unlimited attacks.'
       : `-# The boss remains until defeated. ⚔️ ${bossDailyAttackLimit()} boss attacks per player per day.`;
   } else if (status === 'dead') {
     footerText = `-# Rewards distributed to all ${attackerCount} challenger${attackerCount === 1 ? '' : 's'}.`;
@@ -1275,7 +1279,138 @@ function scheduleBossLiveRefresh(client, guildId, {
  * weighted pick. Greater status changes weighting/rewards, but all stats come
  * from the selected mob_roster row. Returns false if no boss by that name exists.
  */
-async function spawnBoss(client, guildId, { force = false, channelId = null, bossName = null } = {}) {
+async function expireIdleCalamity(client, guildId) {
+  const dbc = await pool.connect();
+  let expired = null;
+  try {
+    await dbc.query('BEGIN');
+    const hit = await dbc.query(
+      `SELECT bs.spawn_id, mr.name
+         FROM boss_state bs
+         JOIN mob_roster mr ON mr.mob_id = bs.mob_id
+        WHERE bs.guild_id = $1
+          AND bs.status = 'active'
+          AND mr.name = ANY($2::text[])
+          AND COALESCE(bs.last_attack_at, bs.spawn_at) <= NOW() - INTERVAL '2 hours'
+        FOR UPDATE OF bs`,
+      [guildId, [...CALAMITY_BOSSES]]
+    );
+    if (hit.rows.length === 0) {
+      await dbc.query('ROLLBACK');
+      return false;
+    }
+    const result = await dbc.query(
+      `UPDATE boss_state
+          SET status = 'escaped', expires_at = NOW()
+        WHERE guild_id = $1 AND spawn_id = $2 AND status = 'active'
+        RETURNING spawn_id`,
+      [guildId, hit.rows[0].spawn_id]
+    );
+    if (result.rows.length === 0) {
+      await dbc.query('ROLLBACK');
+      return false;
+    }
+    expired = result.rows[0].spawn_id;
+    await dbc.query('COMMIT');
+  } catch (err) {
+    await dbc.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    dbc.release();
+  }
+  await clearPendingBossRefresh(guildId, 'calamity-expired');
+  await refreshLiveMessage(client, guildId, {
+    includeStatusImage: true,
+    includeBanner: 'remote-only',
+    phase: 'escaped',
+    telemetryCommand: 'boss:calamity-expiry',
+  }).catch(() => {});
+  purgeBossRuntimeForSpawn(expired, 'calamity-expired');
+  currentSpawn.delete(guildId);
+  return true;
+}
+
+async function processQueuedCalamity(client, guildId, { db = pool, spawn = spawnBoss } = {}) {
+  const dbc = await db.connect();
+  let queued = null;
+  try {
+    await dbc.query('BEGIN');
+    await dbc.query(
+      `UPDATE boss_spawn_queue
+          SET status = 'pending', claim_started_at = NULL, updated_at = NOW()
+        WHERE guild_id = $1
+          AND status = 'spawning'
+          AND (claim_started_at IS NULL OR claim_started_at <= NOW() - INTERVAL '${CALAMITY_CLAIM_TIMEOUT}')`,
+      [guildId]
+    );
+    const result = await dbc.query(
+      `WITH next_item AS (
+         SELECT queue_id
+           FROM boss_spawn_queue
+          WHERE guild_id = $1 AND status = 'pending'
+          ORDER BY created_at, queue_id
+          FOR UPDATE SKIP LOCKED
+          LIMIT 1
+       )
+       UPDATE boss_spawn_queue q
+          SET status = 'spawning', claim_started_at = NOW(), updated_at = NOW()
+         FROM next_item n
+        WHERE q.queue_id = n.queue_id
+        RETURNING q.queue_id, q.boss_name`,
+      [guildId]
+    );
+    if (result.rows.length === 0) {
+      await dbc.query('ROLLBACK');
+      return false;
+    }
+    queued = result.rows[0];
+    await dbc.query('COMMIT');
+  } catch (err) {
+    await dbc.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    dbc.release();
+  }
+
+  let spawned;
+  try {
+    spawned = await spawn(client, guildId, {
+      force: false,
+      bossName: queued.boss_name,
+      spawnSource: 'dev',
+    });
+  } catch (err) {
+    await db.query(
+      `UPDATE boss_spawn_queue
+          SET status = 'pending', claim_started_at = NULL, updated_at = NOW()
+        WHERE queue_id = $1 AND status = 'spawning'`,
+      [queued.queue_id]
+    ).catch(() => {});
+    throw err;
+  }
+  if (spawned) {
+    await db.query(
+      `UPDATE boss_spawn_queue
+          SET status = 'spawned', updated_at = NOW(), spawned_at = NOW(),
+              claim_started_at = NULL,
+              spawn_id = (SELECT spawn_id FROM boss_state WHERE guild_id = $1)
+        WHERE queue_id = $2 AND status = 'spawning'`,
+      [guildId, queued.queue_id]
+    );
+  } else {
+    await db.query(
+      `UPDATE boss_spawn_queue
+          SET status = 'pending', claim_started_at = NULL, updated_at = NOW()
+        WHERE queue_id = $1 AND status = 'spawning'`,
+      [queued.queue_id]
+    );
+  }
+  return spawned;
+}
+
+async function spawnBoss(client, guildId, {
+  force = false, channelId = null, bossName = null, spawnSource = null,
+} = {}) {
   if (!isOfficialGuild(guildId)) {
     await postOfficialRedirect(client, guildId, channelId, { force });
     return false;
@@ -1284,41 +1419,42 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
   const announceChannelId = channelId || await resolveAnnounceChannelId(guildId);
   if (!announceChannelId) return false; // nowhere to announce — skip guild
 
-  // §16: server average level over REGISTERED players active in this guild
-  const avgRes = await pool.query(
-    `SELECT AVG(uc.combat_level) AS avg_level
+  const eligible = await pool.query(
+    `SELECT 1
        FROM user_guild_activity uga
        JOIN user_character uc ON uc.discord_id = uga.discord_id
-      WHERE uga.guild_id = $1`,
+      WHERE uga.guild_id = $1
+      LIMIT 1`,
     [guildId]
   );
-  const avg = avgRes.rows[0]?.avg_level;
-  if (avg == null) return false; // no registered characters yet — skip
+  if (eligible.rows.length === 0) return false;
+  const source = spawnSource || (force ? 'dev' : 'natural');
+  if (!['natural', 'dev'].includes(source)) return false;
 
-  // [v4.4] forced boss (dev) by name, else the weighted tier roll (30% Greater / 70%).
+  // Forced names use the roster row directly; natural spawns use the tier roll.
   let pick;
   if (bossName) {
     const named = await fetchMobByName(pool, bossName);
     if (!named || named.mob_type !== 'boss') return false; // unknown boss name
-    pick = { row: named, greater: isGreaterBoss(named.name) };
+    pick = {
+      row: named,
+      greater: isGreaterBoss(named.name),
+      calamity: isCalamityBoss(named.name),
+    };
   } else {
     pick = pickWeightedBoss(await fetchAllBosses(pool));
   }
   if (!pick) return false;
-  const { row, greater } = pick;
+  const { row, greater, calamity } = pick;
 
-  // §16: boss level = round(avg) + random(1–10) — NO [1,55] clamp (bosses are
-  // exempt; that clamp governs raid mobs only). Defensive floor at 1.
-  const level = Math.max(1, Math.round(Number(avg)) + secureRange(1, 10));
-  const stats = computeBossStats(row, level);
-  // Roll the nested Greater variant once so HP, announcement, and payout share
-  // one outcome. The multiplier applies to base HP before level HP is added.
-  const spawnChest = greater ? rollBossChest(row.name) : null;
+  const stats = computeBossStats(row);
+  // Select the fixed chest once so HP, announcement, and payout share one outcome.
+  const spawnChest = greater || calamity ? bossChestForSpawn(row.name, source) : rollBossChest(row.name);
   const hpMultiplier = greater ? hpMultiplierForChest(spawnChest) : 1;
   const maxHp = bossMaxHpForChest(
     row.base_hp,
     row.hp_per_level,
-    level,
+    null,
     spawnChest
   );
   performanceLog('boss stats resolved from database', {
@@ -1326,18 +1462,14 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
     command: 'boss',
     imageType: 'boss_status',
     guildId,
-    source: greater ? 'mob_roster+greater-chest-hp' : 'mob_roster',
+    source: `${source}:mob_roster`,
     greater,
+    calamity,
     multiplier: hpMultiplier,
     reason: spawnChest ? `${spawnChest.column}:x${spawnChest.qty}` : 'normal',
-    bossLevel: level,
     baseHp: Number(row.base_hp),
-    hpPerLevel: Number(row.hp_per_level),
-    hpScaleOrder: 'base_hp*variant + hp_per_level*level',
     baseAtk: Number(row.base_atk),
-    atkPerLevel: Number(row.atk_per_level),
     baseDef: Number(row.base_def),
-    defPerLevel: Number(row.def_per_level),
     baseCrit: Number(row.base_crit),
     finalHp: Number(maxHp),
     finalAtk: Number(stats.atk),
@@ -1347,28 +1479,30 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
 
   const ins = await pool.query(
     `INSERT INTO boss_state
-       (guild_id, spawn_id, mob_id, boss_level, max_hp, current_hp,
-        scaled_atk, scaled_def, spawn_at, expires_at, status)
-     VALUES ($1, gen_random_uuid(), $2, $3, $4, $4, $5, $6,
-             NOW(), ${ACTIVE_BOSS_EXPIRES_AT_SQL}, 'active')
+       (guild_id, spawn_id, mob_id, max_hp, current_hp,
+        scaled_atk, scaled_def, spawn_at, expires_at, status,
+        spawn_source, last_attack_at, passive_state)
+     VALUES ($1, gen_random_uuid(), $2, $3, $3, $4, $5,
+             NOW(), ${ACTIVE_BOSS_EXPIRES_AT_SQL}, 'active', $6, NOW(), '{}'::jsonb)
      ON CONFLICT (guild_id) DO UPDATE SET
        spawn_id = gen_random_uuid(), mob_id = EXCLUDED.mob_id,
-       boss_level = EXCLUDED.boss_level, max_hp = EXCLUDED.max_hp,
-       current_hp = EXCLUDED.current_hp, scaled_atk = EXCLUDED.scaled_atk,
+       max_hp = EXCLUDED.max_hp, current_hp = EXCLUDED.current_hp,
+       scaled_atk = EXCLUDED.scaled_atk,
        scaled_def = EXCLUDED.scaled_def, spawn_at = NOW(),
-       expires_at = ${ACTIVE_BOSS_EXPIRES_AT_SQL}, status = 'active'
+       expires_at = ${ACTIVE_BOSS_EXPIRES_AT_SQL}, status = 'active',
+       spawn_source = EXCLUDED.spawn_source, last_attack_at = NOW(), passive_state = '{}'::jsonb
      WHERE boss_state.status <> 'active'
        AND ($7 OR boss_state.expires_at <= NOW() - INTERVAL '${RESPAWN_COOLDOWN}')
      RETURNING spawn_id`,
-    [guildId, row.mob_id, level, maxHp, stats.atk, stats.def, force]
+    [guildId, row.mob_id, maxHp, stats.atk, stats.def, source, force]
   );
   if (ins.rows.length === 0) return false; // lost the race / cooldown not over
 
   // Stash the chest against the new spawn_id so HP, announcement, and payout
   // keep the same outcome without re-rolling.
-  if (spawnChest) greaterChests.set(ins.rows[0].spawn_id, spawnChest);
+  if (greater && spawnChest) greaterChests.set(ins.rows[0].spawn_id, spawnChest);
 
-  if (force) devSpawns.add(ins.rows[0].spawn_id); // test boss: attack rules bypassed
+  if (source === 'dev') devSpawns.add(ins.rows[0].spawn_id); // test boss: attack rules bypassed
   rememberSpawn(guildId, ins.rows[0].spawn_id);
   const view = await fetchBossView(guildId);
   if (view) {
@@ -1385,11 +1519,8 @@ async function spawnBoss(client, guildId, { force = false, channelId = null, bos
   return true;
 }
 
-/** Bosses no longer expire; retained as a no-op for older dev/scheduler callers. */
 async function expireBoss(client, guildId) {
-  void client;
-  void guildId;
-  return false;
+  return expireIdleCalamity(client, guildId);
 }
 
 /* ── defeat distribution (§16 participation-only, exactly-once) ─────────── */
@@ -1412,7 +1543,7 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
     const flip = await dbc.query(
       `UPDATE boss_state SET status = 'dead', expires_at = NOW()
         WHERE guild_id = $1 AND spawn_id = $2 AND status = 'active' AND current_hp <= 0
-        RETURNING mob_id, boss_level, max_hp`,
+        RETURNING mob_id, max_hp, spawn_source`,
       [guildId, spawnId]
     );
     if (flip.rows.length === 0) {
@@ -1434,8 +1565,8 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
     chest = chestForSpawn(spawnId, bossName, {
       baseHp: mobRow.base_hp,
       hpPerLevel: mobRow.hp_per_level,
-      level: Number(flip.rows[0].boss_level),
       maxHp: flip.rows[0].max_hp,
+      spawnSource: flip.rows[0].spawn_source,
     }); // { column (whitelisted), qty, label }
     reward = bossRewards(bossName, chest);
 
@@ -1466,10 +1597,8 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
         [attackerIds, reward.credux, reward.shards, chest.qty]
       );
 
-      // [Progression v2] Boss EXP scales off each attacker's OWN combat level, not the
-      // boss's. Boss level is AVG(combat_level) of active players, so scaling off it
-      // would let a low-level participant in a high-level fight earn more from a single
-      // boss than from every level they had gained to that point.
+      // Boss EXP scales off each attacker's own combat level, not the boss's fixed
+      // combat stats.
       expResults = await awardCombatExpMany(dbc, attackerIds, reward.exp, {
         scaleByParticipantLevel: true,
       });
@@ -1541,8 +1670,8 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
       const c = chest || chestForSpawn(view.state.spawn_id, view.mobRow.name, {
         baseHp: view.mobRow.base_hp,
         hpPerLevel: view.mobRow.hp_per_level,
-        level: Number(view.state.boss_level),
         maxHp: view.state.max_hp,
+        spawnSource: view.state.spawn_source,
       });
       const r = reward || bossRewards(view.mobRow.name, c);
       const greater = isGreaterBoss(view.mobRow.name);
@@ -1611,7 +1740,7 @@ async function handleAttackImpl(interaction) {
     }
     // Dev-spawned test bosses bypass the daily lock so testers can attack repeatedly;
     // damage accumulates on their boss_attack_log row instead
-    const isDev = devSpawns.has(state.spawn_id);
+    let isDev = state.spawn_source === 'dev';
     if (!isDev) {
       // Gate 4: global daily limit (PHT clock). A player may attack up to
       // MAX_BOSS_ATTACKS_PER_DAY times/day across all boss spawns.
@@ -1635,13 +1764,13 @@ async function handleAttackImpl(interaction) {
     if (!mobRow) return fail('Boss data is missing — try again shortly.');
     const claim = await pool.query(
       `INSERT INTO active_battles
-         (discord_id, channel_id, message_id, battle_type, mob_id, enemy_level,
+         (discord_id, channel_id, message_id, battle_type, mob_id,
           player_hp, player_max_hp, enemy_hp, enemy_max_hp, current_turn, player_goes_first)
-       VALUES ($1, $2, '0', 'boss', $3, $4, $5, $5, $6, $7, 1, TRUE)
+       VALUES ($1, $2, '0', 'boss', $3, $4, $4, $5, $6, 1, TRUE)
        ON CONFLICT (discord_id) DO NOTHING
        RETURNING battle_id`,
       [
-        discordId, interaction.channelId, state.mob_id, state.boss_level,
+        discordId, interaction.channelId, state.mob_id,
         fighter.hp, Number(state.current_hp), Number(state.max_hp),
       ]
     );
@@ -1649,33 +1778,64 @@ async function handleAttackImpl(interaction) {
       return fail('⚔️ You are already in a battle — wait for it to finish.');
     }
 
+    let dbc = null;
+    let txOpen = false;
     try {
       // fresh pool snapshot at fight start — concurrent attackers may have
       // chipped it since the gate; "enemy HP < X%" passives read pool % (§35.4)
-      const fresh = await pool.query(
-        `SELECT current_hp FROM boss_state
-          WHERE guild_id = $1 AND spawn_id = $2 AND status = 'active' AND current_hp > 0`,
+      dbc = await pool.connect();
+      let remaining = null;
+      let sim = null;
+      let net = 0;
+      await dbc.query('BEGIN');
+      txOpen = true;
+      const locked = await dbc.query(
+        `SELECT ${BOSS_STATE_COLUMNS} FROM boss_state
+          WHERE guild_id = $1 AND spawn_id = $2
+          FOR UPDATE`,
         [guildId, state.spawn_id]
       );
-      if (fresh.rows.length === 0) {
+      if (locked.rows.length === 0 || locked.rows[0].status !== 'active' || Number(locked.rows[0].current_hp) <= 0) {
+        await dbc.query('ROLLBACK');
+        txOpen = false;
+        dbc.release();
+        dbc = null;
         return fail('The boss just fell before your strike landed!');
       }
-      state.current_hp = fresh.rows[0].current_hp;
-
+      Object.assign(state, locked.rows[0]);
+      isDev = state.spawn_source === 'dev';
+      if (isCalamityBoss(mobRow.name)
+        && Date.now() - new Date(state.last_attack_at || state.spawn_at).getTime() >= CALAMITY_IDLE_MS) {
+        await dbc.query(
+          `UPDATE boss_state SET status = 'escaped', expires_at = NOW()
+            WHERE guild_id = $1 AND spawn_id = $2 AND status = 'active'`,
+          [guildId, state.spawn_id]
+        );
+        await dbc.query('COMMIT');
+        txOpen = false;
+        dbc.release();
+        dbc = null;
+        await clearPendingBossRefresh(guildId, 'calamity-expired');
+        await refreshLiveMessage(interaction.client, guildId, {
+          includeStatusImage: true,
+          includeBanner: 'remote-only',
+          phase: 'escaped',
+          telemetryCommand: 'boss:calamity-expiry',
+        }).catch(() => {});
+        return fail('The calamity escaped after two hours without an attack.');
+      }
       const boss = { ...buildBossFighter(mobRow, state), crit: bossCrit(mobRow) };
-      const sim = resolveBattle(fighter, boss, { mode: 'boss', seed: Date.now() >>> 0 });
-      const net = Math.max(0, Math.floor(sim.totals.netDamage));
+      sim = resolveBattle(fighter, boss, { mode: 'boss', seed: Date.now() >>> 0 });
+      net = Math.max(0, Math.floor(sim.totals.netDamage));
 
       // atomic commit — pool deduction, attack log, daily lock
-      const dbc = await pool.connect();
-      let remaining = null;
       try {
-        await dbc.query('BEGIN');
         const upd = await dbc.query(
-          `UPDATE boss_state SET current_hp = GREATEST(current_hp - $3, 0)
+          `UPDATE boss_state SET current_hp = GREATEST(current_hp - $3, 0),
+                last_attack_at = NOW(), passive_state = $4::jsonb
             WHERE guild_id = $1 AND spawn_id = $2 AND status = 'active' AND current_hp > 0
             RETURNING current_hp`,
-          [guildId, state.spawn_id, net]
+          [guildId, state.spawn_id, net, JSON.stringify(sim.b?.bossPassiveState || {})]
         );
         if (upd.rows.length === 0) {
           await dbc.query('ROLLBACK');
@@ -1720,16 +1880,32 @@ async function handleAttackImpl(interaction) {
           );
         }
         await dbc.query('COMMIT');
+        txOpen = false;
         remaining = Number(upd.rows[0].current_hp);
       } catch (err) {
         await dbc.query('ROLLBACK').catch(() => {});
+        txOpen = false;
         throw err;
       } finally {
         dbc.release();
+        dbc = null;
       }
 
       rememberBossLog(state.spawn_id, discordId, sim);
       rememberSpawn(guildId, state.spawn_id);
+
+      if (sim.bossThresholdEvents?.length) {
+        const channelId = liveMessages.get(guildId)?.channelId || await resolveAnnounceChannelId(guildId);
+        const channel = channelId ? await interaction.client.channels.fetch(channelId).catch(() => null) : null;
+        if (channel) {
+          for (const event of sim.bossThresholdEvents) {
+            await channel.send({
+              content: `☄️ **Bakunawa** crosses ${event.threshold}% HP. Seven Moons raises its ATK to ${Math.round(event.atkBonusPct * 100)}%.`,
+              allowedMentions: { parse: [] },
+            }).catch(() => {});
+          }
+        }
+      }
 
       if (remaining <= 0) {
         await distributeRewards(interaction.client, guildId, state.spawn_id);
@@ -1743,6 +1919,13 @@ async function handleAttackImpl(interaction) {
           `You dealt **${net.toLocaleString()}** damage to **${mobRow.name}**` +
           `${survived ? ' and survived all 50 rounds!' : '!'} Tap 📋 Log for the blow-by-blow.`,
       }).catch(() => {});
+    } catch (err) {
+      if (dbc) {
+        if (txOpen) await dbc.query('ROLLBACK').catch(() => {});
+        dbc.release();
+        dbc = null;
+      }
+      throw err;
     } finally {
       await pool.query('DELETE FROM active_battles WHERE discord_id = $1', [discordId])
         .catch(() => {});
@@ -1806,6 +1989,7 @@ async function tickGuild(client, guildId) {
   const state = stRes.rows[0] || null;
 
   if (state && state.status === 'active') {
+    if (await expireIdleCalamity(client, guildId)) return;
     if (Number(state.current_hp) <= 0) {
       // crash-recovery safety net: distribution didn't finish — re-run it
       await distributeRewards(client, guildId, state.spawn_id);
@@ -1838,6 +2022,7 @@ async function tickGuild(client, guildId) {
   if (state && new Date(state.expires_at).getTime() + RESPAWN_COOLDOWN_MS > Date.now()) {
     return;
   }
+  if (await processQueuedCalamity(client, guildId)) return;
   await spawnBoss(client, guildId);
 }
 
@@ -1879,6 +2064,7 @@ registerMemorySource('boss.runtime', getBossMemoryStats);
 
 module.exports = {
   tickGuild,
+  processQueuedCalamity,
   spawnBoss,
   expireBoss,
   distributeRewards,

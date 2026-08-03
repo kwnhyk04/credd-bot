@@ -4,7 +4,7 @@
  * supporterEntitlements.js — supporter + cosmetic data layer (Supporter-stage §3–§5).
  *
  * Owns the read/write helpers for `supporters`, `cosmetic_catalog`, `user_cosmetics`,
- * and `equipped_skins`. Cosmetic-only — never touches users_bag / credux.
+ * `equipped_skins`, and supporter-granted bag items.
  *
  *   getSupporter / isActiveSupporter / effectiveTier
  *   applySubscribe(userId, tier, opts)   — §4 base grant+equip, §3 stipend, founder number
@@ -43,6 +43,10 @@ const STORAGE_TIER_CANDIDATES = {
   eternal: ['eternal', 'eternal_believer'],
 };
 const SUPPORTER_COLUMNS = 'discord_id, tier, status, current_period_end, expires_at, founder_number, token_balance';
+const BAG_ITEM_COLUMNS = Object.freeze({
+  custom_avatar_token: 'custom_avatar_token',
+  custom_deity_token: 'custom_deity_token',
+});
 const COSMETIC_CATALOG_COLUMNS = `
   cosmetic_id, cosmetic_key, category, tier, display_name, token_cost,
   is_base, has_top_label, display_filename, render_filename,
@@ -97,6 +101,53 @@ function storageTierFor(appTier, tierValues) {
     if (normalizeTier(value) === normalized) return value;
   }
   return normalized;
+}
+
+function bagItemColumn(itemKey) {
+  const column = BAG_ITEM_COLUMNS[itemKey];
+  if (!column) throw new Error(`Unknown supporter bag item: ${itemKey}`);
+  return column;
+}
+
+/** Upsert a stack item without assuming that registration created a bag row. */
+async function upsertBagItemTx(client, userId, itemKey, quantity) {
+  if (!Number.isInteger(quantity) || quantity <= 0) {
+    throw new Error('upsertBagItemTx: quantity must be a positive integer');
+  }
+  const column = bagItemColumn(itemKey);
+  const result = await client.query(
+    `INSERT INTO users_bag AS bag (discord_id, ${column})
+     VALUES ($1, $2)
+     ON CONFLICT (discord_id) DO UPDATE
+       SET ${column} = bag.${column} + EXCLUDED.${column}
+     RETURNING ${column}`,
+    [userId, quantity]
+  );
+  return Number(result.rows[0][column]);
+}
+
+/** Claim and grant a database-idempotent supporter bag item in one transaction. */
+async function grantBagItemOnceTx(client, userId, itemKey, quantity, reason, ref) {
+  if (itemKey !== 'custom_deity_token') {
+    throw new Error(`grantBagItemOnceTx: unsupported idempotent item ${itemKey}`);
+  }
+  if (!Number.isInteger(quantity) || quantity <= 0) {
+    throw new Error('grantBagItemOnceTx: quantity must be a positive integer');
+  }
+  if (String(ref || '').trim() === '') {
+    throw new Error('grantBagItemOnceTx: ref is required');
+  }
+  const claim = await client.query(
+    `INSERT INTO supporter_item_grants
+       (discord_id, item_key, quantity, grant_reason, grant_ref)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (discord_id, item_key, grant_reason, grant_ref) DO NOTHING
+     RETURNING grant_id`,
+    [userId, itemKey, quantity, reason, ref]
+  );
+  if (claim.rowCount === 0) return { applied: false, balance: null };
+  const balance = await upsertBagItemTx(client, userId, itemKey, quantity);
+  return { applied: true, balance };
 }
 
 // ── Supporter row ───────────────────────────────────────────────────────────
@@ -366,11 +417,11 @@ async function syncSubscriptionEntitlements(userId) {
 /**
  * §4/§3 — apply a subscribe or founder grant. Upserts the supporters row, assigns a founder
  * number for eternal, auto-grants+equips the base set, and pays the initial stipend
- * (believer/chosen: monthly amount; eternal: one-time 18). When a stable Stripe/subscription
- * ref is present, the token grant is idempotent at the ledger layer; dev/manual calls with no
- * ref keep the original repeatable behavior.
+ * (believer/chosen: monthly amount; eternal: one-time 60 plus one Custom Deity Token). When a stable Stripe/subscription
+ * ref is present, the token grant is idempotent at the ledger layer. The normal path passes the
+ * stable Stripe subscription id; the dev command supplies a fresh stipendRef per invocation.
  *
- * opts: { founder, stripeCustomerId, stripeSubscriptionId, currentPeriodEnd, chosenExpiresAt, grantStipend=true }
+ * opts: { founder, stripeCustomerId, stripeSubscriptionId, stipendRef, currentPeriodEnd, chosenExpiresAt, grantStipend=true }
  */
 async function applySubscribe(userId, tier, opts = {}) {
   const appTier = normalizeTier(tier);
@@ -439,14 +490,23 @@ async function applySubscribe(userId, tier, opts = {}) {
 
     let stipendGrant = null;
     if (opts.grantStipend !== false) {
-      const stipendRef = opts.stripeSubscriptionId ?? null;
+      const stipendRef = opts.stipendRef ?? opts.stripeSubscriptionId ?? null;
       if (appTier === 'eternal') {
+        const eternalRef = stipendRef || `eternal-founder:${userId}`;
         stipendGrant = await grantTokensOnceTx(
           client,
           userId,
           ETERNAL_ONE_TIME_TOKENS,
           'founder_grant',
-          stipendRef || `eternal-founder:${userId}`
+          eternalRef
+        );
+        stipendGrant.itemGrant = await grantBagItemOnceTx(
+          client,
+          userId,
+          'custom_deity_token',
+          1,
+          'eternal_subscription',
+          eternalRef
         );
       } else {
         if (stipendRef) {
@@ -486,5 +546,6 @@ module.exports = {
   isDevAccount, ownedIdsResolved, collectionOwnedIdsResolved, ownsResolved, isShopCatalog, resolveCatalogRef,
   getEquipped, equipCosmeticTx, setOverrideTx, clearAllEquipped,
   grantBaseSetTx, syncSubscriptionEntitlementsTx, syncSubscriptionEntitlements,
+  upsertBagItemTx, grantBagItemOnceTx,
   applySubscribe, applyMonthlyTokens,
 };

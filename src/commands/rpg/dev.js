@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { randomUUID } = require('crypto');
 
 /**
  * `crd dev <subcommand>` — superuser test-enabler suite (Master §2, §26).
@@ -14,6 +15,7 @@ const path = require('path');
  */
 
 const pool = require('../../db/pool');
+const { clearPresets } = require('../../engine/loadout');
 const {
   computeWeaponStats,
   computeArmorStats,
@@ -36,6 +38,7 @@ const { grantTitle } = require('../../utils/titleGrant');
 const { buildShopPage } = require('../../engine/skinShopViews');
 const { DIRS, SKINS_DIR } = require('../../config/cosmetics');
 const { isRemoteAssetsEnabled, remoteAssetAvailable } = require('../../utils/assets');
+const { CALAMITY_BOSSES } = require('../../config/bosses');
 
 const INT_MAX = 2147483647; // INTEGER column ceiling (shards/chests/relics)
 const MENTION_RE = /^<@!?\d+>$/;
@@ -44,6 +47,13 @@ const RESET_ALL_CONFIRM = 'confirm:RESET_ALL_GEAR';
 const DESTRUCTIVE_PRODUCTION_MESSAGE = 'This destructive dev command is disabled in production.';
 const DESTRUCTIVE_SUBCOMMANDS = new Set(['resetplayer', 'resetweapons']);
 const SUPPORTER_MONTH_DAYS = 31;
+const RESET_WEAPON_LOADOUT_FIELDS = Object.freeze([
+  'equipped_weapon_id',
+  'equipped_armor_id',
+  'equipped_deity_2_id',
+  'equipped_deity_3_id',
+  'equipped_echo_deity_id',
+]);
 
 // type alias → users_bag column (accepts open-cmd aliases too).
 const CHEST_COLUMNS = {
@@ -495,13 +505,8 @@ async function resetWeapons(message, args, devId) {
     const weapons = wc.rows[0].n;
     const armors = ac.rows[0].n;
 
-    // Null equips first (FK-safe for equipped_weapon_id), then delete both gear tables.
-    await client.query(
-      `UPDATE user_character SET equipped_weapon_id = NULL, equipped_armor_id = NULL,
-              active_deity_id_2 = NULL, active_deity_id_3 = NULL, active_echo_deity_id = NULL
-       WHERE discord_id = $1`,
-      [target.id]
-    );
+    // Clear both preset loadouts first (FK-safe), then delete both gear tables.
+    await clearPresets(client, target.id, { fields: RESET_WEAPON_LOADOUT_FIELDS });
     await client.query('UPDATE user_runes SET socketed_into = NULL WHERE discord_id = $1 AND socketed_into IS NOT NULL', [target.id]);
     await client.query('DELETE FROM user_weapons WHERE discord_id = $1', [target.id]);
     await client.query('DELETE FROM user_armors WHERE discord_id = $1', [target.id]);
@@ -535,7 +540,10 @@ async function resetAllWeapons(message, args, devId) {
     const ac = await client.query('SELECT count(*)::int AS n FROM user_armors');
     const weapons = wc.rows[0].n;
     const armors = ac.rows[0].n;
-    await client.query('UPDATE user_character SET equipped_weapon_id = NULL, equipped_armor_id = NULL, active_deity_id_2 = NULL, active_deity_id_3 = NULL, active_echo_deity_id = NULL');
+    const characters = await client.query('SELECT discord_id FROM user_character');
+    for (const row of characters.rows) {
+      await clearPresets(client, row.discord_id, { fields: RESET_WEAPON_LOADOUT_FIELDS });
+    }
     await client.query('UPDATE user_runes SET socketed_into = NULL WHERE socketed_into IS NOT NULL');
     await client.query('DELETE FROM user_weapons');
     await client.query('DELETE FROM user_armors');
@@ -931,27 +939,60 @@ async function setBossHp(message, args, devId) {
 // Force-spawn the server boss, bypassing the 15-min respawn cooldown (smoke
 // test). NEVER replaces a live boss — kill it (setbosshp + attack) first.
 // An optional boss name forces that specific boss (e.g. test a Greater boss).
+async function queueCalamity(message, bossName, devId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const res = await client.query(
+      `INSERT INTO boss_spawn_queue (guild_id, boss_name, requested_by)
+       VALUES ($1, $2, $3)
+       RETURNING queue_id`,
+      [message.guild.id, bossName, devId]
+    );
+    await logDev(client, devId, 'queue_calamity', devId,
+      `queued ${bossName} in guild ${message.guild.id}, queue_id=${res.rows[0].queue_id}`);
+    await client.query('COMMIT');
+    return reply(message, `✅ **${bossName}** queued as calamity #${res.rows[0].queue_id}. It will spawn when the current boss is gone.`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (err.code === '23505') return reply(message, 'A calamity is already pending for this server.');
+    console.error('[dev queuecalamity]', err.message);
+    return reply(message, 'Failed to queue calamity.');
+  } finally {
+    client.release();
+  }
+}
+
 async function devSpawnBoss(message, args, devId, bossNameArgStart = 1) {
   const guildId = message.guild.id;
-  const bossName = argsWithoutConfirm(args).slice(bossNameArgStart).join(' ').trim() || null;
+  const clean = argsWithoutConfirm(args).slice(bossNameArgStart);
+  const calamityMode = (clean[0] || '').toLowerCase() === 'calamity';
+  const requestedName = (calamityMode ? clean.slice(1) : clean).join(' ').trim() || null;
   const token = `confirm:SPAWN_BOSS:${guildId}`;
-  const guard = liveEventGuardMessage(args, token, `crd dev spawnboss${bossName ? ` ${bossName}` : ''} ${token}`);
+  const usageName = calamityMode
+    ? ` calamity${requestedName ? ` ${requestedName}` : ''}`
+    : requestedName ? ` ${requestedName}` : '';
+  const guard = liveEventGuardMessage(args, token, `crd dev spawnboss${usageName} ${token}`);
   if (guard) return reply(message, guard);
 
   try {
     // Validate the requested boss name up front for a clear error + valid list.
     let canonicalName = null;
-    if (bossName) {
+    if (calamityMode) {
+      const canonical = [...CALAMITY_BOSSES].find((name) => name.toLowerCase() === String(requestedName || '').toLowerCase());
+      if (!canonical) return reply(message, `Use one of the calamities: ${[...CALAMITY_BOSSES].join(', ')}.`);
+      canonicalName = canonical;
+    } else if (requestedName) {
       const found = await pool.query(
         `SELECT name FROM mob_roster WHERE mob_type = 'boss' AND LOWER(name) = LOWER($1)`,
-        [bossName]
+        [requestedName]
       );
       if (found.rows.length === 0) {
         const all = await pool.query(
           `SELECT name FROM mob_roster WHERE mob_type = 'boss' ORDER BY name`
         );
         return reply(message,
-          `No boss named "${bossName}". Valid bosses: ${all.rows.map((r) => r.name).join(', ')}.`);
+          `No boss named "${requestedName}". Valid bosses: ${all.rows.map((r) => r.name).join(', ')}.`);
       }
       canonicalName = found.rows[0].name;
     }
@@ -960,15 +1001,16 @@ async function devSpawnBoss(message, args, devId, bossNameArgStart = 1) {
       `SELECT 1 FROM boss_state WHERE guild_id = $1 AND status = 'active'`, [guildId]
     );
     if (active.rows.length > 0) {
+      if (calamityMode) return queueCalamity(message, canonicalName, devId);
       return reply(message, 'A boss is already active — kill it (`crd dev setbosshp` + attack) before spawning another.');
     }
     // announce in the invoking channel when server_config has no boss/bot channel
     const ok = await spawnBoss(message.client, guildId, {
-      force: true, channelId: message.channel.id, bossName: canonicalName,
+      force: true, channelId: message.channel.id, bossName: canonicalName, spawnSource: 'dev',
     });
     if (!ok) {
       return reply(message,
-        'Spawn failed — boss spawns are official-support-server-only, or no registered player has been active in this server yet (server average level is needed).');
+        'Spawn failed — boss spawns are official-support-server-only, or no registered player has been active in this server yet.');
     }
     await logDev(pool, devId, 'spawn_boss', devId,
       `forced ${canonicalName ? `${canonicalName} ` : ''}boss spawn in guild ${guildId}`);
@@ -982,6 +1024,50 @@ async function devSpawnBoss(message, args, devId, bossNameArgStart = 1) {
 
 // ── crd dev quest  /  crd dev quest refresh <q1|q2|q3> ─────────────────────
 // Shows the dev's own quests; the refresh form bypasses the 2/day cap.
+async function cancelCalamity(message, args, devId) {
+  const queueId = Number(args[1]);
+  if (!Number.isSafeInteger(queueId) || queueId <= 0) {
+    return reply(message, 'Usage: `crd dev cancelcalamity <queue_id>`');
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const res = await client.query(
+      `UPDATE boss_spawn_queue
+          SET status = 'cancelled', claim_started_at = NULL, updated_at = NOW(),
+              cancelled_at = NOW(), cancelled_by = $2
+        WHERE queue_id = $1
+          AND (
+            status = 'pending'
+            OR (
+              status = 'spawning'
+              AND (claim_started_at IS NULL OR claim_started_at <= NOW() - INTERVAL '5 minutes')
+            )
+          )
+        RETURNING boss_name`,
+      [queueId, devId]
+    );
+    if (res.rows.length === 0) {
+      await client.query('ROLLBACK');
+      const current = await pool.query('SELECT status FROM boss_spawn_queue WHERE queue_id = $1', [queueId]);
+      const status = current.rows[0]?.status;
+      if (status === 'spawning') {
+        return reply(message, `Queue #${queueId} is actively spawning. Retry after its five-minute claim lease expires.`);
+      }
+      return reply(message, status ? `Queue #${queueId} is already ${status}.` : 'Queue item not found.');
+    }
+    await logDev(client, devId, 'cancel_calamity', devId, `cancelled queue_id=${queueId}`);
+    await client.query('COMMIT');
+    return reply(message, `✅ Cancelled calamity queue #${queueId}.`);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[dev cancelcalamity]', err.message);
+    return reply(message, 'Failed to cancel calamity queue.');
+  } finally {
+    client.release();
+  }
+}
+
 async function devQuest(message, args, devId) {
   const action = (args[1] || '').toLowerCase();
   if (action === 'refresh') {
@@ -1215,24 +1301,32 @@ async function devSub(message, args, devId) {
   if (guard) return reply(message, guard);
   const exists = await pool.query('SELECT 1 FROM users WHERE discord_id = $1', [targetId]);
   if (exists.rows.length === 0) return reply(message, 'That user is not registered.');
+  const grantRef = `dev-sub:${randomUUID()}`;
+  let res;
   try {
     const existing = tier === 'eternal' ? null : await ent.getSupporter(pool, targetId);
     const chosenExpiresAt = tier === 'eternal' ? null : addManualSupporterMonths(existing, months);
-    const res = await ent.applySubscribe(targetId, tier, {
+    res = await ent.applySubscribe(targetId, tier, {
       founder: tier === 'eternal',
       currentPeriodEnd: chosenExpiresAt,
       chosenExpiresAt,
+      stipendRef: grantRef,
     });
-    await logDev(pool, devId, 'sub_grant', targetId,
-      `tier=${tier}${months ? ` months=${months} expires=${chosenExpiresAt.toISOString()}` : ''}` +
-      `${res.founderNumber != null ? ` founder#${res.founderNumber}` : ''}`).catch(() => {});
+    try {
+      await logDev(pool, devId, 'sub_grant', targetId,
+        `ref=${grantRef} tier=${tier}${months ? ` months=${months} expires=${chosenExpiresAt.toISOString()}` : ''}` +
+        `${res.founderNumber != null ? ` founder#${res.founderNumber}` : ''}`);
+    } catch (logErr) {
+      console.error('[dev sub] grant succeeded but dev log failed:', logErr.message);
+      return reply(message, `Grant completed with ref \`${grantRef}\`, but writing dev_logs failed. Check logs before retrying.`);
+    }
     return reply(message,
       `✅ <@${targetId}> is now **${tier}**` +
       `${res.founderNumber != null ? ` (Founder ${String(res.founderNumber).padStart(3, '0')})` : ''}` +
       `${chosenExpiresAt ? ` until **${chosenExpiresAt.toISOString().slice(0, 10)}** (${months} month${months === 1 ? '' : 's'} x ${SUPPORTER_MONTH_DAYS} days)` : ''}` +
       (res.stipendGrant?.applied === false
         ? ' — entitlements synchronized; one-time stipend was already paid.'
-        : ' — entitlements synchronized + stipend paid.'));
+        : ` — entitlements synchronized + stipend paid. Ref: \`${grantRef}\`.`));
   } catch (err) {
     console.error('[dev sub]', err.message);
     return reply(message, 'Failed — nothing changed.');
@@ -1285,6 +1379,7 @@ async function execute(message, { args }) {
     case 'battle':           return devBattle(message, args, devId);
     case 'setbosshp':        return setBossHp(message, args, devId);
     case 'spawnboss':        return devSpawnBoss(message, args, devId, 1);
+    case 'cancelcalamity':   return cancelCalamity(message, args, devId);
     case 'spawn':
       if ((args[1] || '').toLowerCase() === 'boss') {
         return devSpawnBoss(message, args, devId, 2);

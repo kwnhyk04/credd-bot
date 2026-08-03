@@ -13,6 +13,7 @@ const sellCmd = require('../commands/rpg/sell');
 const bossSystem = require('../engine/bossSystem');
 const skinShop = require('../engine/skinShopViews');
 const avatarCmd = require('../commands/rpg/avatar');
+const ticketsCmd = require('../commands/rpg/tickets');
 const leaderboardCmd = require('../commands/rpg/leaderboard');
 const titleCmd = require('../commands/rpg/title');
 const exchangeEssenceCmd = require('../commands/rpg/exchangeEssence');
@@ -83,6 +84,8 @@ async function handleInteractionInner(interaction) {
     if (namespace === 'sshop') { await skinShop.handleShopButton(interaction); return; }
     if (namespace === 'sprev') { await skinShop.handlePreviewButton(interaction); return; }
     if (namespace === 'avat') { await avatarCmd.handleAvatarButton(interaction); return; }
+    if (namespace === 'avatprev') { await avatarCmd.handleAvatarPreviewButton(interaction); return; }
+    if (namespace === 'tickets') { await ticketsCmd.handleInteraction(interaction); return; }
     if (namespace === 'runes') { await runeCmd.handleRunesInteraction(interaction); return; }
     if (namespace === 'lb') { await leaderboardCmd.handleSelect(interaction); return; }
     if (namespace === 'title' && action === 'cat') { await titleCmd.handleSelect(interaction); return; }
@@ -270,7 +273,7 @@ async function handleInteractionInner(interaction) {
 }
 
 const INTERACTION_COMMANDS = {
-  sshop: 'skin', sprev: 'skin', avat: 'avatar', runes: 'rune', lb: 'leaderboards',
+  sshop: 'skin', sprev: 'skin', avat: 'avatar', avatprev: 'avatar', tickets: 'supporter', runes: 'rune', lb: 'leaderboards',
   title: 'title', essx: 'exchange', quest: 'quests', gloss: 'glossary', araid: 'auto',
   register: 'register', boss: 'boss', bj: 'blackjack', crash: 'crash', weapons: 'bag',
   armors: 'bag', chests: 'bag', deities: 'deity', dsigil: 'deity', denhance: 'deity',

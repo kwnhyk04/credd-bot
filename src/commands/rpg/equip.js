@@ -3,6 +3,7 @@
 const pool = require('../../db/pool');
 const ent = require('../../engine/supporterEntitlements');
 const { skinEmojiByCode } = require('../../engine/skinEmojis');
+const { getActiveLoadout, updateActiveLoadout, setActivePresetSlot } = require('../../engine/loadout');
 
 const CAT_WORD = { profile: 'profile', battle: 'battle', battle_result: 'battle result', summon: 'summon' };
 
@@ -50,6 +51,38 @@ async function equipSkin(message, args) {
     `${skinEmojiByCode(skin.skin_code, skin.category, skin.cosmetic_key)} Equipped **${skin.display_name}**${codeTxt} as your ${CAT_WORD[skin.category]} skin.`);
 }
 
+function loadoutSummary(loadout) {
+  const pieces = [];
+  if (loadout.weapon_name) pieces.push(`weapon **${loadout.weapon_name}**`);
+  if (loadout.armor_name) pieces.push(`armor **${loadout.armor_name}**`);
+  if (loadout.deity_name) pieces.push(`deity **${loadout.deity_name}**`);
+  if (loadout.deity2_name) pieces.push(`deity **${loadout.deity2_name}**`);
+  if (loadout.deity3_name) pieces.push(`deity **${loadout.deity3_name}**`);
+  if (loadout.echo_deity_name) pieces.push(`Echo **${loadout.echo_deity_name}**`);
+  return pieces;
+}
+
+async function equipPreset(message, args) {
+  const slot = Number(args[1]);
+  if (![1, 2].includes(slot)) {
+    return reply(message, 'Usage: `crd equip preset <1|2>`');
+  }
+  const discordId = message.author.id;
+  const current = await getActiveLoadout(pool, discordId);
+  if (!current) return reply(message, 'You don\'t have a character yet.');
+  if (Number(current.active_preset_slot) === slot) {
+    return reply(message, `already using Preset ${slot}`);
+  }
+
+  const switched = await setActivePresetSlot(pool, discordId, slot);
+  if (!switched) return reply(message, `Preset ${slot} does not exist.`);
+  const next = await getActiveLoadout(pool, discordId);
+  if (loadoutSummary(next).length === 0) {
+    return reply(message, `Preset ${slot} is empty. You now have nothing equipped.`);
+  }
+  return reply(message, `Now using Preset ${slot}: ${loadoutSummary(next).join(', ')}.`);
+}
+
 /**
  * `crd equip <id>` — equip a weapon OR armor the player owns ([v5] one command,
  *   id-detected: looks up user_weapons then user_armors and writes the matching slot).
@@ -60,6 +93,7 @@ async function equipSkin(message, args) {
 async function execute(message, { args }) {
   const first = (args[0] || '').toLowerCase();
   if (first === 'skin') return equipSkin(message, args);
+  if (first === 'preset') return equipPreset(message, args);
   if (first === 'info') return require('./equipment').info(message, (args[1] || '').trim());
 
   const gearId = (args[0] || '').trim().toLowerCase();
@@ -79,10 +113,8 @@ async function execute(message, { args }) {
     [gearId, discordId]
   );
   if (wRes.rows.length > 0) {
-    await pool.query(
-      'UPDATE user_character SET equipped_weapon_id = $1 WHERE discord_id = $2',
-      [gearId, discordId]
-    );
+    const updated = await updateActiveLoadout(pool, discordId, { equipped_weapon_id: gearId });
+    if (!updated) return reply(message, 'Equip failed â€” your active preset no longer exists.');
     const w = wRes.rows[0];
     await reply(message, `Equipped **${w.name}** (${w.tier}) +${w.enhancement - 1}.`);
     return;
@@ -97,10 +129,8 @@ async function execute(message, { args }) {
     [gearId, discordId]
   );
   if (aRes.rows.length > 0) {
-    await pool.query(
-      'UPDATE user_character SET equipped_armor_id = $1 WHERE discord_id = $2',
-      [gearId, discordId]
-    );
+    const updated = await updateActiveLoadout(pool, discordId, { equipped_armor_id: gearId });
+    if (!updated) return reply(message, 'Equip failed â€” your active preset no longer exists.');
     const a = aRes.rows[0];
     await reply(message, `Equipped **${a.name}** (${a.tier} ${a.type}) +${a.enhancement - 1}.`);
     return;

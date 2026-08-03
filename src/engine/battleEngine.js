@@ -166,7 +166,7 @@ const DOT_DEATH_CAUSE = {
 const ACTION_TAG_LABELS = {
   bleed: 'Bleed', burn: 'Burn', venom: 'Poison', poison: 'Poison', hp_pct_dot: 'Rot', stun: 'Stun', freeze: 'Freeze',
   paralyze: 'Paralyze', petrify: 'Petrify', charm: 'Charm', confuse: 'Confuse',
-  miss: 'Miss', def_down: 'DEF Down', atk_down: 'ATK Down', crit_down: 'CRIT Down',
+  miss: 'Miss', def_down: 'DEF Down', atk_down: 'ATK Down', crit_down: 'CRIT Down', darkened: 'Darkened',
   thor_paralyze: 'Paralyze', thor_paralyze_dot: 'Paralysis', frostbite: 'Frostbite',
 };
 
@@ -311,6 +311,7 @@ function resolveBattle(a, b, opts = {}) {
     skillKey: f.skillKey || 'none',
     immunityTags: Array.isArray(f.immunityTags) ? f.immunityTags : [],
     specialFlags: f.specialFlags || {},
+    bossPassiveState: f.bossPassiveState || {},
     isBoss: f.mobType === 'boss',
     debuffs: [],            // [{tag, turnsLeft, value}]
     flags: {},              // durable bs.flags.* state for the current battle
@@ -331,6 +332,16 @@ function resolveBattle(a, b, opts = {}) {
   if (b.poolMaxHp != null) B.maxHp = b.poolMaxHp;
   if (b.poolHp != null) B.hp = Math.min(b.poolHp, B.maxHp);
 
+  const bossThresholdEvents = [];
+  const moonThresholds = [85, 70, 55, 40, 25, 10];
+  const moonState = {
+    crossedThresholds: Array.isArray(B.bossPassiveState?.crossedThresholds)
+      ? B.bossPassiveState.crossedThresholds.map(Number).filter((n) => moonThresholds.includes(n))
+      : [],
+    atkBonusPct: Number(B.bossPassiveState?.atkBonusPct) || 0,
+  };
+  B.flags.bakunawa_atk_bonus_pct = moonState.atkBonusPct;
+
   // damageDealtToEnemy/enemyLocalRegen feed the boss net-damage rule;
   // damageDealtToPlayer is the symmetric A-side tally (pvp_logs opponent_damage).
   const totals = { damageDealtToEnemy: 0, damageDealtToPlayer: 0, enemyLocalRegen: 0, netDamage: 0 };
@@ -346,6 +357,19 @@ function resolveBattle(a, b, opts = {}) {
     const delta = nv - side.hp;
     side.hp = nv;
     if (side === B) {
+      if (delta < 0 && B.skillKey === 'bakunawa_seven_moons' && B.maxHp > 0) {
+        const beforePct = (B.hp - delta) / B.maxHp * 100;
+        const afterPct = B.hp / B.maxHp * 100;
+        for (const threshold of moonThresholds) {
+          if (beforePct > threshold && afterPct <= threshold && !moonState.crossedThresholds.includes(threshold)) {
+            moonState.crossedThresholds.push(threshold);
+            moonState.atkBonusPct = Math.min(0.60, moonState.atkBonusPct + 0.10);
+            B.flags.bakunawa_atk_bonus_pct = moonState.atkBonusPct;
+            bossThresholdEvents.push({ threshold, atkBonusPct: moonState.atkBonusPct });
+            logAt(LOG.MOB_SKILL, `Bakunawa: Seven Moons — ATK rises by ${Math.round(moonState.atkBonusPct * 100)}%.`);
+          }
+        }
+      }
       if (delta < 0) totals.damageDealtToEnemy += -delta;
       else if (delta > 0) totals.enemyLocalRegen += delta;
     } else if (delta < 0) {
@@ -443,6 +467,7 @@ function resolveBattle(a, b, opts = {}) {
     return true;
   };
   const sideImmune = (side, tag) => {
+    if (side.isBoss && side.specialFlags.no_immunities === true) return false;
     if (side.isBoss && (tag === 'boss_immune' || tag === 'hp_pct_dot')) return true;
     if (side.kind !== 'mob') return false;
     return side.immunityTags.includes('all_debuffs') || side.immunityTags.includes(tag);
@@ -603,7 +628,7 @@ function resolveBattle(a, b, opts = {}) {
     return Math.max(0, S.atk * (1 + mult + extraAtkMult + classBonus - debuffValue(S, 'atk_down')));
   };
   const effCritChance = (S) =>
-    Math.max(0, S.crit * (1 - debuffValue(S, 'crit_down')));
+    findDebuff(S, 'darkened') ? 0 : Math.max(0, S.crit * (1 - debuffValue(S, 'crit_down')));
 
   /** Defender's effective DEF vs attacker S (R8 def_down highest-wins; pierce gated). */
   const effDef = (S, O, { mainHit = false } = {}) => {
@@ -1539,7 +1564,7 @@ function resolveBattle(a, b, opts = {}) {
     const subPct = subHits > 1 ? Number(S.specialFlags.multi_attack_pct) || 1 : 1;
     const atkBase = F.enemy_atk_override != null
       ? F.enemy_atk_override
-      : S.atk * (F.enemy_atk_mult || 1.0);
+      : S.atk * (1 + (S.flags.bakunawa_atk_bonus_pct || 0)) * (F.enemy_atk_mult || 1.0);
 
     // A "X% ATK" nuke round (enemy_atk_mult set by the mob skill) IS the mob's big hit —
     // it does not also crit-multiply, so a nuke stays a clean ×(pct) and never spikes to
@@ -2065,6 +2090,10 @@ function resolveBattle(a, b, opts = {}) {
     skillDesc: side.kind === 'player' ? null : (side.in.skillDescription || null),
     atk: side.atk, def: side.def, crit: side.crit,
     hp: side.hp, maxHp: side.maxHp,
+    bossPassiveState: side.isBoss ? {
+      crossedThresholds: [...moonState.crossedThresholds].sort((x, y) => y - x),
+      atkBonusPct: moonState.atkBonusPct,
+    } : null,
   });
 
   return {
@@ -2079,6 +2108,7 @@ function resolveBattle(a, b, opts = {}) {
     mode,
     playerFirst: aFirst,
     totals,
+    bossThresholdEvents,
   };
 }
 

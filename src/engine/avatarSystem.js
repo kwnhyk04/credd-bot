@@ -5,18 +5,39 @@ const {
   ButtonBuilder,
   ButtonStyle,
   ContainerBuilder,
+  AttachmentBuilder,
   MessageFlags,
 } = require('discord.js');
 const { CLASSES, CLASS_NAMES } = require('../config/classes');
 const { DEV_ACCOUNT_IDS, TESTER_AVATAR_VARIANTS } = require('../config/cosmetics');
-const { assetPath } = require('../utils/assets');
+const {
+  assetPath, assetExtension, attachmentSource, isRemoteSource,
+} = require('../utils/assets');
+const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard');
+const { tagDiscordAttachmentBuffer } = require('../utils/networkTelemetry');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { envBool, performanceLog } = require('../utils/runtimeLogs');
 const { safeAssetKey } = require('./avatarImageLoader');
 const { iconToken, iconShop } = require('./skinEmojis');
+const { spendTokensTx } = require('./supporterTokens');
+const { getSupporter, upsertBagItemTx } = require('./supporterEntitlements');
+const {
+  wrapPreviewIndex,
+  createPreviewContainer,
+  previewNavigationButtons,
+} = require('./skinShopViews');
+const pool = require('../db/pool');
 
 const BRAND = 0x9b59b6;
 const PER_PAGE = 10;
+const CUSTOM_AVATAR_TOKEN_PRICE = 20;
+
+function customAvatarTokenPurchaseMessage(balance) {
+  const mark = String.fromCharCode(96);
+  return '✅ Successfully bought **Custom Avatar Token** for ' + CUSTOM_AVATAR_TOKEN_PRICE +
+    ' supporter tokens. Balance: **' + balance + '** supporter tokens. Redeem with ' +
+    mark + 'crd use at' + mark + '.';
+}
 // [Genesis update S9] genesis is a token-shop style (15, same as webtoon) with
 // its OWN path layout — see genesisAvatarAssetPath / canonicalAvatarAssetPath.
 const STYLE_COST = Object.freeze({ cyber: 9, anime: 12, webtoon: 15, genesis: 15 });
@@ -233,7 +254,8 @@ async function queryClassAvatars(db, className, { purchasableOnly = false } = {}
         COALESCE(CASE style WHEN 'cyber' THEN 1 WHEN 'anime' THEN 2 WHEN 'webtoon' THEN 3 WHEN 'genesis' THEN 4 ELSE 99 END, 99),
         COALESCE(CASE gender WHEN 'male' THEN 1 WHEN 'female' THEN 2 ELSE 99 END, 99),
         display_name ASC,
-        avatar_key ASC`,
+        avatar_key ASC,
+        avatar_id ASC`,
     [className]
   );
   return res.rows.map(withPricing);
@@ -298,26 +320,42 @@ async function ensureDevAvatarOwnership(db, userId, className) {
 
 async function buildRows(pool, userId, mode) {
   const character = await getCharacter(pool, userId);
-  if (!character) return { className: null, rows: [], ownedIds: new Set(), equippedId: null };
+  if (!character) return { className: null, rows: [], ownedIds: new Set(), equippedId: null, balance: 0 };
   const className = normalizeClass(character.class) || character.class;
   const fallback = defaultClassAvatar(className);
   try {
     await ensureDefaultCatalog(pool);
     // Dev accounts own every avatar of their class (idempotent, class-only).
     await ensureDevAvatarOwnership(pool, userId, className);
-    const [catalogRows, ownedIds, equippedId] = await Promise.all([
+    const [catalogRows, ownedIds, equippedId, supporter] = await Promise.all([
       queryClassAvatars(pool, className, { purchasableOnly: mode === 'shop' }),
       getOwnedAvatarIds(pool, userId, className),
       getEquippedAvatarId(pool, userId, className),
+      getSupporter(pool, userId),
     ]);
     const rows = mode === 'collection'
       ? [fallback, ...catalogRows.filter((row) => ownedIds.has(Number(row.avatar_id)))]
       // Shop: only positive-cost catalog rows; founder/tester remain grant-only.
       : catalogRows.filter((row) => !isGrantOnlyAvatarRow(row));
-    return { className, rows, ownedIds, equippedId, devUnlocked: isAvatarDevAccount(userId) };
+    return {
+      className,
+      rows,
+      ownedIds,
+      equippedId,
+      balance: Number(supporter?.token_balance || 0),
+      devUnlocked: isAvatarDevAccount(userId),
+    };
   } catch (err) {
     if (!isMissingAvatarTable(err)) throw err;
-    return { className, rows: [fallback], ownedIds: new Set(), equippedId: null, devUnlocked: false, missingSchema: true };
+    return {
+      className,
+      rows: [fallback],
+      ownedIds: new Set(),
+      equippedId: null,
+      balance: 0,
+      devUnlocked: false,
+      missingSchema: true,
+    };
   }
 }
 
@@ -337,7 +375,7 @@ function formatRow(row, ownedIds, equippedId, mode) {
   return `-# \`${id}\` | :frame_photo: **${name}** | ${marker(row, ownedIds, equippedId)}`;
 }
 
-function pagePayload(state, userId, page, mode) {
+function pagePayload(state, userId, page, mode, notice = null) {
   const rows = state.rows || [];
   const pageCount = Math.max(1, Math.ceil(rows.length / PER_PAGE));
   const safePage = Math.max(0, Math.min(page || 0, pageCount - 1));
@@ -363,7 +401,16 @@ function pagePayload(state, userId, page, mode) {
     ))
     .addTextDisplayComponents((td) => td.setContent(`-# Page **${safePage + 1}/${pageCount}** · ${state.className || 'No Character'} Avatars`))
     .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) => td.setContent(body))
+    .addTextDisplayComponents((td) => td.setContent(body));
+
+  if (mode === 'shop') {
+    container
+      .addSeparatorComponents(sep)
+      .addTextDisplayComponents((td) => td.setContent(`${iconToken()} Tokens: **${state.balance}**`));
+  }
+
+  if (notice) container.addTextDisplayComponents((td) => td.setContent(notice));
+  container
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(`-# ${hint}`));
 
@@ -377,7 +424,7 @@ function pagePayload(state, userId, page, mode) {
     );
   }
 
-  const row = new ActionRowBuilder().addComponents(
+  const buttons = [
     new ButtonBuilder()
       // Circular carousel: wrap the target page so Previous on page 0 lands on the
       // last page and Next on the last page lands on page 0.
@@ -389,15 +436,198 @@ function pagePayload(state, userId, page, mode) {
       .setCustomId(`avat:${mode}:${userId}:${(safePage + 1) % pageCount}:next`)
       .setLabel('Next')
       .setStyle(ButtonStyle.Secondary)
-      .setDisabled(pageCount <= 1)
-  );
+      .setDisabled(pageCount <= 1),
+  ];
+  if (mode === 'shop') {
+    buttons.push(new ButtonBuilder()
+      .setCustomId(`avat:shop:${userId}:${safePage * PER_PAGE}:preview`)
+      .setLabel('Preview')
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(rows.length === 0));
+  }
+  const row = new ActionRowBuilder().addComponents(...buttons);
 
   return { components: [container, row], flags: MessageFlags.IsComponentsV2 };
 }
 
-async function buildAvatarPage(pool, userId, { page = 0, mode = 'collection' } = {}) {
+async function addAvatarImage(container, row, userId, purpose = 'shop') {
+  const source = resolveCanonicalAvatarImagePath(row);
+  if (!source) {
+    container.addTextDisplayComponents((td) => td.setContent('*No avatar image available.*'));
+    return [];
+  }
+  const extension = assetExtension(source, 'png');
+  const name = `avatar_${row.avatar_id || 'default'}_${purpose}.${extension}`;
+  if (isRemoteSource(source)) {
+    container.addMediaGalleryComponents((gallery) => gallery.addItems((item) => item.setURL(source)));
+    return [];
+  }
+  const buffer = await attachmentSource(source);
+  assertDiscordImageAttachmentsAllowed('avatar shop image attachment fallback', {
+    system: 'avatar', command: 'avatar', imageType: 'avatar_shop', userId, bytes: buffer.length,
+  });
+  tagDiscordAttachmentBuffer(buffer, { system: 'avatar', command: 'avatar', imageType: 'avatar_shop' });
+  container.addMediaGalleryComponents((gallery) => gallery.addItems((item) => item.setURL(`attachment://${name}`)));
+  return [new AttachmentBuilder(buffer, { name })];
+}
+
+function shopPageIndex(page, pageCount) {
+  return wrapPreviewIndex(page, pageCount);
+}
+
+function shopPageButtons(userId, safePage, pageCount, row, owned) {
+  const previous = new ButtonBuilder()
+    .setCustomId(`avat:shop:${userId}:${(safePage - 1 + pageCount) % pageCount}:prev`)
+    .setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(pageCount <= 1);
+  const next = new ButtonBuilder()
+    .setCustomId(`avat:shop:${userId}:${(safePage + 1) % pageCount}:next`)
+    .setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(pageCount <= 1);
+  return [
+    new ActionRowBuilder().addComponents(
+      previous,
+      next,
+      new ButtonBuilder()
+        .setCustomId(`avat:shop:${userId}:${safePage}:preview`)
+        .setLabel('Preview').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`avat:shop:${userId}:${safePage}:buy`)
+        .setLabel(owned ? 'Owned' : 'Buy Avatar')
+        .setStyle(owned ? ButtonStyle.Secondary : ButtonStyle.Success)
+        .setDisabled(owned),
+    ),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`avat:shop:${userId}:${safePage}:buytoken`)
+        .setLabel(`Buy Custom Avatar Token · ${CUSTOM_AVATAR_TOKEN_PRICE} tokens`)
+        .setStyle(ButtonStyle.Secondary),
+    ),
+  ];
+}
+
+async function pagePayloadV2(state, userId, page, mode, notice = null) {
+  const rows = state.rows || [];
+  const pageCount = mode === 'shop' ? Math.max(1, rows.length) : Math.max(1, Math.ceil(rows.length / PER_PAGE));
+  const safePage = mode === 'shop'
+    ? shopPageIndex(page, pageCount)
+    : Math.max(0, Math.min(Number(page) || 0, pageCount - 1));
+  const shown = mode === 'shop'
+    ? (rows[safePage] ? [rows[safePage]] : [])
+    : rows.slice(safePage * PER_PAGE, safePage * PER_PAGE + PER_PAGE);
+  const title = mode === 'shop' ? `${iconShop()} Supporter Avatar Shop` : `${iconShop()} Avatar Collection`;
+  const empty = mode === 'shop'
+    ? `No shop avatars are cataloged yet for **${state.className}**.`
+    : `No owned shop avatars yet for **${state.className}**. Your default class avatar is always available.`;
+  const container = new ContainerBuilder()
+    .setAccentColor(BRAND)
+    .addTextDisplayComponents((td) => td.setContent(`## ${title}`))
+    .addTextDisplayComponents((td) => td.setContent(
+      mode === 'shop'
+        ? '-# One avatar per page. Preview is private; purchases are checked again inside the transaction.'
+        : '-# Browse your owned avatars for your current class. Equip an avatar to show it on stats.'
+    ))
+    .addTextDisplayComponents((td) => td.setContent(`-# Page **${safePage + 1}/${pageCount}** · ${state.className || 'No Character'} Avatars`))
+    .addSeparatorComponents(sep);
+  if (notice) container.addTextDisplayComponents((td) => td.setContent(notice));
+
+  if (mode === 'shop' && shown[0]) {
+    const row = shown[0];
+    const owned = state.ownedIds.has(Number(row.avatar_id));
+    container.addSeparatorComponents(sep);
+    container.addTextDisplayComponents((td) => td.setContent(
+      `### ${displayName(row)}\n${iconToken()} Price: **${Number(row.token_cost)} supporter tokens**\n` +
+      `Status: **${owned ? 'Owned' : 'Available'}**\n-# Avatar id: \`${avatarShortId(row)}\``
+    ));
+    container.addSeparatorComponents(sep);
+    container.addTextDisplayComponents((td) => td.setContent(
+      `-# Custom Avatar Token: **${CUSTOM_AVATAR_TOKEN_PRICE} supporter tokens** · consumable ticket item · \`crd use at\``
+    ));
+  } else {
+    const body = shown.length
+      ? shown.map((row) => formatRow(row, state.ownedIds, state.equippedId, mode)).join('\n')
+      : empty;
+    container.addTextDisplayComponents((td) => td.setContent(body));
+    container.addSeparatorComponents(sep);
+    container.addTextDisplayComponents((td) => td.setContent('-# Use `crd avatar equip <id>` or `crd avatar default`.'));
+  }
+  if (state.missingSchema) {
+    container.addTextDisplayComponents((td) => td.setContent('-# Avatar tables are not installed yet; only the default class avatar can be shown.'));
+  } else if (state.devUnlocked) {
+    container.addTextDisplayComponents((td) => td.setContent('-# Developer unlock is active on this non-production environment.'));
+  }
+
+  const components = [container];
+  if (rows.length > 0) {
+    const row = shown[0];
+    components.push(...(mode === 'shop'
+      ? shopPageButtons(userId, safePage, pageCount, row, state.ownedIds.has(Number(row.avatar_id)))
+      : [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`avat:collection:${userId}:${Math.max(0, safePage - 1)}:prev`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(pageCount <= 1),
+        new ButtonBuilder().setCustomId(`avat:collection:${userId}:${Math.min(pageCount - 1, safePage + 1)}:next`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(pageCount <= 1),
+      )]));
+  }
+  return { components, files: [], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
+}
+
+async function buildAvatarPage(pool, userId, { page = 0, mode = 'collection', notice = null } = {}) {
   const state = await buildRows(pool, userId, mode);
-  return pagePayload(state, userId, page, mode);
+  return pagePayload(state, userId, page, mode, notice);
+}
+
+async function buildAvatarPreview(pool, userId, { page = 0, notice = null } = {}) {
+  const state = await buildRows(pool, userId, 'shop');
+  const pageCount = state.rows.length;
+  if (pageCount === 0) {
+    const empty = createPreviewContainer(
+      `## ${iconShop()} Avatar Preview`,
+      `*No shop avatars are cataloged yet for **${state.className || 'your class'}**.*`
+    );
+    if (notice) empty.addTextDisplayComponents((td) => td.setContent(notice));
+    return { components: [empty], files: [], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
+  }
+  const safePage = shopPageIndex(page, pageCount);
+  const row = state.rows[safePage];
+  const owned = state.ownedIds.has(Number(row.avatar_id));
+  const price = Number(row.token_cost || 0);
+  const canAffordAvatar = state.balance >= price;
+  const canAffordToken = state.balance >= CUSTOM_AVATAR_TOKEN_PRICE;
+  const container = createPreviewContainer(`## ${iconShop()} Avatar Preview`);
+  if (notice) container.addTextDisplayComponents((td) => td.setContent(notice));
+  const files = await addAvatarImage(container, row, userId, 'preview');
+  container.addSeparatorComponents(sep);
+  container.addTextDisplayComponents((td) => td.setContent(
+    `### ${displayName(row)}\n${iconToken()} Price: **${price} supporter tokens**\n` +
+    `Balance: **${state.balance}** · Status: **${owned ? 'Owned' : (canAffordAvatar ? 'Available' : 'Cannot afford')}** · ` +
+    `Page **${safePage + 1}/${pageCount}**`
+  ));
+  const actionButtons = previewNavigationButtons({
+    previousId: `avatprev:prev:${userId}:${shopPageIndex(safePage - 1, pageCount)}`,
+    nextId: `avatprev:next:${userId}:${shopPageIndex(safePage + 1, pageCount)}`,
+    backId: `avatprev:back:${userId}:${safePage}`,
+    previousLabel: 'Previous',
+    nextLabel: 'Next',
+    backLabel: 'Back',
+    disablePaging: pageCount <= 1,
+    extra: [
+      new ButtonBuilder()
+        .setCustomId(`avatprev:buy:${userId}:${safePage}`)
+        .setLabel(owned ? 'Owned' : (canAffordAvatar ? 'Buy Avatar' : `${price} tokens`))
+        .setStyle(owned || !canAffordAvatar ? ButtonStyle.Secondary : ButtonStyle.Success)
+        .setDisabled(owned || !canAffordAvatar),
+      new ButtonBuilder()
+        .setCustomId(`avatprev:buytoken:${userId}:${safePage}`)
+        .setLabel(`Buy Token · ${CUSTOM_AVATAR_TOKEN_PRICE}`)
+        .setStyle(canAffordToken ? ButtonStyle.Success : ButtonStyle.Secondary)
+        .setDisabled(!canAffordToken),
+    ],
+  });
+  container.addActionRowComponents((actionRow) => actionRow.setComponents(...actionButtons));
+  return { components: [container], files, flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
+}
+
+async function getShopAvatarAtPage(db, userId, page = 0) {
+  const state = await buildRows(db, userId, 'shop');
+  if (!state.rows.length) return null;
+  return state.rows[shopPageIndex(page, state.rows.length)] || null;
 }
 
 async function getAvatarByKey(db, key, className = null) {
@@ -435,6 +665,69 @@ async function ownsAvatar(db, userId, avatarId, className) {
     [userId, avatarId, className]
   );
   return res.rowCount > 0;
+}
+
+/** Buy an avatar. The ownership read is deliberately after spendTokensTx locks supporters. */
+async function purchaseAvatar(userId, row) {
+  if (!row || row.is_default || isGrantOnlyAvatarRow(row)) return { status: 'unavailable' };
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const spend = await spendTokensTx(client, userId, Number(row.token_cost), 'avatar_buy', row.avatar_key);
+    if (!spend.ok) {
+      await client.query('ROLLBACK');
+      return { status: spend.reason, balance: spend.balance };
+    }
+    const owned = await client.query(
+      'SELECT 1 FROM user_avatars WHERE discord_id = $1 AND avatar_id = $2 FOR UPDATE',
+      [userId, row.avatar_id]
+    );
+    if (owned.rowCount > 0) {
+      await client.query('ROLLBACK');
+      return { status: 'owned' };
+    }
+    const inserted = await client.query(
+      `INSERT INTO user_avatars (discord_id, avatar_id, source, acquired_at)
+       VALUES ($1, $2, 'shop', NOW())
+       ON CONFLICT (discord_id, avatar_id) DO NOTHING
+       RETURNING avatar_id`,
+      [userId, row.avatar_id]
+    );
+    if (inserted.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return { status: 'owned' };
+    }
+    await client.query('COMMIT');
+    return { status: 'bought', balance: spend.balance };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/** Buy one consumable Custom Avatar Token in the same locked supporter transaction. */
+async function purchaseCustomAvatarToken(userId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const spend = await spendTokensTx(
+      client, userId, CUSTOM_AVATAR_TOKEN_PRICE, 'custom_avatar_token_shop', 'custom_avatar_token'
+    );
+    if (!spend.ok) {
+      await client.query('ROLLBACK');
+      return { status: spend.reason, balance: spend.balance };
+    }
+    const balance = await upsertBagItemTx(client, userId, 'custom_avatar_token', 1);
+    await client.query('COMMIT');
+    return { status: 'bought', balance: spend.balance, itemBalance: balance };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function equipAvatarTx(client, userId, avatarId) {
@@ -491,9 +784,13 @@ async function resolveStatsAvatar(pool, userId, className, logContext = {}) {
 
 module.exports = {
   STYLE_COST,
+  CUSTOM_AVATAR_TOKEN_PRICE,
+  customAvatarTokenPurchaseMessage,
   STYLE_LABEL,
   avatarShortId,
   buildAvatarPage,
+  buildAvatarPreview,
+  getShopAvatarAtPage,
   canonicalAvatarAssetPath,
   clearEquippedAvatar,
   defaultClassAvatar,
@@ -507,6 +804,8 @@ module.exports = {
   isAvatarDevAccount,
   isGrantOnlyAvatarRow,
   ownsAvatar,
+  purchaseAvatar,
+  purchaseCustomAvatarToken,
   resolveAvatarImagePath,
   resolveDefaultClassAvatarPath,
   resolveStatsAvatar,

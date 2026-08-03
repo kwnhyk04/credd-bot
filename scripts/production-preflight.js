@@ -12,7 +12,11 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
-const { REQUIRED_COLUMNS: BOOT_REQUIRED_COLUMNS } = require('../src/db/schemaGuard');
+const {
+  REQUIRED_COLUMNS: BOOT_REQUIRED_COLUMNS,
+  REQUIRED_INDEXES: MONTHSARY_REQUIRED_INDEXES,
+  verifyRequiredSchema,
+} = require('../src/db/schemaGuard');
 
 const ROOT = path.join(__dirname, '..');
 const isProdMode = process.argv.includes('--prod');
@@ -32,6 +36,7 @@ const DANGEROUS_FLAGS = [
 const REQUIRED_TABLES = [
   'users',
   'user_character',
+  'user_presets',
   'users_bag',
   'user_weapons',
   'user_armors',
@@ -49,6 +54,7 @@ const REQUIRED_TABLES = [
   'title_catalog',
   'user_titles',
   'boss_state',
+  'boss_spawn_queue',
   'boss_attack_log',
   'mob_roster',
   'raid_logs',
@@ -82,6 +88,9 @@ const REQUIRED_COLUMNS = {
     'class',
     'combat_level',
     'combat_exp',
+    'active_preset_slot',
+    'highest_raid_streak',
+    'highest_rank_streak',
     'equipped_weapon_id',
     'equipped_armor_id',
     'active_deity_id',
@@ -97,6 +106,12 @@ const REQUIRED_COLUMNS = {
     'boss_top_damage',
     'reputation_exp_today',
     'reputation_exp_reset_date',
+  ],
+  user_presets: [
+    'id', 'discord_id', 'slot', 'name',
+    'equipped_deity_1_id', 'equipped_deity_2_id', 'equipped_deity_3_id',
+    'equipped_echo_deity_id', 'equipped_armor_id', 'equipped_weapon_id',
+    'updated_at',
   ],
   users_bag: [
     'discord_id',
@@ -157,7 +172,8 @@ const REQUIRED_COLUMNS = {
   user_guild_activity: ['discord_id', 'guild_id', 'last_active'],
   title_catalog: ['title_id', 'code', 'display', 'source', 'is_repeatable', 'how_to', 'image_filename'],
   user_titles: ['discord_id', 'title_id'],
-  boss_state: ['guild_id', 'spawn_id', 'mob_id', 'boss_level', 'max_hp', 'current_hp', 'scaled_atk', 'scaled_def', 'expires_at', 'status'],
+  boss_state: ['guild_id', 'spawn_id', 'mob_id', 'boss_level', 'max_hp', 'current_hp', 'scaled_atk', 'scaled_def', 'spawn_at', 'expires_at', 'status', 'spawn_source', 'last_attack_at', 'passive_state'],
+  boss_spawn_queue: ['queue_id', 'guild_id', 'boss_name', 'requested_by', 'status', 'created_at', 'updated_at', 'spawned_at', 'cancelled_at', 'cancelled_by', 'spawn_id'],
   boss_attack_log: ['boss_spawn_id', 'discord_id', 'total_damage', 'attacked_at'],
   mob_roster: ['mob_id', 'name', 'mythology', 'mob_type', 'base_hp', 'base_atk', 'base_def', 'base_crit', 'skill_name', 'skill_description', 'special_flags'],
   raid_logs: ['discord_id', 'battle_type', 'enemy_name', 'enemy_tier', 'result', 'timestamp'],
@@ -206,6 +222,7 @@ const REQUIRED_INDEXES = [
   'idx_user_avatars_user',
   'idx_equipped_avatars_avatar',
   'canvas_cache_last_used_idx',
+  ...MONTHSARY_REQUIRED_INDEXES,
 ];
 
 const REQUIRED_LOCAL_FILES = [
@@ -437,6 +454,13 @@ async function checkDatabase() {
     await pool.query('SELECT 1');
     pass('database connectivity SELECT 1');
 
+    try {
+      await verifyRequiredSchema(pool);
+      pass('boot schema guard accepts the complete Monthsary schema');
+    } catch (err) {
+      fail(`boot schema guard rejected database: ${errorMessage(err)}`);
+    }
+
     const sslRows = await queryRows(
       pool,
       'SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()'
@@ -517,4 +541,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { REQUIRED_COLUMNS, REQUIRED_TABLES };
+module.exports = { REQUIRED_COLUMNS, REQUIRED_TABLES, REQUIRED_INDEXES };

@@ -27,6 +27,7 @@ const pool = require('../db/pool');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji } = require('../utils/emojis');
 const { CHESTS: CHEST_DROPS } = require('../config/dropRates');
+const { CRD_BAG_ITEMS } = require('../config/crdBagItems');
 
 // [Jun-2026 §7] help_icon custom emoji for the interactive "?" on the chests view.
 const HELP_ICON = { id: '1517665553261662370', name: 'help_icon' };
@@ -52,11 +53,13 @@ const CHESTS = [
 
 // [Genesis update S6-S7] CRD Bag ITEMS category — usable via `crd use <id>`.
 // Sacred/Supreme Relic moved here from Chests; ids (`sr`/`supr`) unchanged.
-const BAG_ITEMS = [
-  { code: 'cc',   name: 'Character Class Change', emojiName: 'change_class',  countKey: 'cc',      useCmd: 'crd use cc' },
-  { code: 'sr',   name: 'Sacred Relic',           emojiName: 'sacred_relic',  countKey: 'sacred',  useCmd: 'crd use sr' },
-  { code: 'supr', name: 'Supreme Relic',          emojiName: 'supreme_relic', countKey: 'supreme', useCmd: 'crd use supr' },
-];
+const BAG_ITEMS = CRD_BAG_ITEMS.map((item) => ({
+  code: item.id,
+  name: item.name,
+  emojiName: item.emojiName,
+  countKey: item.id === 'sr' ? 'sacred' : item.id === 'supr' ? 'supreme' : item.id,
+  useCmd: `crd use ${item.id}`,
+}));
 
 function buildDropRatesButton(ownerId) {
   return new ButtonBuilder()
@@ -162,7 +165,11 @@ async function buildItemsView(user, counts) {
     ))
     .addSeparatorComponents(sep);
 
-  for (const item of BAG_ITEMS) {
+  const visible = BAG_ITEMS.filter((item) => Number(counts[item.countKey] ?? 0) > 0);
+  if (visible.length === 0) {
+    container.addTextDisplayComponents((td) => td.setContent('*No usable bag items.*'));
+  }
+  for (const item of visible) {
     container.addTextDisplayComponents((td) => td.setContent(
       `\`${item.code}\` ${emoji(item.emojiName)} **${item.name}** - **${Number(counts[item.countKey] ?? 0).toLocaleString()}**\n` +
       `-# Use with \`${item.useCmd}\``
@@ -228,7 +235,8 @@ async function handleChestRatesButton(interaction) {
 async function getChestCounts(discordId) {
   const { rows } = await pool.query(
     `SELECT silver_chest, gold_chest, boss_treasure_chest, boss_golden_chest, supreme_chest,
-            diamond_chest, genesis_chest, sacred_relics, supreme_relics, change_class
+            diamond_chest, genesis_chest, sacred_relics, supreme_relics, change_class,
+            custom_avatar_token, custom_deity_token
        FROM users_bag WHERE discord_id = $1`,
     [discordId]
   );
@@ -245,6 +253,8 @@ async function getChestCounts(discordId) {
     sacred: b.sacred_relics ?? 0,
     supreme: b.supreme_relics ?? 0,
     cc: b.change_class ?? 0,
+    at: b.custom_avatar_token ?? 0,
+    dt: b.custom_deity_token ?? 0,
   };
 }
 
