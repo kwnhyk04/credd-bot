@@ -1,6 +1,7 @@
 'use strict';
 
 const { int, range: secureRange } = require('./secureRng');
+const { claimEventQuestDay } = require('../engine/monthsaryEvent');
 
 /**
  * Daily quests — roll, progress, auto-grant (Master §20, Phase 8).
@@ -193,6 +194,8 @@ async function progressQuests(client, discordId, deltas) {
       );
     }
     notices.push(completionNotice(type, q.target_count, credux, shards));
+    const eventClaim = await claimEventQuestDay(client, discordId);
+    if (eventClaim.status === 'ok') notices.push(eventClaim.notice);
   }
   // [Phase 6] The same deltas drive the weekly board (its 5 lines reuse daily keys),
   // so callers get weekly progress for free wherever they already report daily progress.

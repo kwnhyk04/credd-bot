@@ -23,6 +23,7 @@ const {
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const { encodeCanvas } = require('../../utils/canvasEncode');
 const pool = require('../../db/pool');
+const { claimEventAttendance } = require('../../engine/monthsaryEvent');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay } = require('../../utils/emojis');
 const {
@@ -159,7 +160,7 @@ async function claimDaily(client, discordId, { bypass = false } = {}) {
 }
 
 /** CV2 reward card (§19 layout). */
-async function buildDailyPayload(result, logContext = {}) {
+async function buildDailyPayload(result, logContext = {}, eventResult = null) {
   const creduxIcon = emojiForDisplay('Credux Coin', '💰');
   const shardIcon = emojiForDisplay('Belief Shards', '🔮');
   const chestIcon = emojiForDisplay(result.chestLabel, '🎁');
@@ -192,7 +193,25 @@ async function buildDailyPayload(result, logContext = {}) {
       `${creduxIcon} **+${result.credux.toLocaleString()}** Credux\n` +
       `${shardIcon} **+${result.shards}** Belief Shards\n` +
       `${chestIcon} **+1** ${result.chestLabel}`
-    ))
+    ));
+
+  if (eventResult?.status === 'ok') {
+    const relicIcon = emojiForDisplay('Sacred Relic');
+    const bossChestIcon = emojiForDisplay('Boss Treasure Chest');
+    const goldenChestIcon = emojiForDisplay('Boss Golden Chest');
+    let rewards =
+      `${relicIcon} **+${eventResult.sacredRelics}** Sacred Relic\n` +
+      `${bossChestIcon} **+${eventResult.bossTreasureChests}** Boss Treasure Chest`;
+    if (eventResult.bossGoldenChests > 0) {
+      rewards += `\n${goldenChestIcon} **+${eventResult.bossGoldenChests}** Boss Golden Chest`;
+    }
+    container
+      .addSeparatorComponents(sep)
+      .addTextDisplayComponents((td) => td.setContent(`### Monthsary Event - Day ${eventResult.eventDay}`))
+      .addTextDisplayComponents((td) => td.setContent(rewards));
+  }
+
+  container
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent('-# *"The gods take note of your devotion."*'));
 
@@ -203,9 +222,13 @@ async function execute(message) {
   const discordId = message.author.id;
   const client = await pool.connect();
   let result;
+  let eventResult = null;
   try {
     await client.query('BEGIN');
     result = await claimDaily(client, discordId);
+    if (result.status === 'ok') {
+      eventResult = await claimEventAttendance(client, discordId);
+    }
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
@@ -228,7 +251,7 @@ async function execute(message) {
     command: 'daily',
     guildId: message.guild?.id,
     userId: discordId,
-  }));
+  }, eventResult));
 }
 
 module.exports = { execute, claimDaily, dailyReward, buildDailyPayload, banner };
