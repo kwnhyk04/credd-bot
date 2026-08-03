@@ -2599,6 +2599,16 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
     bossChestForSpawn('Fenrir', 'natural').qty === 3
       && bossChestForSpawn('Fenrir', 'dev').column === 'supreme_chest'
       && bossRewards('Fenrir').credux === 400000);
+  check('ordinary dev bosses stay unlimited while dev calamities use the daily cap',
+    /function devBossHasUnlimitedAttacks\(state, mobRow\)/.test(bossSource)
+      && /state\?\.spawn_source === 'dev' && !isCalamityBoss\(mobRow\?\.name\)/.test(bossSource)
+      && /const unlimitedDev = isDev && !calamity/.test(bossSource)
+      && /\$\{unlimitedDev \? '' :/.test(bossSource));
+  check('Bakunawa lore has both asset aliases and a deployment-safe fallback',
+    /monsters\/boss\/lore\/boss_lores\.txt/.test(bossSource)
+      && /monsters\/boss\/lore\/boss\.txt/.test(bossSource)
+      && /BOSS_LORE_FALLBACKS/.test(bossSource)
+      && /bakunawa:/.test(bossSource));
   const eclipseSim = resolveBattle(
     player({ atk: 1, hp: 100000, def: 100000, crit: 100, classPassive: null }),
     mob({

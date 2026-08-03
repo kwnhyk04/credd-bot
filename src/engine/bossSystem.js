@@ -465,6 +465,12 @@ const LORE_PATHS = [
   assetPath('monsters/boss/lore/boss_lores.txt'),
   assetPath('monsters/boss/lore/boss.txt'),
 ];
+// Bakunawa is an event-only boss. Keep its authored lore available when a
+// deployment has the code but the separately managed R2 text asset has not
+// been uploaded yet; a loaded asset always takes precedence.
+const BOSS_LORE_FALLBACKS = Object.freeze({
+  bakunawa: 'A colossal sea serpent from Visayan mythology in the Philippines, sometimes described as a dragon or naga. The myth is pre-colonial and tied to the Visayan lunar calendar, where it served to explain and track eclipses. Old accounts give it a mouth the size of a lake, a red tongue, whiskers, gills, and a row of pale spines running down its back. It sleeps in the deepest trenches of the sea and rises only to feed.',
+});
 let loreMap = null; // mythology header lines have no text after ':' so they never match
 
 async function bossLore(name) {
@@ -487,7 +493,8 @@ async function bossLore(name) {
       }
     }
   }
-  return loreMap.get(String(name).trim().toLowerCase()) || null;
+  const key = String(name).trim().toLowerCase();
+  return loreMap.get(key) || BOSS_LORE_FALLBACKS[key] || null;
 }
 
 /* ── boss status card — raid-card style, rendered at banner width so it
@@ -525,6 +532,13 @@ function truncateToWidth(ctx, text, maxW) {
   let t = text;
   while (t.length > 1 && ctx.measureText(`${t}…`).width > maxW) t = t.slice(0, -1);
   return `${t}…`;
+}
+
+// Ordinary dev bosses are test fixtures and intentionally bypass the daily cap.
+// An event calamity is still a real boss fight: its persisted roster name, not
+// merely spawn_source, decides the rule.
+function devBossHasUnlimitedAttacks(state, mobRow) {
+  return state?.spawn_source === 'dev' && !isCalamityBoss(mobRow?.name);
 }
 
 function wrapToWidth(ctx, text, maxW, maxLines) {
@@ -797,6 +811,7 @@ async function buildBossMessage(view, {
 
   const greater = isGreaterBoss(mobRow.name);
   const calamity = isCalamityBoss(mobRow.name);
+  const unlimitedDev = isDev && !calamity;
   const spawnChest = chestForSpawn(state.spawn_id, mobRow.name, {
     baseHp: mobRow.base_hp,
     maxHp: state.max_hp,
@@ -959,7 +974,7 @@ async function buildBossMessage(view, {
 
   let footerText;
   if (status === 'active') {
-    footerText = isDev
+    footerText = unlimitedDev
       ? '-# The boss remains until defeated. 🧪 Dev boss — unlimited attacks.'
       : `-# The boss remains until defeated. ⚔️ ${bossDailyAttackLimit()} boss attacks per player per day.`;
   } else if (status === 'dead') {
@@ -1776,10 +1791,13 @@ async function handleAttackImpl(interaction) {
     if (!state || state.status !== 'active') {
       return fail('There is no active boss right now — it has fallen. `crd boss` shows the latest status.');
     }
-    // Dev-spawned test bosses bypass the daily lock so testers can attack repeatedly;
-    // damage accumulates on their boss_attack_log row instead
-    let isDev = state.spawn_source === 'dev';
-    if (!isDev) {
+    // Ordinary dev-spawned test bosses bypass the daily lock. Event calamities
+    // use the normal per-player cap even though their spawn_source is also dev.
+    const mobRes = await pool.query(`SELECT ${MOB_BATTLE_COLUMNS} FROM mob_roster WHERE mob_id = $1`, [state.mob_id]);
+    const mobRow = mobRes.rows[0];
+    if (!mobRow) return fail('Boss data is missing — try again shortly.');
+    let unlimitedDev = devBossHasUnlimitedAttacks(state, mobRow);
+    if (!unlimitedDev) {
       // Gate 4: global daily limit (PHT clock). A player may attack up to
       // MAX_BOSS_ATTACKS_PER_DAY times/day across all boss spawns.
       const dailyLimit = bossDailyAttackLimit();
@@ -1797,9 +1815,6 @@ async function handleAttackImpl(interaction) {
       }
     }
     // gate 6 — no live battle: claim the active_battles slot (reaper covers crashes)
-    const mobRes = await pool.query(`SELECT ${MOB_BATTLE_COLUMNS} FROM mob_roster WHERE mob_id = $1`, [state.mob_id]);
-    const mobRow = mobRes.rows[0];
-    if (!mobRow) return fail('Boss data is missing — try again shortly.');
     const claim = await pool.query(
       `INSERT INTO active_battles
          (discord_id, channel_id, message_id, battle_type, mob_id,
@@ -1841,7 +1856,7 @@ async function handleAttackImpl(interaction) {
         return fail('The boss just fell before your strike landed!');
       }
       Object.assign(state, locked.rows[0]);
-      isDev = state.spawn_source === 'dev';
+      unlimitedDev = devBossHasUnlimitedAttacks(state, mobRow);
       if (isCalamityBoss(mobRow.name)
         && Date.now() - new Date(state.last_attack_at || state.spawn_at).getTime() >= CALAMITY_IDLE_MS) {
         await dbc.query(
@@ -1894,9 +1909,9 @@ async function handleAttackImpl(interaction) {
              total_damage = boss_attack_log.total_damage + EXCLUDED.total_damage,
              attacked_at = NOW(),
              last_daily_reset = (NOW() AT TIME ZONE 'Asia/Manila')::date
-           ${isDev ? '' : "WHERE boss_attack_log.last_daily_reset <> (NOW() AT TIME ZONE 'Asia/Manila')::date OR boss_attack_log.attacks < $6"}
+           ${unlimitedDev ? '' : "WHERE boss_attack_log.last_daily_reset <> (NOW() AT TIME ZONE 'Asia/Manila')::date OR boss_attack_log.attacks < $6"}
            RETURNING id`,
-          isDev
+          unlimitedDev
             ? [state.spawn_id, guildId, discordId, state.mob_id, net]
             : [state.spawn_id, guildId, discordId, state.mob_id, net, bossDailyAttackLimit()]
         );
@@ -1909,8 +1924,8 @@ async function handleAttackImpl(interaction) {
           'UPDATE user_character SET boss_top_damage = GREATEST(boss_top_damage, $2) WHERE discord_id = $1',
           [discordId, net]
         );
-        if (!isDev) {
-          // test bosses never consume the global daily lock
+        if (!unlimitedDev) {
+          // Only ordinary dev test bosses skip the global daily lock.
           await dbc.query(
             `UPDATE users SET last_boss_attack_date = (NOW() AT TIME ZONE 'Asia/Manila')::date
               WHERE discord_id = $1`,
