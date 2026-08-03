@@ -1986,6 +1986,19 @@ check('class base and per-level scaling match the balance table',
     hasEvent(roundEvents(lowHpMob, 1), 'strikes for 9 damage')
       && lowHpMob.causeOfDeath?.source === 'Cursed Edge',
     roundEvents(lowHpMob, 1).join(' | '));
+
+  const bossBelowExecuteBar = resolveBattle(
+    player({ classPassive: null, weaponPassiveKey: 'tyrfing', atk: 1, hp: 1000, def: 0, crit: 0 }),
+    mob({
+      mobType: 'boss', hp: 100, poolHp: 9, poolMaxHp: 100, atk: 0, def: 0, crit: 0,
+      immunityTags: [], specialFlags: { no_immunities: true },
+    }),
+    { mode: 'boss', rng: () => 0 },
+  );
+  check('Tyrfing execute remains blocked against no-immunity bosses',
+    !hasEvent(allEvents(bossBelowExecuteBar), 'curse takes hold')
+      && bossBelowExecuteBar.causeOfDeath?.source !== 'Cursed Edge',
+    allEvents(bossBelowExecuteBar).join(' | '));
 }
 
 // — Fighter stun: exactly 25%, exactly one skipped turn, Bash is 100%, Dizzy remains visible. —
@@ -2189,18 +2202,23 @@ check('class base and per-level scaling match the balance table',
   check('rupture bursts mob for 10% maxHP (1000)', hasEvent(roundEvents(sMob, 1), 'Rupture deals 1000'));
   const sBoss = resolveBattle(
     mkR(),
-    mob({ hp: 10000, mobType: 'boss', immunityTags: ['all_debuffs'] }),
+    mob({ hp: 10000, mobType: 'boss', immunityTags: [], specialFlags: { no_immunities: true } }),
     { seed: 1, rng: scripted([0.0, 0.99, 0.01, 0.5]) });
-  check('rupture auto-blocked vs boss while Venom still applies',
+  check('rupture and Venom auto-blocked vs every boss, including no-immunity bosses',
     hasEvent(allEvents(sBoss), 'Rupture has no effect on bosses')
-      && hasEvent(allEvents(sBoss), 'Venom applied for 2 turns'));
+      && !hasEvent(allEvents(sBoss), 'Venom applied for 2 turns')
+      && !hasEvent(allEvents(sBoss), 'Venom ticks'));
   const mkH = () => player({ weaponPassiveKey: 'gusisnautar' });
   const hMob = resolveBattle(mkH(), mob({ hp: 10000 }),
     { seed: 1, rng: scripted([0.0, 0.99, 0.01, 0.5]) });
   check('hemorrhage tears mob', hasEvent(roundEvents(hMob, 1), 'Hemorrhage deals 500'));
-  const hBoss = resolveBattle(mkH(), mob({ hp: 10000, mobType: 'boss' }),
+  const hBoss = resolveBattle(
+    mkH(),
+    mob({ hp: 10000, mobType: 'boss', immunityTags: [], specialFlags: { no_immunities: true } }),
     { seed: 1, rng: scripted([0.0, 0.99, 0.01, 0.5]) });
-  check('hemorrhage auto-blocked vs boss', !hasEvent(allEvents(hBoss), 'Hemorrhage'));
+  check('hemorrhage auto-blocked vs every boss, including no-immunity bosses',
+    hasEvent(allEvents(hBoss), 'Hemorrhaging Shot has no effect on bosses')
+      && !hasEvent(allEvents(hBoss), 'Hemorrhage deals'));
 }
 
 // — Fenrir: bleed immunity covers class bleed AND weapon bleed —

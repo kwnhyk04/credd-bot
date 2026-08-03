@@ -734,16 +734,14 @@ const PASSIVE_REGISTRY = {
       bs.flags.rupture_check = !bossBlocked;
       bs.flags.rupture_boss_blocked = bossBlocked;
       bs.flags.rupture_pct = 0.10;
-      if (!bossBlocked) {
-        // The marker carries the canonical bleed tag so Bloodhunter can detect
-        // Rupture even when the target separately resists Venom.
-        bs.applyDebuff('rupture', LANDED_STAT_DEBUFF_TURNS);
-      }
+      if (bossBlocked) return;
+      // The marker carries the canonical bleed tag so Bloodhunter can detect
+      // Rupture even when the target separately resists Venom.
+      bs.applyDebuff('rupture', LANDED_STAT_DEBUFF_TURNS);
       bs.flags.venom_burst_applied = bs.applyDebuff(
         'venom',
         2,
         bs.playerATK * 0.10,
-        { allowOnBoss: true },
       );
     }, LOG.STATUS);
   },
