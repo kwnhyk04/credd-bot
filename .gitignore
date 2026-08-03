@@ -1,6 +1,7 @@
 # Secrets / env
 .env
 .env.*
+gha-creds-*.json
 
 # Node
 node_modules/
