@@ -2208,6 +2208,14 @@ check('class base and per-level scaling match the balance table',
     hasEvent(allEvents(sBoss), 'Rupture has no effect on bosses')
       && !hasEvent(allEvents(sBoss), 'Venom applied for 2 turns')
       && !hasEvent(allEvents(sBoss), 'Venom ticks'));
+  const sLegacyBoss = resolveBattle(
+    mkR(),
+    mob({ hp: 10000, mobType: 'boss' }),
+    { seed: 1, rng: scripted([0.0, 0.99, 0.01, 0.5]) });
+  check('legacy bosses inherit the same Rupture and Venom immunity',
+    hasEvent(allEvents(sLegacyBoss), 'Rupture has no effect on bosses')
+      && !hasEvent(allEvents(sLegacyBoss), 'Venom applied for 2 turns')
+      && !hasEvent(allEvents(sLegacyBoss), 'Venom ticks'));
   const mkH = () => player({ weaponPassiveKey: 'gusisnautar' });
   const hMob = resolveBattle(mkH(), mob({ hp: 10000 }),
     { seed: 1, rng: scripted([0.0, 0.99, 0.01, 0.5]) });
