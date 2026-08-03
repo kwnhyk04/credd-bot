@@ -458,24 +458,36 @@ function bossBanner(imgPath) {
   return entry.promise;
 }
 
-/* ── boss lore (assets/monsters/boss/lore/boss_lores.txt: "Name: text") ──── */
-const LORE_PATH = assetPath('monsters/boss/lore/boss_lores.txt');
-let loreMap = null; // lazy-parsed once; mythology header lines have no text after ':' so they never match
+/* ── boss lore (assets/monsters/boss/lore/{boss_lores,boss}.txt: "Name: text") ── */
+// `boss_lores.txt` is the canonical R2 object. `boss.txt` is accepted as a
+// compatibility alias because older asset uploads used that shorter filename.
+const LORE_PATHS = [
+  assetPath('monsters/boss/lore/boss_lores.txt'),
+  assetPath('monsters/boss/lore/boss.txt'),
+];
+let loreMap = null; // mythology header lines have no text after ':' so they never match
 
 async function bossLore(name) {
   if (loreMap === null) {
     loreMap = new Map();
-    try {
-      const txt = await readAssetText(LORE_PATH);
-      for (const line of txt.split(/\r?\n/)) {
-        const m = /^([A-Za-z'’ &]+):\s+(.+)$/.exec(line.trim());
-        if (m) loreMap.set(m[1].trim().toLowerCase(), m[2].trim());
+    let loaded = false;
+    for (const lorePath of LORE_PATHS) {
+      try {
+        const txt = await readAssetText(lorePath);
+        loaded = true;
+        for (const line of txt.split(/\r?\n/)) {
+          const m = /^([^:]+):\s+(.+)$/.exec(line.trim());
+          if (m) loreMap.set(m[1].trim().toLowerCase(), m[2].trim());
+        }
+      } catch (err) {
+        // The alias is optional; report only when neither supported file loads.
+        if (lorePath === LORE_PATHS.at(-1) && !loaded) {
+          console.warn('[boss] lore file unavailable:', err.message);
+        }
       }
-    } catch (err) {
-      console.warn('[boss] lore file unavailable:', err.message);
     }
   }
-  return loreMap.get(String(name).toLowerCase()) || null;
+  return loreMap.get(String(name).trim().toLowerCase()) || null;
 }
 
 /* ── boss status card — raid-card style, rendered at banner width so it
