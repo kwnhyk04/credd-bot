@@ -3,16 +3,15 @@
 /**
  * Temporary Monthsary event configuration.
  *
- * MONTHSARY_EVENT_ENABLED is the manual kill switch and defaults false.
- * MONTHSARY_EVENT_START_AT is set only after the fail-closed build is verified
- * in production. It must be the next midnight PHT as an explicit +08:00 ISO
- * timestamp. The exclusive end is derived seven PHT days later.
+ * Phase 1 is activated in code with a fixed PHT window. The exclusive end is
+ * derived seven PHT days after the fixed start, so no deployment environment
+ * variables are required for the event schedule.
  */
-
-const { envBool } = require('../utils/runtimeLogs');
 
 const EVENT_KEY = 'monthsary_2026_08';
 const TIMEZONE = 'Asia/Manila';
+const EVENT_START_AT = '2026-08-05T00:00:00+08:00';
+const EVENT_ENABLED = true;
 const DAY_MS = 86_400_000;
 const START_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T00:00:00(?:\.000)?\+08:00$/;
 
@@ -99,8 +98,8 @@ function attendanceRewardForDay(eventDay, config = MONTHSARY_EVENT) {
 }
 
 const MONTHSARY_EVENT = buildEventConfig({
-  enabled: envBool('MONTHSARY_EVENT_ENABLED', false),
-  startAt: process.env.MONTHSARY_EVENT_START_AT,
+  enabled: EVENT_ENABLED,
+  startAt: EVENT_START_AT,
 });
 
 if (MONTHSARY_EVENT.enabled && !MONTHSARY_EVENT.valid) {
@@ -110,6 +109,8 @@ if (MONTHSARY_EVENT.enabled && !MONTHSARY_EVENT.valid) {
 module.exports = {
   EVENT_KEY,
   TIMEZONE,
+  EVENT_START_AT,
+  EVENT_ENABLED,
   DAY_MS,
   MONTHSARY_EVENT,
   buildEventConfig,

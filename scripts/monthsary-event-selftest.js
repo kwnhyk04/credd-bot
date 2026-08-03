@@ -4,6 +4,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
+  EVENT_START_AT,
+  EVENT_ENABLED,
+  MONTHSARY_EVENT,
   buildEventConfig,
   eventStateAt,
   attendanceRewardForDay,
@@ -151,6 +154,10 @@ async function withTimeout(promise, ms = 2_000) {
 }
 
 async function testConfigBoundaries() {
+  assert.equal(EVENT_ENABLED, true);
+  assert.equal(EVENT_START_AT, '2026-08-05T00:00:00+08:00');
+  assert.equal(MONTHSARY_EVENT.enabled, true);
+  assert.equal(MONTHSARY_EVENT.valid, true);
   assert.equal(CONFIG.valid, true);
   assert.equal(CONFIG.endAt.getTime() - CONFIG.startAt.getTime(), 7 * DAY_MS);
   assert.deepEqual(eventStateAt(new Date(startMs - 1), CONFIG), {
