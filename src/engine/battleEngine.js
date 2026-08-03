@@ -131,6 +131,11 @@ const MAX_DAMAGE_REDUCTION = 0.70;
 // Charmed Hide's ongoing resist covers only these three. The first-CC nullify is
 // separate and applies to any crowd-control tag.
 const CHARMED_HIDE_RESIST_TAGS = new Set(['stun', 'petrify', 'freeze']);
+// Bosses are immune to every target-max-HP damage lane and its marker effects.
+// This remains true even for roster rows carrying `no_immunities`.
+const ABSOLUTE_BOSS_IMMUNITY_TAGS = new Set([
+  'boss_immune', 'hp_pct_dot', 'rupture', 'hemorrhage',
+]);
 
 // Tyrfing execute thresholds, as a fraction of the target's max HP. Player-character
 // targets (both sides of a duel are kind 'player') use the lower bar; bosses are
@@ -467,8 +472,11 @@ function resolveBattle(a, b, opts = {}) {
     return true;
   };
   const sideImmune = (side, tag) => {
+    // These are absolute boss protections. `no_immunities` only strips the
+    // ordinary roster immunity tags; it never enables execute or max-HP
+    // percentage damage against a boss.
+    if (side.isBoss && ABSOLUTE_BOSS_IMMUNITY_TAGS.has(tag)) return true;
     if (side.isBoss && side.specialFlags.no_immunities === true) return false;
-    if (side.isBoss && (tag === 'boss_immune' || tag === 'hp_pct_dot')) return true;
     if (side.kind !== 'mob') return false;
     return side.immunityTags.includes('all_debuffs') || side.immunityTags.includes(tag);
   };
@@ -480,9 +488,8 @@ function resolveBattle(a, b, opts = {}) {
     turns,
     value = 0,
     source = null,
-    { allowOnBoss = false } = {},
   ) => {
-    const immune = allowOnBoss && side.isBoss ? false : debuffImmune(side, tag);
+    const immune = debuffImmune(side, tag);
     if (immune) {
       if (side.kind === 'player' && side.statusImmune && isStatusEffect(tag)) {
         shared.events.push('✋ Untouchable — status effect blocked!');
@@ -568,8 +575,8 @@ function resolveBattle(a, b, opts = {}) {
       }
       return immune;
     },
-    applyDebuff: (tag, turns, value = 0, options = {}) =>
-      tryApplyDebuff(opp, tag, turns, value, self, options),
+    applyDebuff: (tag, turns, value = 0) =>
+      tryApplyDebuff(opp, tag, turns, value, self),
     applyPlayerDebuff: (tag, turns, value = 0) => tryApplyDebuff(self, tag, turns, value, opp),
     enemyHasEffectTag: (tag) => opp.debuffs.some((effect) => effectHasTag(effect.tag, tag)),
     hasPlayerDebuff: (tag) => (tag === 'any' ? self.debuffs.length > 0 : !!findDebuff(self, tag)),
@@ -1460,7 +1467,8 @@ function resolveBattle(a, b, opts = {}) {
       const bossBlocked = S.flags.rupture_boss_blocked;
       S.flags.rupture_check = false;
       S.flags.rupture_boss_blocked = false;
-      if (ruptured) {
+      const percentDamageBlocked = sideImmune(O, 'boss_immune');
+      if (ruptured && !percentDamageBlocked) {
         const burst = Math.floor(effectDamage(O, O.maxHp * (S.flags.rupture_pct || 0)));
         const before = O.hp;
         damage(O, burst);
@@ -1473,7 +1481,7 @@ function resolveBattle(a, b, opts = {}) {
           applyLifesteal(S, applied, S.flags.soul_drain_pct, 'Soul Drain');
         }
         if (checkDeaths('rupture')) return;
-      } else if (bossBlocked) {
+      } else if (bossBlocked || percentDamageBlocked) {
         shared.events.push(
           '🚫 Venom Burst — Rupture has no effect on bosses.' +
           `${S.flags.venom_burst_applied ? ' Venom applied for 2 turns.' : ''}`
@@ -1483,19 +1491,23 @@ function resolveBattle(a, b, opts = {}) {
     }
     if (S.flags.hemorrhage_check) {
       S.flags.hemorrhage_check = false;
-      const burst = Math.floor(effectDamage(O, O.maxHp * (S.flags.hemorrhage_pct || 0)));
-      const before = O.hp;
-      damage(O, burst);
-      const applied = before - O.hp;
-      shared.events.push(
-        `🩸 Hemorrhaging Shot — Hemorrhage deals ${applied} damage` +
-        `${S.flags.hemorrhage_shredded ? ', enemy DEF -15% for 1 turn.' : '.'}`
-      );
-      if (applied > 0 && S.hp > 0 && S.flags.soul_drain_pct > 0) {
-        applyLifesteal(S, applied, S.flags.soul_drain_pct, 'Soul Drain');
+      if (sideImmune(O, 'boss_immune')) {
+        shared.events.push('🚫 Hemorrhaging Shot has no effect on bosses.');
+      } else {
+        const burst = Math.floor(effectDamage(O, O.maxHp * (S.flags.hemorrhage_pct || 0)));
+        const before = O.hp;
+        damage(O, burst);
+        const applied = before - O.hp;
+        shared.events.push(
+          `🩸 Hemorrhaging Shot — Hemorrhage deals ${applied} damage` +
+          `${S.flags.hemorrhage_shredded ? ', enemy DEF -15% for 1 turn.' : '.'}`
+        );
+        if (applied > 0 && S.hp > 0 && S.flags.soul_drain_pct > 0) {
+          applyLifesteal(S, applied, S.flags.soul_drain_pct, 'Soul Drain');
+        }
+        if (checkDeaths('hemorrhage')) return;
       }
       S.flags.hemorrhage_shredded = false;
-      if (checkDeaths('hemorrhage')) return;
     }
 
     // Additional-attack generators are evaluated only by the primary attack.

@@ -16,11 +16,7 @@ const { resolveSkin, resolveProfileLabel } = require('../../engine/skinResolver'
 const { resolveProfileTarget } = require('../../utils/profileTarget');
 const { envNumber, performanceLog } = require('../../utils/runtimeLogs');
 const { safeAssetKey } = require('../../engine/avatarImageLoader');
-const {
-  isRemoteAssetsEnabled, remoteAssetAvailable, assetPath, assetExistsSync,
-} = require('../../utils/assets');
-const { getSupporter, effectiveTier } = require('../../engine/supporterEntitlements');
-const { SUPPORTER_BADGE_DIR, SUPPORTER_BADGE_FILE } = require('../../config/cosmetics');
+const { resolveSupporterBadge } = require('../../engine/supporterBadge');
 const {
   signature: profileImageSignature,
   getProfileImageCache,
@@ -33,7 +29,8 @@ const {
 // 8: dedicated, centered tester2 profile layout.
 // 9: tester2 avatar optical x alignment.
 // 12: show global PvP rank instead of the current rating points.
-const PROFILE_RENDER_REV = 12;
+// 13: supporter badge GET is no longer gated by a remote HEAD probe.
+const PROFILE_RENDER_REV = 13;
 const PROFILE_IMAGE_OPTIONS = Object.freeze({
   maxWidth: Math.floor(envNumber('PROFILE_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 })),
 });
@@ -196,18 +193,11 @@ async function executeProfile(message, db = pool) {
   const skin = await resolveSkin(db, discordId, 'profile');
   data.skinPath = skin.path; // null → renderer keeps the default template
   data.topLabel = await resolveProfileLabel(db, discordId);
-  // [§2.5] Supporter badge — active subscribers only; resolved here so the badge
-  // identity is part of the cache key via `data`; missing art → renderer skips.
-  data.supporterBadgePath = null;
-  const supporterTier = effectiveTier(await getSupporter(db, discordId));
-  if (supporterTier && SUPPORTER_BADGE_FILE[supporterTier]) {
-    const badgeRel = `${SUPPORTER_BADGE_DIR}/${SUPPORTER_BADGE_FILE[supporterTier]}.png`;
-    if (isRemoteAssetsEnabled()) {
-      if (await remoteAssetAvailable(badgeRel)) data.supporterBadgePath = assetPath(badgeRel);
-    } else if (assetExistsSync(assetPath(badgeRel))) {
-      data.supporterBadgePath = assetPath(badgeRel);
-    }
-  }
+  // [§2.5] Supporter badge — the availability flag is cache metadata only;
+  // the configured path is passed through even when a remote HEAD probe fails.
+  const supporterBadge = await resolveSupporterBadge(db, discordId);
+  data.supporterBadgePath = supporterBadge.path;
+  data.supporterBadgeAssetAvailable = supporterBadge.available;
   performanceLog('profile skin selected', {
     ...logContext,
     skinCategory: 'profile',

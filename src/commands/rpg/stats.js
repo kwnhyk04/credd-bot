@@ -19,10 +19,8 @@ const { envNumber, performanceLog } = require('../../utils/runtimeLogs');
 const { safeAssetKey } = require('../../engine/avatarImageLoader');
 const {
   isRemoteAssetsEnabled, isRemoteSource, remoteAssetAvailable, relativeAssetPath,
-  assetPath, assetExistsSync,
 } = require('../../utils/assets');
-const { getSupporter, effectiveTier } = require('../../engine/supporterEntitlements');
-const { SUPPORTER_BADGE_DIR, SUPPORTER_BADGE_FILE } = require('../../config/cosmetics');
+const { resolveSupporterBadge } = require('../../engine/supporterBadge');
 
 // Bump when renderStats output changes visually (busts every cached stats card).
 // 9: §1.3 — busts cards cached while an equipped avatar's art was missing on R2.
@@ -31,7 +29,8 @@ const { SUPPORTER_BADGE_DIR, SUPPORTER_BADGE_FILE } = require('../../config/cosm
 // 19: keep the equipped avatar path when the advisory R2 HEAD probe fails.
 // 22: remove the active preset label from the stats card.
 // 23: show global PvP rank instead of the current rating points.
-const STATS_RENDER_REV = 23;
+// 24: supporter badge GET is no longer gated by a remote HEAD probe.
+const STATS_RENDER_REV = 24;
 const STATS_IMAGE_OPTIONS = Object.freeze({
   quality: 50,
   maxWidth: Math.floor(envNumber('STATS_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 })),
@@ -273,20 +272,11 @@ async function execute(message) {
     });
   }
 
-  // [§2.5] Supporter badge: active subscribers only (effectiveTier → null when
-  // lapsed; eternal is permanent). Resolved to a fetchable path HERE so the
-  // badge identity (tier + availability) is part of the canvas cache key via
-  // `data`; missing art (not uploaded yet) → null → renderer skips the layer.
-  data.supporterBadgePath = null;
-  const supporterTier = effectiveTier(await getSupporter(pool, discordId));
-  if (supporterTier && SUPPORTER_BADGE_FILE[supporterTier]) {
-    const badgeRel = `${SUPPORTER_BADGE_DIR}/${SUPPORTER_BADGE_FILE[supporterTier]}.png`;
-    if (isRemoteAssetsEnabled()) {
-      if (await remoteAssetAvailable(badgeRel)) data.supporterBadgePath = assetPath(badgeRel);
-    } else if (assetExistsSync(assetPath(badgeRel))) {
-      data.supporterBadgePath = assetPath(badgeRel);
-    }
-  }
+  // [§2.5] Supporter badge — the availability flag is cache metadata only;
+  // the configured path is passed through even when a remote HEAD probe fails.
+  const supporterBadge = await resolveSupporterBadge(pool, discordId);
+  data.supporterBadgePath = supporterBadge.path;
+  data.supporterBadgeAssetAvailable = supporterBadge.available;
 
   // [egress] Render-once cache — see profile.js; same pattern.
   const cached = await getCachedCanvasUrl(

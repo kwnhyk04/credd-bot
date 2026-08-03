@@ -55,7 +55,7 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `laevateinn_staff` — Flickering Flame: Attacks ignore 15% of enemy DEF and apply Burn equal to 10% of ATK for 2 turns.
 - `galdrastafir` — Runebreaker: Increases damage by 10%. Every successful attack reduces the target's DEF by 20% for 1 turn, refreshing rather than stacking.
 - `babaylans_ritual_staff` — Sacred Cleansing: Each turn has a 50% chance to remove all status and damage-over-time debuffs. If at least one debuff is removed, grants +100% ATK for 1 turn.
-- `badiang_stalk` — Venom Burst: 30% chance on attack to Rupture for 10% of the target's max HP, then apply Venom for 10% ATK per turn for 2 turns. Bosses block Rupture but not Venom.
+- `badiang_stalk` — Venom Burst: 30% chance on attack to Rupture for 10% of the target's max HP, then apply Venom for 10% ATK per turn for 2 turns. Bosses block both effects.
 - `shield_of_the_valkyrie` — Valkyrie's Resolve: Each hit taken grants 5% damage reduction and +5% ATK, stacking up to 25% each for the battle.
 - `skjaldmaer` — Shieldmaiden's Guard: Reflects 20% of damage taken. Each hit also has a 10% chance to be fully negated and reflect 60% of its would-be damage instead — the two reflects never double-dip.
 - `luzon_tribal_shield` — Tribal Ward: Gains +45% DEF while debuffed and heals 8% max HP whenever a debuff expires or is cleansed.
