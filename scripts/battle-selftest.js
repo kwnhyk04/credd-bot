@@ -2558,6 +2558,7 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
 
   const bossSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'bossSystem.js'), 'utf8');
   const bossConfigSource = fs.readFileSync(path.join(ROOT, 'src', 'config', 'bosses.js'), 'utf8');
+  const bossSchedulerSource = fs.readFileSync(path.join(ROOT, 'src', 'schedulers', 'bossScheduler.js'), 'utf8');
   check('same-spawn upsert resets the daily counter', /attacks = CASE[\s\S]*?ELSE 1[\s\S]*?last_daily_reset =/.test(bossSource));
   check('no lifetime per-spawn attack gate remains', !/SELECT attacks FROM boss_attack_log WHERE boss_spawn_id/.test(bossSource));
   check('boss spawn uses fixed roster stats and no level scaling',
@@ -2609,6 +2610,11 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
       && /monsters\/boss\/lore\/boss\.txt/.test(bossSource)
       && /BOSS_LORE_FALLBACKS/.test(bossSource)
       && /bakunawa:/.test(bossSource));
+  check('startup scheduler refreshes the active boss payload after deployment',
+    /let startupPass = true/.test(bossSchedulerSource)
+      && /const forceRefresh = startupPass/.test(bossSchedulerSource)
+      && /tickGuild\(client, guildId, \{ forceRefresh \}\)/.test(bossSchedulerSource)
+      && /forceRefresh \? 'scheduler:deployment-refresh'/.test(bossSource));
   const eclipseSim = resolveBattle(
     player({ atk: 1, hp: 100000, def: 100000, crit: 100, classPassive: null }),
     mob({

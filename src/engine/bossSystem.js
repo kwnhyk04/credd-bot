@@ -2032,7 +2032,7 @@ async function handleLog(interaction) {
 }
 
 /* ── scheduler entry — one guild per call ───────────────────────────────── */
-async function tickGuild(client, guildId) {
+async function tickGuild(client, guildId, { forceRefresh = false } = {}) {
   if (!isOfficialGuild(guildId)) {
     await postOfficialRedirect(client, guildId);
     return;
@@ -2049,14 +2049,17 @@ async function tickGuild(client, guildId) {
       return;
     }
     rememberSpawn(guildId, state.spawn_id);
-    if (!liveMessages.has(guildId) && !pendingBossRefreshes.has(guildId)) {
+    // The startup scheduler pass explicitly refreshes the active boss so a
+    // deployment immediately upgrades the live payload (footer, buttons, and
+    // status image). Normal minute ticks only reconcile missing messages.
+    if ((forceRefresh || !liveMessages.has(guildId)) && !pendingBossRefreshes.has(guildId)) {
       const now = Date.now();
       const lastAttempt = lastBossReconciliations.get(guildId) || 0;
-      if (now - lastAttempt >= BOSS_REFRESH_RECONCILE_COOLDOWN_MS) {
+      if (forceRefresh || now - lastAttempt >= BOSS_REFRESH_RECONCILE_COOLDOWN_MS) {
         lastBossReconciliations.set(guildId, now);
         scheduleBossLiveRefresh(client, guildId, {
           spawnId: state.spawn_id,
-          telemetryCommand: 'scheduler:boss',
+          telemetryCommand: forceRefresh ? 'scheduler:deployment-refresh' : 'scheduler:boss',
         });
         bandwidthLog('boss live message reconciliation scheduled', {
           system: 'boss',

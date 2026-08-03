@@ -29,14 +29,17 @@ function startBossScheduler(client) {
   if (started) return stopFn;
   started = true;
   let ticking = false;
+  let startupPass = true;
   const tick = async () => {
     if (ticking) return;
     ticking = true;
+    const forceRefresh = startupPass;
+    startupPass = false;
     const endActivity = beginActivity('scheduler.boss');
     try {
       for (const guildId of client.guilds.cache.keys()) {
         try {
-          await tickGuild(client, guildId);
+          await tickGuild(client, guildId, { forceRefresh });
         } catch (err) {
           console.error(`[bossScheduler] guild ${guildId}:`, err.message);
         }
