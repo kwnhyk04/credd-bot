@@ -1,0 +1,106 @@
+name: Credd CI/CD
+
+on:
+  pull_request:
+    branches:
+      - main
+
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: credd-production
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION }}
+  ZONE: ${{ vars.GCP_ZONE }}
+  VM_NAME: ${{ vars.GCP_VM_NAME }}
+  GAR_REPOSITORY: ${{ vars.GAR_REPOSITORY }}
+  IMAGE_NAME: ${{ vars.IMAGE_NAME }}
+
+jobs:
+  validate:
+    name: Validate Docker build
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validate production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          tags: credd-ci:${{ github.sha }}
+
+  deploy:
+    name: Deploy Credd
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: production
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Configure Docker authentication
+        run: |
+          gcloud auth configure-docker \
+            "${REGION}-docker.pkg.dev" \
+            --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Deploy image to Compute Engine
+        run: |
+          set -euo pipefail
+
+          IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${GAR_REPOSITORY}/${IMAGE_NAME}:${GITHUB_SHA}"
+
+          echo "Deploying ${IMAGE_URI}"
+
+          gcloud compute ssh "${VM_NAME}" \
+            --project="${PROJECT_ID}" \
+            --zone="${ZONE}" \
+            --tunnel-through-iap \
+            --quiet \
+            --command="sudo /opt/credd/deploy.sh '${IMAGE_URI}'"
