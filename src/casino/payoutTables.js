@@ -37,7 +37,10 @@ const SLOT_LADDER = [
 /**
  * Crash progression (Master §24). Rows 1–6 are LOCKED published values used verbatim.
  *   crash chance = min(75, 15 + 2·(push−1))  → push1 15%, push2 17%, … push10 33%
- *   cash-out mult = round2( 9.28 · 1.45^(push-6) )  → push7 ≈13.46×, push8 ≈19.52×, …
+ *   cash-out mult = round2( 9.28 · 1.45^(push-6) )  → push7 13.46×, push8 19.51×,
+ *     push9 28.29×, push10 41.02×
+ * These are DERIVED, not hardcoded — if CRASH_MULT_TABLE[6] or CRASH_STEP change,
+ * recompute via crashMultiplier(push) rather than trusting this list.
  * Gameplay ends after surviving push 10, so the formula's 75% ceiling is unreachable. The
  * ×1.45 geometric step reproduces the published rows; rows 1–6 are returned exactly.
  */
