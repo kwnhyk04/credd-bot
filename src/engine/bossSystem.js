@@ -501,7 +501,7 @@ async function bossLore(name) {
 // (primary + Unicode fallbacks) and is interpolated UNQUOTED into ctx.font.
 const { fontStack } = require('../utils/fontRegistry');
 const FONT = fontStack();
-const BOSS_STATUS_RENDER_REV = 3;
+const BOSS_STATUS_RENDER_REV = 4;
 const CARD_COLORS = {
   bg: '#1f2125', card: '#26282d', cardLine: '#36393f',
   enemy: '#f23f43', text: '#e7e9ec', dim: '#9aa0a8', barBg: '#3b3e44',
@@ -527,12 +527,35 @@ function truncateToWidth(ctx, text, maxW) {
   return `${t}…`;
 }
 
+function wrapToWidth(ctx, text, maxW, maxLines) {
+  const words = String(text).trim().split(/\s+/).filter(Boolean);
+  const lines = [];
+  let current = '';
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index];
+    const candidate = current ? `${current} ${word}` : word;
+    if (!current || ctx.measureText(candidate).width <= maxW) {
+      current = candidate;
+      continue;
+    }
+    lines.push(current);
+    current = word;
+    if (lines.length === maxLines - 1) {
+      const remainder = [current, ...words.slice(index + 1)].join(' ');
+      lines.push(truncateToWidth(ctx, remainder, maxW));
+      return lines;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.slice(0, maxLines);
+}
+
 function renderBossStatusCard(state, mobRow) {
   const cur = Number(state.current_hp);
   const max = Number(state.max_hp);
   const p = max > 0 ? Math.max(0, Math.min(1, cur / max)) : 0;
 
-  const W = BANNER_W, H = 190, PAD = 22;
+  const W = BANNER_W, H = 216, PAD = 22;
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = CARD_COLORS.bg;
@@ -566,10 +589,13 @@ function renderBossStatusCard(state, mobRow) {
     : `Passive: ${mobRow.skill_description || 'Basic attacks only.'}`;
   ctx.font = `21px ${FONT}`;
   ctx.fillStyle = CARD_COLORS.dim;
-  ctx.fillText(truncateToWidth(ctx, passive, R - L), L, y);
+  const passiveLines = wrapToWidth(ctx, passive, R - L, 2);
+  for (let i = 0; i < 2; i += 1) {
+    if (passiveLines[i]) ctx.fillText(passiveLines[i], L, y + i * 26);
+  }
 
   // HP bar — fills left→right, color by remaining percentage
-  y += 18;
+  y += 26 + 18;
   const barW = R - L, barH = 16;
   roundRectPath(ctx, L, y, barW, barH, 7);
   ctx.fillStyle = CARD_COLORS.barBg; ctx.fill();
