@@ -1,14 +1,14 @@
 'use strict';
 
 /**
- * BOSS SYSTEM — Master §16 (v4.1: 2-hour timer, boss art) + Phase 7 prompt.
+ * BOSS SYSTEM — Master §16 (persistent active bosses, boss art) + Phase 7 prompt.
  *
  * One active boss per guild (boss_state, PK guild_id). The scheduler tick
- * (schedulers/bossScheduler.js) drives spawn/escape/defeat-recovery; the
+ * (schedulers/bossScheduler.js) drives spawn/defeat-recovery; the
  * ⚔️ Attack and 📋 Log buttons route here from interactionHandler.
  *
  * Core invariants:
- *  - Spawn/escape/defeat transitions are ATOMIC SQL guards (status checks in
+ *  - Spawn/defeat transitions are ATOMIC SQL guards (status checks in
  *    the WHERE clause) — overlapping ticks or button presses can never
  *    double-apply a transition.
  *  - Attack commit: UPDATE boss_state GREATEST(current_hp − net, 0) serialized
@@ -20,7 +20,8 @@
  *    back (boss stays active at 0 HP, attacks blocked by current_hp > 0) and
  *    the next tick re-runs distribution. No double-pay, no lost pay.
  *  - expires_at = NOW() on defeat anchors the 15-min respawn clock (schema has
- *    no died_at; for 'escaped' expires_at is the end time naturally).
+ *    no died_at). Active bosses use a far-future compatibility value and never
+ *    transition out of active due to elapsed time.
  *  - Lock order everywhere: users_bag (sorted) → user_character (sorted) —
  *    Phase-5 convention, deadlock-safe vs. concurrent raid commits.
  *
@@ -71,7 +72,7 @@ const { registerMemorySource } = require('../utils/memoryRegistry');
 const { beginActivity } = require('../utils/networkTelemetry');
 const { bossFeatTitlesFor } = require('../config/titles');
 const {
-  isGreaterBoss, isCalamityBoss, CALAMITY_BOSSES, bossRewards, rollBossChest, hpMultiplierForChest,
+  isGreaterBoss, isCalamityBoss, bossRewards, rollBossChest, hpMultiplierForChest,
   bossMaxHpForChest, greaterVariantForChest, inferChestFromGreaterHp, bossChestForSpawn,
   pickWeightedBoss,
   MAX_BOSS_ATTACKS_PER_DAY, bossAttackDecision,
@@ -85,7 +86,6 @@ const {
 const RESPAWN_COOLDOWN = '15 minutes';   // spawns every 15 min after defeat
 const RESPAWN_COOLDOWN_MS = 15 * 60_000;
 const CALAMITY_CLAIM_TIMEOUT = '5 minutes';
-const CALAMITY_IDLE_MS = 2 * 60 * 60_000;
 const ACTIVE_BOSS_EXPIRES_AT_SQL = "NOW() + INTERVAL '100 years'";
 const NON_OFFICIAL_REDIRECT_COOLDOWN_MS = 6 * 60 * 60_000;
 const BOSS_PROGRESS_REFRESH_MAX_RETRIES = 2;
@@ -1332,57 +1332,6 @@ function scheduleBossLiveRefresh(client, guildId, {
  * weighted pick. Greater status changes weighting/rewards, but all stats come
  * from the selected mob_roster row. Returns false if no boss by that name exists.
  */
-async function expireIdleCalamity(client, guildId) {
-  const dbc = await pool.connect();
-  let expired = null;
-  try {
-    await dbc.query('BEGIN');
-    const hit = await dbc.query(
-      `SELECT bs.spawn_id, mr.name
-         FROM boss_state bs
-         JOIN mob_roster mr ON mr.mob_id = bs.mob_id
-        WHERE bs.guild_id = $1
-          AND bs.status = 'active'
-          AND mr.name = ANY($2::text[])
-          AND COALESCE(bs.last_attack_at, bs.spawn_at) <= NOW() - INTERVAL '2 hours'
-        FOR UPDATE OF bs`,
-      [guildId, [...CALAMITY_BOSSES]]
-    );
-    if (hit.rows.length === 0) {
-      await dbc.query('ROLLBACK');
-      return false;
-    }
-    const result = await dbc.query(
-      `UPDATE boss_state
-          SET status = 'escaped', expires_at = NOW()
-        WHERE guild_id = $1 AND spawn_id = $2 AND status = 'active'
-        RETURNING spawn_id`,
-      [guildId, hit.rows[0].spawn_id]
-    );
-    if (result.rows.length === 0) {
-      await dbc.query('ROLLBACK');
-      return false;
-    }
-    expired = result.rows[0].spawn_id;
-    await dbc.query('COMMIT');
-  } catch (err) {
-    await dbc.query('ROLLBACK').catch(() => {});
-    throw err;
-  } finally {
-    dbc.release();
-  }
-  await clearPendingBossRefresh(guildId, 'calamity-expired');
-  await refreshLiveMessage(client, guildId, {
-    includeStatusImage: true,
-    includeBanner: 'remote-only',
-    phase: 'escaped',
-    telemetryCommand: 'boss:calamity-expiry',
-  }).catch(() => {});
-  purgeBossRuntimeForSpawn(expired, 'calamity-expired');
-  currentSpawn.delete(guildId);
-  return true;
-}
-
 async function processQueuedCalamity(client, guildId, { db = pool, spawn = spawnBoss } = {}) {
   const dbc = await db.connect();
   let queued = null;
@@ -1570,10 +1519,6 @@ async function spawnBoss(client, guildId, {
     );
   }
   return true;
-}
-
-async function expireBoss(client, guildId) {
-  return expireIdleCalamity(client, guildId);
 }
 
 /* ── defeat distribution (§16 participation-only, exactly-once) ─────────── */
@@ -1857,26 +1802,6 @@ async function handleAttackImpl(interaction) {
       }
       Object.assign(state, locked.rows[0]);
       unlimitedDev = devBossHasUnlimitedAttacks(state, mobRow);
-      if (isCalamityBoss(mobRow.name)
-        && Date.now() - new Date(state.last_attack_at || state.spawn_at).getTime() >= CALAMITY_IDLE_MS) {
-        await dbc.query(
-          `UPDATE boss_state SET status = 'escaped', expires_at = NOW()
-            WHERE guild_id = $1 AND spawn_id = $2 AND status = 'active'`,
-          [guildId, state.spawn_id]
-        );
-        await dbc.query('COMMIT');
-        txOpen = false;
-        dbc.release();
-        dbc = null;
-        await clearPendingBossRefresh(guildId, 'calamity-expired');
-        await refreshLiveMessage(interaction.client, guildId, {
-          includeStatusImage: true,
-          includeBanner: 'remote-only',
-          phase: 'escaped',
-          telemetryCommand: 'boss:calamity-expiry',
-        }).catch(() => {});
-        return fail('The calamity escaped after two hours without an attack.');
-      }
       const boss = { ...buildBossFighter(mobRow, state), crit: bossCrit(mobRow) };
       sim = resolveBattle(fighter, boss, { mode: 'boss', seed: Date.now() >>> 0 });
       net = Math.max(0, Math.floor(sim.totals.netDamage));
@@ -2042,7 +1967,6 @@ async function tickGuild(client, guildId, { forceRefresh = false } = {}) {
   const state = stRes.rows[0] || null;
 
   if (state && state.status === 'active') {
-    if (await expireIdleCalamity(client, guildId)) return;
     if (Number(state.current_hp) <= 0) {
       // crash-recovery safety net: distribution didn't finish — re-run it
       await distributeRewards(client, guildId, state.spawn_id);
@@ -2122,7 +2046,6 @@ module.exports = {
   tickGuild,
   processQueuedCalamity,
   spawnBoss,
-  expireBoss,
   distributeRewards,
   handleAttack,
   handleLog,
