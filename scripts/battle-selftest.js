@@ -2631,6 +2631,9 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
       && /state\?\.spawn_source === 'dev' && !isCalamityBoss\(mobRow\?\.name\)/.test(bossSource)
       && /const unlimitedDev = isDev && !calamity/.test(bossSource)
       && /\$\{unlimitedDev \? '' :/.test(bossSource));
+  check('active dev and calamity bosses persist until defeated',
+    !/CALAMITY_IDLE_MS|expireIdleCalamity|calamity-expiry|escaped after two hours/.test(bossSource)
+      && /const ACTIVE_BOSS_EXPIRES_AT_SQL = "NOW\(\) \+ INTERVAL '100 years'"/.test(bossSource));
   check('Bakunawa lore has both asset aliases and a deployment-safe fallback',
     /monsters\/boss\/lore\/boss_lores\.txt/.test(bossSource)
       && /monsters\/boss\/lore\/boss\.txt/.test(bossSource)
