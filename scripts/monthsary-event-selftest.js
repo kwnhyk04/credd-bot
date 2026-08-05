@@ -334,10 +334,13 @@ function testMigrationAndHookShape() {
   const daily = fs.readFileSync(path.join(__dirname, '..', 'src', 'commands', 'economy', 'daily.js'), 'utf8');
   const quest = fs.readFileSync(path.join(__dirname, '..', 'src', 'utils', 'questProgress.js'), 'utf8');
   const eventEngine = fs.readFileSync(path.join(__dirname, '..', 'src', 'engine', 'monthsaryEvent.js'), 'utf8');
+  const questCommand = fs.readFileSync(path.join(__dirname, '..', 'src', 'commands', 'economy', 'quests.js'), 'utf8');
   assert(daily.indexOf('claimEventAttendance(client, discordId)') < daily.indexOf("client.query('COMMIT')"));
   assert(quest.includes('claimEventQuestDay(client, discordId)'));
   assert(!daily.includes('Boss Golden Treasure Chest'));
   assert(!/(supporter|token|cosmetic|skin)/i.test(eventEngine));
+  assert(questCommand.includes('eventQuestBonusLine(await resolveEventState(pool), quests)'));
+  assert(questCommand.includes('Sacred Relic bonus'));
 }
 
 async function main() {
