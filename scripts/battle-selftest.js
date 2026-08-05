@@ -2967,6 +2967,7 @@ console.log(`\n${'═'.repeat(50)}`);
 {
   const bossSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'bossSystem.js'), 'utf8');
   const engineSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'battleEngine.js'), 'utf8');
+  const { bossStatusCardHeight } = require(path.join(ROOT, 'src', 'engine', 'bossSystem'));
   const bakunawa = mob({
     name: 'Bakunawa', mobType: 'boss', hp: 1000, poolHp: 1000, poolMaxHp: 1000,
     atk: 1, def: 0, skillKey: 'bakunawa_seven_moons',
@@ -2993,6 +2994,13 @@ console.log(`\n${'═'.repeat(50)}`);
   check('boss simulation follows the row lock and omits legacy level writes',
     bossSource.indexOf('FOR UPDATE') < bossSource.indexOf('resolveBattle(fighter, boss')
       && !/boss_level|enemy_level/.test(bossSource));
+  check('boss status card height follows wrapped passive line count',
+    bossStatusCardHeight(1) === 190
+      && bossStatusCardHeight(3) === 242
+      && bossStatusCardHeight(4) === 268
+      && /const passiveLineCount = Math\.max\(1, passiveLines\.length\)/.test(bossSource)
+      && /const H = bossStatusCardHeight\(passiveLineCount\)/.test(bossSource)
+      && /STATUS_PASSIVE_LINE_HEIGHT \* \(passiveLineCount - 1\) \+ 18/.test(bossSource));
 }
 
 console.log(`SELFTEST: ${passed} passed, ${failed} failed`);

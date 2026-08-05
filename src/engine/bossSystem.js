@@ -549,7 +549,10 @@ async function bossLore(name) {
 // (primary + Unicode fallbacks) and is interpolated UNQUOTED into ctx.font.
 const { fontStack } = require('../utils/fontRegistry');
 const FONT = fontStack();
-const BOSS_STATUS_RENDER_REV = 5;
+const BOSS_STATUS_RENDER_REV = 6;
+const STATUS_PASSIVE_MAX_LINES = 4;
+const STATUS_PASSIVE_LINE_HEIGHT = 26;
+const STATUS_CARD_MIN_HEIGHT = 190;
 const CARD_COLORS = {
   bg: '#1f2125', card: '#26282d', cardLine: '#36393f',
   enemy: '#f23f43', text: '#e7e9ec', dim: '#9aa0a8', barBg: '#3b3e44',
@@ -605,12 +608,31 @@ function wrapToWidth(ctx, text, maxW, maxLines) {
   return lines.slice(0, maxLines);
 }
 
+function bossStatusCardHeight(passiveLineCount) {
+  const requestedLineCount = Math.floor(Number(passiveLineCount) || 1);
+  const lineCount = Math.max(
+    1,
+    Math.min(STATUS_PASSIVE_MAX_LINES, requestedLineCount),
+  );
+  return STATUS_CARD_MIN_HEIGHT + (lineCount - 1) * STATUS_PASSIVE_LINE_HEIGHT;
+}
+
 function renderBossStatusCard(state, mobRow) {
   const cur = Number(state.current_hp);
   const max = Number(state.max_hp);
   const p = max > 0 ? Math.max(0, Math.min(1, cur / max)) : 0;
 
-  const W = BANNER_W, H = 268, PAD = 22;
+  const W = BANNER_W, PAD = 22;
+  const L = PAD + 26, R = W - PAD - 26;
+  const passive = mobRow.skill_name && mobRow.skill_name !== '—'
+    ? `Passive: ${mobRow.skill_name} — ${mobRow.skill_description}`
+    : `Passive: ${mobRow.skill_description || 'Basic attacks only.'}`;
+  const passiveFont = `21px ${FONT}`;
+  const measureCtx = createCanvas(1, 1).getContext('2d');
+  measureCtx.font = passiveFont;
+  const passiveLines = wrapToWidth(measureCtx, passive, R - L, STATUS_PASSIVE_MAX_LINES);
+  const passiveLineCount = Math.max(1, passiveLines.length);
+  const H = bossStatusCardHeight(passiveLineCount);
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = CARD_COLORS.bg;
@@ -619,7 +641,6 @@ function renderBossStatusCard(state, mobRow) {
   ctx.fillStyle = CARD_COLORS.card; ctx.fill();
   ctx.strokeStyle = CARD_COLORS.cardLine; ctx.lineWidth = 2.5; ctx.stroke();
 
-  const L = PAD + 26, R = W - PAD - 26;
   ctx.textAlign = 'left';
 
   // row 1 — "✦ Name · Boss" left, "cur / max" HP right (same as raid card)
@@ -639,18 +660,14 @@ function renderBossStatusCard(state, mobRow) {
 
   // row 2 — passive (transparency: players see what they're walking into)
   y += 36;
-  const passive = mobRow.skill_name && mobRow.skill_name !== '—'
-    ? `Passive: ${mobRow.skill_name} — ${mobRow.skill_description}`
-    : `Passive: ${mobRow.skill_description || 'Basic attacks only.'}`;
-  ctx.font = `21px ${FONT}`;
+  ctx.font = passiveFont;
   ctx.fillStyle = CARD_COLORS.dim;
-  const passiveLines = wrapToWidth(ctx, passive, R - L, 4);
-  for (let i = 0; i < 4; i += 1) {
-    if (passiveLines[i]) ctx.fillText(passiveLines[i], L, y + i * 26);
+  for (let i = 0; i < passiveLines.length; i += 1) {
+    if (passiveLines[i]) ctx.fillText(passiveLines[i], L, y + i * STATUS_PASSIVE_LINE_HEIGHT);
   }
 
   // HP bar — fills left→right, color by remaining percentage
-  y += 26 * 3 + 18;
+  y += STATUS_PASSIVE_LINE_HEIGHT * (passiveLineCount - 1) + 18;
   const barW = R - L, barH = 16;
   roundRectPath(ctx, L, y, barW, barH, 7);
   ctx.fillStyle = CARD_COLORS.barBg; ctx.fill();
@@ -2153,4 +2170,5 @@ module.exports = {
   redirectChannelIssue,
   clearBossRuntimeForGuild,
   getBossMemoryStats,
+  bossStatusCardHeight,
 };
