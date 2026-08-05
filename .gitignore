@@ -54,6 +54,7 @@ todo.md
 # schemas, preflight, deployment, compensation, seed, and repair tools remain tracked.
 scripts/*selftest.js
 !scripts/battle-selftest.js
+!scripts/calamity-rewards-selftest.js
 !scripts/combat-log-order-selftest.js
 !scripts/font-render-selftest.js
 !scripts/monthsary-remediation-db-selftest.js
