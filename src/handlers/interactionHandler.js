@@ -65,7 +65,8 @@ function isCollectorOwnedButton(customId) {
 async function handleInteractionInner(interaction) {
   const isButton = interaction.isButton();
   const isSelect = interaction.isStringSelectMenu && interaction.isStringSelectMenu();
-  if (!isButton && !isSelect) return;
+  const isModal = interaction.isModalSubmit && interaction.isModalSubmit();
+  if (!isButton && !isSelect && !isModal) return;
 
   if (isButton && isCollectorOwnedButton(interaction.customId)) return;
 
@@ -90,6 +91,10 @@ async function handleInteractionInner(interaction) {
     if (namespace === 'lb') { await leaderboardCmd.handleSelect(interaction); return; }
     if (namespace === 'title' && action === 'cat') { await titleCmd.handleSelect(interaction); return; }
     if (namespace === 'essx' && action === 'tier') { await exchangeEssenceCmd.handleSelect(interaction); return; }
+    if (isModal && namespace === 'essx' && action === 'amount') {
+      await exchangeEssenceCmd.handleModalSubmit(interaction, parts[2], parts[3], parts[4]);
+      return;
+    }
     if (namespace === 'quest' && action === 'scope') { await questsCmd.handleScopeSelect(interaction); return; }
     // Glossary (§4): category select AND prev/next buttons share the namespace.
     if (namespace === 'gloss') { await glossaryCmd.handleInteraction(interaction); return; }

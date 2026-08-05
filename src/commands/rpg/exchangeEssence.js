@@ -6,16 +6,19 @@
  * The essence tier-up shop, re-skinned as a CONTINUOUS forge-style view (like
  * `crd enhance`): a tier dropdown in the header (Mythic / Legendary / Supreme),
  * the conversion requirement (10 lower-tier essence + Credux → 1), live balances,
- * and a Convert button that resolves one conversion and re-renders in place so the
- * player can convert as many as they want, then stop. One-way only (never downward).
+ * and a Convert button that opens a quantity modal for an atomic bulk conversion.
+ * One-way only (never downward).
  *
- * customIds: essx:tier:<owner> (select) · essx:convert:<owner>:<tier> (button).
+ * customIds: essx:tier:<owner> (select) · essx:convert:<owner>:<tier> (button)
+ * · essx:amount:<owner>:<tier>:<submission> (modal).
  */
 
 const {
   ContainerBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
-  StringSelectMenuBuilder, MessageFlags,
+  StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle,
+  MessageFlags,
 } = require('discord.js');
+const { randomUUID } = require('crypto');
 const pool = require('../../db/pool');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emoji } = require('../../utils/emojis');
@@ -25,11 +28,14 @@ const BRAND = 0x9b59b6;
 const GREEN = 0x2ecc71;
 const RED = 0xe74c3c;
 const TIERS = Object.keys(ESSENCE_CONVERT); // ['mythic','legendary','supreme']
+const BALANCE_COLUMNS = ['credux', 'epic_essence', 'mythic_essence', 'legendary_essence', 'supreme_essence'];
+const BALANCE_SELECT = BALANCE_COLUMNS.join(', ');
+const MAX_BULK_CONVERSIONS = 1_000_000;
 
 /** Read all essence balances + credux for one player. */
 async function fetchBalances(discordId) {
   const { rows } = await pool.query(
-    `SELECT credux, epic_essence, mythic_essence, legendary_essence, supreme_essence
+    `SELECT ${BALANCE_SELECT}
        FROM users_bag WHERE discord_id = $1`,
     [discordId]
   );
@@ -125,82 +131,191 @@ async function handleSelect(interaction) {
   }
 }
 
-/** One atomic conversion. Deducts 10 lower-tier essence + Credux, grants 1 of the target. */
-async function convertOnce(client, discordId, tier) {
+function parseConversionAmount(raw) {
+  const value = String(raw ?? '').trim();
+  if (!/^\d+$/.test(value)) return null;
+  const amount = Number(value);
+  return Number.isSafeInteger(amount) && amount > 0 && amount <= MAX_BULK_CONVERSIONS
+    ? amount
+    : null;
+}
+
+function maxAffordableConversions(def, bag) {
+  const fromCol = ESSENCE_COLUMN[def.from];
+  const haveFrom = Math.max(0, Number(bag?.[fromCol] || 0));
+  const credux = Math.max(0, Number(bag?.credux || 0));
+  return Math.min(
+    Math.floor(haveFrom / def.amount),
+    Math.floor(credux / def.credux),
+    MAX_BULK_CONVERSIONS,
+  );
+}
+
+function insufficientConversionLine(def, amount, bag, maxConversions) {
+  const fromCol = ESSENCE_COLUMN[def.from];
+  const requiredFrom = def.amount * amount;
+  const requiredCredux = def.credux * amount;
+  return `You cannot complete **${amount.toLocaleString()}** conversions.\n\n`
+    + '**Required:**\n'
+    + `${requiredFrom.toLocaleString()} ${def.from} Essence\n`
+    + `${requiredCredux.toLocaleString()} Credux\n\n`
+    + '**You currently have:**\n'
+    + `${Number(bag?.[fromCol] || 0).toLocaleString()} ${def.from} Essence\n`
+    + `${Number(bag?.credux || 0).toLocaleString()} Credux\n\n`
+    + `**Maximum available conversions:** ${maxConversions.toLocaleString()}`;
+}
+
+/** One atomic bulk conversion with a durable one-modal submission guard. */
+async function convertBulk(client, discordId, tier, amount, submissionId) {
   const def = ESSENCE_CONVERT[tier];
   const fromCol = ESSENCE_COLUMN[def.from];
   await client.query('BEGIN');
+
+  const claim = await client.query(
+    `INSERT INTO essence_exchange_submissions (submission_id, discord_id)
+     VALUES ($1, $2)
+     ON CONFLICT (submission_id) DO NOTHING
+     RETURNING submission_id`,
+    [submissionId, discordId],
+  );
+  if (claim.rows.length === 0) {
+    await client.query('ROLLBACK');
+    return { status: 'duplicate' };
+  }
+
   const bagRes = await client.query(
-    `SELECT credux, ${fromCol} AS have FROM users_bag WHERE discord_id = $1 FOR UPDATE`,
+    `SELECT ${BALANCE_SELECT} FROM users_bag WHERE discord_id = $1 FOR UPDATE`,
     [discordId]
   );
   if (bagRes.rows.length === 0) { await client.query('ROLLBACK'); return { status: 'notfound' }; }
-  const have = Number(bagRes.rows[0].have);
-  const credux = Number(bagRes.rows[0].credux);
-  if (have < def.amount || credux < def.credux) {
+  const bag = bagRes.rows[0];
+  const maxConversions = maxAffordableConversions(def, bag);
+  if (amount > maxConversions) {
     await client.query('ROLLBACK');
-    return { status: 'insufficient' };
+    return { status: 'insufficient', bag, maxConversions };
   }
+
+  const requiredFrom = def.amount * amount;
+  const requiredCredux = def.credux * amount;
   await client.query(
     `UPDATE users_bag
-        SET ${fromCol} = ${fromCol} - $2, credux = credux - $3, ${def.target} = ${def.target} + 1
+        SET ${fromCol} = ${fromCol} - $2, credux = credux - $3, ${def.target} = ${def.target} + $4
       WHERE discord_id = $1`,
-    [discordId, def.amount, def.credux]
+    [discordId, requiredFrom, requiredCredux, amount]
   );
   await client.query(
     `INSERT INTO game_logs (discord_id, action, item_type) VALUES ($1, 'Exchange', $2)`,
     [discordId, def.target]
-  ).catch(() => {});
+  );
+  const updated = await client.query(
+    `SELECT ${BALANCE_SELECT} FROM users_bag WHERE discord_id = $1`,
+    [discordId]
+  );
   await client.query('COMMIT');
-  return { status: 'done' };
+  return {
+    status: 'done',
+    amount,
+    requiredFrom,
+    requiredCredux,
+    bag: updated.rows[0],
+  };
 }
 
-/** Button: essx:convert:<owner>:<tier> — convert one, re-render in place. */
+function amountModal(ownerId, tier) {
+  const submissionId = randomUUID();
+  const amountInput = new TextInputBuilder()
+    .setCustomId('amount')
+    .setLabel('Conversion Amount')
+    .setPlaceholder('Enter the number of conversions')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true);
+  const modal = new ModalBuilder()
+    .setCustomId(`essx:amount:${ownerId}:${tier}:${submissionId}`)
+    .setTitle('Convert Essence')
+    .addComponents(new ActionRowBuilder().addComponents(amountInput));
+  return modal;
+}
+
+/** Button: essx:convert:<owner>:<tier> — open the bulk conversion modal. */
 async function handleConvert(interaction, ownerId, tier) {
   if (interaction.user.id !== ownerId) {
     return interaction.reply({ content: 'This exchange isn\'t yours.', flags: MessageFlags.Ephemeral });
   }
   if (!TIERS.includes(tier)) tier = 'mythic';
-  const def = ESSENCE_CONVERT[tier];
+  return interaction.showModal(amountModal(ownerId, tier));
+}
 
-  await interaction.deferUpdate();
+/** Modal: essx:amount:<owner>:<tier>:<submission> — perform the requested bulk exchange. */
+async function handleModalSubmit(interaction, ownerId, tier, submissionId) {
+  if (interaction.user.id !== ownerId) {
+    return interaction.reply({ content: 'This exchange isn\'t yours.', flags: MessageFlags.Ephemeral });
+  }
+  if (!TIERS.includes(tier) || !/^[0-9a-f-]{36}$/i.test(submissionId || '')) {
+    return interaction.reply({ content: 'This conversion form is no longer valid. Run `crd exchange essence` again.', flags: MessageFlags.Ephemeral });
+  }
+
+  let rawAmount;
   let client;
+  try {
+    rawAmount = interaction.fields.getTextInputValue('amount');
+  } catch {
+    return interaction.reply({ content: 'Enter the number of conversions.', flags: MessageFlags.Ephemeral });
+  }
+  const amount = parseConversionAmount(rawAmount);
+  if (amount === null) {
+    return interaction.reply({
+      content: `Enter a positive whole number from 1 to ${MAX_BULK_CONVERSIONS.toLocaleString()}. Decimals, negatives, and other text are not accepted.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  const def = ESSENCE_CONVERT[tier];
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   let result;
   try {
     client = await pool.connect();
-    result = await convertOnce(client, ownerId, tier);
+    result = await convertBulk(client, ownerId, tier, amount, submissionId);
   } catch (err) {
     if (client) await client.query('ROLLBACK').catch(() => {});
-    console.error('[exchangeEssence] convert failed:', err.message);
-    return interaction.followUp({ content: 'Conversion failed — nothing was spent.', flags: MessageFlags.Ephemeral }).catch(() => {});
+    console.error('[exchangeEssence] bulk convert failed:', err.message);
+    return interaction.editReply({ content: 'Conversion failed — nothing was spent.' }).catch(() => {});
   } finally {
     if (client) client.release();
   }
 
-  try {
-    const bag = await fetchBalances(ownerId);
-    if (!bag || result.status === 'notfound') {
-      return interaction.editReply(buildPayload(bag || {}, tier, ownerId, { resultLine: '❌ No bag found.', color: RED }));
-    }
-    if (result.status === 'insufficient') {
-      return interaction.editReply(buildPayload(bag, tier, ownerId, {
-        resultLine: `❌ Not enough materials — need ${def.amount} ${def.from} essence + ${def.credux.toLocaleString()} Credux.`,
-        color: RED,
-      }));
-    }
-    return interaction.editReply(buildPayload(bag, tier, ownerId, {
-      resultLine: `✅ Crafted **1× ${def.targetName}** ${emoji(def.target)}`,
+  if (result.status === 'duplicate') {
+    return interaction.editReply({ content: 'This conversion form was already processed. No additional essence was granted.' });
+  }
+  if (result.status === 'notfound') {
+    return interaction.editReply({ content: 'You have no bag yet — `crd register` first.' });
+  }
+  if (result.status === 'insufficient') {
+    return interaction.editReply({ content: insufficientConversionLine(def, amount, result.bag, result.maxConversions) });
+  }
+
+  const bag = result.bag;
+  await interaction.editReply({
+    content: 'Conversion Successful\n\n'
+      + `Completed: ${result.amount.toLocaleString()} conversions\n`
+      + `Used: ${result.requiredFrom.toLocaleString()} ${def.from} Essence\n`
+      + `Used: ${result.requiredCredux.toLocaleString()} Credux\n`
+      + `Received: ${result.amount.toLocaleString()} ${def.targetName}\n\n`
+      + '**Updated balances:**\n'
+      + `${def.from} Essence: ${Number(bag[ESSENCE_COLUMN[def.from]] || 0).toLocaleString()}\n`
+      + `${def.targetName}: ${Number(bag[def.target] || 0).toLocaleString()}\n`
+      + `Credux: ${Number(bag.credux || 0).toLocaleString()}`,
+  });
+
+  if (interaction.message) {
+    await interaction.message.edit(buildPayload(bag, tier, ownerId, {
+      resultLine: `✅ Crafted **${result.amount.toLocaleString()}× ${def.targetName}** ${emoji(def.target)}`,
       color: GREEN,
-    }));
-  } catch (err) {
-    console.error('[exchangeEssence] convert refresh failed:', err.message);
-    return interaction.followUp({
-      content: result.status === 'done'
-        ? 'Conversion completed, but the exchange view could not refresh. Run `crd exchange essence` to reload balances.'
-        : 'Exchange view failed to refresh. Run `crd exchange essence` to reload balances.',
-      flags: MessageFlags.Ephemeral,
-    }).catch(() => {});
+    })).catch((err) => console.warn('[exchangeEssence] view refresh failed:', err.message));
   }
 }
 
-module.exports = { execute, handleSelect, handleConvert, buildPayload };
+module.exports = {
+  execute, handleSelect, handleConvert, handleModalSubmit, buildPayload,
+  parseConversionAmount, maxAffordableConversions, convertBulk,
+  MAX_BULK_CONVERSIONS,
+};
