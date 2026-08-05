@@ -82,9 +82,19 @@ const QUEST_DEFS = {
     reward: (n) => (n <= 3 ? [3000, 5] : [6000, 10]),
     label: (n) => `Challenge ${n} players to a duel`,
   },
+  duel_participations: {
+    progressUnit: 1,
+    roll: (rng) => randInt(rng, 2, 5),
+    reward: (n) => (n <= 3 ? [3000, 5] : [6000, 10]),
+    label: (n) => `Have a duel with ${n} user${n === 1 ? '' : 's'}`,
+  },
 };
 
-const QUEST_TYPES = Object.keys(QUEST_DEFS);
+// Legacy duel_wins/duel_challenges remain in QUEST_DEFS so already-assigned rows
+// can render and progress, but only this list is eligible for future rolls.
+const QUEST_TYPES = [
+  'raid_wins', 'elite_defeats', 'credux_spent', 'weapon_enhancements', 'duel_participations',
+];
 
 /** Fisher–Yates using an optional injected rng. */
 function shuffle(arr, rng) {
@@ -237,7 +247,7 @@ async function refreshQuestLine(client, discordId, index, { bypassMax = false, r
 
   const inUse = new Set(quests.map((q) => q.quest_type));
   const candidates = QUEST_TYPES.filter((t) => !inUse.has(t));
-  if (candidates.length === 0) return { status: 'noalt' }; // 6 types, 3 in use → never empty
+  if (candidates.length === 0) return { status: 'noalt' }; // 5 types, 3 in use → never empty
   const newType = candidates[randomIndex(candidates.length, rng)];
   const def = QUEST_DEFS[newType];
   const target = def.roll(rng);
@@ -303,8 +313,12 @@ const WEEKLY_QUEST_DEFS = {
   credux_spent:        { progressUnit: 1000, roll: (rng) => randInt(rng, 100, 300), reward: () => [25000, 50], label: creduxSpentEnhancementLabel },
   weapon_enhancements: { progressUnit: 1,    roll: (rng) => randInt(rng, 10, 20), reward: () => [20000, 40], label: (n) => `Enhance gear ${n} times this week` },
   duel_wins:           { progressUnit: 1,    roll: (rng) => randInt(rng, 5, 12),  reward: () => [25000, 50], label: (n) => `Win ${n} duels this week` },
+  duel_participations: { progressUnit: 1,    roll: (rng) => randInt(rng, 5, 12),  reward: () => [25000, 50], label: (n) => `Have a duel with ${n} user${n === 1 ? '' : 's'} this week` },
 };
-const WEEKLY_QUEST_TYPES = Object.keys(WEEKLY_QUEST_DEFS); // exactly the 5 weekly lines
+// Keep duel_wins available for existing weekly rows, but never generate it again.
+const WEEKLY_QUEST_TYPES = [
+  'raid_wins', 'elite_defeats', 'credux_spent', 'weapon_enhancements', 'duel_participations',
+];
 const WEEKLY_GRAND_CREDUX = 50000;
 const WEEKLY_GRAND_VALOR = 150;
 const WEEKLY_GRAND_RELICS = 1; // the Sacred Relic the weekly board is built around

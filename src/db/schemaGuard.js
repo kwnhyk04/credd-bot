@@ -35,6 +35,8 @@ const REQUIRED_COLUMNS = Object.freeze({
     'updated_at', 'claim_started_at', 'spawned_at', 'cancelled_at', 'cancelled_by', 'spawn_id',
   ]),
   active_battles: Object.freeze(['enemy_level']),
+  pvp_logs: Object.freeze(['duel_id']),
+  essence_exchange_submissions: Object.freeze(['submission_id', 'discord_id', 'created_at']),
 });
 
 const MIGRATION_HINTS = Object.freeze({
@@ -50,6 +52,8 @@ const MIGRATION_HINTS = Object.freeze({
   boss_state: 'scripts/migrations/20260803_03, 20260803_06, and 20260803_07',
   boss_spawn_queue: 'scripts/migrations/20260803_03_boss_spawn_source_queue.sql and 20260803_08_boss_queue_recovery_rls.sql',
   active_battles: 'scripts/migrations/20260803_06_boss_level_nullable.sql',
+  pvp_logs: 'scripts/migrations/20260805_01_essence_exchange_duel_quests.sql',
+  essence_exchange_submissions: 'scripts/migrations/20260805_01_essence_exchange_duel_quests.sql',
 });
 
 const REQUIRED_CHECKS = Object.freeze({
@@ -120,6 +124,7 @@ const REQUIRED_CHECKS = Object.freeze({
 
 const REQUIRED_RLS_TABLES = Object.freeze([
   'user_presets', 'tickets', 'supporter_item_grants', 'boss_spawn_queue',
+  'essence_exchange_submissions',
 ]);
 
 const REQUIRED_INDEXES = Object.freeze([
@@ -127,6 +132,8 @@ const REQUIRED_INDEXES = Object.freeze([
   'idx_tickets_status_type_created',
   'supporter_item_grants_idempotency_key',
   'boss_spawn_queue_one_live_per_guild',
+  'pvp_logs_duel_id_key',
+  'essence_exchange_submissions_created_at_idx',
 ]);
 
 const REQUIRED_INDEX_FRAGMENTS = Object.freeze({
@@ -137,6 +144,10 @@ const REQUIRED_INDEX_FRAGMENTS = Object.freeze({
   ]),
   boss_spawn_queue_one_live_per_guild: Object.freeze([
     'unique', 'boss_spawn_queue', 'guild_id', "status", "pending", "spawning",
+  ]),
+  pvp_logs_duel_id_key: Object.freeze(['unique', 'pvp_logs', 'duel_id']),
+  essence_exchange_submissions_created_at_idx: Object.freeze([
+    'essence_exchange_submissions', 'created_at',
   ]),
 });
 

@@ -356,7 +356,7 @@ CREATE INDEX idx_boss_attack_spawn ON boss_attack_log (boss_spawn_id);
 CREATE TABLE daily_quests (
     id                   SERIAL      PRIMARY KEY,
     discord_id           VARCHAR(20) NOT NULL REFERENCES users (discord_id),
-    quest_type           VARCHAR(30) NOT NULL,   -- raid_wins/elite_defeats/credux_spent/weapon_enhancements/duel_wins/duel_challenges
+    quest_type           VARCHAR(30) NOT NULL,   -- raid_wins/elite_defeats/credux_spent/weapon_enhancements/legacy duel types/duel_participations
     target_count         SMALLINT    NOT NULL,
     current_count        SMALLINT    NOT NULL DEFAULT 0,
     reward_credux        INTEGER     NOT NULL,
@@ -417,6 +417,7 @@ CREATE INDEX idx_raid_logs_player_time ON raid_logs (discord_id, timestamp DESC)
 -- ---------------------------------------------------------------------
 CREATE TABLE pvp_logs (
     id               BIGSERIAL   PRIMARY KEY,
+    duel_id          UUID,
     challenger_id    VARCHAR(20) NOT NULL,   -- no FK
     opponent_id      VARCHAR(20) NOT NULL,
     winner_id        VARCHAR(20) NOT NULL,
@@ -426,6 +427,16 @@ CREATE TABLE pvp_logs (
 );
 CREATE INDEX idx_pvp_logs_challenger ON pvp_logs (challenger_id);
 CREATE INDEX idx_pvp_logs_opponent   ON pvp_logs (opponent_id);
+CREATE UNIQUE INDEX pvp_logs_duel_id_key ON pvp_logs (duel_id);
+
+CREATE TABLE essence_exchange_submissions (
+    submission_id VARCHAR(64) PRIMARY KEY,
+    discord_id   VARCHAR(20) NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE essence_exchange_submissions ENABLE ROW LEVEL SECURITY;
+CREATE INDEX essence_exchange_submissions_created_at_idx
+  ON essence_exchange_submissions (created_at);
 
 -- ---------------------------------------------------------------------
 -- 18. game_logs  (immutable economy audit; no FK)

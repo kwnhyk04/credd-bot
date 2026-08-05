@@ -12,8 +12,7 @@
  * Duels run IN-MEMORY (§35.0 — no active_battles row). No EXP, no Credux, no
  * drops from the duel itself — purely friendly. Writes: pvp_wins/pvp_losses
  * counters, the immutable pvp_logs row (challenger/opponent damage from
- * sim.totals), and daily-quest progress (duel_wins / duel_challenges, §20 — a
- * completed quest still pays its own reward). Loadouts are read at ACCEPT time.
+ * sim.totals), and daily-quest progress. Loadouts are read at ACCEPT time.
  */
 
 const {
@@ -198,13 +197,12 @@ async function inLiveBattle(discordId) {
   return res.rows.length > 0;
 }
 
-/** Counters + immutable log + daily-quest progress in one transaction. Rows locked in
- *  sorted-id order (users_bag → user_character, bag → character → quests order) so two
- *  crossing duels can never deadlock. Returns completion-notice lines (may be empty). */
-async function commitDuelResult(challengerId, opponentId, sim) {
-  const winnerId = sim.winner === 'a' ? challengerId : opponentId;
-  const loserId = sim.winner === 'a' ? opponentId : challengerId;
-  const client = await pool.connect();
+/** Commit one completed duel exactly once and apply both legacy and new quest deltas. */
+async function commitDuelResult(duelId, challengerId, opponentId, sim, db = pool, progress = progressQuests) {
+  const winnerSide = sim.winner === 'a' || sim.winner === 'b' ? sim.winner : null;
+  const winnerId = winnerSide === 'a' ? challengerId : winnerSide === 'b' ? opponentId : 'draw';
+  const loserId = winnerSide === 'a' ? opponentId : winnerSide === 'b' ? challengerId : null;
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
     const lockOrder = [challengerId, opponentId].sort();
@@ -217,38 +215,49 @@ async function commitDuelResult(challengerId, opponentId, sim) {
       'SELECT discord_id FROM user_character WHERE discord_id = ANY($1) ORDER BY discord_id FOR UPDATE',
       [lockOrder]
     );
-    await client.query(
-      'UPDATE user_character SET pvp_wins = pvp_wins + 1 WHERE discord_id = $1',
-      [winnerId]
-    );
-    await client.query(
-      'UPDATE user_character SET pvp_losses = pvp_losses + 1 WHERE discord_id = $1',
-      [loserId]
-    );
-    await client.query(
-      `INSERT INTO pvp_logs (challenger_id, opponent_id, winner_id, challenger_damage, opponent_damage)
-       VALUES ($1, $2, $3, $4, $5)`,
+    const log = await client.query(
+      `INSERT INTO pvp_logs
+         (duel_id, challenger_id, opponent_id, winner_id, challenger_damage, opponent_damage)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (duel_id) DO NOTHING
+       RETURNING id`,
       [
-        challengerId, opponentId, winnerId,
+        duelId, challengerId, opponentId, winnerId,
         Math.floor(sim.totals.damageDealtToEnemy),   // damage the challenger dealt
         Math.floor(sim.totals.damageDealtToPlayer),  // damage the opponent dealt
       ]
     );
+    if (log.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return [];
+    }
 
-    // daily-quest progress (§20): challenger gets duel_challenges (accepted + fought),
-    // the winner gets duel_wins. Merge when the challenger is the winner; progress per
-    // user in sorted-id order (bag rows already locked above).
+    if (winnerSide) {
+      await client.query(
+        'UPDATE user_character SET pvp_wins = pvp_wins + 1 WHERE discord_id = $1',
+        [winnerId]
+      );
+      await client.query(
+        'UPDATE user_character SET pvp_losses = pvp_losses + 1 WHERE discord_id = $1',
+        [loserId]
+      );
+    }
+
+    // Both participants get one unified completion. Keep legacy deltas for active old
+    // assignments; a draw or forfeit has no winner-specific legacy delta.
     const deltaByUser = new Map();
     const bump = (id, type) => {
       const d = deltaByUser.get(id) || {};
       d[type] = (d[type] || 0) + 1;
       deltaByUser.set(id, d);
     };
+    bump(challengerId, 'duel_participations');
+    bump(opponentId, 'duel_participations');
     bump(challengerId, 'duel_challenges');
-    bump(winnerId, 'duel_wins');
+    if (winnerSide) bump(winnerId, 'duel_wins');
     const notices = [];
     for (const id of [...deltaByUser.keys()].sort()) {
-      notices.push(...await progressQuests(client, id, deltaByUser.get(id)));
+      notices.push(...await progress(client, id, deltaByUser.get(id)));
     }
 
     await client.query('COMMIT');
@@ -502,7 +511,9 @@ async function handleButtonInteraction(interaction, services = {}) {
         ? `💰 ${mention(winnerId)} wins **${moved.toLocaleString()} Credux**!`
         : `💰 ${mention(winnerId)} wins — but the daily cap left no Credux to transfer.`];
     } else {
-      notices = await commitDuelResult(session.challengerId, session.opponentId, sim);
+      notices = await commitDuelResult(
+        session.duelId, session.challengerId, session.opponentId, sim
+      );
     }
     // Permanent results are committed above, so release both DB and memory
     // locks before any optional rendering or Discord I/O can delay reuse.
@@ -684,4 +695,5 @@ module.exports = {
   execute,
   handleButtonInteraction,
   parseDuelButtonId,
+  commitDuelResult,
 };

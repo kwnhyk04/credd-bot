@@ -305,6 +305,7 @@ CREATE TABLE IF NOT EXISTS public."pity_counters" (
 
 CREATE TABLE IF NOT EXISTS public."pvp_logs" (
     "id" bigint DEFAULT nextval('pvp_logs_id_seq'::regclass) NOT NULL,
+    "duel_id" uuid,
     "challenger_id" character varying(20) NOT NULL,
     "opponent_id" character varying(20) NOT NULL,
     "winner_id" character varying(20) NOT NULL,
@@ -312,6 +313,19 @@ CREATE TABLE IF NOT EXISTS public."pvp_logs" (
     "opponent_damage" integer NOT NULL,
     "timestamp" timestamp with time zone DEFAULT now() NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS pvp_logs_duel_id_key ON public."pvp_logs" ("duel_id");
+
+CREATE TABLE IF NOT EXISTS public."essence_exchange_submissions" (
+    "submission_id" character varying(64) NOT NULL,
+    "discord_id" character varying(20) NOT NULL,
+    "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT "essence_exchange_submissions_pkey" PRIMARY KEY ("submission_id")
+);
+
+ALTER TABLE public."essence_exchange_submissions" ENABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS essence_exchange_submissions_created_at_idx
+  ON public."essence_exchange_submissions" ("created_at");
 
 CREATE TABLE IF NOT EXISTS public."pvp_shop_purchases" (
     "discord_id" character varying(20) NOT NULL,

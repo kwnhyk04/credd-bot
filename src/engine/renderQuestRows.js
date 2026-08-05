@@ -27,6 +27,7 @@ const QUEST_ICON_FILE = {
   weapon_enhancements: 'quest_enhance.png',
   duel_wins: 'quest_duel.png',
   duel_challenges: 'quest_duel.png',
+  duel_participations: 'quest_duel.png',
 };
 async function loadAssetImage(source) {
   return loadAssetImageSource(loadImage, source);
