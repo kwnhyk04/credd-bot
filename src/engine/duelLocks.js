@@ -7,7 +7,18 @@ const PENDING_DUEL_LOCK_MINUTES = 3;
 const RUNNING_DUEL_LOCK_MINUTES = 10;
 
 async function cleanupExpiredDuelLocks(db = pool) {
-  await db.query('DELETE FROM active_duels WHERE expires_at <= NOW()');
+  await db.query(
+    `WITH expired AS (
+       SELECT duel_id FROM active_duels WHERE expires_at <= NOW()
+     ), deleted_participants AS (
+       DELETE FROM active_duel_participants p
+        USING expired e
+        WHERE p.duel_id = e.duel_id
+     )
+     DELETE FROM active_duels d
+      USING expired e
+      WHERE d.duel_id = e.duel_id`
+  );
 }
 
 async function acquireDuelLock({
@@ -108,13 +119,32 @@ async function findDuelByMessage({ messageId, duelId = null, pendingWindowMs = n
 /** Atomically remove a challenge only while it is still pending. */
 async function cancelPendingDuel(lock, db = pool) {
   if (!lock?.duelId || !lock?.lockToken) return false;
-  const result = await db.query(
-    `DELETE FROM active_duels
-      WHERE duel_id = $1 AND lock_token = $2 AND status = 'pending'
-      RETURNING duel_id`,
-    [lock.duelId, lock.lockToken]
-  );
-  return result.rowCount === 1;
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `DELETE FROM active_duels
+        WHERE duel_id = $1 AND lock_token = $2 AND status = 'pending'
+        RETURNING duel_id`,
+      [lock.duelId, lock.lockToken]
+    );
+    if (result.rowCount === 1) {
+      await client.query(
+        'DELETE FROM active_duel_participants WHERE duel_id = $1 AND lock_token = $2',
+        [lock.duelId, lock.lockToken]
+      );
+    }
+    await client.query('COMMIT');
+    if (result.rowCount === 1) {
+      console.info('[duel lock] pending challenge cancelled', { duelId: lock.duelId });
+    }
+    return result.rowCount === 1;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function markDuelRunning(lock, { pendingWindowMs = null } = {}) {
