@@ -37,6 +37,92 @@
 const { CANONICAL_ON_HIT_EFFECTS } = require('./combatEffects');
 const { LOG_PRIORITY: LOG } = require('./combatLog');
 
+// Fenrir's passive configuration and state transitions live with the passive
+// registry so the boss skill key, thresholds, multipliers, and announcements
+// have one authoritative home. These helpers are exposed non-enumerably below
+// so the registry's key coverage remains limited to actual passive handlers.
+const FENRIR_PASSIVE_KEY = 'fenrir_gleipnirs_doom';
+
+const FENRIR_PHASES = Object.freeze([
+  Object.freeze({
+    index: 0,
+    key: 'bound',
+    label: 'Bound',
+    outgoingDamageMultiplier: 1,
+    armorPenetration: 0,
+  }),
+  Object.freeze({
+    index: 1,
+    key: 'first_seal_broken',
+    label: 'First Seal Broken',
+    outgoingDamageMultiplier: 1.10,
+    armorPenetration: 0.05,
+  }),
+  Object.freeze({
+    index: 2,
+    key: 'second_seal_broken',
+    label: 'Second Seal Broken',
+    outgoingDamageMultiplier: 1.20,
+    armorPenetration: 0.10,
+  }),
+  Object.freeze({
+    index: 3,
+    key: 'ragnarok_unbound',
+    label: 'Ragnarök Unbound',
+    outgoingDamageMultiplier: 1.35,
+    armorPenetration: 0.15,
+  }),
+]);
+
+function fenrirPhaseForHp(currentHp, maxHp) {
+  const max = Number(maxHp);
+  const current = Number(currentHp);
+  const ratio = Number.isFinite(max) && max > 0 && Number.isFinite(current)
+    ? Math.max(0, Math.min(1, current / max))
+    : 1;
+  if (ratio <= 0.25) return FENRIR_PHASES[3];
+  if (ratio <= 0.50) return FENRIR_PHASES[2];
+  if (ratio <= 0.75) return FENRIR_PHASES[1];
+  return FENRIR_PHASES[0];
+}
+
+function fenrirPhaseFromState(state = {}) {
+  const index = Number(state.fenrirPhaseIndex);
+  if (!Number.isInteger(index)) return FENRIR_PHASES[0];
+  return FENRIR_PHASES[Math.max(0, Math.min(FENRIR_PHASES.length - 1, index))];
+}
+
+function reconcileFenrirPhase(state = {}, currentHp, maxHp) {
+  const previous = fenrirPhaseFromState(state);
+  const byHp = fenrirPhaseForHp(currentHp, maxHp);
+  const phase = FENRIR_PHASES[Math.max(previous.index, byHp.index)];
+  return {
+    phase,
+    advanced: phase.index > previous.index,
+    initialized: state.fenrirPhaseInitialized === true,
+    state: {
+      ...state,
+      fenrirPhaseInitialized: true,
+      fenrirPhaseIndex: phase.index,
+    },
+  };
+}
+
+function fenrirPhaseAnnouncement(phase) {
+  if (!phase || phase.index === 0) return null;
+  if (phase.index === 1) {
+    return "⛓️ Gleipnir's first seal has broken! Fenrir gains +10% outgoing damage and +5% armor penetration.";
+  }
+  if (phase.index === 2) {
+    return "⛓️ Gleipnir's second seal has broken! Fenrir now has +20% outgoing damage and +10% armor penetration.";
+  }
+  return '🐺 RAGNARÖK UNBOUND — Fenrir breaks free from Gleipnir and gains +35% outgoing damage and +15% armor penetration!';
+}
+
+const fenrirGleipnirsDoom = (bs) => {
+  if (typeof bs.refreshEnemyBossPhase === 'function') bs.refreshEnemyBossPhase();
+};
+
 // ───────────────────────────────────────────────────────────────────────────
 // Archetype factories
 // ───────────────────────────────────────────────────────────────────────────
@@ -1683,6 +1769,17 @@ const PASSIVE_REGISTRY = {
     [{ tag: 'darkened', turns: 1 }],
     'Bakunawa: Eclipse — your critical chance is reduced to 0 for 1 turn.'),
 
+  'fenrir_gleipnirs_doom': fenrirGleipnirsDoom,
+
 };
+
+Object.defineProperties(PASSIVE_REGISTRY, {
+  FENRIR_PASSIVE_KEY: { value: FENRIR_PASSIVE_KEY },
+  FENRIR_PHASES: { value: FENRIR_PHASES },
+  fenrirPhaseForHp: { value: fenrirPhaseForHp },
+  fenrirPhaseFromState: { value: fenrirPhaseFromState },
+  reconcileFenrirPhase: { value: reconcileFenrirPhase },
+  fenrirPhaseAnnouncement: { value: fenrirPhaseAnnouncement },
+});
 
 module.exports = PASSIVE_REGISTRY;

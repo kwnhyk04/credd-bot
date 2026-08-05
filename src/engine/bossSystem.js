@@ -67,6 +67,7 @@ const { getCachedCanvasUrl } = require('../utils/canvasCache');
 const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../utils/imageOutput');
 const { discordImageAttachmentsAllowed } = require('../utils/egressGuard');
 const { encodeOpaqueCanvas } = require('../utils/canvasEncode');
+const r2 = require('../utils/r2Client');
 const {
   envBool, envNumber, envPositiveInt, bandwidthLog, performanceLog,
 } = require('../utils/runtimeLogs');
@@ -75,7 +76,7 @@ const { beginActivity } = require('../utils/networkTelemetry');
 const { bossFeatTitlesFor } = require('../config/titles');
 const {
   isGreaterBoss, isCalamityBoss, bossRewards, rollBossChest, hpMultiplierForChest,
-  bossMaxHpForChest, greaterVariantForChest, inferChestFromGreaterHp, bossChestForSpawn,
+  bossMaxHpForChest, inferChestFromGreaterHp, bossChestForSpawn,
   pickWeightedBoss,
   MAX_BOSS_ATTACKS_PER_DAY, bossAttackDecision,
 } = require('../config/bosses');
@@ -403,8 +404,16 @@ const BANNER_CACHE_TTL_MS = Math.max(
   0,
   envNumber('BOSS_BANNER_CACHE_TTL_MS', 600_000, { min: 0, max: 86_400_000 })
 );
+const BOSS_REMOTE_VERSION_CACHE_TTL_MS = Math.max(
+  0,
+  envNumber('BOSS_REMOTE_VERSION_CACHE_TTL_MS', 600_000, { min: 0, max: 86_400_000 })
+);
+const BOSS_REMOTE_VERSION_CACHE_MAX_ENTRIES = envPositiveInt(
+  'BOSS_REMOTE_VERSION_CACHE_MAX', 16, { max: 100 }
+);
 const bannerCache = new Map(); // `${imgPath}\0${signature}` → { promise, bytes, lastUsed }
 const bossAssetSignatures = new Map(); // imgPath → current local mtime/size or remote asset version
+const bossRemoteVersions = new Map(); // object key → { version, checkedAt }
 let bannerCacheBytes = 0;
 
 function dropBossBanner(key) {
@@ -427,6 +436,40 @@ function trimBossBanners(now = Date.now()) {
 
 async function loadAssetImage(source) {
   return loadAssetImageSource(loadImage, source);
+}
+
+function appendBossAssetVersion(url, version) {
+  if (!url || !version) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}r2v=${encodeURIComponent(version)}`;
+}
+
+function rememberBossRemoteVersion(key, version) {
+  if (!version) return;
+  bossRemoteVersions.delete(key);
+  bossRemoteVersions.set(key, { version, checkedAt: Date.now() });
+  while (bossRemoteVersions.size > BOSS_REMOTE_VERSION_CACHE_MAX_ENTRIES) {
+    bossRemoteVersions.delete(bossRemoteVersions.keys().next().value);
+  }
+}
+
+/** Resolve a boss image with a bounded, R2-origin-backed cache version. */
+async function bossImagePathForMessage(name, { forceAssetRefresh = false } = {}) {
+  const imgPath = bossImagePath(name);
+  if (!isRemoteSource(imgPath) || !r2.isConfigured()) return imgPath;
+  const key = `monsters/boss/${bossSlug(name)}.png`;
+  const cached = bossRemoteVersions.get(key);
+  const cacheFresh = cached
+    && BOSS_REMOTE_VERSION_CACHE_TTL_MS > 0
+    && Date.now() - cached.checkedAt < BOSS_REMOTE_VERSION_CACHE_TTL_MS;
+  let version = cacheFresh && !forceAssetRefresh ? cached.version : null;
+  if (!version) {
+    const metadata = await r2.headObject(key);
+    version = metadata?.etag
+      || [metadata?.lastModified, metadata?.contentLength].filter(Boolean).join(':');
+    if (version) rememberBossRemoteVersion(key, version);
+    else version = cached?.version || null;
+  }
+  return appendBossAssetVersion(imgPath, version);
 }
 
 function bossAssetSignature(imgPath) {
@@ -549,7 +592,10 @@ async function bossLore(name) {
 // (primary + Unicode fallbacks) and is interpolated UNQUOTED into ctx.font.
 const { fontStack } = require('../utils/fontRegistry');
 const FONT = fontStack();
-const BOSS_STATUS_RENDER_REV = 5;
+const BOSS_STATUS_RENDER_REV = 6;
+const STATUS_PASSIVE_MAX_LINES = 4;
+const STATUS_PASSIVE_LINE_HEIGHT = 26;
+const STATUS_CARD_MIN_HEIGHT = 190;
 const CARD_COLORS = {
   bg: '#1f2125', card: '#26282d', cardLine: '#36393f',
   enemy: '#f23f43', text: '#e7e9ec', dim: '#9aa0a8', barBg: '#3b3e44',
@@ -575,11 +621,10 @@ function truncateToWidth(ctx, text, maxW) {
   return `${t}…`;
 }
 
-// Ordinary dev bosses are test fixtures and intentionally bypass the daily cap.
-// An event calamity is still a real boss fight: its persisted roster name, not
-// merely spawn_source, decides the rule.
+// Every explicitly dev-spawned boss is a test fixture. The persisted source is
+// authoritative, so this remains true across restarts and also covers Calamities.
 function devBossHasUnlimitedAttacks(state, mobRow) {
-  return state?.spawn_source === 'dev' && !isCalamityBoss(mobRow?.name);
+  return state?.spawn_source === 'dev';
 }
 
 function wrapToWidth(ctx, text, maxW, maxLines) {
@@ -605,12 +650,42 @@ function wrapToWidth(ctx, text, maxW, maxLines) {
   return lines.slice(0, maxLines);
 }
 
+function bossPassiveText(mobRow, separator) {
+  const skillName = mobRow.skill_name && mobRow.skill_name !== '—'
+    ? String(mobRow.skill_name).trim()
+    : '';
+  const description = String(mobRow.skill_description || 'Basic attacks only.').trim();
+  if (!skillName) return `Passive: ${description}`;
+  const prefix = `${skillName}:`;
+  const displayDescription = description.toLowerCase().startsWith(prefix.toLowerCase())
+    ? description.slice(prefix.length).trim()
+    : description;
+  return `Passive: ${skillName} ${separator} ${displayDescription}`;
+}
+
+function bossStatusCardHeight(passiveLineCount) {
+  const requestedLineCount = Math.floor(Number(passiveLineCount) || 1);
+  const lineCount = Math.max(
+    1,
+    Math.min(STATUS_PASSIVE_MAX_LINES, requestedLineCount),
+  );
+  return STATUS_CARD_MIN_HEIGHT + (lineCount - 1) * STATUS_PASSIVE_LINE_HEIGHT;
+}
+
 function renderBossStatusCard(state, mobRow) {
   const cur = Number(state.current_hp);
   const max = Number(state.max_hp);
   const p = max > 0 ? Math.max(0, Math.min(1, cur / max)) : 0;
 
-  const W = BANNER_W, H = 268, PAD = 22;
+  const W = BANNER_W, PAD = 22;
+  const L = PAD + 26, R = W - PAD - 26;
+  const passive = bossPassiveText(mobRow, '—');
+  const passiveFont = `21px ${FONT}`;
+  const measureCtx = createCanvas(1, 1).getContext('2d');
+  measureCtx.font = passiveFont;
+  const passiveLines = wrapToWidth(measureCtx, passive, R - L, STATUS_PASSIVE_MAX_LINES);
+  const passiveLineCount = Math.max(1, passiveLines.length);
+  const H = bossStatusCardHeight(passiveLineCount);
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = CARD_COLORS.bg;
@@ -619,7 +694,6 @@ function renderBossStatusCard(state, mobRow) {
   ctx.fillStyle = CARD_COLORS.card; ctx.fill();
   ctx.strokeStyle = CARD_COLORS.cardLine; ctx.lineWidth = 2.5; ctx.stroke();
 
-  const L = PAD + 26, R = W - PAD - 26;
   ctx.textAlign = 'left';
 
   // row 1 — "✦ Name · Boss" left, "cur / max" HP right (same as raid card)
@@ -639,18 +713,14 @@ function renderBossStatusCard(state, mobRow) {
 
   // row 2 — passive (transparency: players see what they're walking into)
   y += 36;
-  const passive = mobRow.skill_name && mobRow.skill_name !== '—'
-    ? `Passive: ${mobRow.skill_name} — ${mobRow.skill_description}`
-    : `Passive: ${mobRow.skill_description || 'Basic attacks only.'}`;
-  ctx.font = `21px ${FONT}`;
+  ctx.font = passiveFont;
   ctx.fillStyle = CARD_COLORS.dim;
-  const passiveLines = wrapToWidth(ctx, passive, R - L, 4);
-  for (let i = 0; i < 4; i += 1) {
-    if (passiveLines[i]) ctx.fillText(passiveLines[i], L, y + i * 26);
+  for (let i = 0; i < passiveLines.length; i += 1) {
+    if (passiveLines[i]) ctx.fillText(passiveLines[i], L, y + i * STATUS_PASSIVE_LINE_HEIGHT);
   }
 
   // HP bar — fills left→right, color by remaining percentage
-  y += 26 * 3 + 18;
+  y += STATUS_PASSIVE_LINE_HEIGHT * (passiveLineCount - 1) + 18;
   const barW = R - L, barH = 16;
   roundRectPath(ctx, L, y, barW, barH, 7);
   ctx.fillStyle = CARD_COLORS.barBg; ctx.fill();
@@ -683,9 +753,7 @@ function bossStatusText(state, mobRow) {
   const cur = Number(state.current_hp);
   const max = Number(state.max_hp);
   const pct = max > 0 ? Math.max(0, Math.min(100, (cur / max) * 100)) : 0;
-  const passive = mobRow.skill_name && mobRow.skill_name !== '—'
-    ? `Passive: ${mobRow.skill_name} - ${mobRow.skill_description}`
-    : `Passive: ${mobRow.skill_description || 'Basic attacks only.'}`;
+  const passive = bossPassiveText(mobRow, '-');
   return [
     `**HP:** ${cur.toLocaleString()} / ${max.toLocaleString()} (${pct.toFixed(1)}%)`,
     `**ATK:** ${Number(state.scaled_atk).toLocaleString()}  **DEF:** ${Number(state.scaled_def).toLocaleString()}  **CRIT:** ${bossCrit(mobRow).toFixed(1)}%`,
@@ -844,6 +912,7 @@ async function buildBossMessage(view, {
   includeStatusImage = true,
   includeBanner = true,
   bannerUrl = null,
+  forceAssetRefresh = false,
   phase = 'snapshot',
   telemetryCommand = 'boss',
 } = {}) {
@@ -852,13 +921,12 @@ async function buildBossMessage(view, {
 
   const greater = isGreaterBoss(mobRow.name);
   const calamity = isCalamityBoss(mobRow.name);
-  const unlimitedDev = isDev && !calamity;
+  const unlimitedDev = isDev;
   const spawnChest = chestForSpawn(state.spawn_id, mobRow.name, {
     baseHp: mobRow.base_hp,
     maxHp: state.max_hp,
     spawnSource: state.spawn_source,
   });
-  const spawnVariant = greaterVariantForChest(spawnChest);
   const reward = bossRewards(mobRow.name, spawnChest);
 
   // header — evocative flavor line (mythology-flavored, or Greater apex framing) above
@@ -867,10 +935,7 @@ async function buildBossMessage(view, {
   if (status === 'active') {
     const flavor = calamity ? '☄️ **CALAMITY BOSS** — *A catastrophe takes form…*'
       : greater ? GREATER_FLAVOR : (BOSS_FLAVOR[mobRow.mythology] || BOSS_FLAVOR._default);
-    const variantLine = spawnVariant
-      ? `\n⚔️ **${spawnVariant.label} Variant** · ${spawnVariant.hpMultiplier}× base HP`
-      : '';
-    header = `${flavor}${variantLine}\n## ${mobRow.name}`;
+    header = `${flavor}\n## ${mobRow.name}`;
   } else {
     header = `## ${mobRow.name}`;
     if (status === 'dead') header += '\n-# 💀 Slain by the united server — rewards distributed!';
@@ -887,7 +952,9 @@ async function buildBossMessage(view, {
   // column — filename derived by convention)
   const files = [];
   let bannerAdded = false;
-  const imgPath = includeBanner ? bossImagePath(mobRow.name) : null;
+  const imgPath = includeBanner
+    ? await bossImagePathForMessage(mobRow.name, { forceAssetRefresh })
+    : null;
   if (imgPath && bannerUrl) {
     container.addMediaGalleryComponents((g) =>
       g.addItems((item) => item.setURL(bannerUrl))
@@ -1020,7 +1087,7 @@ async function buildBossMessage(view, {
   let footerText;
   if (status === 'active') {
     footerText = unlimitedDev
-      ? '-# The boss remains until defeated. 🧪 Dev boss — unlimited attacks.'
+      ? '-# The boss remains until defeated. 🧪 Dev boss — spawn rules bypassed.'
       : `-# The boss remains until defeated. ⚔️ ${bossDailyAttackLimit()} boss attacks per player per day.`;
   } else if (status === 'dead') {
     footerText = `-# Rewards distributed to all ${attackerCount} challenger${attackerCount === 1 ? '' : 's'}.`;
@@ -1504,7 +1571,8 @@ async function spawnBoss(client, guildId, {
     row.base_hp,
     row.hp_per_level,
     null,
-    spawnChest
+    spawnChest,
+    row.name,
   );
   performanceLog('boss stats resolved from database', {
     system: 'boss',
@@ -1814,7 +1882,12 @@ async function handleAttackImpl(interaction) {
   const fail = (msg) => interaction.editReply({ content: msg }).catch(() => {});
 
   try {
-    if (!isOfficialGuild(guildId)) {
+    // Read the persisted source before applying the official-server rule. A
+    // dev-spawned boss is an explicit local test fixture and must remain
+    // attackable wherever it was created, including dev-spawned Calamities.
+    const stRes = await pool.query(`SELECT ${BOSS_STATE_COLUMNS} FROM boss_state WHERE guild_id = $1`, [guildId]);
+    const state = stRes.rows[0];
+    if (!isOfficialGuild(guildId) && state?.spawn_source !== 'dev') {
       return fail(`Monster bosses are currently hosted in the official support server: ${supportMarkdownLink()}.`);
     }
     // gate 1 — registered + character
@@ -1827,13 +1900,10 @@ async function handleAttackImpl(interaction) {
       return fail('You cannot attack the boss right now.');
     }
     // gate 3 — boss still active
-    const stRes = await pool.query(`SELECT ${BOSS_STATE_COLUMNS} FROM boss_state WHERE guild_id = $1`, [guildId]);
-    const state = stRes.rows[0];
     if (!state || state.status !== 'active') {
       return fail('There is no active boss right now — it has fallen. `crd boss` shows the latest status.');
     }
-    // Ordinary dev-spawned test bosses bypass the daily lock. Event calamities
-    // use the normal per-player cap even though their spawn_source is also dev.
+    // Every dev-spawned test boss bypasses the daily lock, including Calamities.
     const mobRes = await pool.query(`SELECT ${MOB_BATTLE_COLUMNS} FROM mob_roster WHERE mob_id = $1`, [state.mob_id]);
     const mobRow = mobRes.rows[0];
     if (!mobRow) return fail('Boss data is missing — try again shortly.');
@@ -2054,13 +2124,17 @@ async function handleLog(interaction) {
 
 /* ── scheduler entry — one guild per call ───────────────────────────────── */
 async function tickGuild(client, guildId, { forceRefresh = false } = {}) {
-  if (!isOfficialGuild(guildId)) {
+  const stRes = await pool.query(`SELECT ${BOSS_STATE_COLUMNS} FROM boss_state WHERE guild_id = $1`, [guildId]);
+  const state = stRes.rows[0] || null;
+  const devBossActive = state?.status === 'active' && state?.spawn_source === 'dev';
+
+  // Keep natural lifecycle/spawn traffic official-only, but allow the
+  // scheduler to reconcile and recover an explicitly dev-spawned test boss in
+  // any guild. A terminal dev row must not cause a new natural spawn there.
+  if (!isOfficialGuild(guildId) && !devBossActive) {
     await postOfficialRedirect(client, guildId);
     return;
   }
-
-  const stRes = await pool.query(`SELECT ${BOSS_STATE_COLUMNS} FROM boss_state WHERE guild_id = $1`, [guildId]);
-  const state = stRes.rows[0] || null;
 
   if (state && state.status === 'active') {
     if (Number(state.current_hp) <= 0) {
@@ -2153,4 +2227,5 @@ module.exports = {
   redirectChannelIssue,
   clearBossRuntimeForGuild,
   getBossMemoryStats,
+  bossStatusCardHeight,
 };

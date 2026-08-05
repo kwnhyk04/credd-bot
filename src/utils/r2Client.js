@@ -1,14 +1,13 @@
 'use strict';
 
 /**
- * r2Client.js — minimal S3 SigV4 client for WRITING to the Cloudflare R2 bucket
- * (PUT/DELETE only). Reads stay on the public ASSET_BASE_URL; this exists so the
- * bot can publish rendered canvases once and then serve them by URL with zero
- * Discord-upload egress. No SDK dependency — R2 is S3-compatible and the two
- * operations we need sign in ~60 lines of node:crypto.
+ * r2Client.js — minimal S3 SigV4 client for the Cloudflare R2 bucket.
+ * Writes publish rendered canvases, while authenticated HEAD checks provide
+ * origin object versions for same-key asset replacements. Public reads still
+ * use ASSET_BASE_URL so normal image delivery has zero Discord-upload egress.
  *
  * Env (all four required, otherwise isConfigured() is false and callers fall
- * back to attaching): R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
+ * back to attaching or the configured public URL): R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
  * R2_BUCKET (must be the bucket ASSET_BASE_URL serves).
  */
 
@@ -31,7 +30,7 @@ function isConfigured() {
 
 /** Signed S3 request against R2. Returns the fetch Response. Throws on config/network errors. */
 async function r2Request(method, key, body = null, contentType = null) {
-  if (!isConfigured()) throw new Error('R2 write credentials are not configured');
+  if (!isConfigured()) throw new Error('R2 credentials are not configured');
   if (!SAFE_KEY.test(key)) throw new Error(`unsafe R2 object key: ${key}`);
 
   const host = `${env('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com`;
@@ -77,6 +76,25 @@ async function cancelResponseBody(response) {
   }
 }
 
+/** Read the origin metadata for one object without downloading its body. */
+async function headObject(key) {
+  let res = null;
+  try {
+    res = await r2Request('HEAD', key);
+    if (!res.ok) return null;
+    return {
+      etag: res.headers.get('etag') || null,
+      lastModified: res.headers.get('last-modified') || null,
+      contentLength: res.headers.get('content-length') || null,
+    };
+  } catch (err) {
+    console.warn(`[r2Client] HEAD ${key} failed:`, err.message);
+    return null;
+  } finally {
+    await cancelResponseBody(res);
+  }
+}
+
 /** PUT an object. Returns true on success, false otherwise (never throws). */
 async function putObject(key, buffer, contentType, logContext = {}) {
   const bytes = Buffer.isBuffer(buffer) || buffer instanceof Uint8Array ? buffer.byteLength : 0;
@@ -112,4 +130,4 @@ async function deleteObject(key, logContext = {}) {
   }
 }
 
-module.exports = { isConfigured, putObject, deleteObject };
+module.exports = { isConfigured, headObject, putObject, deleteObject };

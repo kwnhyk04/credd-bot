@@ -202,3 +202,4 @@ new and defensive:
 - `hydra_regen` — Regeneration: Regenerates 1% max HP every 3rd turn (local instance; only NET damage commits to the shared pool).
 - `stone_stare` — Stone Stare: Every 3rd turn, petrifies the player for 1 turn, then resets the counter.
 - `bakunawa_seven_moons` — Seven Moons: Every 4th turn, Eclipse reduces the player's CRIT to 0% for 1 turn.
+- `fenrir_gleipnirs_doom` — Gleipnir's Doom: As Fenrir's HP falls, seal phases grant +10%/+20%/+35% outgoing damage and +5%/+10%/+15% armor penetration; bonuses are total, not cumulative.

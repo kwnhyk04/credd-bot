@@ -116,7 +116,7 @@ section('1. Coverage — registry ⇄ passive_registry_keys.md');
   // 8 armor passives and 26 echo blessing keys; aegis & helm_of_darkness were
   // already counted (migrated from shields). [Genesis update] +5 Genesis weapon
   // passives (kiri, moira, sophia, atlas, titan).
-  check('expected key count (177 incl. none)', regKeys.size === 177, `got ${regKeys.size}`);
+  check('expected key count (178 incl. none)', regKeys.size === 178, `got ${regKeys.size}`);
   for (const k of regKeys) {
     if (typeof PASSIVE_REGISTRY[k] !== 'function') check(`key ${k} is a function`, false);
   }
@@ -2628,10 +2628,11 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
       && bossChestForSpawn('Fenrir', 'dev').column === 'boss_golden_chest'
       && bossChestForSpawn('Fenrir', 'dev').qty === 1
       && bossRewards('Fenrir').credux === 400000);
-  check('ordinary dev bosses stay unlimited while dev calamities use the daily cap',
+  check('all dev-spawned bosses bypass the official gate and daily cap',
     /function devBossHasUnlimitedAttacks\(state, mobRow\)/.test(bossSource)
-      && /state\?\.spawn_source === 'dev' && !isCalamityBoss\(mobRow\?\.name\)/.test(bossSource)
-      && /const unlimitedDev = isDev && !calamity/.test(bossSource)
+      && /state\?\.spawn_source === 'dev'/.test(bossSource)
+      && /const unlimitedDev = isDev/.test(bossSource)
+      && /!isOfficialGuild\(guildId\) && state\?\.spawn_source !== 'dev'/.test(bossSource)
       && /\$\{unlimitedDev \? '' :/.test(bossSource));
   check('active dev and calamity bosses persist until defeated',
     !/CALAMITY_IDLE_MS|expireIdleCalamity|calamity-expiry|escaped after two hours/.test(bossSource)
@@ -2967,6 +2968,7 @@ console.log(`\n${'═'.repeat(50)}`);
 {
   const bossSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'bossSystem.js'), 'utf8');
   const engineSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'battleEngine.js'), 'utf8');
+  const { bossStatusCardHeight } = require(path.join(ROOT, 'src', 'engine', 'bossSystem'));
   const bakunawa = mob({
     name: 'Bakunawa', mobType: 'boss', hp: 1000, poolHp: 1000, poolMaxHp: 1000,
     atk: 1, def: 0, skillKey: 'bakunawa_seven_moons',
@@ -2993,6 +2995,13 @@ console.log(`\n${'═'.repeat(50)}`);
   check('boss simulation follows the row lock and omits legacy level writes',
     bossSource.indexOf('FOR UPDATE') < bossSource.indexOf('resolveBattle(fighter, boss')
       && !/boss_level|enemy_level/.test(bossSource));
+  check('boss status card height follows wrapped passive line count',
+    bossStatusCardHeight(1) === 190
+      && bossStatusCardHeight(3) === 242
+      && bossStatusCardHeight(4) === 268
+      && /const passiveLineCount = Math\.max\(1, passiveLines\.length\)/.test(bossSource)
+      && /const H = bossStatusCardHeight\(passiveLineCount\)/.test(bossSource)
+      && /STATUS_PASSIVE_LINE_HEIGHT \* \(passiveLineCount - 1\) \+ 18/.test(bossSource));
 }
 
 console.log(`SELFTEST: ${passed} passed, ${failed} failed`);

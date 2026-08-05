@@ -296,7 +296,7 @@ async function runePages(effectKeys) {
     leading: `${runeEmoji(r.effect_key)} **${r.name}** — ${r.tier}`,
     passiveName: null,
     descriptionHeading: 'Rune Description',
-    description: runeDescription(r.effect_key, r.value, String(r.description || '').trim()),
+    description: runeDescription(r.effect_key, r.value, String(r.description || '').trim(), r.tier),
   }));
   return paginateEntries(entries).map((body) => ({
     body,
