@@ -119,32 +119,24 @@ async function findDuelByMessage({ messageId, duelId = null, pendingWindowMs = n
 /** Atomically remove a challenge only while it is still pending. */
 async function cancelPendingDuel(lock, db = pool) {
   if (!lock?.duelId || !lock?.lockToken) return false;
-  const client = await db.connect();
-  try {
-    await client.query('BEGIN');
-    const result = await client.query(
-      `DELETE FROM active_duels
+  const result = await db.query(
+    `WITH cancelled AS (
+       DELETE FROM active_duels
         WHERE duel_id = $1 AND lock_token = $2 AND status = 'pending'
-        RETURNING duel_id`,
-      [lock.duelId, lock.lockToken]
-    );
-    if (result.rowCount === 1) {
-      await client.query(
-        'DELETE FROM active_duel_participants WHERE duel_id = $1 AND lock_token = $2',
-        [lock.duelId, lock.lockToken]
-      );
-    }
-    await client.query('COMMIT');
-    if (result.rowCount === 1) {
+        RETURNING duel_id
+     ), deleted_participants AS (
+       DELETE FROM active_duel_participants p
+        USING cancelled c
+        WHERE p.duel_id = c.duel_id AND p.lock_token = $2
+     )
+     SELECT count(*)::int AS cancelled_count FROM cancelled`,
+    [lock.duelId, lock.lockToken]
+  );
+  const cancelledCount = Number(result.rows?.[0]?.cancelled_count ?? result.rowCount ?? 0);
+  if (cancelledCount === 1) {
       console.info('[duel lock] pending challenge cancelled', { duelId: lock.duelId });
-    }
-    return result.rowCount === 1;
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw err;
-  } finally {
-    client.release();
   }
+  return cancelledCount === 1;
 }
 
 async function markDuelRunning(lock, { pendingWindowMs = null } = {}) {
