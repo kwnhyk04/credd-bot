@@ -46,6 +46,7 @@ docs/*
 !docs/adr/
 AGENTS.md
 AGENT.md
+CLAUDE.md
 Handoff.md
 handoff.md
 todo.md
