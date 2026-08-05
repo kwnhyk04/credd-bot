@@ -621,10 +621,10 @@ function truncateToWidth(ctx, text, maxW) {
   return `${t}…`;
 }
 
-// Every explicitly dev-spawned boss is a test fixture. The persisted source is
-// authoritative, so this remains true across restarts and also covers Calamities.
+// Ordinary dev-spawned bosses are test fixtures and bypass the daily cap. A
+// dev-spawned Calamity still follows the regular Calamity attack rules.
 function devBossHasUnlimitedAttacks(state, mobRow) {
-  return state?.spawn_source === 'dev';
+  return state?.spawn_source === 'dev' && !isCalamityBoss(mobRow?.name);
 }
 
 function wrapToWidth(ctx, text, maxW, maxLines) {
@@ -921,7 +921,7 @@ async function buildBossMessage(view, {
 
   const greater = isGreaterBoss(mobRow.name);
   const calamity = isCalamityBoss(mobRow.name);
-  const unlimitedDev = isDev;
+  const unlimitedDev = isDev && !calamity;
   const spawnChest = chestForSpawn(state.spawn_id, mobRow.name, {
     baseHp: mobRow.base_hp,
     maxHp: state.max_hp,
@@ -1087,7 +1087,7 @@ async function buildBossMessage(view, {
   let footerText;
   if (status === 'active') {
     footerText = unlimitedDev
-      ? '-# The boss remains until defeated. 🧪 Dev boss — spawn rules bypassed.'
+      ? '-# The boss remains until defeated. 🧪 Dev boss — unlimited attacks.'
       : `-# The boss remains until defeated. ⚔️ ${bossDailyAttackLimit()} boss attacks per player per day.`;
   } else if (status === 'dead') {
     footerText = `-# Rewards distributed to all ${attackerCount} challenger${attackerCount === 1 ? '' : 's'}.`;
@@ -1903,7 +1903,8 @@ async function handleAttackImpl(interaction) {
     if (!state || state.status !== 'active') {
       return fail('There is no active boss right now — it has fallen. `crd boss` shows the latest status.');
     }
-    // Every dev-spawned test boss bypasses the daily lock, including Calamities.
+    // Ordinary dev test bosses bypass the daily lock. Dev Calamities use the
+    // regular per-player cap, matching a naturally spawned Calamity.
     const mobRes = await pool.query(`SELECT ${MOB_BATTLE_COLUMNS} FROM mob_roster WHERE mob_id = $1`, [state.mob_id]);
     const mobRow = mobRes.rows[0];
     if (!mobRow) return fail('Boss data is missing — try again shortly.');

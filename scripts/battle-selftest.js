@@ -2628,10 +2628,10 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
       && bossChestForSpawn('Fenrir', 'dev').column === 'boss_golden_chest'
       && bossChestForSpawn('Fenrir', 'dev').qty === 1
       && bossRewards('Fenrir').credux === 400000);
-  check('all dev-spawned bosses bypass the official gate and daily cap',
+  check('dev Calamities keep the regular attack cap while ordinary dev bosses stay unlimited',
     /function devBossHasUnlimitedAttacks\(state, mobRow\)/.test(bossSource)
-      && /state\?\.spawn_source === 'dev'/.test(bossSource)
-      && /const unlimitedDev = isDev/.test(bossSource)
+      && /state\?\.spawn_source === 'dev' && !isCalamityBoss\(mobRow\?\.name\)/.test(bossSource)
+      && /const unlimitedDev = isDev && !calamity/.test(bossSource)
       && /!isOfficialGuild\(guildId\) && state\?\.spawn_source !== 'dev'/.test(bossSource)
       && /\$\{unlimitedDev \? '' :/.test(bossSource));
   check('active dev and calamity bosses persist until defeated',
