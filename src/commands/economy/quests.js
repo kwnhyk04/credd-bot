@@ -15,6 +15,8 @@ const {
   ButtonBuilder, ButtonStyle, MessageFlags,
 } = require('discord.js');
 const pool = require('../../db/pool');
+const { MONTHSARY_EVENT } = require('../../config/monthsaryEvent');
+const { resolveEventState } = require('../../engine/monthsaryEvent');
 const {
   rollQuestsIfMissing, refreshQuestLine, describeQuest,
   hoursUntilMidnightPHT, REFRESH_ALLOWANCE,
@@ -25,6 +27,7 @@ const { phtWeek } = require('../../config/ranked');
 const { renderQuestRowsImage } = require('../../engine/renderQuestRows');
 const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../../utils/imageOutput');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
+const { emojiForDisplay } = require('../../utils/emojis');
 
 // Bump when renderQuestRows visuals change (busts cached quest boards).
 const QUEST_BOARD_REV = 1;
@@ -55,6 +58,12 @@ async function questBoardImage(quests, rewardIcon, name) {
 }
 
 const ACCENT = 0xf0b232;
+
+function eventQuestBonusLine(event, quests, relicIcon = emojiForDisplay('Sacred Relic')) {
+  if (!event?.active || quests.length !== 3 || !quests.every((quest) => quest.completed)) return null;
+  return `### Monthsary Event - Day ${event.eventDay}\n` +
+    `${relicIcon} **+${MONTHSARY_EVENT.questReward.sacredRelics}** Sacred Relic bonus`;
+}
 
 function reply(message, payload) {
   return message.reply({ ...payload, allowedMentions: { repliedUser: false } });
@@ -115,6 +124,14 @@ async function dailyPayload(ownerId, note) {
   const refreshesLeft = Math.max(0, REFRESH_ALLOWANCE - refreshesUsed);
   const hours = hoursUntilMidnightPHT();
   const image = await questBoardImage(quests, 'belief_shards', 'quests');
+  let eventLine = null;
+  if (quests.length === 3 && quests.every((quest) => quest.completed)) {
+    try {
+      eventLine = eventQuestBonusLine(await resolveEventState(pool), quests);
+    } catch (err) {
+      console.error('[quests] monthsary display failed:', err.message);
+    }
+  }
 
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
@@ -125,7 +142,13 @@ async function dailyPayload(ownerId, note) {
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(
       `-# ⏳ Resets in ${hours} hour${hours === 1 ? '' : 's'} · 🔄 ${refreshesLeft}/${REFRESH_ALLOWANCE} refreshes left · \`crd quest refresh <Q1|Q2|Q3>\``))
-    .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(image.url)))
+    .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(image.url)));
+  if (eventLine) {
+    container
+      .addSeparatorComponents(sep)
+      .addTextDisplayComponents((td) => td.setContent(eventLine));
+  }
+  container
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent('-# *"The gods reward those who prove their worth."*'));
 
@@ -301,4 +324,7 @@ async function handleClaimButton(interaction) {
   }
 }
 
-module.exports = { execute, showQuests, handleRefresh, handleScopeSelect, handleClaimButton };
+module.exports = {
+  execute, showQuests, handleRefresh, handleScopeSelect, handleClaimButton,
+  eventQuestBonusLine,
+};
