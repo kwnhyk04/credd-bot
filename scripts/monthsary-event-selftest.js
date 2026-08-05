@@ -339,8 +339,8 @@ function testMigrationAndHookShape() {
   assert(quest.includes('claimEventQuestDay(client, discordId)'));
   assert(!daily.includes('Boss Golden Treasure Chest'));
   assert(!/(supporter|token|cosmetic|skin)/i.test(eventEngine));
-  assert(questCommand.includes('eventQuestBonusLine(await resolveEventState(pool), quests)'));
-  assert(questCommand.includes('Sacred Relic bonus'));
+  assert(questCommand.includes('eventQuestBonusLine(await resolveEventState(pool))'));
+  assert(questCommand.includes('Bonus reward after completing all daily quests'));
 }
 
 async function main() {

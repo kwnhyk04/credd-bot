@@ -59,10 +59,11 @@ async function questBoardImage(quests, rewardIcon, name) {
 
 const ACCENT = 0xf0b232;
 
-function eventQuestBonusLine(event, quests, relicIcon = emojiForDisplay('Sacred Relic')) {
-  if (!event?.active || quests.length !== 3 || !quests.every((quest) => quest.completed)) return null;
+function eventQuestBonusLine(event, relicIcon = emojiForDisplay('Sacred Relic')) {
+  if (!event?.active) return null;
   return `### Monthsary Event - Day ${event.eventDay}\n` +
-    `${relicIcon} **+${MONTHSARY_EVENT.questReward.sacredRelics}** Sacred Relic bonus`;
+    `**Bonus reward after completing all daily quests**\n` +
+    `${relicIcon} **+${MONTHSARY_EVENT.questReward.sacredRelics}** Sacred Relic`;
 }
 
 function reply(message, payload) {
@@ -125,12 +126,10 @@ async function dailyPayload(ownerId, note) {
   const hours = hoursUntilMidnightPHT();
   const image = await questBoardImage(quests, 'belief_shards', 'quests');
   let eventLine = null;
-  if (quests.length === 3 && quests.every((quest) => quest.completed)) {
-    try {
-      eventLine = eventQuestBonusLine(await resolveEventState(pool), quests);
-    } catch (err) {
-      console.error('[quests] monthsary display failed:', err.message);
-    }
+  try {
+    eventLine = eventQuestBonusLine(await resolveEventState(pool));
+  } catch (err) {
+    console.error('[quests] monthsary display failed:', err.message);
   }
 
   const container = new ContainerBuilder()
