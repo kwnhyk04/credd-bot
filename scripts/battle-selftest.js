@@ -2623,8 +2623,10 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
       && bossRewards('Jotun', rollBossChest('Jotun', () => 0)) === GREATER_GOLDEN_REWARD
       && !bossConfigSource.includes('Golden Treasure Chest'));
   check('Calamity rewards and spawn chest variants are fixed',
-    bossChestForSpawn('Fenrir', 'natural').qty === 3
-      && bossChestForSpawn('Fenrir', 'dev').column === 'supreme_chest'
+    bossChestForSpawn('Fenrir', 'natural').qty === 1
+      && bossChestForSpawn('Fenrir', 'natural').column === 'boss_golden_chest'
+      && bossChestForSpawn('Fenrir', 'dev').column === 'boss_golden_chest'
+      && bossChestForSpawn('Fenrir', 'dev').qty === 1
       && bossRewards('Fenrir').credux === 400000);
   check('ordinary dev bosses stay unlimited while dev calamities use the daily cap',
     /function devBossHasUnlimitedAttacks\(state, mobRow\)/.test(bossSource)

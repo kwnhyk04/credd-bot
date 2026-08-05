@@ -55,6 +55,8 @@ const { emojiForDisplay } = require('../utils/emojis');
 const { grantTitles } = require('../utils/titleGrant');
 const {
   assetPath,
+  assetSignatureSync,
+  clearAssetCacheFor,
   isRemoteAssetsEnabled,
   isRemoteSource,
   loadAssetImage: loadAssetImageSource,
@@ -77,6 +79,10 @@ const {
   pickWeightedBoss,
   MAX_BOSS_ATTACKS_PER_DAY, bossAttackDecision,
 } = require('../config/bosses');
+const {
+  SUPREME_CHEST_REWARD,
+  rollCalamitySupremeRewards,
+} = require('./calamityRewards');
 const {
   bossRedirectMessage,
   isOfficialGuild,
@@ -397,7 +403,8 @@ const BANNER_CACHE_TTL_MS = Math.max(
   0,
   envNumber('BOSS_BANNER_CACHE_TTL_MS', 600_000, { min: 0, max: 86_400_000 })
 );
-const bannerCache = new Map(); // imgPath → { promise, bytes, lastUsed }
+const bannerCache = new Map(); // `${imgPath}\0${signature}` → { promise, bytes, lastUsed }
+const bossAssetSignatures = new Map(); // imgPath → current local mtime/size or remote asset version
 let bannerCacheBytes = 0;
 
 function dropBossBanner(key) {
@@ -422,12 +429,46 @@ async function loadAssetImage(source) {
   return loadAssetImageSource(loadImage, source);
 }
 
+function bossAssetSignature(imgPath) {
+  if (!imgPath) return null;
+  if (isRemoteSource(imgPath)) {
+    try { return assetSignatureSync(imgPath); } catch { return imgPath; }
+  }
+  try {
+    const stat = fs.statSync(imgPath);
+    return `${stat.mtimeMs}:${stat.size}`;
+  } catch {
+    return imgPath;
+  }
+}
+
+function dropBossBannersForPath(imgPath) {
+  const prefix = `${imgPath}\0`;
+  for (const key of bannerCache.keys()) {
+    if (key.startsWith(prefix)) dropBossBanner(key);
+  }
+}
+
 function bossBanner(imgPath) {
-  const cached = bannerCache.get(imgPath);
+  const signature = bossAssetSignature(imgPath);
+  const previousSignature = bossAssetSignatures.get(imgPath);
+  if (previousSignature !== signature) {
+    // Local files keep the same path when an art asset is replaced; clear only
+    // that decoded source and rendered banner when its bounded signature changes.
+    if (!isRemoteSource(imgPath)) clearAssetCacheFor(imgPath);
+    dropBossBannersForPath(imgPath);
+    bossAssetSignatures.delete(imgPath);
+    bossAssetSignatures.set(imgPath, signature);
+  }
+  while (bossAssetSignatures.size > BANNER_CACHE_MAX_ENTRIES) {
+    bossAssetSignatures.delete(bossAssetSignatures.keys().next().value);
+  }
+  const cacheKey = `${imgPath}\0${signature}`;
+  const cached = bannerCache.get(cacheKey);
   if (cached) {
     cached.lastUsed = Date.now();
-    bannerCache.delete(imgPath);
-    bannerCache.set(imgPath, cached);
+    bannerCache.delete(cacheKey);
+    bannerCache.set(cacheKey, cached);
     return cached.promise;
   }
   const entry = { bytes: 0, lastUsed: Date.now(), promise: null };
@@ -442,7 +483,7 @@ function bossBanner(imgPath) {
       const w = img.width * scale, h = img.height * scale;
       ctx.drawImage(img, (BANNER_W - w) / 2, (BANNER_H - h) / 2, w, h);
       const buffer = encodeOpaqueCanvas(canvas, { system: 'boss', command: 'boss', imageType: 'boss_banner' });
-      if (bannerCache.get(imgPath) === entry) {
+      if (bannerCache.get(cacheKey) === entry) {
         entry.bytes = buffer.length;
         bannerCacheBytes += entry.bytes;
         trimBossBanners();
@@ -453,7 +494,7 @@ function bossBanner(imgPath) {
       return null;
     }
   })();
-  bannerCache.set(imgPath, entry);
+  bannerCache.set(cacheKey, entry);
   trimBossBanners();
   return entry.promise;
 }
@@ -952,6 +993,9 @@ async function buildBossMessage(view, {
     ? supremeChestIcon : spawnChest.column === 'boss_golden_chest' ? goldChestIcon : chestIcon;
   // [v4.8] drop the "(this fight)" qualifier — redundant; rewards are understood to be this boss's.
   const chestLine = `${spawnChestIcon} ${spawnChest.label} ×${spawnChest.qty}`;
+  const calamityBonusLine = calamity
+    ? `${supremeChestIcon} 1 Supreme Chest chance per eligible participant, weighted by damage contribution`
+    : '';
   container
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(
@@ -959,7 +1003,8 @@ async function buildBossMessage(view, {
       `${creduxIcon} Credux ×${reward.credux.toLocaleString()}\n` +
       `${expIcon} Combat EXP ×${reward.exp.toLocaleString()}\n` +
       `${chestLine}\n` +
-      `${shardIcon} Belief Shards ×${reward.shards.toLocaleString()}`
+      `${shardIcon} Belief Shards ×${reward.shards.toLocaleString()}` +
+      (calamityBonusLine ? `\n${calamityBonusLine}` : '')
     ));
 
   // damage leaderboard
@@ -1380,6 +1425,7 @@ async function processQueuedCalamity(client, guildId, { db = pool, spawn = spawn
       force: false,
       bossName: queued.boss_name,
       spawnSource: 'dev',
+      bypassOfficialGuard: true,
     });
   } catch (err) {
     await db.query(
@@ -1412,8 +1458,9 @@ async function processQueuedCalamity(client, guildId, { db = pool, spawn = spawn
 
 async function spawnBoss(client, guildId, {
   force = false, channelId = null, bossName = null, spawnSource = null,
+  bypassOfficialGuard = false,
 } = {}) {
-  if (!isOfficialGuild(guildId)) {
+  if (!bypassOfficialGuard && !isOfficialGuild(guildId)) {
     await postOfficialRedirect(client, guildId, channelId, { force });
     return false;
   }
@@ -1534,6 +1581,9 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
   let attackerIds = [];
   let reward = null;
   let chest = null;
+  let supremeWinnerIds = [];
+  let totalEligibleDamage = 0;
+  let supremeBagUpd = { rows: [] };
   let expResults = new Map();
   try {
     await dbc.query('BEGIN');
@@ -1559,6 +1609,7 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
     );
     const mobRow = mobRes.rows[0] || {};
     const bossName = mobRow.name || '';
+    const calamity = isCalamityBoss(bossName);
     // [v4.6] the chest fixed at spawn — same outcome the announcement showed, paid to all.
     chest = chestForSpawn(spawnId, bossName, {
       baseHp: mobRow.base_hp,
@@ -1569,11 +1620,19 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
     reward = bossRewards(bossName, chest);
 
     const atk = await dbc.query(
-      `SELECT discord_id FROM boss_attack_log
+      `SELECT discord_id, total_damage FROM boss_attack_log
         WHERE boss_spawn_id = $1 ORDER BY discord_id`,
       [spawnId]
     );
-    attackerIds = atk.rows.map((r) => r.discord_id);
+    const participantRows = calamity
+      ? atk.rows.filter((row) => Number(row.total_damage) > 0)
+      : atk.rows;
+    attackerIds = participantRows.map((r) => r.discord_id);
+    if (calamity) {
+      const rolls = rollCalamitySupremeRewards(participantRows);
+      totalEligibleDamage = rolls.totalEligibleDamage;
+      supremeWinnerIds = rolls.winnerIds;
+    }
 
     if (attackerIds.length > 0) {
       // lock order: users_bag (sorted) → user_character (sorted) — Phase-5
@@ -1594,6 +1653,16 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
           RETURNING discord_id, credux, belief_shards, ${chest.column} AS chest_count`,
         [attackerIds, reward.credux, reward.shards, chest.qty]
       );
+
+      if (calamity && supremeWinnerIds.length > 0) {
+        supremeBagUpd = await dbc.query(
+          `UPDATE users_bag
+              SET supreme_chest = supreme_chest + $2
+            WHERE discord_id = ANY($1)
+            RETURNING discord_id, supreme_chest AS chest_count`,
+          [supremeWinnerIds, SUPREME_CHEST_REWARD.qty]
+        );
+      }
 
       // Boss EXP scales off each attacker's own combat level, not the boss's fixed
       // combat stats.
@@ -1637,10 +1706,25 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
       );
       await dbc.query(
         `INSERT INTO game_logs (discord_id, action, item_type, previous_chest_count, updated_chest_count)
-         SELECT u.id, 'Boss', $4, u.prev, u.upd
-           FROM unnest($1::varchar[], $2::int[], $3::int[]) AS u(id, prev, upd)`,
+          SELECT u.id, 'Boss', $4, u.prev, u.upd
+            FROM unnest($1::varchar[], $2::int[], $3::int[]) AS u(id, prev, upd)`,
         [ids, prevCh, newCh, chest.column]
       );
+
+      if (supremeBagUpd.rows.length > 0) {
+        const supremeIds = [], previousSupreme = [], updatedSupreme = [];
+        for (const row of supremeBagUpd.rows) {
+          supremeIds.push(row.discord_id);
+          updatedSupreme.push(row.chest_count);
+          previousSupreme.push(row.chest_count - SUPREME_CHEST_REWARD.qty);
+        }
+        await dbc.query(
+          `INSERT INTO game_logs (discord_id, action, item_type, previous_chest_count, updated_chest_count)
+           SELECT u.id, 'Boss', $4, u.prev, u.upd
+             FROM unnest($1::varchar[], $2::int[], $3::int[]) AS u(id, prev, upd)`,
+          [supremeIds, previousSupreme, updatedSupreme, SUPREME_CHEST_REWARD.column]
+        );
+      }
     }
 
     await dbc.query('COMMIT');
@@ -1660,6 +1744,13 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
     telemetryCommand: 'boss:final',
   }).catch(() => {});
   const view = await fetchBossView(guildId).catch(() => null);
+  if (view && isCalamityBoss(view.mobRow.name) && totalEligibleDamage <= 0) {
+    console.info('[boss] calamity defeated without eligible damage', {
+      guildId,
+      spawnId,
+      reason: 'total eligible damage is zero',
+    });
+  }
   if (view) {
     const channelId = liveMessages.get(guildId)?.channelId || await resolveAnnounceChannelId(guildId);
     const channel = channelId ? await client.channels.fetch(channelId).catch(() => null) : null;
@@ -1694,10 +1785,15 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
         }
       }
       await channel.send({
+        // Calamity's bonus is an independent roll per valid damage participant;
+        // only the guaranteed chest is included in the shared participation line.
         content:
           `🎉 ${greater ? '☠️ **GREATER** ' : ''}**${view.mobRow.name}** has fallen! ` +
           `All **${attackerIds.length}** challenger${attackerIds.length === 1 ? '' : 's'} receive: ` +
           `${r.credux.toLocaleString()} Credux · ${r.exp.toLocaleString()} Combat EXP · ${c.qty}× ${c.label} · ${r.shards.toLocaleString()} Belief Shards.` +
+          (isCalamityBoss(view.mobRow.name)
+            ? ` Each eligible participant also received an independent chance at 1 Supreme Chest; **${supremeWinnerIds.length}** won.`
+            : '') +
           levelLine,
         allowedMentions: { parse: [] },
       }).catch(() => {});

@@ -1006,7 +1006,11 @@ async function devSpawnBoss(message, args, devId, bossNameArgStart = 1) {
     }
     // announce in the invoking channel when server_config has no boss/bot channel
     const ok = await spawnBoss(message.client, guildId, {
-      force: true, channelId: message.channel.id, bossName: canonicalName, spawnSource: 'dev',
+      force: true,
+      channelId: message.channel.id,
+      bossName: canonicalName,
+      spawnSource: 'dev',
+      bypassOfficialGuard: true,
     });
     if (!ok) {
       return reply(message,

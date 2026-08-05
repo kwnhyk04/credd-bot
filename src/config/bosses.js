@@ -47,11 +47,14 @@ const GREATER_GOLDEN_REWARD = Object.freeze({
 const CALAMITY_REWARD = Object.freeze(Object.fromEntries(
   Object.entries(GREATER_GOLDEN_REWARD).map(([key, value]) => [key, value * 2])
 ));
+const CALAMITY_PARTICIPATION_CHEST = Object.freeze({
+  column: 'boss_golden_chest', qty: 1, label: 'Boss Golden Chest',
+});
 const CALAMITY_NATURAL_CHEST = Object.freeze({
-  column: 'boss_golden_chest', qty: 3, label: 'Boss Golden Chest',
+  ...CALAMITY_PARTICIPATION_CHEST,
 });
 const CALAMITY_DEV_CHEST = Object.freeze({
-  column: 'supreme_chest', qty: 1, label: 'Supreme Chest',
+  ...CALAMITY_PARTICIPATION_CHEST,
 });
 
 const GREATER_VARIANTS = Object.freeze({
@@ -228,6 +231,7 @@ module.exports = {
   GREATER_TWIN_REWARD,
   GREATER_GOLDEN_REWARD,
   CALAMITY_REWARD,
+  CALAMITY_PARTICIPATION_CHEST,
   CALAMITY_NATURAL_CHEST,
   CALAMITY_DEV_CHEST,
   GREATER_VARIANTS,

@@ -178,12 +178,33 @@ async function markDuelSettling(lock) {
   );
 }
 
-async function releaseDuelLock(lock) {
-  if (!lock?.duelId || !lock?.lockToken) return;
-  await pool.query(
-    'DELETE FROM active_duels WHERE duel_id = $1 AND lock_token = $2',
-    [lock.duelId, lock.lockToken]
-  );
+async function releaseDuelLock(lock, db = pool) {
+  if (!lock?.duelId || !lock?.lockToken) return false;
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    // Delete participants explicitly so cleanup remains correct even if a
+    // deployment is missing the expected ON DELETE CASCADE constraint.
+    await client.query(
+      'DELETE FROM active_duel_participants WHERE duel_id = $1 AND lock_token = $2',
+      [lock.duelId, lock.lockToken]
+    );
+    const result = await client.query(
+      'DELETE FROM active_duels WHERE duel_id = $1 AND lock_token = $2',
+      [lock.duelId, lock.lockToken]
+    );
+    await client.query('COMMIT');
+    console.info('[duel lock] released', {
+      duelId: lock.duelId,
+      removed: result.rowCount === 1,
+    });
+    return result.rowCount === 1;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 module.exports = {

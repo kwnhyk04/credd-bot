@@ -187,6 +187,14 @@ function clearAssetCache() {
   cacheBytes = 0;
 }
 
+function clearAssetCacheFor(source) {
+  const resolved = assetSource(source);
+  const bufferCleared = cacheDelete(bufferCache, resolved);
+  const imageCleared = cacheDelete(imageCache, resolved);
+  remoteFetchMisses.delete(resolved);
+  return bufferCleared || imageCleared;
+}
+
 function sweepExpiredAssetCache(now = Date.now()) {
   if (!CACHE_TTL_MS) return 0;
   let removed = 0;
@@ -1252,6 +1260,7 @@ module.exports = {
   remoteAssetAvailable,
   assetSignatureSync,
   clearAssetCache,
+  clearAssetCacheFor,
   sweepExpiredAssetCache,
   getAssetCacheStats,
   verifyAssetDiskCacheReady,

@@ -504,6 +504,9 @@ async function handleButtonInteraction(interaction, services = {}) {
     } else {
       notices = await commitDuelResult(session.challengerId, session.opponentId, sim);
     }
+    // Permanent results are committed above, so release both DB and memory
+    // locks before any optional rendering or Discord I/O can delay reuse.
+    await safeReleaseDuelLock(duelLock);
 
     let battleSkinPath = null;
     try {
