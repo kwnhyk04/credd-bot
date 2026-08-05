@@ -24,11 +24,11 @@ function reply(message, content) {
 
 async function execute(message) {
   try {
-    if (!isOfficialGuild(message.guild.id)) {
+    const view = await fetchBossView(message.guild.id);
+    if (!isOfficialGuild(message.guild.id) && view?.state?.spawn_source !== 'dev') {
       return reply(message, bossRedirectMessage());
     }
 
-    const view = await fetchBossView(message.guild.id);
     if (!view) {
       return reply(
         message,
@@ -40,7 +40,7 @@ async function execute(message) {
     const { state } = view;
     const now = Date.now();
     if (state.status === 'active') {
-      const sent = await message.channel.send(await buildBossMessage(view));
+      const sent = await message.channel.send(await buildBossMessage(view, { forceAssetRefresh: true }));
       repointLiveMessage(message.guild.id, sent);
       if (message.isSlash) {
         await reply(message, 'Boss status posted in this channel.');

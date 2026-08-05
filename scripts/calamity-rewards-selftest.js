@@ -112,11 +112,14 @@ check('developer spawn bypasses only the spawn official-server guard',
   && /bypassOfficialGuard: true/.test(devSource)
   && /isOfficialGuild\(message\.guild\.id\)/.test(bossCommandSource));
 
-check('active boss image refresh is bounded by asset signatures',
+check('active boss image refresh resolves the current R2 object version',
   /assetSignatureSync/.test(bossSource)
   && /clearAssetCacheFor\(imgPath\)/.test(bossSource)
   && /bossAssetSignature\(imgPath\)/.test(bossSource)
-  && /BANNER_CACHE_MAX_ENTRIES/.test(bossSource));
+  && /BANNER_CACHE_MAX_ENTRIES/.test(bossSource)
+  && /headObject/.test(bossSource)
+  && /forceAssetRefresh/.test(bossSource)
+  && /forceAssetRefresh: true/.test(bossCommandSource));
 
 check('duel cleanup clears the specific DB lock and releases before rendering',
   /DELETE FROM active_duel_participants WHERE duel_id = \$1 AND lock_token = \$2/.test(duelLocksSource)

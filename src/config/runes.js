@@ -38,7 +38,7 @@ const RUNE_VALUE_RANGES = {
     Rare: [1, 2], Mythic: [3, 6], Legendary: [7, 10], Supreme: [12, 15],
   },
   vampiric: {
-    Rare: [1, 3], Mythic: [4, 7], Legendary: [8, 12], Supreme: [15, 20],
+    Rare: [1, 3], Mythic: [10, 15], Legendary: [20, 35], Supreme: [40, 50],
   },
   piercing: {
     Rare: [2, 4], Mythic: [5, 7], Legendary: [8, 13], Supreme: [15, 20],
@@ -148,8 +148,9 @@ function formatRuneValue(value) {
   return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
 }
 
-function runeDescription(effectKey, value, fallback = '') {
-  const v = formatRuneValue(value);
+function runeDescription(effectKey, value, fallback = '', tier = null) {
+  const range = effectKey === 'vampiric' ? RUNE_VALUE_RANGES[effectKey]?.[tier] : null;
+  const v = range ? `${range[0]}-${range[1]}` : formatRuneValue(value);
   switch (effectKey) {
     case 'sharpness': return `ATK +${v}%`;
     case 'precision': return `CRIT +${v}%`;

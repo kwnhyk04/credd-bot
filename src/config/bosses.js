@@ -146,17 +146,18 @@ function rollBossChest(name, rng = null) {
  * Greater-boss HP adjustment tied to the chest fixed for that spawn.
  * Normal and calamity spawns deliberately remain 1×.
  */
-function hpMultiplierForChest(chest) {
+function hpMultiplierForChest(chest, bossName = null) {
+  if (bossName && isCalamityBoss(bossName)) return 1;
   return greaterVariantForChest(chest)?.hpMultiplier || 1;
 }
 
 /**
  * Apply the fixed Greater multiplier to base HP. Legacy arguments are accepted for callers.
  */
-function bossMaxHpForChest(baseHp, hpPerLevel, level, chest = null) {
+function bossMaxHpForChest(baseHp, hpPerLevel, level, chest = null, bossName = null) {
   const base = Number(baseHp);
   if (!Number.isFinite(base)) return 1;
-  return Math.max(1, Math.floor(base * hpMultiplierForChest(chest)));
+  return Math.max(1, Math.floor(base * hpMultiplierForChest(chest, bossName)));
 }
 
 /**

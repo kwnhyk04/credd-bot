@@ -90,6 +90,11 @@
 
 const PASSIVE_REGISTRY = require('./passiveRegistry');
 const {
+  FENRIR_PASSIVE_KEY,
+  reconcileFenrirPhase,
+  fenrirPhaseAnnouncement,
+} = PASSIVE_REGISTRY;
+const {
   LOG_PRIORITY: LOG,
   CombatLog,
   orderEvents,
@@ -356,12 +361,25 @@ function resolveBattle(a, b, opts = {}) {
   const hasEquippedPassive = (side, key) =>
     side.weaponPassiveKey === key || side.armorPassiveKey === key;
 
+  const refreshFenrirPhase = () => {
+    if (!B.isBoss || B.skillKey !== FENRIR_PASSIVE_KEY) return;
+    const reconciled = reconcileFenrirPhase(B.bossPassiveState, B.hp, B.maxHp);
+    B.bossPassiveState = reconciled.state;
+    A.flags.enemy_damage_mult = reconciled.phase.outgoingDamageMultiplier;
+    A.flags.enemy_ignore_def_pct = reconciled.phase.armorPenetration;
+    if ((reconciled.advanced || !reconciled.initialized) && reconciled.phase.index > 0) {
+      const announcement = fenrirPhaseAnnouncement(reconciled.phase);
+      if (announcement) logAt(LOG.MOB_SKILL, announcement);
+    }
+  };
+
   // ── HP mutation hub (totals accounting) ────────────────────────────────────
   const setHp = (side, v) => {
     const nv = Math.max(0, Math.min(Math.round(v), side.maxHp));
     const delta = nv - side.hp;
     side.hp = nv;
     if (side === B) {
+      refreshFenrirPhase();
       if (delta < 0 && B.skillKey === 'bakunawa_seven_moons' && B.maxHp > 0) {
         const beforePct = (B.hp - delta) / B.maxHp * 100;
         const afterPct = B.hp / B.maxHp * 100;
@@ -544,6 +562,7 @@ function resolveBattle(a, b, opts = {}) {
     set nextAttackAutoCrit(v) { self.scratch.nextAttackAutoCrit = v; },
     get nextAttackDouble() { return self.scratch.nextAttackDouble; },
     set nextAttackDouble(v) { self.scratch.nextAttackDouble = v; },
+    refreshEnemyBossPhase: refreshFenrirPhase,
     get isPrimaryAttack() {
       return self.scratch?.attackContext?.isPrimaryAttack !== false;
     },
@@ -656,9 +675,9 @@ function resolveBattle(a, b, opts = {}) {
       );
       def *= Math.max(0, 1 - shred);
     }
-    if (S.kind === 'player') {
-      const pierceImmune = sideImmune(O, 'armor_pierce');
-      if (!pierceImmune) {
+    const pierceImmune = sideImmune(O, 'armor_pierce');
+    if (!pierceImmune) {
+      if (S.kind === 'player') {
         if (mainHit && S.flags.gungnir_full_pierce) return 0;
         let pierce = S.scratch.ignoreDefPct;
         if (S.classPassive === 'pierce') pierce = Math.max(pierce, ARCHER_PIERCE);
@@ -668,6 +687,9 @@ function resolveBattle(a, b, opts = {}) {
         if (S.flags.moira_pierce_vs_def_buff && (O.scratch?.playerDefMult || 0) > 0) {
           pierce = Math.max(pierce, 0.50);
         }
+        def *= Math.max(0, 1 - pierce);
+      } else if (S.kind === 'mob') {
+        const pierce = Math.max(0, Math.min(1, Number(O.flags.enemy_ignore_def_pct) || 0));
         def *= Math.max(0, 1 - pierce);
       }
     }
@@ -1586,7 +1608,8 @@ function resolveBattle(a, b, opts = {}) {
       const crit = rng() * 100 < S.crit;          // enemy authored crit, uncapped
       const critApplied = crit && !nukeRound;
       const variance = 0.9 + rng() * 0.2;
-      let dmg = mitigated(atkBase * subPct, effDef(S, O)) * variance;
+      const outgoingDamageMultiplier = Math.max(0, Number(F.enemy_damage_mult) || 1);
+      let dmg = mitigated(atkBase * subPct, effDef(S, O)) * variance * outgoingDamageMultiplier;
       if (i === 0) dmg += F.enemy_bonus_damage || 0;  // rider once per round (R4)
       if (critApplied) dmg *= CRIT_MULT;
       dmg = Math.max(0, Math.floor(dmg));
@@ -1704,6 +1727,8 @@ function resolveBattle(a, b, opts = {}) {
     // per-round DERIVED flags the registry re-establishes every round
     side.flags.enemy_bonus_damage = 0;
     side.flags.enemy_atk_mult = undefined;
+    side.flags.enemy_damage_mult = 1;
+    side.flags.enemy_ignore_def_pct = 0;
     side.flags.enemy_def_mult = undefined;
     side.flags.enemy_atk_override = null;
     side.flags.bathala_hp_fraction = 0;
@@ -2102,10 +2127,15 @@ function resolveBattle(a, b, opts = {}) {
     skillDesc: side.kind === 'player' ? null : (side.in.skillDescription || null),
     atk: side.atk, def: side.def, crit: side.crit,
     hp: side.hp, maxHp: side.maxHp,
-    bossPassiveState: side.isBoss ? {
-      crossedThresholds: [...moonState.crossedThresholds].sort((x, y) => y - x),
-      atkBonusPct: moonState.atkBonusPct,
-    } : null,
+    bossPassiveState: side.isBoss
+      ? side.skillKey === FENRIR_PASSIVE_KEY
+        ? { ...side.bossPassiveState }
+        : {
+          ...side.bossPassiveState,
+          crossedThresholds: [...moonState.crossedThresholds].sort((x, y) => y - x),
+          atkBonusPct: moonState.atkBonusPct,
+        }
+      : null,
   });
 
   return {
