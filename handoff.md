@@ -2595,3 +2595,38 @@ lethal expiring DOT plus Tribal Ward, and full-stack font construction.
   was intentionally left unchanged as unrelated. All remaining telemetry, cache,
   skin, Canvas, schema, lifecycle, help, and casino suites passed when run directly.
 - `git diff --check` reported no whitespace errors.
+
+## Follow-up: combat rewards, summon display, daily limits, and battle assets
+
+Timestamp: 2026-08-07 +08:00
+Patch name: Combat reward and asset rendering follow-up
+Implementation commits: `5a7fefe`, `5152268`, and `5407e8c`
+
+The combat reward and summon quality-of-life updates were carried into the
+pre-event baseline. The implementation now includes:
+
+- Combat raid quest reward tracking and reward-limit persistence, with the
+  production consolidated schema, Credd schema v4, and general schema source
+  kept aligned with the migration.
+- Raid and quest reward rendering updates, including the daily Sacred Relic
+  reward, equipment-tier icons for chest rewards, and the third `Daily Reward
+  Limits` embed with belief-shard, Silver Chest, and Gold Chest tracking.
+- Summon reward output aligned to the body embed with compact reward rows and
+  safe handling for Discord component text-size limits.
+- The raid flow returned to its lower-load behavior by removing the daily-limit
+  lookup from the post-battle response. Daily tracking is available separately
+  through `crd daily limits`.
+- Weekly quest footer text was removed while unrelated reward and battle-result
+  footers were preserved.
+- Battle and avatar asset resolution was updated for the class-specific
+  `battle_<class>.png` naming convention, including R2/public asset URL handling
+  and the default battle-render fallback.
+
+Validation and deployment notes:
+
+- Focused combat-reward, summon-QOL, battle-render, schema-drift, and Genesis
+  avatar self-test coverage was added or updated with the implementation.
+- The event migration remains a source-of-truth deployment artifact; no
+  production database write is implied by the code or schema changes.
+- The pre-event baseline is intended to remain free of the active monthsary
+  event changes.
