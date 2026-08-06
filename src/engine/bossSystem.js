@@ -1159,6 +1159,15 @@ function warnRedirectFailure(guildId, channelId, channel, reason) {
   });
 }
 
+function warnLivePostFailure(guildId, channelId, channel, reason) {
+  console.warn('[boss] live message skipped', {
+    guildId,
+    channelId,
+    channelType: channel?.type ?? 'unresolved',
+    reason,
+  });
+}
+
 async function postOfficialRedirect(client, guildId, channelIdHint = null, { force = false } = {}) {
   const now = Date.now();
   const last = nonOfficialRedirects.get(guildId) || 0;
@@ -1212,12 +1221,41 @@ async function postFreshLiveMessage(client, guildId, payload, channelIdHint = nu
     || liveMessages.get(guildId)?.channelId
     || await resolveAnnounceChannelId(guildId);
   if (!channelId) return null;
-  const channel = await client.channels.fetch(channelId).catch(() => null);
-  if (!channel) return null;
-  const msg = await channel.send(payload).catch((err) => {
-    console.error(`[boss] post failed (guild ${guildId}):`, err.message);
+
+  let channel;
+  try {
+    channel = await client.channels.fetch(channelId);
+  } catch (err) {
+    warnLivePostFailure(guildId, channelId, null, `${err.code || 'fetch failed'}: ${err.message}`);
     return null;
-  });
+  }
+  if (!channel) {
+    warnLivePostFailure(guildId, channelId, null, 'channel was not found');
+    return null;
+  }
+
+  const issue = redirectChannelIssue(channel, guildId, client.user);
+  if (issue) {
+    warnLivePostFailure(guildId, channelId, channel, issue);
+    return null;
+  }
+
+  if (channel.isThread?.() && channel.joined === false && channel.joinable) {
+    try {
+      await channel.join();
+    } catch (err) {
+      warnLivePostFailure(guildId, channelId, channel, `${err.code || 'thread join failed'}: ${err.message}`);
+      return null;
+    }
+  }
+
+  let msg;
+  try {
+    msg = await channel.send(payload);
+  } catch (err) {
+    warnLivePostFailure(guildId, channelId, channel, `${err.code || 'send failed'}: ${err.message}`);
+    return null;
+  }
   if (msg) liveMessages.set(guildId, { channelId: msg.channel.id, messageId: msg.id });
   return msg;
 }
@@ -2244,6 +2282,7 @@ module.exports = {
   repointLiveMessage,
   refreshLiveMessage,
   postOfficialRedirect,
+  postFreshLiveMessage,
   redirectChannelIssue,
   clearBossRuntimeForGuild,
   getBossMemoryStats,

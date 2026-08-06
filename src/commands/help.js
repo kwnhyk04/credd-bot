@@ -119,6 +119,7 @@ const CATEGORIES = [
     lines: [
       { canonical: 'bestow', cmd: 'crd bestow @user [amount] (bs)', desc: 'Send Credux to a player' },
       { canonical: 'daily', cmd: 'crd daily', desc: 'Claim daily reward' },
+      { canonical: 'daily', cmd: 'crd daily limits', desc: 'View today\'s raid reward tracking' },
       { canonical: 'quests', cmd: 'crd quests (q) — daily/weekly', desc: 'View quests; daily set +1 Sacred Relic, weekly quest +1 each' },
     ],
   },

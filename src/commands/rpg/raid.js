@@ -31,10 +31,6 @@ const { scaleExpForMobLevel } = require('../../config/expScaling');
 const { awardCombatExp } = require('../../utils/awardCombatExp');
 const { formatLevelRewardLine } = require('../../config/levelRewards');
 const { progressQuests } = require('../../utils/questProgress');
-const {
-  allocateRaidRewardLimits,
-  formatRaidLimitStatus,
-} = require('../../utils/raidRewardLimits');
 
 const STALE_BATTLE_MINUTES = 5;
 
@@ -71,7 +67,6 @@ function rewardSummaryText(sim, mobName, rewards) {
     parts.push(`✨ +${Number(rewards.exp || 0).toLocaleString()} EXP`);
   }
   lines.push(parts.join(' · '));
-  if (rewards.raidLimitTotals) lines.push(formatRaidLimitStatus(rewards.raidLimitTotals));
   return lines.join('\n');
 }
 
@@ -120,7 +115,7 @@ async function claimBattleSlot(discordId, channelId, sim, mobRow, level) {
  * rows (one per currency/item changed, action 'Raid'), then the immutable
  * raid_logs row. Returns the reward summary for the panel footer.
  */
-async function commitRewards(discordId, sim, mobRow, rng, mobLevel, rewardKey) {
+async function commitRewards(discordId, sim, mobRow, rng, mobLevel) {
   const won = sim.winner === 'a';
   const loot = RAID_LOOT[mobRow.mob_type];
   if (!loot) throw new Error(`no loot table for mob_type ${mobRow.mob_type}`);
@@ -146,36 +141,8 @@ async function commitRewards(discordId, sim, mobRow, rng, mobLevel, rewardKey) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    if (rewardKey) {
-      const inserted = await client.query(
-        `INSERT INTO raid_reward_grants (reward_key, discord_id)
-         VALUES ($1, $2)
-         ON CONFLICT (reward_key) DO NOTHING
-         RETURNING reward_key`,
-        [`raid:${rewardKey}`, discordId],
-      );
-      if (inserted.rows.length === 0) {
-        const existing = await client.query(
-          'SELECT reward FROM raid_reward_grants WHERE reward_key = $1 FOR SHARE',
-          [`raid:${rewardKey}`],
-        );
-        const tracking = await allocateRaidRewardLimits(client, discordId, {}, {
-          regularRaid: mobRow.mob_type === 'regular',
-          eliteMobRaid: mobRow.mob_type === 'elite',
-        });
-        await client.query('COMMIT');
-        return {
-          ...(existing.rows[0]?.reward || {
-            won, credux: 0, exp, shards: 0, chestLabel: null, chestQty: 0,
-            raidLimitNotices: [], questNotices: [],
-          }),
-          raidLimitTotals: tracking.totals,
-        };
-      }
-    }
     const bagRes = await client.query(
-      `SELECT credux, belief_shards${chestCol ? `, ${chestCol}` : ''}
-         FROM users_bag WHERE discord_id = $1 FOR UPDATE`,
+      'SELECT credux, belief_shards FROM users_bag WHERE discord_id = $1 FOR UPDATE',
       [discordId]
     );
     if (bagRes.rows.length === 0) {
@@ -183,34 +150,15 @@ async function commitRewards(discordId, sim, mobRow, rng, mobLevel, rewardKey) {
     }
     const bagBefore = bagRes.rows[0];
 
-    const limitAllocation = await allocateRaidRewardLimits(client, discordId, {
-      silverChests: won && chestCol === 'silver_chest' ? 1 : 0,
-      goldChests: won && chestCol === 'gold_chest' ? 1 : 0,
-      beliefShards: won ? shards : 0,
-    }, {
-      regularRaid: mobRow.mob_type === 'regular',
-      eliteMobRaid: mobRow.mob_type === 'elite',
-    });
-    const grantedShards = limitAllocation.granted.beliefShards;
-    const grantedChestQty = chestCol === 'silver_chest'
-      ? limitAllocation.granted.silverChests
-      : chestCol === 'gold_chest'
-        ? limitAllocation.granted.goldChests
-        : 0;
-    const grantedChestCol = grantedChestQty > 0 ? chestCol : null;
-    const bagParams = [discordId, credux, grantedShards];
-    const chestUpdate = grantedChestCol ? `, ${grantedChestCol} = ${grantedChestCol} + $4` : '';
-    if (grantedChestCol) bagParams.push(grantedChestQty);
-
     const bagUpd = await client.query(
       `UPDATE users_bag
           SET credux = credux + $2,
               belief_shards = belief_shards + $3,
               lifetime_credux_earned = lifetime_credux_earned + $2
-              ${chestUpdate}
+              ${chestCol ? `, ${chestCol} = ${chestCol} + 1` : ''}
         WHERE discord_id = $1
         RETURNING credux, belief_shards${chestCol ? `, ${chestCol}` : ''}`,
-      bagParams
+      [discordId, credux, shards]
     );
     const bagAfter = bagUpd.rows[0];
 
@@ -230,18 +178,18 @@ async function commitRewards(discordId, sim, mobRow, rng, mobLevel, rewardKey) {
         [discordId, bagBefore.credux, bagAfter.credux]
       );
     }
-    if (grantedShards > 0) {
+    if (shards > 0) {
       await client.query(
         `INSERT INTO game_logs (discord_id, action, previous_belief_shards, updated_belief_shards)
          VALUES ($1, 'Raid', $2, $3)`,
         [discordId, bagBefore.belief_shards, bagAfter.belief_shards]
       );
     }
-    if (grantedChestCol) {
+    if (chestCol) {
       await client.query(
         `INSERT INTO game_logs (discord_id, action, item_type, previous_chest_count, updated_chest_count)
          VALUES ($1, 'Raid', $2, $3, $4)`,
-        [discordId, grantedChestCol, bagAfter[grantedChestCol] - grantedChestQty, bagAfter[grantedChestCol]]
+        [discordId, chestCol, bagAfter[chestCol] - 1, bagAfter[chestCol]]
       );
     }
 
@@ -253,8 +201,8 @@ async function commitRewards(discordId, sim, mobRow, rng, mobLevel, rewardKey) {
        VALUES ($1, 'raid', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         discordId, mobRow.name, mobRow.mob_type, won ? 'win' : 'loss',
-        exp, lvl.newExp, grantedShards, bagAfter.belief_shards,
-        credux, bagAfter.credux, grantedChestCol ? CHEST_LABELS[grantedChestCol] : null,
+        exp, lvl.newExp, shards, bagAfter.belief_shards,
+        credux, bagAfter.credux, chestCol ? CHEST_LABELS[chestCol] : null,
       ]
     );
 
@@ -289,21 +237,12 @@ async function commitRewards(discordId, sim, mobRow, rng, mobLevel, rewardKey) {
     }
 
     const reward = {
-      won, credux, exp, shards: grantedShards,
-      chestLabel: grantedChestCol ? CHEST_LABELS[grantedChestCol] : null,
-      chestQty: grantedChestQty,
+      won, credux, exp, shards,
+      chestLabel: chestCol ? CHEST_LABELS[chestCol] : null,
       levelFrom: lvl.previousLevel, levelTo: lvl.newLevel, leveledUp: lvl.leveledUp,
       levelRewards: lvl.rewards,
-      raidLimitNotices: limitAllocation.notices,
-      raidLimitTotals: limitAllocation.totals,
       questNotices,
     };
-    if (rewardKey) {
-      await client.query(
-        'UPDATE raid_reward_grants SET reward = $2::jsonb WHERE reward_key = $1',
-        [`raid:${rewardKey}`, JSON.stringify(reward)],
-      );
-    }
     await client.query('COMMIT');
     return reward;
   } catch (err) {
@@ -331,8 +270,8 @@ async function execute(message) {
 
     const sim = resolveBattle(fighter, mob, { mode: 'raid', seed });
 
-    const claimedBattleId = await claimBattleSlot(discordId, message.channel.id, sim, mobRow, level);
-    if (!claimedBattleId) {
+    const claimed = await claimBattleSlot(discordId, message.channel.id, sim, mobRow, level);
+    if (!claimed) {
       return reply(message, '⚔️ You are already in a battle — wait for it to finish.');
     }
 
@@ -349,7 +288,7 @@ async function execute(message) {
       }
 
       // the summary object renders as battleRender's rewards strip
-      const rewards = await commitRewards(discordId, sim, mobRow, rng, level, claimedBattleId);
+      const rewards = await commitRewards(discordId, sim, mobRow, rng, level);
       let battleSkinPath = null;
       let resultSkinPath = null;
       try {
@@ -369,8 +308,7 @@ async function execute(message) {
           battleSkinPath,
           resultSkinPath,
           rewards,
-          rewardStatus: formatRaidLimitStatus(rewards.raidLimitTotals),
-          notices: rewards.questNotices || [],
+          notices: rewards.questNotices,
           ownerId: discordId,
           onMessage: (msg) => pool.query(
             'UPDATE active_battles SET message_id = $2, channel_id = $3 WHERE discord_id = $1',

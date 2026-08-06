@@ -239,12 +239,13 @@ function buildEntries() {
   // from disk (assets live on R2). Mirrors patch2-classbattle-backfill.sql so
   // the deactivation pass below never flips them off on a reseed. Bases sit at
   // BUCKET-ROOT classes/battle_base/ (no skins/ prefix — render code special-
-  // cases it). Founder/tester AVATARS live in avatar_catalog, NOT here.
+  // cases it). The published files use battle_<class>.png. Founder/tester
+  // AVATARS live in avatar_catalog, NOT here.
   const CLASS_BATTLE = [
     ['swordsman', 'ws'], ['fighter', 'fs'], ['mage', 'ms'], ['knight', 'ks'], ['archer', 'as'],
   ];
   for (const [cls, code] of CLASS_BATTLE) {
-    const rel = `classes/battle_base/${cls}.png`;
+    const rel = `classes/battle_base/battle_${cls}.png`;
     entries.push({
       cosmetic_key: `class_battle_${cls}`, category: 'battle', tier: 'believer', is_base: false,
       display_name: `${cls.charAt(0).toUpperCase()}${cls.slice(1)} Battle`,

@@ -10,6 +10,7 @@ const { registerMemorySource } = require('./memoryRegistry');
 const {
   recordAssetCache, recordAssetDownload, recordAssetHead, recordR2Read,
 } = require('./networkTelemetry');
+const { getObject: getAuthenticatedR2Object } = require('./r2Client');
 
 const ASSETS_ROOT = path.join(process.cwd(), 'assets');
 const DISK_CACHE_ROOT_CONFIGURED = Boolean(
@@ -344,7 +345,12 @@ function relativeAssetPath(source) {
   const normalized = raw.replace(/\\/g, '/');
   const baseUrl = assetBaseUrl();
   if (baseUrl && normalized.toLowerCase().startsWith(`${baseUrl.toLowerCase()}/`)) {
-    return cleanAssetPath(normalized.slice(baseUrl.length + 1));
+    // assetPath() percent-encodes URL segments (for example `quest icons` ->
+    // `quest%20icons`). Decode each already-validated segment before mapping a
+    // failed remote request back to its on-disk assets path.
+    const encoded = cleanAssetPath(normalized.slice(baseUrl.length + 1));
+    const decoded = encoded.split('/').map((segment) => decodeURIComponent(segment)).join('/');
+    return cleanAssetPath(decoded);
   }
 
   const abs = path.resolve(raw);
@@ -939,9 +945,31 @@ async function fetchUncachedAssetBuffer(resolved) {
       await writeDiskCache(resolved, buffer);
       return cacheSet(bufferCache, resolved, buffer, buffer.length);
     } catch (err) {
-      if (!networkRecorded) recordAssetDownload(assetCategory(resolved), 0, false);
-      if (r2Origin && !r2Recorded) recordR2Read('get', 0, false);
       const rel = relativeAssetPath(resolved);
+
+      // The public R2 URL is the preferred zero-egress path, but production
+      // hosts can fail to connect to that endpoint while the authenticated R2
+      // API remains reachable. Recover the same object through the signed API
+      // before falling back to a local checkout (which is intentionally absent
+      // from production deployments).
+      if (r2Origin && rel) {
+        const authenticated = await getAuthenticatedR2Object(rel);
+        if (authenticated) {
+          recordAssetDownload(assetCategory(resolved), authenticated.length, true);
+          recordR2Read('get', authenticated.length, true);
+          cacheStats.downloadedBytes += authenticated.length;
+          bandwidthLog('remote asset downloaded', {
+            system: 'assets',
+            cache: 'authenticated-r2',
+            name: assetFileName(resolved, 'asset'),
+            bytes: authenticated.length,
+          });
+          await writeDiskCache(resolved, authenticated);
+          return cacheSet(bufferCache, resolved, authenticated, authenticated.length);
+        }
+        if (!r2Recorded) recordR2Read('get', 0, false);
+      }
+      if (!networkRecorded) recordAssetDownload(assetCategory(resolved), 0, false);
       const fallback = rel ? localAssetPath(rel) : null;
       if (fallback) {
         try {

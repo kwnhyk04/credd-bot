@@ -33,6 +33,7 @@ const bestowCmd = require('../commands/economy/bestow');
 const credCmd = require('../commands/economy/cred');
 const questsCmd = require('../commands/economy/quests');
 const dailyCmd = require('../commands/economy/daily');
+const dailyLimitsCmd = require('../commands/economy/dailyLimits');
 const devCmd = require('../commands/rpg/dev');
 const essenceShopCmd = require('../commands/rpg/essenceShop');
 const exchangeCmd = require('../commands/rpg/exchange');
@@ -94,7 +95,11 @@ const IMPLEMENTED = {
   cred:     { mw: 'full', run: credCmd.execute },
   quests:   { mw: 'full', run: questsCmd.execute },
   quest:    { mw: 'full', run: questsCmd.execute },
-  daily:    { mw: 'full', run: dailyCmd.execute },
+  daily:    {
+    mw: 'full',
+    run: (message, { args = [] } = {}) =>
+      args[0]?.toLowerCase() === 'limits' ? dailyLimitsCmd.execute(message) : dailyCmd.execute(message),
+  },
   help:     { mw: 'full', run: helpCmd.execute },
   admin:    { mw: 'full', run: adminCmd.execute },
   dev:      { mw: 'dev',  run: devCmd.execute },

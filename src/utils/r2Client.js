@@ -95,6 +95,20 @@ async function headObject(key) {
   }
 }
 
+/** Read one object through the authenticated R2 endpoint. Returns null when unavailable. */
+async function getObject(key) {
+  let res = null;
+  try {
+    res = await r2Request('GET', key);
+    if (!res.ok) return null;
+    return Buffer.from(await res.arrayBuffer());
+  } catch {
+    return null;
+  } finally {
+    await cancelResponseBody(res);
+  }
+}
+
 /** PUT an object. Returns true on success, false otherwise (never throws). */
 async function putObject(key, buffer, contentType, logContext = {}) {
   const bytes = Buffer.isBuffer(buffer) || buffer instanceof Uint8Array ? buffer.byteLength : 0;
@@ -130,4 +144,4 @@ async function deleteObject(key, logContext = {}) {
   }
 }
 
-module.exports = { isConfigured, headObject, putObject, deleteObject };
+module.exports = { isConfigured, headObject, getObject, putObject, deleteObject };
