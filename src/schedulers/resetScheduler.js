@@ -59,6 +59,17 @@ function startResetScheduler() {
         WHERE quest_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
       `);
 
+      // Date-keyed raid caps naturally roll over at midnight PHT. Remove old
+      // rows during the same reset so the persistent ledger stays bounded.
+      await client.query(`
+        DELETE FROM raid_reward_daily_totals
+        WHERE reward_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
+      `);
+      await client.query(`
+        DELETE FROM daily_quest_completion_rewards
+        WHERE quest_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
+      `);
+
       await client.query('COMMIT');
       console.log('[resetScheduler] Midnight PHT reset complete.');
     } catch (err) {

@@ -1,6 +1,7 @@
 'use strict';
 
 const { int, range: secureRange } = require('./secureRng');
+const { emoji } = require('./emojis');
 
 /**
  * Daily quests — roll, progress, auto-grant (Master §20, Phase 8).
@@ -34,6 +35,8 @@ const TODAY_PHT = `(NOW() AT TIME ZONE 'Asia/Manila')::date`;
 // tracked PHT-anchored on users.quest_refreshes_today / last_quest_refresh_date
 // (mirrors the bestow daily-cap pattern; requires the Phase-8 ALTER on users).
 const REFRESH_ALLOWANCE = 2;
+const DAILY_COMPLETION_RELICS = 1;
+const WEEKLY_QUEST_RELICS = 1;
 
 const randInt = (rng, min, max) => typeof rng === 'function'
   ? min + Math.floor(rng() * (max - min + 1))
@@ -143,12 +146,51 @@ function completionNotice(questType, target, credux, shards) {
   return `📋 Quest complete: ${label} — +${Number(credux).toLocaleString()} Credux, +${shards} Shards`;
 }
 
+/** Grant the daily full-set relic once for the current PHT quest cycle. */
+async function grantDailyCompletionBonus(client, discordId) {
+  const status = await client.query(
+    `SELECT count(*)::int AS total,
+            count(*) FILTER (WHERE completed)::int AS done
+       FROM daily_quests
+      WHERE discord_id = $1 AND quest_date = ${TODAY_PHT}`,
+    [discordId],
+  );
+  const { total, done } = status.rows[0] || { total: 0, done: 0 };
+  if (total === 0 || done < total) return null;
+
+  const guard = await client.query(
+    `INSERT INTO daily_quest_completion_rewards (discord_id, quest_date, sacred_relics)
+     VALUES ($1, ${TODAY_PHT}, $2)
+     ON CONFLICT (discord_id, quest_date) DO NOTHING
+     RETURNING discord_id`,
+    [discordId, DAILY_COMPLETION_RELICS],
+  );
+  if (guard.rows.length === 0) return null;
+
+  const bag = await client.query(
+    `UPDATE users_bag
+        SET sacred_relics = sacred_relics + $2
+      WHERE discord_id = $1
+      RETURNING sacred_relics`,
+    [discordId, DAILY_COMPLETION_RELICS],
+  );
+  if (bag.rows.length === 0) throw new Error('player bag missing for daily completion relic');
+  const after = Number(bag.rows[0].sacred_relics);
+  await client.query(
+    `INSERT INTO game_logs
+       (discord_id, action, item_type, previous_relic_count, updated_relic_count)
+     VALUES ($1, 'Quest', 'sacred_relic', $2, $3)`,
+    [discordId, after - DAILY_COMPLETION_RELICS, after],
+  );
+  return `Daily Quest Completion Bonus: +1 ${emoji('sacred_relic')} Sacred Relic`;
+}
+
 /**
  * Apply progress deltas to today's quests for one player and auto-grant any that
  * complete. Runs inside the caller's transaction; the caller MUST already hold the
  * user's users_bag row lock (bag → character → quests order). `deltas` maps quest_type
  * → increment (already in stored units, e.g. credux_spent in thousands). Returns an
- * array of completion-notice strings (one per newly-completed quest).
+ * array of completion notices, including the once-per-PHT-day full-set relic bonus.
  */
 async function progressQuests(client, discordId, deltas) {
   await rollQuestsIfMissing(client, discordId);
@@ -185,7 +227,7 @@ async function progressQuests(client, discordId, deltas) {
         WHERE discord_id = $1 RETURNING credux, belief_shards`,
       [discordId, credux, shards]
     );
-    if (bag.rows.length === 0) continue; // no bag row (shouldn't happen for a player)
+    if (bag.rows.length === 0) throw new Error('player bag missing for daily quest reward');
     const afterC = Number(bag.rows[0].credux);
     const afterS = Number(bag.rows[0].belief_shards);
     if (credux > 0) {
@@ -204,6 +246,9 @@ async function progressQuests(client, discordId, deltas) {
     }
     notices.push(completionNotice(type, q.target_count, credux, shards));
   }
+  const dailyBonusNotice = await grantDailyCompletionBonus(client, discordId);
+  if (dailyBonusNotice) notices.push(dailyBonusNotice);
+
   // [Phase 6] The same deltas drive the weekly board (its 5 lines reuse daily keys),
   // so callers get weekly progress for free wherever they already report daily progress.
   const weeklyNotices = await progressWeekly(client, discordId, deltas);
@@ -300,8 +345,8 @@ function describeQuest(row) {
 
 // =====================================================================
 // WEEKLY QUESTS (Phase 6) — 5 fixed lines per PHT ISO week, harder than dailies.
-// Each completion pays Credux + Valor Medals; clearing ALL 5 unlocks the grand
-// bundle (1 Sacred Relic + bonus) via claimWeeklyGrand. Bucketed by phtWeek().
+// Each completion pays Credux + Valor Medals + 1 Sacred Relic; clearing ALL 5
+// unlocks the non-relic Credux + Valor grand bundle via claimWeeklyGrand.
 // =====================================================================
 const { phtWeek } = require('../config/ranked');
 
@@ -321,7 +366,6 @@ const WEEKLY_QUEST_TYPES = [
 ];
 const WEEKLY_GRAND_CREDUX = 50000;
 const WEEKLY_GRAND_VALOR = 150;
-const WEEKLY_GRAND_RELICS = 1; // the Sacred Relic the weekly board is built around
 
 /** Roll the 5 weekly quests for (discordId, this PHT week) if none exist yet. */
 async function rollWeeklyIfMissing(client, discordId, rng = null) {
@@ -351,7 +395,7 @@ async function rollWeeklyIfMissing(client, discordId, rng = null) {
 function weeklyCompletionNotice(questType, target, credux, valor) {
   const def = WEEKLY_QUEST_DEFS[questType];
   const label = def ? def.label(target) : questType;
-  return `🗓️ Weekly complete: ${label} — +${Number(credux).toLocaleString()} Credux, +${valor} Valor`;
+  return `🗓️ Weekly complete: ${label} — +${Number(credux).toLocaleString()} Credux, +${valor} Valor, +1 Sacred Relic`;
 }
 
 /**
@@ -390,11 +434,12 @@ async function progressWeekly(client, discordId, deltas) {
     const valor = Number(q.reward_valor);
     const bag = await client.query(
       `UPDATE users_bag SET credux = credux + $2, valor_medals = valor_medals + $3,
+              sacred_relics = sacred_relics + $4,
               lifetime_credux_earned = lifetime_credux_earned + $2
-        WHERE discord_id = $1 RETURNING credux`,
-      [discordId, credux, valor]
+        WHERE discord_id = $1 RETURNING credux, sacred_relics`,
+      [discordId, credux, valor, WEEKLY_QUEST_RELICS]
     );
-    if (bag.rows.length === 0) continue;
+    if (bag.rows.length === 0) throw new Error('player bag missing for weekly quest reward');
     if (credux > 0) {
       const afterC = Number(bag.rows[0].credux);
       await client.query(
@@ -403,6 +448,13 @@ async function progressWeekly(client, discordId, deltas) {
         [discordId, afterC - credux, afterC]
       );
     }
+    const afterRelics = Number(bag.rows[0].sacred_relics);
+    await client.query(
+      `INSERT INTO game_logs
+         (discord_id, action, item_type, previous_relic_count, updated_relic_count)
+       VALUES ($1, 'WeeklyQuest', 'sacred_relic', $2, $3)`,
+      [discordId, afterRelics - WEEKLY_QUEST_RELICS, afterRelics],
+    );
     notices.push(weeklyCompletionNotice(type, q.target_count, credux, valor));
   }
   return notices;
@@ -419,6 +471,7 @@ function describeWeekly(row) {
     target: Number(row.target_count) * unit,
     rewardCredux: Number(row.reward_credux),
     rewardValor: Number(row.reward_valor),
+    rewardRelics: WEEKLY_QUEST_RELICS,
     completed: row.completed === true,
   };
 }
@@ -454,16 +507,15 @@ async function claimWeeklyGrand(client, discordId) {
   await client.query(
     `UPDATE users_bag
         SET credux = credux + $2, valor_medals = valor_medals + $3,
-            sacred_relics = sacred_relics + $4,
             lifetime_credux_earned = lifetime_credux_earned + $2
       WHERE discord_id = $1`,
-    [discordId, WEEKLY_GRAND_CREDUX, WEEKLY_GRAND_VALOR, WEEKLY_GRAND_RELICS]
+    [discordId, WEEKLY_GRAND_CREDUX, WEEKLY_GRAND_VALOR]
   );
   return {
     status: 'ok',
     credux: WEEKLY_GRAND_CREDUX,
     valor: WEEKLY_GRAND_VALOR,
-    relics: WEEKLY_GRAND_RELICS,
+    relics: 0,
   };
 }
 
@@ -480,12 +532,15 @@ module.exports = {
   QUEST_DEFS,
   QUEST_TYPES,
   REFRESH_ALLOWANCE,
+  DAILY_COMPLETION_RELICS,
+  WEEKLY_QUEST_RELICS,
   rollQuestsIfMissing,
   progressQuests,
   refreshQuestLine,
   getRefreshesUsed,
   describeQuest,
   completionNotice,
+  grantDailyCompletionBonus,
   hoursUntilMidnightPHT,
   // Phase 6 weekly
   WEEKLY_QUEST_DEFS,

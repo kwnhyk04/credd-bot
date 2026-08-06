@@ -22,6 +22,8 @@ const CLASS_PASSIVE_VALUES = Object.freeze({
   Swordsman: Object.freeze({
     bleedPerAttack: 0.04,
     bleedMax: 0.20,
+    atkPerTurn: 0.05,
+    atkMax: 0.25,
   }),
   Archer: Object.freeze({
     defenseIgnore: 0.25,
@@ -44,7 +46,7 @@ const CLASSES = {
       'A warrior forged for the battlefield. Neither the strongest nor the fastest, but the most reliable. ' +
       'The Swordsman walks the line between offense and defense, adapting to any fight. Every strike leaves a mark, and every mark bleeds.',
     passiveLine:
-      '**Passive: Bleed** — Attacks inflict 4% Bleed, stacking up to 20%.',
+      '**Passive: Bleed** — Attacks inflict 4% Bleed, stacking up to 20%. Gains +5% ATK each turn, stacking up to +25% for the battle.',
   },
   Fighter: {
     emoji: '👊',
@@ -66,7 +68,7 @@ const CLASSES = {
       'The Mage does not swing a sword. They do not need to. While others close the distance, the Mage is already three moves ahead, ' +
       'building energy that no armor can absorb. When the charge is ready, there is no blocking what comes next.',
     passiveLine:
-      '**Passive: Overcharge** — Power builds with every turn. When it peaks, the next strike carries everything.',
+      '**Passive: Overcharge** — Every third primary strike deals increased damage and applies one random debuff: Paralyze, Burn, DEF Down, or ATK Down.',
   },
   Knight: {
     emoji: '🛡️',
@@ -77,7 +79,7 @@ const CLASSES = {
       'The Knight does not fall easily. Where others break under pressure, the Knight absorbs it, holds the line, and keeps fighting. ' +
       'Every blow the enemy lands is one they will regret. Endurance is not passive — it is a weapon.',
     passiveLine:
-      '**Passive: Damage Reduction** — Every hit taken is softened. The Knight was built to outlast anything in front of them.',
+      '**Passive: Damage Reduction** — Incoming damage is reduced, outgoing damage is increased, and the Knight restores 10% of maximum HP every turn.',
   },
   Archer: {
     emoji: '🏹',

@@ -443,6 +443,20 @@ CREATE TABLE public.daily_quests (
 ALTER TABLE public.daily_quests OWNER TO postgres;
 
 --
+-- Name: daily_quest_completion_rewards; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.daily_quest_completion_rewards (
+    discord_id character varying(20) NOT NULL,
+    quest_date date NOT NULL,
+    sacred_relics integer DEFAULT 1 NOT NULL,
+    claimed_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.daily_quest_completion_rewards OWNER TO postgres;
+
+--
 -- Name: daily_quests_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
@@ -779,6 +793,49 @@ CREATE TABLE public.raid_logs (
 
 
 ALTER TABLE public.raid_logs OWNER TO postgres;
+
+--
+-- Name: raid_reward_daily_totals; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.raid_reward_daily_totals (
+    discord_id character varying(20) NOT NULL,
+    reward_date date NOT NULL,
+    silver_chests integer DEFAULT 0 NOT NULL,
+    gold_chests integer DEFAULT 0 NOT NULL,
+    belief_shards integer DEFAULT 0 NOT NULL
+);
+
+
+ALTER TABLE public.raid_reward_daily_totals OWNER TO postgres;
+
+--
+-- Name: raid_reward_grants; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.raid_reward_grants (
+    reward_key character varying(100) NOT NULL,
+    discord_id character varying(20) NOT NULL,
+    reward jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE public.raid_reward_grants OWNER TO postgres;
+
+--
+-- Name: summon_reward_grants; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.summon_reward_grants (
+    reward_key character varying(100) NOT NULL,
+    discord_id character varying(20) NOT NULL,
+    source character varying(30) NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT summon_reward_grants_source_check CHECK (((source)::text = ANY ((ARRAY['belief_shards'::character varying, 'sacred_relic'::character varying, 'supreme_relic'::character varying])::text[])))
+);
+
+ALTER TABLE public.summon_reward_grants OWNER TO postgres;
 
 --
 -- Name: raid_logs_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -1873,6 +1930,20 @@ ALTER TABLE ONLY public.daily_quests
 ALTER TABLE ONLY public.daily_quests
     ADD CONSTRAINT daily_quests_pkey PRIMARY KEY (id);
 
+--
+-- Name: daily_quest_completion_rewards daily_quest_completion_rewards_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.daily_quest_completion_rewards
+    ADD CONSTRAINT daily_quest_completion_rewards_pkey PRIMARY KEY (discord_id, quest_date);
+
+--
+-- Name: daily_quest_completion_rewards daily_quest_completion_rewards_relic_check; Type: CHECK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.daily_quest_completion_rewards
+    ADD CONSTRAINT daily_quest_completion_rewards_relic_check CHECK ((sacred_relics = 1));
+
 
 --
 -- Name: deity_roster deity_roster_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres
@@ -1961,6 +2032,48 @@ ALTER TABLE ONLY public.pvp_shop_purchases
 ALTER TABLE ONLY public.raid_logs
     ADD CONSTRAINT raid_logs_pkey PRIMARY KEY (id);
 
+--
+-- Name: raid_reward_daily_totals raid_reward_daily_totals_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.raid_reward_daily_totals
+    ADD CONSTRAINT raid_reward_daily_totals_pkey PRIMARY KEY (discord_id, reward_date);
+
+--
+-- Name: raid_reward_daily_totals raid_reward_daily_totals_silver_check; Type: CHECK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.raid_reward_daily_totals
+    ADD CONSTRAINT raid_reward_daily_totals_silver_check CHECK (((silver_chests >= 0) AND (silver_chests <= 20)));
+
+--
+-- Name: raid_reward_daily_totals raid_reward_daily_totals_gold_check; Type: CHECK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.raid_reward_daily_totals
+    ADD CONSTRAINT raid_reward_daily_totals_gold_check CHECK (((gold_chests >= 0) AND (gold_chests <= 10)));
+
+--
+-- Name: raid_reward_daily_totals raid_reward_daily_totals_shards_check; Type: CHECK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.raid_reward_daily_totals
+    ADD CONSTRAINT raid_reward_daily_totals_shards_check CHECK (((belief_shards >= 0) AND (belief_shards <= 10000)));
+
+--
+-- Name: raid_reward_grants raid_reward_grants_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.raid_reward_grants
+    ADD CONSTRAINT raid_reward_grants_pkey PRIMARY KEY (reward_key);
+
+
+--
+-- Name: summon_reward_grants summon_reward_grants_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.summon_reward_grants
+    ADD CONSTRAINT summon_reward_grants_pkey PRIMARY KEY (reward_key);
 
 --
 -- Name: ranked_logs ranked_logs_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
@@ -2291,6 +2404,12 @@ CREATE INDEX idx_catalog_cat_tier ON public.cosmetic_catalog USING btree (catego
 
 CREATE INDEX idx_daily_quests_player_date ON public.daily_quests USING btree (discord_id, quest_date);
 
+--
+-- Name: idx_daily_quest_completion_rewards_date; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_daily_quest_completion_rewards_date ON public.daily_quest_completion_rewards USING btree (quest_date);
+
 
 --
 -- Name: idx_deity_roster_mythology; Type: INDEX; Schema: public; Owner: postgres
@@ -2367,6 +2486,24 @@ CREATE INDEX idx_raid_logs_player_time ON public.raid_logs USING btree (discord_
 --
 
 CREATE INDEX idx_raid_logs_player_type_time_id ON public.raid_logs USING btree (discord_id, battle_type, "timestamp" DESC, id DESC) INCLUDE (result);
+
+--
+-- Name: idx_raid_reward_daily_totals_date; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_raid_reward_daily_totals_date ON public.raid_reward_daily_totals USING btree (reward_date);
+
+--
+-- Name: idx_raid_reward_grants_discord_id; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_raid_reward_grants_discord_id ON public.raid_reward_grants USING btree (discord_id);
+
+--
+-- Name: idx_summon_reward_grants_discord_id; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_summon_reward_grants_discord_id ON public.summon_reward_grants USING btree (discord_id);
 
 
 --
@@ -2684,6 +2821,34 @@ ALTER TABLE ONLY public.boss_state
 
 ALTER TABLE ONLY public.daily_quests
     ADD CONSTRAINT daily_quests_discord_id_fkey FOREIGN KEY (discord_id) REFERENCES public.users(discord_id);
+
+--
+-- Name: daily_quest_completion_rewards daily_quest_completion_rewards_discord_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.daily_quest_completion_rewards
+    ADD CONSTRAINT daily_quest_completion_rewards_discord_id_fkey FOREIGN KEY (discord_id) REFERENCES public.users(discord_id) ON DELETE CASCADE;
+
+--
+-- Name: raid_reward_daily_totals raid_reward_daily_totals_discord_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.raid_reward_daily_totals
+    ADD CONSTRAINT raid_reward_daily_totals_discord_id_fkey FOREIGN KEY (discord_id) REFERENCES public.users(discord_id) ON DELETE CASCADE;
+
+--
+-- Name: raid_reward_grants raid_reward_grants_discord_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.raid_reward_grants
+    ADD CONSTRAINT raid_reward_grants_discord_id_fkey FOREIGN KEY (discord_id) REFERENCES public.users(discord_id) ON DELETE CASCADE;
+
+--
+-- Name: summon_reward_grants summon_reward_grants_discord_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.summon_reward_grants
+    ADD CONSTRAINT summon_reward_grants_discord_id_fkey FOREIGN KEY (discord_id) REFERENCES public.users(discord_id) ON DELETE CASCADE;
 
 
 --
@@ -3077,6 +3242,12 @@ ALTER TABLE public.casino_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cosmetic_catalog ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: daily_quest_completion_rewards; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.daily_quest_completion_rewards ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: daily_quests; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
@@ -3141,6 +3312,24 @@ ALTER TABLE public.pvp_shop_purchases ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.raid_logs ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: raid_reward_daily_totals; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.raid_reward_daily_totals ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: raid_reward_grants; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.raid_reward_grants ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: summon_reward_grants; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.summon_reward_grants ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: ranked_logs; Type: ROW SECURITY; Schema: public; Owner: postgres

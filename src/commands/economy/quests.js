@@ -25,6 +25,7 @@ const { phtWeek } = require('../../config/ranked');
 const { renderQuestRowsImage } = require('../../engine/renderQuestRows');
 const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../../utils/imageOutput');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
+const { emoji } = require('../../utils/emojis');
 
 // Bump when renderQuestRows visuals change (busts cached quest boards).
 const QUEST_BOARD_REV = 1;
@@ -123,6 +124,8 @@ async function dailyPayload(ownerId, note) {
   if (note) container.addTextDisplayComponents((td) => td.setContent(`-# ${note}`));
   container
     .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(`Daily Quest Completion Bonus: +1 ${emoji('sacred_relic')} Sacred Relic`))
+    .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(
       `-# ⏳ Resets in ${hours} hour${hours === 1 ? '' : 's'} · 🔄 ${refreshesLeft}/${REFRESH_ALLOWANCE} refreshes left · \`crd quest refresh <Q1|Q2|Q3>\``))
     .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(image.url)))
@@ -168,12 +171,6 @@ async function weeklyPayload(ownerId, note) {
   const rowItems = quests.map((q) => ({ ...q, rewardShards: q.rewardValor }));
   const image = await questBoardImage(rowItems, 'valor_medal', 'weekly');
 
-  const grandLine = claimed
-    ? '-# 🏆 Grand reward claimed this week.'
-    : allDone
-      ? '-# 🏆 **All 5 complete!** Claim **1 Sacred Relic** + bonus with `crd quest claim`.'
-      : `-# 🏆 Grand reward (1 Sacred Relic + bonus): **${done}/${quests.length}** complete.`;
-
   const container = new ContainerBuilder()
     .setAccentColor(ACCENT)
     .addTextDisplayComponents((td) => td.setContent('## 🗓️ Weekly Quests'));
@@ -181,10 +178,8 @@ async function weeklyPayload(ownerId, note) {
   if (note) container.addTextDisplayComponents((td) => td.setContent(`-# ${note}`));
   container
     .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) => td.setContent('-# Resets weekly (Mon, PHT). Rewards in Credux + Valor Medals.'))
-    .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(image.url)))
-    .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) => td.setContent(grandLine));
+    .addTextDisplayComponents((td) => td.setContent('-# Resets weekly (Mon, PHT). Each completed quest grants +1 Sacred Relic, plus its Credux + Valor reward.'))
+    .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(image.url)));
 
   const components = [container];
   if (allDone && !claimed) {
@@ -212,7 +207,7 @@ async function runGrandClaim(discordId) {
     await client.query('COMMIT');
     if (res.status === 'incomplete') return `⚔️ Finish all 5 weekly quests first — **${res.done}/${res.total}** done.`;
     if (res.status === 'already') return '✅ You already claimed this week\'s grand reward.';
-    return `🏆 Grand reward claimed: **${res.relics}× Sacred Relic** + **${res.valor} Valor** + **${res.credux.toLocaleString()} Credux**!`;
+    return `🏆 Weekly full-completion reward claimed: **${res.valor} Valor** + **${res.credux.toLocaleString()} Credux**. No additional Sacred Relic was granted.`;
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[quests] grand claim failed:', err.message);

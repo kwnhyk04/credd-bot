@@ -37,6 +37,14 @@ const REQUIRED_COLUMNS = Object.freeze({
   active_battles: Object.freeze(['enemy_level']),
   pvp_logs: Object.freeze(['duel_id']),
   essence_exchange_submissions: Object.freeze(['submission_id', 'discord_id', 'created_at']),
+  raid_reward_daily_totals: Object.freeze([
+    'discord_id', 'reward_date', 'silver_chests', 'gold_chests', 'belief_shards',
+  ]),
+  raid_reward_grants: Object.freeze(['reward_key', 'discord_id', 'reward', 'created_at']),
+  summon_reward_grants: Object.freeze(['reward_key', 'discord_id', 'source', 'created_at']),
+  daily_quest_completion_rewards: Object.freeze([
+    'discord_id', 'quest_date', 'sacred_relics', 'claimed_at',
+  ]),
 });
 
 const MIGRATION_HINTS = Object.freeze({
@@ -54,6 +62,10 @@ const MIGRATION_HINTS = Object.freeze({
   active_battles: 'scripts/migrations/20260803_06_boss_level_nullable.sql',
   pvp_logs: 'scripts/migrations/20260805_01_essence_exchange_duel_quests.sql',
   essence_exchange_submissions: 'scripts/migrations/20260805_01_essence_exchange_duel_quests.sql',
+  raid_reward_daily_totals: 'scripts/migrations/20260807_01_combat_raid_quest_rewards.sql',
+  raid_reward_grants: 'scripts/migrations/20260807_01_combat_raid_quest_rewards.sql',
+  summon_reward_grants: 'scripts/migrations/20260807_01_combat_raid_quest_rewards.sql',
+  daily_quest_completion_rewards: 'scripts/migrations/20260807_01_combat_raid_quest_rewards.sql',
 });
 
 const REQUIRED_CHECKS = Object.freeze({
@@ -120,11 +132,37 @@ const REQUIRED_CHECKS = Object.freeze({
     fragments: Object.freeze(["status", "= any", "pending", "spawning", "spawned", "cancelled"]),
     migration: 'scripts/migrations/20260803_03_boss_spawn_source_queue.sql',
   }),
+  raid_reward_daily_totals_silver_check: Object.freeze({
+    table: 'public.raid_reward_daily_totals',
+    fragments: Object.freeze(['silver_chests >= 0', 'silver_chests <= 20']),
+    migration: 'scripts/migrations/20260807_01_combat_raid_quest_rewards.sql',
+  }),
+  raid_reward_daily_totals_gold_check: Object.freeze({
+    table: 'public.raid_reward_daily_totals',
+    fragments: Object.freeze(['gold_chests >= 0', 'gold_chests <= 10']),
+    migration: 'scripts/migrations/20260807_01_combat_raid_quest_rewards.sql',
+  }),
+  raid_reward_daily_totals_shards_check: Object.freeze({
+    table: 'public.raid_reward_daily_totals',
+    fragments: Object.freeze(['belief_shards >= 0', 'belief_shards <= 10000']),
+    migration: 'scripts/migrations/20260807_01_combat_raid_quest_rewards.sql',
+  }),
+  daily_quest_completion_rewards_relic_check: Object.freeze({
+    table: 'public.daily_quest_completion_rewards',
+    fragments: Object.freeze(['sacred_relics = 1']),
+    migration: 'scripts/migrations/20260807_01_combat_raid_quest_rewards.sql',
+  }),
+  summon_reward_grants_source_check: Object.freeze({
+    table: 'public.summon_reward_grants',
+    fragments: Object.freeze(['source', '= any', 'belief_shards', 'sacred_relic', 'supreme_relic']),
+    migration: 'scripts/migrations/20260807_01_combat_raid_quest_rewards.sql',
+  }),
 });
 
 const REQUIRED_RLS_TABLES = Object.freeze([
   'user_presets', 'tickets', 'supporter_item_grants', 'boss_spawn_queue',
-  'essence_exchange_submissions',
+  'essence_exchange_submissions', 'raid_reward_daily_totals', 'raid_reward_grants',
+  'summon_reward_grants', 'daily_quest_completion_rewards',
 ]);
 
 const REQUIRED_INDEXES = Object.freeze([
@@ -134,6 +172,9 @@ const REQUIRED_INDEXES = Object.freeze([
   'boss_spawn_queue_one_live_per_guild',
   'pvp_logs_duel_id_key',
   'essence_exchange_submissions_created_at_idx',
+  'idx_raid_reward_daily_totals_date',
+  'idx_raid_reward_grants_discord_id',
+  'idx_summon_reward_grants_discord_id',
 ]);
 
 const REQUIRED_INDEX_FRAGMENTS = Object.freeze({
@@ -148,6 +189,15 @@ const REQUIRED_INDEX_FRAGMENTS = Object.freeze({
   pvp_logs_duel_id_key: Object.freeze(['unique', 'pvp_logs', 'duel_id']),
   essence_exchange_submissions_created_at_idx: Object.freeze([
     'essence_exchange_submissions', 'created_at',
+  ]),
+  idx_raid_reward_daily_totals_date: Object.freeze([
+    'raid_reward_daily_totals', 'reward_date',
+  ]),
+  idx_raid_reward_grants_discord_id: Object.freeze([
+    'raid_reward_grants', 'discord_id',
+  ]),
+  idx_summon_reward_grants_discord_id: Object.freeze([
+    'summon_reward_grants', 'discord_id',
   ]),
 });
 

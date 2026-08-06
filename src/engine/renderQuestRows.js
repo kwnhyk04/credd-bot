@@ -100,7 +100,7 @@ function drawBar(ctx, x, y, w, h, ratio) {
 }
 
 /**
- * @param {Array<{name, current, target, rewardCredux, rewardShards, completed}>} quests
+ * @param {Array<{name, current, target, rewardCredux, rewardShards, rewardValor, rewardRelics, completed}>} quests
  * @returns {Promise<Buffer>} PNG
  */
 async function renderQuestRowsImage(quests, { rewardIcon = 'belief_shards' } = {}) {
@@ -113,6 +113,7 @@ async function renderQuestRowsImage(quests, { rewardIcon = 'belief_shards' } = {
   const creduxIcon = await getEmojiIcon('credux_coin');
   // [Phase 6] weekly boards pass rewardIcon='valor_medal'; daily keeps belief_shards.
   const shardIcon = await getEmojiIcon(rewardIcon);
+  const relicIcon = await getEmojiIcon('sacred_relic');
   const typeIcons = await Promise.all(quests.map((q) => getQuestIcon(q.type)));
 
   const TYPE_ICON = 28;
@@ -164,13 +165,23 @@ async function renderQuestRowsImage(quests, { rewardIcon = 'belief_shards' } = {
     const progText = `${q.current.toLocaleString()}/${q.target.toLocaleString()}`;
     ctx.fillText(progText, textX + barW + 10, barY + 5);
 
-    // Reward, right-aligned: <icon> N  <icon> N
+    // Reward groups, right-aligned: relic (weekly), shard/valor, then Credux.
     const midY = barY + 5;
     let rx = innerR;
-    // shards (rightmost)
+    // Sacred Relic bonus (weekly quest rows).
+    if (Number(q.rewardRelics || 0) > 0) {
+      const relicText = `+${Number(q.rewardRelics)}`;
+      ctx.textAlign = 'right';
+      ctx.fillStyle = SUB_COLOR;
+      ctx.fillText(relicText, rx, midY);
+      rx -= ctx.measureText(relicText).width + 4;
+      if (relicIcon) { ctx.drawImage(relicIcon, rx - ICON, midY - ICON / 2, ICON, ICON); rx -= ICON + 10; }
+    }
+    // Daily rows provide rewardShards; weekly rows provide rewardValor and pass
+    // rewardIcon='valor_medal'. Keep one shared renderer for both boards.
     ctx.textAlign = 'right';
     ctx.fillStyle = SUB_COLOR;
-    const shardText = `${q.rewardShards}`;
+    const shardText = Number(q.rewardShards ?? q.rewardValor ?? 0).toLocaleString();
     ctx.fillText(shardText, rx, midY);
     rx -= ctx.measureText(shardText).width + 4;
     if (shardIcon) { ctx.drawImage(shardIcon, rx - ICON, midY - ICON / 2, ICON, ICON); rx -= ICON + 10; }

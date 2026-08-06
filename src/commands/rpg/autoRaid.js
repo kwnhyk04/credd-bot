@@ -35,6 +35,7 @@ const { awardCombatExp } = require('../../utils/awardCombatExp');
 const { formatLevelRewardLine } = require('../../config/levelRewards');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay } = require('../../utils/emojis');
+const { allocateRaidRewardLimits } = require('../../utils/raidRewardLimits');
 
 const ACCENT = 0x57c0ff;
 const MIN_PER_LEVEL = 30;     // window minutes per combat level
@@ -199,7 +200,7 @@ function buildClaimPayload(ownerId, level) {
 }
 
 /** Claimed summary — terminal, no buttons. */
-function buildClaimedPayload(ownerId, rw, lvl) {
+function buildClaimedPayload(ownerId, rw, lvl, limitNotices = []) {
   const levelNote = lvl.leveledUp
     ? `\n📈 **Combat Level ${lvl.previousLevel} → ${lvl.newLevel}!**` +
       (lvl.rewards ? `\n🎁 Level Rewards: ${formatLevelRewardLine(lvl.rewards)}` : '')
@@ -209,7 +210,11 @@ function buildClaimedPayload(ownerId, rw, lvl) {
     .addTextDisplayComponents((td) => td.setContent('## ⚔️ Auto Raid — Claimed'))
     .addTextDisplayComponents((td) => td.setContent(`-# User: <@${ownerId}>`))
     .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) => td.setContent(rewardLines(rw) + levelNote))
+    .addTextDisplayComponents((td) => td.setContent(
+      rewardLines(rw) +
+      (limitNotices.length ? `\n\n${limitNotices.join('\n')}` : '') +
+      levelNote,
+    ))
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent('-# Run `crd auto raid` to start another.'));
   return { components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: NO_PING };
@@ -339,6 +344,10 @@ async function handleClaim(interaction, ownerId) {
       return;
     }
     const before = bagRes.rows[0];
+    const allocation = await allocateRaidRewardLimits(client, ownerId, {
+      beliefShards: rw.shards,
+    });
+    const grantedShards = allocation.granted.beliefShards;
     const bagUpd = await client.query(
       `UPDATE users_bag
           SET credux = credux + $2,
@@ -346,7 +355,7 @@ async function handleClaim(interaction, ownerId) {
               lifetime_credux_earned = lifetime_credux_earned + $2
         WHERE discord_id = $1
         RETURNING credux, belief_shards`,
-      [ownerId, rw.credux, rw.shards],
+      [ownerId, rw.credux, grantedShards],
     );
     const after = bagUpd.rows[0];
 
@@ -360,7 +369,7 @@ async function handleClaim(interaction, ownerId) {
         [ownerId, before.credux, after.credux],
       );
     }
-    if (rw.shards > 0) {
+    if (grantedShards > 0) {
       await client.query(
         `INSERT INTO game_logs (discord_id, action, previous_belief_shards, updated_belief_shards)
          VALUES ($1, 'AutoRaid', $2, $3)`,
@@ -372,7 +381,12 @@ async function handleClaim(interaction, ownerId) {
     await client.query('COMMIT');
     committed = true;
 
-    await interaction.editReply(buildClaimedPayload(ownerId, rw, lvl));
+    await interaction.editReply(buildClaimedPayload(
+      ownerId,
+      { ...rw, shards: grantedShards },
+      lvl,
+      allocation.notices,
+    ));
   } catch (err) {
     if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('[autoRaid] claim failed:', err);

@@ -217,6 +217,14 @@ CREATE TABLE IF NOT EXISTS public."daily_quests" (
     "quest_date" date NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS public."daily_quest_completion_rewards" (
+    "discord_id" character varying(20) NOT NULL,
+    "quest_date" date NOT NULL,
+    "sacred_relics" integer DEFAULT 1 NOT NULL,
+    "claimed_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+ALTER TABLE public."daily_quest_completion_rewards" ENABLE ROW LEVEL SECURITY;
+
 CREATE TABLE IF NOT EXISTS public."deity_roster" (
     "deity_id" integer DEFAULT nextval('deity_roster_deity_id_seq'::regclass) NOT NULL,
     "name" character varying(100) NOT NULL,
@@ -350,6 +358,31 @@ CREATE TABLE IF NOT EXISTS public."raid_logs" (
     "chest_dropped" character varying(30),
     "timestamp" timestamp with time zone DEFAULT now() NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS public."raid_reward_daily_totals" (
+    "discord_id" character varying(20) NOT NULL,
+    "reward_date" date NOT NULL,
+    "silver_chests" integer DEFAULT 0 NOT NULL,
+    "gold_chests" integer DEFAULT 0 NOT NULL,
+    "belief_shards" integer DEFAULT 0 NOT NULL
+);
+ALTER TABLE public."raid_reward_daily_totals" ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public."raid_reward_grants" (
+    "reward_key" character varying(100) NOT NULL,
+    "discord_id" character varying(20) NOT NULL,
+    "reward" jsonb DEFAULT '{}'::jsonb NOT NULL,
+    "created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+ALTER TABLE public."raid_reward_grants" ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public."summon_reward_grants" (
+    "reward_key" character varying(100) NOT NULL,
+    "discord_id" character varying(20) NOT NULL,
+    "source" character varying(30) NOT NULL,
+    "created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+ALTER TABLE public."summon_reward_grants" ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE IF NOT EXISTS public."ranked_logs" (
     "id" bigint DEFAULT nextval('ranked_logs_id_seq'::regclass) NOT NULL,
@@ -747,10 +780,117 @@ DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
+     WHERE conname = 'summon_reward_grants_pkey'
+       AND conrelid = 'public.summon_reward_grants'::regclass
+  ) THEN
+    ALTER TABLE public."summon_reward_grants" ADD CONSTRAINT "summon_reward_grants_pkey" PRIMARY KEY (reward_key);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'summon_reward_grants_source_check'
+       AND conrelid = 'public.summon_reward_grants'::regclass
+  ) THEN
+    ALTER TABLE public."summon_reward_grants" ADD CONSTRAINT "summon_reward_grants_source_check" CHECK (source::text = ANY (ARRAY['belief_shards'::character varying, 'sacred_relic'::character varying, 'supreme_relic'::character varying]::text[]));
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'summon_reward_grants_discord_id_fkey'
+       AND conrelid = 'public.summon_reward_grants'::regclass
+  ) THEN
+    ALTER TABLE public."summon_reward_grants" ADD CONSTRAINT "summon_reward_grants_discord_id_fkey" FOREIGN KEY (discord_id) REFERENCES users(discord_id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'daily_quest_completion_rewards_pkey'
+       AND conrelid = 'public.daily_quest_completion_rewards'::regclass
+  ) THEN
+    ALTER TABLE public."daily_quest_completion_rewards" ADD CONSTRAINT "daily_quest_completion_rewards_pkey" PRIMARY KEY (discord_id, quest_date);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'daily_quest_completion_rewards_relic_check'
+       AND conrelid = 'public.daily_quest_completion_rewards'::regclass
+  ) THEN
+    ALTER TABLE public."daily_quest_completion_rewards" ADD CONSTRAINT "daily_quest_completion_rewards_relic_check" CHECK (sacred_relics = 1);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'daily_quest_completion_rewards_discord_id_fkey'
+       AND conrelid = 'public.daily_quest_completion_rewards'::regclass
+  ) THEN
+    ALTER TABLE public."daily_quest_completion_rewards" ADD CONSTRAINT "daily_quest_completion_rewards_discord_id_fkey" FOREIGN KEY (discord_id) REFERENCES users(discord_id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
      WHERE conname = 'active_battles_discord_id_key'
        AND conrelid = 'public.active_battles'::regclass
   ) THEN
     ALTER TABLE public."active_battles" ADD CONSTRAINT "active_battles_discord_id_key" UNIQUE (discord_id);
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'raid_reward_daily_totals_pkey'
+       AND conrelid = 'public.raid_reward_daily_totals'::regclass
+  ) THEN
+    ALTER TABLE public."raid_reward_daily_totals" ADD CONSTRAINT "raid_reward_daily_totals_pkey" PRIMARY KEY (discord_id, reward_date);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'raid_reward_daily_totals_silver_check'
+       AND conrelid = 'public.raid_reward_daily_totals'::regclass
+  ) THEN
+    ALTER TABLE public."raid_reward_daily_totals" ADD CONSTRAINT "raid_reward_daily_totals_silver_check" CHECK (silver_chests >= 0 AND silver_chests <= 20);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'raid_reward_daily_totals_gold_check'
+       AND conrelid = 'public.raid_reward_daily_totals'::regclass
+  ) THEN
+    ALTER TABLE public."raid_reward_daily_totals" ADD CONSTRAINT "raid_reward_daily_totals_gold_check" CHECK (gold_chests >= 0 AND gold_chests <= 10);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'raid_reward_daily_totals_shards_check'
+       AND conrelid = 'public.raid_reward_daily_totals'::regclass
+  ) THEN
+    ALTER TABLE public."raid_reward_daily_totals" ADD CONSTRAINT "raid_reward_daily_totals_shards_check" CHECK (belief_shards >= 0 AND belief_shards <= 10000);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'raid_reward_daily_totals_discord_id_fkey'
+       AND conrelid = 'public.raid_reward_daily_totals'::regclass
+  ) THEN
+    ALTER TABLE public."raid_reward_daily_totals" ADD CONSTRAINT "raid_reward_daily_totals_discord_id_fkey" FOREIGN KEY (discord_id) REFERENCES users(discord_id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'raid_reward_grants_pkey'
+       AND conrelid = 'public.raid_reward_grants'::regclass
+  ) THEN
+    ALTER TABLE public."raid_reward_grants" ADD CONSTRAINT "raid_reward_grants_pkey" PRIMARY KEY (reward_key);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'raid_reward_grants_discord_id_fkey'
+       AND conrelid = 'public.raid_reward_grants'::regclass
+  ) THEN
+    ALTER TABLE public."raid_reward_grants" ADD CONSTRAINT "raid_reward_grants_discord_id_fkey" FOREIGN KEY (discord_id) REFERENCES users(discord_id) ON DELETE CASCADE;
   END IF;
 END $$;
 
@@ -2280,6 +2420,7 @@ CREATE INDEX IF NOT EXISTS idx_casino_logs_player_time ON public.casino_logs USI
 CREATE INDEX IF NOT EXISTS idx_catalog_cat_tier ON public.cosmetic_catalog USING btree (category, tier, is_active);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_catalog_skin_code ON public.cosmetic_catalog USING btree (skin_code) WHERE (skin_code IS NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_daily_quests_player_date ON public.daily_quests USING btree (discord_id, quest_date);
+CREATE INDEX IF NOT EXISTS idx_daily_quest_completion_rewards_date ON public.daily_quest_completion_rewards USING btree (quest_date);
 CREATE INDEX IF NOT EXISTS idx_deity_roster_mythology ON public.deity_roster USING btree (mythology);
 CREATE INDEX IF NOT EXISTS idx_deity_roster_tier ON public.deity_roster USING btree (tier);
 CREATE INDEX IF NOT EXISTS idx_game_logs_player ON public.game_logs USING btree (discord_id);
@@ -2291,6 +2432,9 @@ CREATE INDEX IF NOT EXISTS idx_pvp_logs_opponent ON public.pvp_logs USING btree 
 CREATE INDEX IF NOT EXISTS idx_raid_logs_player ON public.raid_logs USING btree (discord_id);
 CREATE INDEX IF NOT EXISTS idx_raid_logs_player_time ON public.raid_logs USING btree (discord_id, "timestamp" DESC);
 CREATE INDEX IF NOT EXISTS idx_raid_logs_player_type_time_id ON public.raid_logs USING btree (discord_id, battle_type, "timestamp" DESC, id DESC) INCLUDE (result);
+CREATE INDEX IF NOT EXISTS idx_raid_reward_daily_totals_date ON public.raid_reward_daily_totals USING btree (reward_date);
+CREATE INDEX IF NOT EXISTS idx_raid_reward_grants_discord_id ON public.raid_reward_grants USING btree (discord_id);
+CREATE INDEX IF NOT EXISTS idx_summon_reward_grants_discord_id ON public.summon_reward_grants USING btree (discord_id);
 CREATE INDEX IF NOT EXISTS idx_ranked_logs_player_time ON public.ranked_logs USING btree (player_id, "timestamp");
 CREATE INDEX IF NOT EXISTS idx_ranked_logs_player_time_id_desc ON public.ranked_logs USING btree (player_id, "timestamp" DESC, id DESC) INCLUDE (result);
 CREATE INDEX IF NOT EXISTS idx_supporter_grants_discord ON public.supporter_grants USING btree (discord_id);
