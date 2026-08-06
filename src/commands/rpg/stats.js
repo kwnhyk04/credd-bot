@@ -30,7 +30,9 @@ const { resolveSupporterBadge } = require('../../engine/supporterBadge');
 // 22: remove the active preset label from the stats card.
 // 23: show global PvP rank instead of the current rating points.
 // 24: supporter badge GET is no longer gated by a remote HEAD probe.
-const STATS_RENDER_REV = 24;
+// 25: equipped-avatar GET can recover through authenticated R2; bust cards
+//     that were cached with the class-default fallback before that recovery.
+const STATS_RENDER_REV = 25;
 const STATS_IMAGE_OPTIONS = Object.freeze({
   quality: 50,
   maxWidth: Math.floor(envNumber('STATS_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 })),

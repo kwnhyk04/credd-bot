@@ -10,8 +10,10 @@ const {
   buildAvatarPreview,
   canonicalAvatarAssetPath,
   genesisAvatarAssetPath,
+  resolveStatsAvatar,
 } = require('../src/engine/avatarSystem');
 const { loadAvatarAsset } = require('../src/engine/avatarImageLoader');
+const { relativeAssetPath } = require('../src/utils/assets');
 const {
   getProfileImageCache,
   getProfileImageCacheStats,
@@ -119,6 +121,35 @@ async function main() {
     statsCommandSource,
     /data\.avatarPath\s*=\s*null/,
     'a failed HEAD probe must not erase the equipped path before the renderer attempts GET',
+  );
+  assert.match(
+    statsCommandSource,
+    /const STATS_RENDER_REV = 25;/,
+    'stats cache must be busted after equipped-avatar fallback behavior changes',
+  );
+
+  const equippedGenesisDb = {
+    async query(sql) {
+      if (sql.includes('FROM equipped_avatars')) {
+        return {
+          rows: [{
+            avatar_id: 9001,
+            avatar_key: 'swordsman_gm',
+            asset_path: 'skins/avatars/genesis/male/genesis_swordsman_male.png',
+            class_name: 'Swordsman',
+            gender: 'male',
+            style: 'genesis',
+          }],
+        };
+      }
+      throw new Error(`Unexpected equipped-avatar query: ${sql}`);
+    },
+  };
+  const resolvedGenesis = await resolveStatsAvatar(equippedGenesisDb, 'avatar-user', 'Swordsman');
+  assert.equal(
+    relativeAssetPath(resolvedGenesis),
+    'skins/avatars/genesis/male/genesis_swordsman_male.png',
+    'stats must resolve the equipped Genesis avatar instead of the class default',
   );
 
   const avatarDb = {

@@ -2708,6 +2708,13 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
   const {
     battlePhase, shouldRenderBattleFrame, logEmbeds, battleLogNavigationRow,
   } = require(path.join(ROOT, 'src', 'engine', 'battleRender'));
+  const previousAssetBaseUrl = process.env.ASSET_BASE_URL;
+  process.env.ASSET_BASE_URL = 'https://assets.example.test';
+  const { assetPath: testAssetPath, relativeAssetPath } = require(path.join(ROOT, 'src', 'utils', 'assets'));
+  check('versioned R2 paths with encoded spaces map back to local asset paths',
+    relativeAssetPath(testAssetPath('quest icons/quest_raid.png')) === 'quest icons/quest_raid.png');
+  if (previousAssetBaseUrl == null) delete process.env.ASSET_BASE_URL;
+  else process.env.ASSET_BASE_URL = previousAssetBaseUrl;
   const oldRenderMode = process.env.BATTLE_FRAME_RENDER_MODE;
   const oldCooldown = process.env.BATTLE_FRAME_RENDER_COOLDOWN_MS;
   delete process.env.BATTLE_FRAME_RENDER_MODE;

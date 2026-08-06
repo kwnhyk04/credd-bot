@@ -6,7 +6,8 @@ const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
 const raidCommandSource = fs.readFileSync(path.join(ROOT, 'src', 'commands', 'rpg', 'raid.js'), 'utf8');
-const battleRenderSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'battleRender.js'), 'utf8');
+const dailyLimitsSource = fs.readFileSync(path.join(ROOT, 'src', 'commands', 'economy', 'dailyLimits.js'), 'utf8');
+const commandHandlerSource = fs.readFileSync(path.join(ROOT, 'src', 'handlers', 'commandHandler.js'), 'utf8');
 const {
   resolveBattle,
   selectOverchargeDebuff,
@@ -167,7 +168,19 @@ for (const [roll, label, application] of overchargeCases) {
   check('Raid tracking line includes the reward icons', formatRaidLimitStatus(partial.totals).includes('<:belief_shards:') && formatRaidLimitStatus(partial.totals).includes('<:silver_chest:'));
   check('Raid tracking line always shows the Gold Chest total', formatRaidLimitStatus(partial.totals).includes('Gold Chest: 10/10'));
   check('Raid tracking line includes the Gold Chest icon', formatRaidLimitStatus(partial.totals).includes('<:gold_chest:'));
-  check('Raid result passes tracking to the post-reward embed', raidCommandSource.includes('rewardStatus: formatRaidLimitStatus(rewards.raidLimitTotals)') && battleRenderSource.includes('embeds.push(rewardStatusEmbed)'));
+  check('Raid keeps the original reward path without daily-limit work',
+    raidCommandSource.includes('const rewards = await commitRewards(discordId, sim, mobRow, rng, level);')
+      && !raidCommandSource.includes('allocateRaidRewardLimits')
+      && !raidCommandSource.includes('rewardStatus:'));
+  check('Daily limits are read only when the new command is used',
+    commandHandlerSource.includes('dailyLimitsCmd.execute(message)')
+      && dailyLimitsSource.includes('FROM raid_logs')
+      && dailyLimitsSource.includes('AT TIME ZONE \'Asia/Manila\''));
+  check('Daily limits use the existing reward icons and all three counters',
+    dailyLimitsSource.includes('formatRaidLimitStatus')
+      && dailyLimitsSource.includes('silver_chests')
+      && dailyLimitsSource.includes('gold_chests')
+      && dailyLimitsSource.includes('belief_shards'));
   check('Stale raid takeover receives a fresh idempotency key',
     raidCommandSource.includes("battle_id = nextval(pg_get_serial_sequence('active_battles', 'battle_id'))"));
   const unrelated = capRaidRewards({ current: {}, requested: { silverChests: 3, goldChests: 2, beliefShards: 100 }, regularRaid: false, eliteMobRaid: false });

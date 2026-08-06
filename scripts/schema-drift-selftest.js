@@ -11,6 +11,7 @@ const {
 const { execute: executeProfile } = require('../src/commands/rpg/profile');
 const {
   postOfficialRedirect,
+  postFreshLiveMessage,
   redirectChannelIssue,
 } = require('../src/engine/bossSystem');
 const {
@@ -118,7 +119,7 @@ function fakeRedirectChannel({ guildId = 'guild', sendAllowed = true } = {}) {
     permissionsFor: () => ({
       has: (permission) => permission === PermissionFlagsBits.ViewChannel || sendAllowed,
     }),
-    send: async () => { sends += 1; return { id: 'message' }; },
+    send: async () => { sends += 1; return { id: 'message', channel }; },
   };
   return { channel, sends: () => sends };
 }
@@ -173,7 +174,8 @@ async function main() {
   const validClient = { user: { id: 'bot' }, channels: { fetch: async () => valid.channel } };
   assert.equal(redirectChannelIssue(valid.channel, 'guild', validClient.user), null);
   assert(await postOfficialRedirect(validClient, 'guild', 'channel', { force: true }));
-  assert.equal(valid.sends(), 1);
+  assert(await postFreshLiveMessage(validClient, 'guild', { content: 'boss' }, 'channel'));
+  assert.equal(valid.sends(), 2);
 
   const blocked = fakeRedirectChannel({ guildId: 'blocked-guild', sendAllowed: false });
   const blockedClient = { user: { id: 'bot' }, channels: { fetch: async () => blocked.channel } };
@@ -187,11 +189,17 @@ async function main() {
     );
     assert.equal(await postOfficialRedirect(blockedClient, 'blocked-guild', 'channel'), null);
     assert.equal(await postOfficialRedirect(blockedClient, 'blocked-guild', 'channel'), null);
+    assert.equal(
+      await postFreshLiveMessage(blockedClient, 'blocked-guild', { content: 'boss' }, 'channel'),
+      null
+    );
   } finally {
     console.warn = originalWarn;
   }
   assert.equal(blocked.sends(), 0);
-  assert.equal(warnings.length, 1);
+  assert.equal(warnings.length, 2);
+  assert.equal(warnings[1][0], '[boss] live message skipped');
+  assert.equal(warnings[1][1].reason, 'missing Send Messages');
 
   await assert.rejects(
     verifyRequiredSchema({ query: async () => ({ rows: [{ column_name: 'sigils' }] }) }),

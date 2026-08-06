@@ -18,7 +18,7 @@ const {
   readAssetJson,
 } = require('../utils/assets');
 
-// [Patch 2 §2.1] Class battle bases (classes/battle_base/<class>.png) are a pure
+// [Patch 2 §2.1] Class battle bases (classes/battle_base/battle_<class>.png) are a pure
 // BACKGROUND SWAP over the default raid geometry — they ship no colocated
 // layout, so they reuse the shared base battle layout (identical panel/HP/name
 // coordinates). Everything else uses its own colocated <skin>.layout.json.
