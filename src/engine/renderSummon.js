@@ -17,6 +17,7 @@ const {
   ContainerBuilder,
   AttachmentBuilder,
   MessageFlags,
+  escapeMarkdown,
 } = require('discord.js');
 const path = require('path');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
@@ -97,6 +98,10 @@ const BG = '#0E0F13';
 const TEXT_Y = 0.30;        // fraction of card height for the name line
 const NAME_FONT_SCALE = 0.085;
 const RARITY_FONT_SCALE = 0.055;
+// Keep a comfortable margin below Discord's 4,000-character TextDisplay limit.
+// The result body is still the same line-by-line layout; this only prevents a
+// large pull with long custom-emoji tags from making the final edit invalid.
+const SUMMON_RESULT_CHUNK_MAX = 2800;
 
 async function loadAssetImage(source) {
   return loadAssetImageSource(loadImage, source);
@@ -311,7 +316,7 @@ async function buildFlipMessage(flipPath = null, logContext = {}, opts = {}) {
 /* ════════════════════════════════════════════
  * PHASE 2 — result message (full container)
  * Header → separator → grid image → separator →
- * summary → separator → footer
+ * results → separator → summary
  * ══════════════════════════════════════════ */
 /**
  * @param {Array<{name: string, rarity: string, isNew?: boolean}>} results
@@ -319,13 +324,7 @@ async function buildFlipMessage(flipPath = null, logContext = {}, opts = {}) {
  *        supremeRelics is optional — only the relic-open paths show it.
  */
 async function buildResultMessage(results, balances, opts = {}) {
-  const order = ['Primordial', 'Undying', 'Awakened', 'Remnant'];
-  const counts = {};
-  for (const r of results) counts[r.rarity] = (counts[r.rarity] ?? 0) + 1;
-  const summary = order
-    .filter((r) => counts[r])
-    .map((r) => `${RARITY_SYMBOLS[r]} ${r} x**${counts[r]}**`)
-    .join(' - ');
+  const summary = summonOutcomeSummary(results);
 
   // The animation is suspense-only. The result keeps the equipped summon
   // emoji in its header, but omits both remote media and local attachments.
@@ -338,19 +337,16 @@ async function buildResultMessage(results, balances, opts = {}) {
     allowMedia: opts.allowMedia === true,
     logContext: { ...(opts.logContext || {}), phase: 'final' },
   });
+  container.addSeparatorComponents(sep);
+  for (const chunk of splitSummonResultLines(results)) {
+    container.addTextDisplayComponents((td) => td.setContent(chunk));
+  }
   container
-    .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) => td.setContent(groupSummonResults(results)))
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(summary))
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) =>
-      td.setContent(
-        `-# ${emoji('belief_shards')} Belief Shards: **${balances.beliefShards.toLocaleString()}** - ${emoji('sacred_relic')} Sacred Relics: **${balances.sacredRelics.toLocaleString()}**` +
-        (balances.supremeRelics != null
-          ? ` - ${emoji('supreme_relic')} Supreme Relics: **${balances.supremeRelics.toLocaleString()}**`
-          : '')
-      )
+      td.setContent(`-# ${summonBalanceFooter(balances)}`)
     );
 
   return {
@@ -368,25 +364,65 @@ function summonFlipEmoji(flipPath = null) {
   return icon === emoji('__missing__') ? emoji('card_flip') : icon;
 }
 
-function groupSummonResults(results) {
-  const groups = new Map();
-  for (const r of results) {
-    const key = `${r.name}|${r.rarity}`;
-    const entry = groups.get(key) || { name: r.name, rarity: r.rarity, essence: 0, pulls: 0 };
-    entry.pulls += 1;
-    if (!r.isNew) entry.essence += Number(r.essence) || 0;
-    groups.set(key, entry);
+function summonOutcomeSummary(results) {
+  const awakened = results.filter((r) => r.isNew).length;
+  const remnant = results.length - awakened;
+  return [
+    awakened > 0 ? `${RARITY_SYMBOLS.Awakened} Awakened ×**${awakened}**` : null,
+    remnant > 0 ? `${RARITY_SYMBOLS.Remnant} Remnant ×**${remnant}**` : null,
+  ].filter(Boolean).join(' - ');
+}
+
+function summonBalanceFooter(balances = {}) {
+  return `${emoji('belief_shards')} Belief Shards: **${Number(balances.beliefShards || 0).toLocaleString()}** - `
+    + `${emoji('sacred_relic')} Sacred Relics: **${Number(balances.sacredRelics || 0).toLocaleString()}**`
+    + (balances.supremeRelics != null
+      ? ` - ${emoji('supreme_relic')} Supreme Relics: **${Number(balances.supremeRelics || 0).toLocaleString()}**`
+      : '');
+}
+
+function formatSummonResultLine(result) {
+  const tierEmoji = RARITY_SYMBOLS[result.rarity] ?? '◆';
+  const rawName = String(result.name || 'Unknown Deity');
+  const deityEmoji = emojiForDisplay(rawName, '✨');
+  const deity = `${tierEmoji} ${deityEmoji} **${escapeMarkdown(rawName)}**`;
+  if (result.isNew) return deity;
+
+  const essenceEmoji = emoji(ALIAS_TO_ESSENCE[result.rarity] ?? 'epic_essence');
+  const essence = Number(result.essence);
+  if (!Number.isSafeInteger(essence) || essence <= 0) {
+    return `${deity} • Duplicate`;
   }
-  return [...groups.values()].map((g) => {
-    // Compact result order: tier icon, deity icon, name, essence icon, amount.
-    // Essence only accrues on duplicates; first-time pulls intentionally show
-    // +0 here because the rendered card already carries the NEW badge.
-    const tierEmoji = RARITY_SYMBOLS[g.rarity] ?? '◆';
-    const deityEmoji = emojiForDisplay(g.name, 'Deity');
-    const essenceEmoji = emoji(ALIAS_TO_ESSENCE[g.rarity] ?? 'epic_essence');
-    const count = g.pulls > 1 ? ` x${g.pulls}` : '';
-    return `${tierEmoji} ${deityEmoji} **${g.name}**${count} ${essenceEmoji} **+${g.essence.toLocaleString()} Essence**`;
-  }).join('\n');
+  return `${essenceEmoji} **+${essence.toLocaleString()} Essence** • ${deity}`;
+}
+
+function formatSummonResults(results) {
+  return results.map(formatSummonResultLine).join('\n');
+}
+
+/** Split only between complete result lines so large batches remain readable. */
+function splitSummonResultLines(results, maxChars = SUMMON_RESULT_CHUNK_MAX) {
+  const chunks = [];
+  let current = [];
+  let length = 0;
+  for (const line of results.map(formatSummonResultLine)) {
+    const nextLength = length + (current.length ? 1 : 0) + line.length;
+    if (current.length && nextLength > maxChars) {
+      chunks.push(current.join('\n'));
+      current = [];
+      length = 0;
+    }
+    current.push(line);
+    length += (current.length > 1 ? 1 : 0) + line.length;
+  }
+  if (current.length) chunks.push(current.join('\n'));
+  return chunks;
+}
+
+// Kept as a compatibility alias for callers that imported the old helper;
+// it intentionally no longer groups identical pulls.
+function groupSummonResults(results) {
+  return formatSummonResults(results);
 }
 
 /* ════════════════════════════════════════════
@@ -514,5 +550,10 @@ module.exports = {
   buildResultMessage,
   summonFlipEmoji,
   groupSummonResults,
+  formatSummonResultLine,
+  formatSummonResults,
+  splitSummonResultLines,
+  summonOutcomeSummary,
+  summonBalanceFooter,
   RARITY_SYMBOLS,
 };

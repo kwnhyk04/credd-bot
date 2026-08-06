@@ -48,6 +48,12 @@ Commercial use, hosting commercial instances, or distributing commercial derivat
 - Server admin settings for prefix, bot channel, announcement channel, and boss channel
 - Local asset loading for development and remote asset loading for production
 
+### Reward and combat update notes
+
+- Knight restores 10% max HP each turn; Swordsman gains battle-local ATK stacks up to +25%; Mage Overcharge selects one of four equal-probability debuffs on each successful third-round primary hit.
+- Raid rewards use persistent PHT-date caps of 20 Silver Chests from regular raids, 10 Gold Chests from Elite Mob raids, and 10,000 raid-earned Belief Shards. Partial grants are reported in the reward summary.
+- Completing the daily quest set grants `Daily Quest Completion Bonus: +1 Sacred Relic`. Each weekly quest grants +1 Sacred Relic; weekly full completion grants no additional Sacred Relic.
+
 ## Project Layout
 
 ```text

@@ -268,7 +268,18 @@ async function main() {
       'custom_avatar_token', 'custom_deity_token', 'tickets', 'supporter_item_grants',
       'supporter_item_grants_idempotency_key', 'idx_tickets_status_type_created',
       'boss_spawn_queue_status_check', 'claim_started_at',
+      'daily_quest_completion_rewards', 'raid_reward_daily_totals',
+      'raid_reward_grants', 'summon_reward_grants', 'raid_reward_daily_totals_silver_check',
+      'raid_reward_daily_totals_gold_check', 'raid_reward_daily_totals_shards_check',
+      'daily_quest_completion_rewards_relic_check', 'summon_reward_grants_source_check',
     ]) assert(snapshot.includes(token), `${snapshotName} is missing ${token}`);
+    for (const table of [
+      'daily_quest_completion_rewards', 'raid_reward_daily_totals', 'raid_reward_grants',
+      'summon_reward_grants',
+    ]) {
+      const rlsPattern = new RegExp(`ALTER TABLE (?:public\\.)?["']?${table}["']? ENABLE ROW LEVEL SECURITY`);
+      assert(rlsPattern.test(snapshot), `${snapshotName} is missing ${table} RLS`);
+    }
     for (const table of REQUIRED_RLS_TABLES) {
       const rlsPattern = new RegExp(`ALTER TABLE (?:public\\.)?["']?${table}["']? ENABLE ROW LEVEL SECURITY`);
       assert(rlsPattern.test(snapshot), `${snapshotName} is missing ${table} RLS`);

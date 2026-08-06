@@ -17,8 +17,8 @@
 const {
   ContainerBuilder,
   MessageFlags,
+  escapeMarkdown,
 } = require('discord.js');
-const { TIERS } = require('./weaponResultRenderer');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji, emojiForDisplay, gearTierEmoji } = require('../utils/emojis');
 const { capitalizeLower } = require('../utils/textFormat');
@@ -87,7 +87,7 @@ function tierSummary(items) {
   }
   return TIER_ORDER
     .filter((t) => counts[t])
-    .map((t) => `${TIERS[t]?.icon || '•'} **${capitalizeLower(t)}** ×${counts[t]}`)
+    .map((t) => `${gearTierEmoji(capitalizeLower(t), '•')} **${capitalizeLower(t)}** ×${counts[t]}`)
     .join(' ・ ');
 }
 
@@ -145,9 +145,9 @@ async function buildWeaponResultPayload(p) {
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) =>
       td.setContent(
-        '-# ' + emoji('sacred_relic') + ' Sacred Relics: **' + p.sacredRelics.toLocaleString() + '** - ' +
-        emoji('supreme_relic') + ' Supreme Relics: **' + p.supremeRelics.toLocaleString() + '**\n' +
-        '-# ' + emoji(p.chestEmojiName) + ' ' + p.chestLabel + 's left: **' + p.remaining + '** - Tip: `crd equip <id>`'
+        '-# ' + emoji('sacred_relic') + ' Sacred Relics: **' + Number(p.sacredRelics || 0).toLocaleString() + '** - ' +
+        emoji('supreme_relic') + ' Supreme Relics: **' + Number(p.supremeRelics || 0).toLocaleString() + '**\n' +
+        '-# ' + emoji(p.chestEmojiName) + ' ' + p.chestLabel + 's left: **' + Number(p.remaining || 0).toLocaleString() + '** - Tip: `crd equip <id>`'
       )
     );
 
@@ -227,10 +227,12 @@ async function buildRuneResultPayload(p) {
 
 function formatGearDrops(items) {
   return items.map((it) => {
-    const icon = emojiForDisplay(it.name, it.gearClass === 'armor' ? 'Armor' : 'Weapon');
-    const slots = Number(it.sockets) || 0;
-    const tier = gearTierEmoji(it.tier);
-    return '`' + it.id + '` ' + (tier ? tier + ' ' : '') + icon + ' **' + it.name + '** - ' + it.tier + ' - ' + emoji('rune_slot') + ' ' + slots;
+    const rawName = String(it?.name || 'Unknown Equipment');
+    const rawId = String(it?.id || 'unknown').replace(/`/g, '');
+    const icon = emojiForDisplay(rawName, it?.gearClass === 'armor' ? '🛡️' : '⚔️');
+    const slots = Math.max(0, Math.floor(Number(it?.sockets) || 0));
+    const tier = gearTierEmoji(it?.tier, '◆');
+    return '`' + rawId + '` ' + tier + ' ' + icon + ' **' + escapeMarkdown(rawName) + '** - ' + emoji('rune_slot') + ' ' + slots;
   }).join('\n');
 }
 
@@ -241,4 +243,14 @@ function formatRuneDrops(items) {
   }).join('\n');
 }
 
-module.exports = { playAnimatedOpen, buildWeaponResultPayload, buildRuneResultPayload, tierSummary, CHEST_GIFS, CHEST_FLAVOR, OPEN_EMOJI };
+module.exports = {
+  playAnimatedOpen,
+  buildWeaponResultPayload,
+  buildRuneResultPayload,
+  tierSummary,
+  formatGearDrops,
+  formatRuneDrops,
+  CHEST_GIFS,
+  CHEST_FLAVOR,
+  OPEN_EMOJI,
+};

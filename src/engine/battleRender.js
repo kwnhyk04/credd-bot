@@ -403,7 +403,7 @@ function renderBattlePanel(sim, snapIdx, { mirror = false, icons = null, skin = 
 
 /**
  * Rewards strip — same width as the battle panel, drawn under the render.
- * r = { won, credux, exp, shards, chestLabel, leveledUp, levelFrom, levelTo }.
+ * r = { won, credux, exp, shards, chestLabel, chestQty, leveledUp, levelFrom, levelTo }.
  */
 async function renderRewardsPanel(sim, r) {
   const won = sim.winner === 'a';
@@ -827,7 +827,7 @@ function rewardText(sim, r, { allowCustomEmojis = false } = {}) {
     rewardParts.push(`${creduxIcon} +${Number(r.credux || 0).toLocaleString()} Credux`);
     rewardParts.push(`${expIcon} +${Number(r.exp || 0).toLocaleString()} EXP`);
     if (Number(r.shards || 0) > 0) rewardParts.push(`${shardIcon} +${Number(r.shards).toLocaleString()} Belief Shards`);
-    if (r.chestLabel) rewardParts.push(`${rewardIcon(r.chestLabel, '🎁', allowCustomEmojis)} ${r.chestLabel} x1`);
+    if (r.chestLabel) rewardParts.push(`${rewardIcon(r.chestLabel, '🎁', allowCustomEmojis)} ${r.chestLabel} x${r.chestQty || 1}`);
     if (r.leveledUp) rewardParts.push(`⬆️ LEVEL UP! ${r.levelFrom} -> ${r.levelTo}`);
   } else {
     rewardParts.push(`${expIcon} +${Number(r.exp || 0).toLocaleString()} EXP`);
@@ -1076,9 +1076,12 @@ function isDiscordErrorCode(err, code) {
  * @param {string[]} [opts.notices]         completion lines (e.g. daily-quest grants)
  *                                          shown as the message content on the FINAL
  *                                          frame only. No-op when empty.
+ * @param {string} [opts.rewardStatus]       optional plain-text status rendered in
+ *                                          a third embed after the reward embed.
  */
 async function runBattleImpl(channel, {
-  mode, sim, rewards = null, onMessage = null, notices = [], footer = null, header = null,
+  mode, sim, rewards = null, onMessage = null, notices = [], rewardStatus = null,
+  footer = null, header = null,
   battleSkinPath = null, resultSkinPath = null, ownerId = null, telemetryCommand = mode,
 }) {
   const mirror = mode === 'duel';
@@ -1216,6 +1219,12 @@ async function runBattleImpl(channel, {
         .setColor(sim.winner === 'a' ? 0x43d675 : 0xf23f43)
         .setDescription(rewardTextForFrame)
       : null;
+    const rewardStatusEmbed = over && rewardStatus
+      ? new EmbedBuilder()
+        .setColor(0x2b2d31)
+        .setTitle('Daily Reward Limits')
+        .setDescription(rewardStatus)
+      : null;
     const files = [
       ...battleImage.files,
       ...(rewardsImage ? rewardsImage.files : []),
@@ -1223,6 +1232,7 @@ async function runBattleImpl(channel, {
     const embeds = [base];
     if (rewardsImage) embeds.push(resultEmbed);
     if (rewardTextEmbed) embeds.push(rewardTextEmbed);
+    if (rewardStatusEmbed) embeds.push(rewardStatusEmbed);
     const payload = {
       content: over && noticeLine ? noticeLine : '',
       embeds,

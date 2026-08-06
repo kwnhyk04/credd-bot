@@ -702,7 +702,9 @@ check('class base and per-level scaling match the balance table',
   const sP = resolveBattle(player(), mob({ hp: 100000 }), { seed: 1, rng: scripted([0.0, 0.99, 0.5, 0.99, 0.5]) });
   const base = dmgOf(roundEvents(sP, 1), 'attacks'); // plain non-crit, no bonus
   check('damage% stack non-crit = base ×1.8', Math.abs(n - Math.floor(base * 1.8)) <= 1, `got ${n} vs ${Math.floor(base * 1.8)}`);
-  check('damage% stack crit = base ×2.8', Math.abs(c - Math.floor(base * 2.8)) <= 1, `got ${c} vs ${Math.floor(base * 2.8)}`);
+  // The unified damage lane floors only after mitigation and multiplication, so
+  // the exact raw result can be a couple of points above floor(displayedBase × 2.8).
+  check('damage% stack crit = base ×2.8', Math.abs(c - Math.floor(base * 2.8)) <= 2, `got ${c} vs ${Math.floor(base * 2.8)}`);
   check('round not crit-only: bonus applies to non-crit too', n > base, `n=${n} base=${base}`);
 }
 
@@ -1152,7 +1154,7 @@ check('class base and per-level scaling match the balance table',
       rng: scripted([
         0.99, 0.5, 0.99, 0.5,
         0.99, 0.5, 0.99, 0.5,
-        0.00, 0.5, 0.00, 0.5, 0.99, 0.5,
+        0.00, 0.5, 0.99, 0.00, 0.5,
       ], 0.5),
     },
   );
@@ -2326,7 +2328,11 @@ check('class base and per-level scaling match the balance table',
 
 // — Sudden death from round 30; mutual drain death → mob/challenged wins (R5) —
 {
-  const sim = resolveBattle(player({ atk: 0, hp: 1000 }), mob({ hp: 1000, atk: 0 }), { seed: 17 });
+  const sim = resolveBattle(
+    player({ atk: 0, hp: 1000, classPassive: null }),
+    mob({ hp: 1000, atk: 0 }),
+    { seed: 17 },
+  );
   check('sudden death: both die round 39', sim.rounds.length === 39, `rounds=${sim.rounds.length}`);
   check('sudden death mutual → b wins', sim.winner === 'b' && sim.outcome === 'sudden_death',
     `winner=${sim.winner} outcome=${sim.outcome}`);

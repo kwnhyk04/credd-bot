@@ -206,7 +206,7 @@ function buildEntries(won, rewards) {
       entries.push({ icon: 'Belief Shards', value: `+${rewards.shards}`, label: 'Belief Shards', glyph: '❖', glyphColor: '#b57edc' });
     }
     if (rewards.chestLabel) {
-      entries.push({ icon: rewards.chestLabel, value: '×1', label: rewards.chestLabel, glyph: '◆', glyphColor: '#9aa0a8' });
+      entries.push({ icon: rewards.chestLabel, value: `×${rewards.chestQty || 1}`, label: rewards.chestLabel, glyph: '◆', glyphColor: '#9aa0a8' });
     }
   } else {
     entries.push({ icon: 'Combat Exp', value: `+${Number(rewards.exp || 0).toLocaleString()}`, label: 'EXP', glyph: '✦', glyphColor: '#f0b232' });

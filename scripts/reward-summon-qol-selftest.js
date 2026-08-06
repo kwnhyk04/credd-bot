@@ -1,0 +1,263 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const ROOT = path.resolve(__dirname, '..');
+const {
+  formatGearDrops,
+  tierSummary,
+} = require(path.join(ROOT, 'src', 'engine', 'chestOpen'));
+const {
+  buildResultMessage,
+  formatSummonResultLine,
+  formatSummonResults,
+  splitSummonResultLines,
+  summonOutcomeSummary,
+} = require(path.join(ROOT, 'src', 'engine', 'renderSummon'));
+const {
+  runSummon,
+  claimSummonReward,
+} = require(path.join(ROOT, 'src', 'engine', 'summonEngine'));
+const { CHEST_ALIASES } = require(path.join(ROOT, 'src', 'config', 'dropRates'));
+const { emoji } = require(path.join(ROOT, 'src', 'utils', 'emojis'));
+
+let passed = 0;
+function check(name, condition) {
+  assert.ok(condition, name);
+  passed += 1;
+}
+
+const gearLine = formatGearDrops([{
+  id: 'w123',
+  name: 'Salakot Ward',
+  gearClass: 'armor',
+  tier: 'Mythic',
+  sockets: 2,
+}]);
+check('gear result keeps the item id', gearLine.includes('`w123`'));
+check('gear result keeps the item name', gearLine.includes('Salakot Ward'));
+check('gear result keeps the rune-slot count', /- .* 2$/.test(gearLine));
+check('gear result removes the written tier suffix', !gearLine.includes(' - Mythic - '));
+const tierWordName = formatGearDrops([{
+  id: 'a456',
+  name: 'Rare Supreme Aegis',
+  gearClass: 'armor',
+  tier: 'Rare',
+  sockets: null,
+}]);
+check('gear names containing tier words are preserved', tierWordName.includes('Rare Supreme Aegis'));
+check('missing socket counts render intentionally as zero', / 0$/.test(tierWordName));
+check('tier summary uses equipment-tier icons', tierSummary([
+  { tier: 'Mythic' }, { tier: 'Rare' }, { tier: 'Rare' },
+]).includes('<:eqmythic_icon:') && tierSummary([
+  { tier: 'Mythic' }, { tier: 'Rare' }, { tier: 'Rare' },
+]).includes('<:eqrare_icon:'));
+
+const pulls = [
+  { name: 'Njord', rarity: 'Awakened', isNew: true, essence: 0 },
+  { name: 'Njord', rarity: 'Awakened', isNew: false, essence: 2 },
+  { name: 'Freyr', rarity: 'Remnant', isNew: true, essence: 0 },
+  { name: 'Njord', rarity: 'Awakened', isNew: false, essence: 2 },
+];
+const lines = formatSummonResults(pulls).split('\n');
+check('summon results preserve one line per pull', lines.length === pulls.length);
+check('new deity has no essence icon or zero reward', !lines[0].includes('Essence') && !lines[0].includes('+0'));
+check('duplicate puts essence before the deity', lines[1].startsWith(emoji('mythic_essence')) && lines[1].includes(' • '));
+check('duplicate keeps the actual essence amount', lines[1].includes('+2 Essence'));
+check('new result keeps the tier icon before the deity name', lines[2].includes('Freyr') && lines[2].indexOf('Freyr') > 0);
+check('identical deity pulls are not grouped', lines.filter((line) => line.includes('Njord')).length === 3 && !formatSummonResults(pulls).includes('×2'));
+check('summon result order is unchanged', lines[0].includes('Njord') && lines[1].includes('Njord') && lines[2].includes('Freyr') && lines[3].includes('Njord'));
+
+const summary = summonOutcomeSummary(pulls);
+check('summary counts new pulls as Awakened', summary.includes('Awakened ×**2**'));
+check('summary counts duplicate pulls as Remnant', summary.includes('Remnant ×**2**'));
+
+const chunks = splitSummonResultLines(pulls, 100);
+check('large summon result lists split only between lines', chunks.length > 1 && chunks.join('\n').split('\n').join('|') === lines.join('|'));
+const thirtyPulls = Array.from({ length: 30 }, (_, index) => ({
+  name: `Long Deity Name ${index}`,
+  rarity: 'Remnant',
+  isNew: false,
+  essence: 2,
+}));
+check('30-pull summon result components stay below Discord text limits', splitSummonResultLines(thirtyPulls).every((chunk) => chunk.length <= 2800));
+check('malformed duplicate rewards never render zero Essence', !formatSummonResultLine({
+  name: 'Njord', rarity: 'Awakened', isNew: false, essence: 0,
+}).includes('+0 Essence'));
+check('Markdown in deity names is escaped', formatSummonResultLine({
+  name: 'Njord_*', rarity: 'Awakened', isNew: true, essence: 0,
+}).includes('Njord\\_\\*'));
+
+const summonEngineSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'summonEngine.js'), 'utf8');
+const summonRendererSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'renderSummon.js'), 'utf8');
+const summonCommandSource = fs.readFileSync(path.join(ROOT, 'src', 'commands', 'rpg', 'summon.js'), 'utf8');
+const questSource = fs.readFileSync(path.join(ROOT, 'src', 'commands', 'economy', 'quests.js'), 'utf8');
+check('summon engine checks ownership for every sequential roll', /const isDupe = ownedSet\.has\(d\.deity_id\)/.test(summonEngineSource));
+check('summon engine marks a rolled deity owned before the next roll', /ownedSet\.add\(d\.deity_id\)/.test(summonEngineSource));
+check('summon result keeps the remaining balance footer', summonRendererSource.includes("emoji('belief_shards')") && summonRendererSource.includes("emoji('sacred_relic')"));
+check('normal summon edits strip immutable Components V2 flags', summonCommandSource.includes('delete resultPayload.flags'));
+check('daily quest completion line includes the sacred relic icon', questSource.includes("emoji('sacred_relic')} Sacred Relic"));
+check('daily quest quote footer remains intact', questSource.includes('The gods reward those who prove their worth'));
+check('weekly quest full-completion footer is removed', !questSource.includes('Weekly full-completion bonus: no additional Sacred Relic'));
+
+const bossSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'bossSystem.js'), 'utf8');
+check('Calamity preview uses a Bonus Rewards heading', bossSource.includes('**Bonus Rewards**'));
+check('Calamity preview keeps the Supreme Chest chance explanation', bossSource.includes('Chance per eligible participant, weighted by damage contribution.'));
+check('Calamity preview still displays a one-chest bonus', bossSource.includes('Supreme Chest ×1'));
+
+const openCommandSource = fs.readFileSync(path.join(ROOT, 'src', 'commands', 'rpg', 'open.js'), 'utf8');
+check('normal summons use the shared summon formatter for fallback output', summonCommandSource.includes('splitSummonResultLines(results, 1450)'));
+check('Sacred and Supreme Relics share the summon result builder', openCommandSource.includes('buildResultMessage(results, balances'));
+check('all configured equipment chests use the shared result builder', CHEST_ALIASES.length === 7
+  && openCommandSource.includes('buildWeaponResultPayload({'));
+
+function makeSummonClient({ alreadyOwned = false } = {}) {
+  const today = new Date('2026-08-07T00:00:00.000Z');
+  const state = {
+    bag: {
+      epic_essence: 0,
+      mythic_essence: 0,
+      legendary_essence: 0,
+      supreme_essence: 0,
+    },
+    owned: new Set(alreadyOwned ? [7] : []),
+    inserted: [],
+    essenceLogs: [],
+    activeDeityId: null,
+  };
+  const deity = {
+    deity_id: 7,
+    name: 'Njord',
+    mythology: 'Norse',
+    tier: 'Epic',
+    base_hp: 100,
+    base_atk: 50,
+    base_def: 25,
+    blessing_name: 'Tidecaller',
+  };
+  const client = {
+    async query(raw, params = []) {
+      const sql = String(raw).replace(/\s+/g, ' ').trim();
+      if (sql.includes('FROM users_bag WHERE discord_id = $1 FOR UPDATE')) {
+        return { rows: [{ ...state.bag }] };
+      }
+      if (sql.startsWith('SELECT pity_count FROM pity_counters')) return { rows: [{ pity_count: 0 }] };
+      if (sql.includes('FROM user_character WHERE discord_id = $1 FOR UPDATE')) {
+        return { rows: [{
+          believer_level: 1,
+          believer_exp: 0,
+          reputation_exp_today: 0,
+          reputation_exp_reset_date: today,
+          pht_today: today,
+        }] };
+      }
+      if (sql.includes('FROM user_character uc') && sql.includes('JOIN user_presets p')) {
+        return { rows: [{ equipped_deity_1_id: state.activeDeityId }] };
+      }
+      if (sql === 'SELECT deity_id FROM user_deities WHERE discord_id = $1') {
+        return { rows: [...state.owned].map((deityId) => ({ deity_id: deityId })) };
+      }
+      if (sql.includes('FROM deity_roster') && sql.includes('WHERE tier = $1')) {
+        return { rows: [{ ...deity }] };
+      }
+      if (sql.startsWith('INSERT INTO user_deities')) {
+        assert.equal(state.owned.has(params[1]), false, 'new deity inserted only once');
+        state.owned.add(params[1]);
+        const userDeityId = 100 + state.inserted.length;
+        state.inserted.push(params[1]);
+        return { rows: [{ user_deity_id: userDeityId }] };
+      }
+      if (sql.startsWith('INSERT INTO game_logs') && sql.includes('previous_essence_count')) {
+        state.essenceLogs.push({ itemType: params[1], before: params[2], after: params[3] });
+        return { rows: [] };
+      }
+      if (sql.startsWith('INSERT INTO game_logs')) return { rows: [] };
+      if (sql.startsWith('UPDATE users_bag SET')) {
+        state.bag.epic_essence = params[1];
+        return { rows: [] };
+      }
+      if (sql.startsWith('WITH updated AS')) {
+        state.activeDeityId = params[1];
+        return { rows: [{ equipped_deity_1_id: state.activeDeityId }] };
+      }
+      if (sql.startsWith('UPDATE user_character SET believer_level')) return { rows: [] };
+      if (sql.startsWith('INSERT INTO user_titles')) return { rows: [] };
+      if (sql.startsWith('SELECT dr.mythology')) {
+        return { rows: [{ mythology: 'Norse', avail: 2, owned: 1 }] };
+      }
+      throw new Error(`unexpected summon test query: ${sql}`);
+    },
+  };
+  return { client, state };
+}
+
+async function integrationChecks() {
+  const previousTtl = process.env.SELECTION_POOL_CACHE_TTL_MS;
+  process.env.SELECTION_POOL_CACHE_TTL_MS = '0';
+  try {
+    const fresh = makeSummonClient();
+    const result = await runSummon(fresh.client, 'u1', { count: 3, forceTier: 'Epic' });
+    check('sequential repeated pulls classify one new then two duplicates',
+      result.pulls.map((pull) => pull.isDupe).join(',') === 'false,true,true');
+    check('a repeated new deity is inserted exactly once', fresh.state.inserted.join(',') === '7');
+    check('later duplicates credit the configured total Essence', fresh.state.bag.epic_essence === 2);
+    check('committed pull Essence matches the credited total',
+      result.pulls.reduce((total, pull) => total + pull.essence, 0) === fresh.state.bag.epic_essence);
+    check('the consolidated Essence audit log matches the credited total',
+      fresh.state.essenceLogs.length === 1 && fresh.state.essenceLogs[0].after === 2);
+
+    const existing = makeSummonClient({ alreadyOwned: true });
+    const existingResult = await runSummon(existing.client, 'u2', { count: 2, forceTier: 'Epic' });
+    check('previously owned deities remain duplicates for every roll',
+      existingResult.pulls.every((pull) => pull.isDupe) && existing.state.inserted.length === 0);
+    check('existing-deity duplicate Essence is credited exactly', existing.state.bag.epic_essence === 2);
+
+    const claimedKeys = new Set();
+    const guardClient = {
+      async query(_sql, params) {
+        if (claimedKeys.has(params[0])) return { rows: [] };
+        claimedKeys.add(params[0]);
+        return { rows: [{ reward_key: params[0] }] };
+      },
+    };
+    check('summon delivery guard accepts the first processing',
+      await claimSummonReward(guardClient, 'u', 'interaction-1', 'belief_shards'));
+    check('summon delivery guard rejects a replay',
+      !(await claimSummonReward(guardClient, 'u', 'interaction-1', 'belief_shards')));
+
+    const maxBatch = Array.from({ length: 30 }, (_, index) => ({
+      name: `Long Deity ${String(index).padStart(2, '0')} ${'X'.repeat(70)}`,
+      rarity: index % 2 ? 'Remnant' : 'Awakened',
+      isNew: index % 3 === 0,
+      essence: index % 3 === 0 ? 0 : 2,
+    }));
+    const payload = await buildResultMessage(maxBatch, { beliefShards: 1234, sacredRelics: 2 });
+    const json = payload.components.map((component) => component.toJSON());
+    const children = json[0].components;
+    const textComponents = children.filter((component) => component.type === 10);
+    const actualLines = textComponents.flatMap((component) => component.content.split('\n'));
+    const expectedLines = maxBatch.map(formatSummonResultLine);
+    check('max summon payload keeps every result exactly once and in order',
+      actualLines.filter((line) => expectedLines.includes(line)).join('\n') === expectedLines.join('\n'));
+    check('max summon payload keeps every text component below the safety limit',
+      textComponents.every((component) => component.content.length <= 2800));
+    check('max summon payload stays within the container child limit', children.length <= 10);
+    const joinedPayload = textComponents.map((component) => component.content).join('\n');
+    check('max summon payload emits the global summary once',
+      joinedPayload.split(summonOutcomeSummary(maxBatch)).length - 1 === 1);
+    check('max summon payload emits the resource footer once',
+      joinedPayload.split('Belief Shards:').length - 1 === 1);
+  } finally {
+    if (previousTtl === undefined) delete process.env.SELECTION_POOL_CACHE_TTL_MS;
+    else process.env.SELECTION_POOL_CACHE_TTL_MS = previousTtl;
+  }
+
+  console.log(`REWARD_SUMMON_QOL ${passed} passed`);
+}
+
+integrationChecks().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});

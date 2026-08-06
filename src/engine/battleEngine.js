@@ -124,6 +124,9 @@ const MAX_ROUNDS = 50;
 const SUDDEN_DEATH_FROM = 30;     // player sides lose 10% max HP at end of every round ≥ 30 (mobs/bosses exempt)
 const SUDDEN_DEATH_PCT = 0.10;
 const SNAPSHOT_EVERY = 3;
+// A debuff applied after a landed hit is armed for the next action window. The
+// end-of-round decrement makes turnsLeft=2 equivalent to one affected turn.
+const LANDED_STAT_DEBUFF_TURNS = 2;
 const MITIGATION_K = 200;         // §12: 1 − DEF/(DEF+200)
 const ARCHER_PIERCE = CLASS_PASSIVE_VALUES.Archer.defenseIgnore;
 const ARCHER_DOUBLE_ATTACK_CHANCE = CLASS_PASSIVE_VALUES.Archer.doubleAttackChance;
@@ -131,6 +134,9 @@ const FIGHTER_STUN_CHANCE = CLASS_PASSIVE_VALUES.Fighter.stunChance;
 const FIGHTER_STUN_TURNS = CLASS_PASSIVE_VALUES.Fighter.stunTurns;
 const FIGHTER_BASH_DAMAGE_PCT = CLASS_PASSIVE_VALUES.Fighter.bashDamage;
 const KNIGHT_DAMAGE_REDUCTION = 0.25;
+const KNIGHT_HEAL_PCT = 0.10;
+const SWORDSMAN_ATK_PER_TURN = CLASS_PASSIVE_VALUES.Swordsman.atkPerTurn;
+const SWORDSMAN_ATK_MAX = CLASS_PASSIVE_VALUES.Swordsman.atkMax;
 const MAX_DAMAGE_REDUCTION = 0.70;
 
 // Charmed Hide's ongoing resist covers only these three. The first-CC nullify is
@@ -179,6 +185,21 @@ const ACTION_TAG_LABELS = {
   miss: 'Miss', def_down: 'DEF Down', atk_down: 'ATK Down', crit_down: 'CRIT Down', darkened: 'Darkened',
   thor_paralyze: 'Paralyze', thor_paralyze_dot: 'Paralysis', frostbite: 'Frostbite',
 };
+
+const OVERCHARGE_DEBUFFS = Object.freeze([
+  Object.freeze({ tag: 'paralyze', label: 'Paralyze' }),
+  Object.freeze({ tag: 'burn', label: 'Burn' }),
+  Object.freeze({ tag: 'def_down', label: 'DEF Down' }),
+  Object.freeze({ tag: 'atk_down', label: 'ATK Down' }),
+]);
+
+/** Map one injected RNG draw onto exactly one equal-probability Overcharge effect. */
+function selectOverchargeDebuff(roll) {
+  const normalized = Number.isFinite(Number(roll))
+    ? Math.max(0, Math.min(0.9999999999999999, Number(roll)))
+    : 0;
+  return OVERCHARGE_DEBUFFS[Math.floor(normalized * OVERCHARGE_DEBUFFS.length)];
+}
 
 function actionState(side) {
   return {
@@ -651,7 +672,11 @@ function resolveBattle(a, b, opts = {}) {
   const effAtk = (S, extraAtkMult = 0) => {
     const mult = S.kind === 'player' ? S.scratch.playerAtkMult : 0;
     const classBonus = S.classPassive === 'damage_reduction' ? KNIGHT_OUTGOING_BONUS : 0;
-    return Math.max(0, S.atk * (1 + mult + extraAtkMult + classBonus - debuffValue(S, 'atk_down')));
+    const raw = S.atk * (1 + mult + extraAtkMult + classBonus - debuffValue(S, 'atk_down'));
+    // Keep exact percentage stacks such as 10% + 5% from becoming 114.999999...
+    // and being truncated to 114 by the downstream integer damage floor.
+    const epsilon = Number.EPSILON * Math.max(1, Math.abs(raw)) * 16;
+    return Math.max(0, raw + epsilon);
   };
   const effCritChance = (S) =>
     findDebuff(S, 'darkened') ? 0 : Math.max(0, S.crit * (1 - debuffValue(S, 'crit_down')));
@@ -1386,6 +1411,33 @@ function resolveBattle(a, b, opts = {}) {
         return;
       }
 
+      // Overcharge's one effect is selected only after the primary hit lands and
+      // normal damage has been logged/resolved. The engine's immunity path may still
+      // resist the selected effect, but there is never a second roll or a second effect.
+      if (mainHit && overchargeFired && !res.negated && O.hp > 0) {
+        const selected = selectOverchargeDebuff(rng());
+        let applied = false;
+        if (selected.tag === 'paralyze') {
+          applied = tryApplyDebuff(O, selected.tag, 1, 0, S);
+          if (applied) logAt(LOG.STATUS, '⚡ Overcharge: Paralyze applied!');
+        } else if (selected.tag === 'burn') {
+          const burnDamage = Math.max(0, effAtk(S) * 0.10);
+          applied = tryApplyDebuff(O, selected.tag, 1, burnDamage, S);
+          if (applied) {
+            const burn = findDebuff(O, 'burn');
+            if (burn) burn.overcharge = true;
+            logAt(LOG.STATUS, '🔥 Overcharge: Burn applied for 1 turn.');
+          }
+        } else if (selected.tag === 'def_down') {
+          applied = tryApplyDebuff(O, selected.tag, LANDED_STAT_DEBUFF_TURNS, 0.25, S);
+          if (applied) logAt(LOG.STATUS, '🛡️ Overcharge: Opponent DEF reduced by 25% for 1 turn.');
+        } else {
+          applied = tryApplyDebuff(O, selected.tag, LANDED_STAT_DEBUFF_TURNS, 0.25, S);
+          if (applied) logAt(LOG.STATUS, '⚔️ Overcharge: Opponent ATK reduced by 25% for 1 turn.');
+        }
+        if (!applied) logAt(LOG.STATUS, `🔮 Overcharge: ${selected.label} was resisted.`);
+      }
+
       // class on-hit effects (landed main hit only)
       if (mainHit && !res.negated) {
         if (willFighterStun) {
@@ -1596,9 +1648,12 @@ function resolveBattle(a, b, opts = {}) {
     const attackHookEvents = shared.events.splice(attackHookEventStart);
     const subHits = Math.max(1, Number(S.specialFlags.multi_attack) || 1);
     const subPct = subHits > 1 ? Number(S.specialFlags.multi_attack_pct) || 1 : 1;
-    const atkBase = F.enemy_atk_override != null
+    const rawAtkBase = F.enemy_atk_override != null
       ? F.enemy_atk_override
       : S.atk * (1 + (S.flags.bakunawa_atk_bonus_pct || 0)) * (F.enemy_atk_mult || 1.0);
+    // ATK Down is a shared effective-ATK debuff, so it must also cover the mob
+    // attack path (which does not use the player-only effAtk helper).
+    const atkBase = Math.max(0, rawAtkBase * (1 - debuffValue(S, 'atk_down')));
 
     // A "X% ATK" nuke round (enemy_atk_mult set by the mob skill) IS the mob's big hit —
     // it does not also crit-multiply, so a nuke stays a clean ×(pct) and never spikes to
@@ -1656,6 +1711,19 @@ function resolveBattle(a, b, opts = {}) {
       const hadStun = skipTags.some((d) => d.tag === 'stun');
       const hadFreeze = skipTags.some((d) => d.tag === 'freeze');
       let fighterDizzyExpired = false;
+
+      const paralyze = skipTags.find((d) => d.tag === 'paralyze');
+      if (paralyze && paralyze.source) {
+        const paralyzeDamage = Math.max(0, Math.floor(effAtk(paralyze.source) * 0.05));
+        const before = S.hp;
+        damage(S, paralyzeDamage);
+        const applied = before - S.hp;
+        shared.events.push(
+          `⚡ Paralyzed: ${S.name} takes ${applied} damage and skips this turn.`
+        );
+        if (checkDeaths('paralyze', { type: 'dot', source: 'Paralyze' })) return;
+      }
+
       for (const d of skipTags) d.turnsLeft -= 1;
       const expiredCount = skipTags.filter((d) => d.turnsLeft <= 0).length;
       S.debuffs = S.debuffs.filter((d) => d.turnsLeft > 0);
@@ -1767,6 +1835,33 @@ function resolveBattle(a, b, opts = {}) {
       shared.events.push(
         `✨ Divine Aegis — max stacks restored ${(side.hp - before).toLocaleString()} HP.`
       );
+    }
+  };
+
+  /** Resolve class passives at the shared round passive point. */
+  const processClassPassive = (side) => {
+    if (side.kind !== 'player' || side.hp <= 0) return;
+
+    if (side.classPassive === 'damage_reduction') {
+      const before = side.hp;
+      heal(side, side.maxHp * KNIGHT_HEAL_PCT);
+      const restored = side.hp - before;
+      if (restored > 0) {
+        logAt(LOG.CLASS,
+          `🛡️ Knight Passive: Restored 10% max HP (+${restored.toLocaleString()} HP).`);
+      }
+    }
+
+    if (side.classPassive === 'bleed') {
+      const previous = Number(side.flags.swordsman_atk_bonus_pct) || 0;
+      const next = Math.min(SWORDSMAN_ATK_MAX, previous + SWORDSMAN_ATK_PER_TURN);
+      side.flags.swordsman_atk_bonus_pct = next;
+      side.scratch.playerAtkMult += next;
+      if (next > previous) {
+        logAt(LOG.CLASS,
+          `⚔️ Swordsman Passive: ATK increased by ${Math.round((next - previous) * 100)}%. ` +
+          `Current bonus: ${Math.round(next * 100)}%.`);
+      }
     }
   };
 
@@ -1912,7 +2007,9 @@ function resolveBattle(a, b, opts = {}) {
           const applied = before - side.hp;
           const name = combatantName(side);
           const remaining = Math.max(0, d.turnsLeft - 1);
-          if (d.tag === 'venom') {
+          if (d.overcharge && d.tag === 'burn') {
+            shared.events.push(`🔥 Burn deals ${applied} damage.`);
+          } else if (d.tag === 'venom') {
             shared.events.push(
               `☠️ Venom ticks for ${applied} damage.` +
               `${remaining > 0 ? ` (${remaining} turn remaining)` : ''}`
@@ -1977,6 +2074,9 @@ function resolveBattle(a, b, opts = {}) {
         passiveEvents.get(side).push(...shared.events.slice(start));
       }
     };
+    for (const side of order) {
+      collectPassiveEvents(side, LOG.CLASS, () => processClassPassive(side));
+    }
     if (mode === 'duel') {
       for (const side of order) {
         const P = perspectiveOf(side);
@@ -2157,6 +2257,7 @@ function resolveBattle(a, b, opts = {}) {
 module.exports = {
   resolveBattle,
   rngOf,
+  selectOverchargeDebuff,
   MAX_ROUNDS,
   SUDDEN_DEATH_FROM,
   SNAPSHOT_EVERY,

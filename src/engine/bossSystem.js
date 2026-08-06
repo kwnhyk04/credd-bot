@@ -53,6 +53,7 @@ const { isBanned } = require('../handlers/middleware');
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emojiForDisplay } = require('../utils/emojis');
 const { grantTitles } = require('../utils/titleGrant');
+const { allocateRaidRewardLimits } = require('../utils/raidRewardLimits');
 const {
   assetPath,
   assetSignatureSync,
@@ -1060,8 +1061,8 @@ async function buildBossMessage(view, {
     ? supremeChestIcon : spawnChest.column === 'boss_golden_chest' ? goldChestIcon : chestIcon;
   // [v4.8] drop the "(this fight)" qualifier — redundant; rewards are understood to be this boss's.
   const chestLine = `${spawnChestIcon} ${spawnChest.label} ×${spawnChest.qty}`;
-  const calamityBonusLine = calamity
-    ? `${supremeChestIcon} 1 Supreme Chest chance per eligible participant, weighted by damage contribution`
+  const calamityBonusBlock = calamity
+    ? `\n\n**Bonus Rewards**\n${supremeChestIcon} Supreme Chest ×1\n-# *Chance per eligible participant, weighted by damage contribution.*`
     : '';
   container
     .addSeparatorComponents(sep)
@@ -1071,7 +1072,7 @@ async function buildBossMessage(view, {
       `${expIcon} Combat EXP ×${reward.exp.toLocaleString()}\n` +
       `${chestLine}\n` +
       `${shardIcon} Belief Shards ×${reward.shards.toLocaleString()}` +
-      (calamityBonusLine ? `\n${calamityBonusLine}` : '')
+      calamityBonusBlock
     ));
 
   // damage leaderboard
@@ -1652,6 +1653,8 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
   let supremeWinnerIds = [];
   let totalEligibleDamage = 0;
   let supremeBagUpd = { rows: [] };
+  let bagUpd = { rows: [] };
+  let raidLimitNoticeCount = 0;
   let expResults = new Map();
   try {
     await dbc.query('BEGIN');
@@ -1710,17 +1713,29 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
           WHERE discord_id = ANY($1) ORDER BY discord_id FOR UPDATE`,
         [attackerIds]
       );
-      // chest.column is from a fixed whitelist (boss_treasure_chest / boss_golden_chest)
-      const bagUpd = await dbc.query(
-        `UPDATE users_bag
-            SET credux = credux + $2,
-                belief_shards = belief_shards + $3,
-                lifetime_credux_earned = lifetime_credux_earned + $2,
-                ${chest.column} = ${chest.column} + $4
-          WHERE discord_id = ANY($1)
-          RETURNING discord_id, credux, belief_shards, ${chest.column} AS chest_count`,
-        [attackerIds, reward.credux, reward.shards, chest.qty]
-      );
+      // Boss participation is a raid source for the shared Belief Shard cap. Each
+      // participant is allocated independently while bag rows remain locked in the
+      // sorted attacker order. Boss-specific chest columns are intentionally outside
+      // the Silver/Gold raid caps.
+      for (const discordId of attackerIds) {
+        const allocation = await allocateRaidRewardLimits(dbc, discordId, {
+          beliefShards: reward.shards,
+        });
+        if (allocation.notices.length > 0) raidLimitNoticeCount += 1;
+        const rowRes = await dbc.query(
+          `UPDATE users_bag
+              SET credux = credux + $2,
+                  belief_shards = belief_shards + $3,
+                  lifetime_credux_earned = lifetime_credux_earned + $2,
+                  ${chest.column} = ${chest.column} + $4
+            WHERE discord_id = $1
+            RETURNING discord_id, credux, belief_shards, ${chest.column} AS chest_count`,
+          [discordId, reward.credux, allocation.granted.beliefShards, chest.qty]
+        );
+        if (rowRes.rows.length === 0) throw new Error(`missing reward bag row for ${discordId}`);
+        rowRes.rows[0].granted_shards = allocation.granted.beliefShards;
+        bagUpd.rows.push(rowRes.rows[0]);
+      }
 
       if (calamity && supremeWinnerIds.length > 0) {
         supremeBagUpd = await dbc.query(
@@ -1756,7 +1771,7 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
         newCred.push(Number(r.credux));
         prevCred.push(Number(r.credux) - reward.credux);
         newSh.push(r.belief_shards);
-        prevSh.push(r.belief_shards - reward.shards);
+        prevSh.push(r.belief_shards - r.granted_shards);
         newCh.push(r.chest_count);
         prevCh.push(r.chest_count - chest.qty);
       }
@@ -1858,7 +1873,11 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
         content:
           `🎉 ${greater ? '☠️ **GREATER** ' : ''}**${view.mobRow.name}** has fallen! ` +
           `All **${attackerIds.length}** challenger${attackerIds.length === 1 ? '' : 's'} receive: ` +
-          `${r.credux.toLocaleString()} Credux · ${r.exp.toLocaleString()} Combat EXP · ${c.qty}× ${c.label} · ${r.shards.toLocaleString()} Belief Shards.` +
+          `${r.credux.toLocaleString()} Credux · ${r.exp.toLocaleString()} Combat EXP · ${c.qty}× ${c.label} · ` +
+          `${r.shards.toLocaleString()} Belief Shards${raidLimitNoticeCount > 0 ? ' subject to each participant\'s daily raid limit' : ''}.` +
+          (raidLimitNoticeCount > 0
+            ? ` Daily raid Belief Shard limits were applied to ${raidLimitNoticeCount} participant${raidLimitNoticeCount === 1 ? '' : 's'}.`
+            : '') +
           (isCalamityBoss(view.mobRow.name)
             ? ` Each eligible participant also received an independent chance at 1 Supreme Chest; **${supremeWinnerIds.length}** won.`
             : '') +

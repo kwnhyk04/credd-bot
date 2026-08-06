@@ -7,7 +7,7 @@ const {
   rollNativeSocketCount, buildSocketArray,
 } = require('../../config/dropRates');
 const { generateUniqueGearId, generateUniqueRuneUid } = require('../../utils/weaponId');
-const { runSummon } = require('../../engine/summonEngine');
+const { runSummon, claimSummonReward } = require('../../engine/summonEngine');
 const { notifyBelieverLevelUp } = require('../../utils/awardBelieverExp');
 const { TIER_ALIAS } = require('../../config/gachaRates');
 const { playAnimatedOpen, buildWeaponResultPayload, buildRuneResultPayload, OPEN_EMOJI } = require('../../engine/chestOpen');
@@ -88,10 +88,15 @@ async function randomRuneForTier(client, tier) {
  * (post-open) relic balances for the result footer.
  * @returns {{ok:true, drops:object[], previous:number, remaining:number,
  *            sacredRelics:number, supremeRelics:number} |
- *           {ok:false, reason:'nobag'|'insufficient'|'no_weapon_pool'|'error', have?:number}}
+ *           {ok:false, reason:'unknown_chest'|'invalid_amount'|'nobag'|'insufficient'|'no_weapon_pool'|'error', have?:number}}
  */
 async function openChestsTxn(discordId, alias, amount) {
   const chest = CHESTS[alias];
+  if (!chest) return { ok: false, reason: 'unknown_chest' };
+  const limit = Math.min(chest.maxOpen ?? MAX_OPEN, MAX_OPEN);
+  if (!Number.isInteger(amount) || amount < 1 || amount > limit) {
+    return { ok: false, reason: 'invalid_amount' };
+  }
   const col = chest.column; // whitelisted identifier from our constant map (not raw user input)
 
   const client = await pool.connect();
@@ -323,6 +328,10 @@ async function execute(message, { args }) {
  */
 async function openRelic(message, alias) {
   const relic = RELICS[alias];
+  if (!relic) {
+    await reply(message, 'Unknown relic. Try `sr` or `supr`.');
+    return;
+  }
   const col = relic.column; // whitelisted identifier from our constant map
   const discordId = message.author.id;
 
@@ -330,6 +339,18 @@ async function openRelic(message, alias) {
   let result, balances;
   try {
     await client.query('BEGIN');
+
+    const claimed = await claimSummonReward(
+      client,
+      discordId,
+      message.interactionId,
+      alias === 'sr' ? 'sacred_relic' : 'supreme_relic',
+    );
+    if (!claimed) {
+      await client.query('ROLLBACK');
+      await reply(message, 'This relic summon was already processed.');
+      return;
+    }
 
     const bagRes = await client.query(
       `SELECT ${col} AS count, sacred_relics, supreme_relics, belief_shards

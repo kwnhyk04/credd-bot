@@ -43,6 +43,26 @@ const { getActiveLoadout, updateActiveLoadout } = require('./loadout');
 // map keyed by our own tier strings (never raw user input).
 const ESSENCE_COLUMNS = ['epic_essence', 'mythic_essence', 'legendary_essence', 'supreme_essence'];
 
+/**
+ * Claim a Discord command delivery inside the caller's transaction. The row
+ * commits with the summon rewards and rolls back with them, so a duplicate
+ * delivery cannot spend currency/relics or grant the same pulls twice.
+ */
+async function claimSummonReward(client, discordId, interactionId, source) {
+  const id = String(interactionId || '').trim();
+  if (!id) throw new Error('claimSummonReward: interaction id missing');
+  const rewardKey = `summon:${id}`;
+  if (rewardKey.length > 100) throw new Error('claimSummonReward: interaction id too long');
+  const claimed = await client.query(
+    `INSERT INTO summon_reward_grants (reward_key, discord_id, source)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (reward_key) DO NOTHING
+     RETURNING reward_key`,
+    [rewardKey, discordId, source],
+  );
+  return claimed.rows.length > 0;
+}
+
 async function randomDeityForTier(client, tier) {
   const rows = await getSelectionPool(
     ['deity_roster', 'available', tier],
@@ -159,14 +179,25 @@ async function runSummon(client, discordId, { count, forceTier = null, log = {} 
     }
 
     const isDupe = ownedSet.has(d.deity_id);
-    const essenceGained = isDupe ? ESSENCE_PER_DUPLICATE[tier] : 0;
+    const essenceColumn = TIER_ESSENCE_COLUMN[tier];
+    const configuredEssence = Number(ESSENCE_PER_DUPLICATE[tier]);
+    if (!ESSENCE_COLUMNS.includes(essenceColumn)) {
+      throw new Error(`runSummon: missing Essence column for tier ${tier}`);
+    }
+    if (!Number.isSafeInteger(configuredEssence) || configuredEssence <= 0) {
+      throw new Error(`runSummon: invalid duplicate Essence for tier ${tier}`);
+    }
+    const essenceGained = isDupe ? configuredEssence : 0;
     let userDeityId = null;
 
     if (isDupe) {
       // Duplicate → the configured amount of the deity's tier essence.
       // Only the running balance is updated here; the consolidated per-tier
       // essence log row is written once after the loop.
-      essence[TIER_ESSENCE_COLUMN[tier]] += essenceGained;
+      essence[essenceColumn] = Number(essence[essenceColumn]) + essenceGained;
+      if (!Number.isSafeInteger(essence[essenceColumn])) {
+        throw new Error(`runSummon: invalid ${essenceColumn} balance`);
+      }
     } else {
       // New deity → INSERT. [Ascension §3.5] sigils/ascended use their DB
       // defaults (0 / FALSE ⇒ deity unlocks at 50% base, blessing dormant).
@@ -340,4 +371,4 @@ async function awardReputation(client, discordId, char, count) {
   return { awarded, levelUp };
 }
 
-module.exports = { runSummon };
+module.exports = { runSummon, claimSummonReward };

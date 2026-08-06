@@ -368,6 +368,21 @@ CREATE TABLE daily_quests (
 CREATE INDEX idx_daily_quests_player_date ON daily_quests (discord_id, quest_date);
 
 -- ---------------------------------------------------------------------
+-- 13a. daily_quest_completion_rewards  (one sacred relic per daily clear)
+-- ---------------------------------------------------------------------
+CREATE TABLE daily_quest_completion_rewards (
+    discord_id   VARCHAR(20) NOT NULL REFERENCES users (discord_id) ON DELETE CASCADE,
+    quest_date   DATE        NOT NULL,
+    sacred_relics INTEGER     NOT NULL DEFAULT 1,
+    claimed_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT daily_quest_completion_rewards_pkey PRIMARY KEY (discord_id, quest_date),
+    CONSTRAINT daily_quest_completion_rewards_relic_check CHECK (sacred_relics = 1)
+);
+ALTER TABLE daily_quest_completion_rewards ENABLE ROW LEVEL SECURITY;
+CREATE INDEX idx_daily_quest_completion_rewards_date
+    ON daily_quest_completion_rewards (quest_date);
+
+-- ---------------------------------------------------------------------
 -- 14. server_config  (per-server settings)
 -- ---------------------------------------------------------------------
 CREATE TABLE server_config (
@@ -411,6 +426,46 @@ CREATE TABLE raid_logs (
 );
 CREATE INDEX idx_raid_logs_player      ON raid_logs (discord_id);
 CREATE INDEX idx_raid_logs_player_time ON raid_logs (discord_id, timestamp DESC);
+
+-- ---------------------------------------------------------------------
+-- 16a. raid reward tracking  (daily caps and idempotent grants)
+-- ---------------------------------------------------------------------
+CREATE TABLE raid_reward_daily_totals (
+    discord_id     VARCHAR(20) NOT NULL REFERENCES users (discord_id) ON DELETE CASCADE,
+    reward_date    DATE        NOT NULL,
+    silver_chests  INTEGER     NOT NULL DEFAULT 0,
+    gold_chests    INTEGER     NOT NULL DEFAULT 0,
+    belief_shards  INTEGER     NOT NULL DEFAULT 0,
+    CONSTRAINT raid_reward_daily_totals_pkey PRIMARY KEY (discord_id, reward_date),
+    CONSTRAINT raid_reward_daily_totals_silver_check CHECK (silver_chests >= 0 AND silver_chests <= 20),
+    CONSTRAINT raid_reward_daily_totals_gold_check CHECK (gold_chests >= 0 AND gold_chests <= 10),
+    CONSTRAINT raid_reward_daily_totals_shards_check CHECK (belief_shards >= 0 AND belief_shards <= 10000)
+);
+CREATE INDEX idx_raid_reward_daily_totals_date
+    ON raid_reward_daily_totals (reward_date);
+ALTER TABLE raid_reward_daily_totals ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE raid_reward_grants (
+    reward_key VARCHAR(100) PRIMARY KEY,
+    discord_id VARCHAR(20)  NOT NULL REFERENCES users (discord_id) ON DELETE CASCADE,
+    reward     JSONB        NOT NULL DEFAULT '{}'::JSONB,
+    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_raid_reward_grants_discord_id
+    ON raid_reward_grants (discord_id);
+ALTER TABLE raid_reward_grants ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE summon_reward_grants (
+    reward_key VARCHAR(100) PRIMARY KEY,
+    discord_id VARCHAR(20)  NOT NULL REFERENCES users (discord_id) ON DELETE CASCADE,
+    source     VARCHAR(30)  NOT NULL,
+    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT summon_reward_grants_source_check
+      CHECK (source IN ('belief_shards', 'sacred_relic', 'supreme_relic'))
+);
+CREATE INDEX idx_summon_reward_grants_discord_id
+    ON summon_reward_grants (discord_id);
+ALTER TABLE summon_reward_grants ENABLE ROW LEVEL SECURITY;
 
 -- ---------------------------------------------------------------------
 -- 17. pvp_logs  (immutable duel results; no FK)

@@ -57,6 +57,8 @@ scripts/*selftest.js
 !scripts/battle-selftest.js
 !scripts/calamity-rewards-selftest.js
 !scripts/combat-log-order-selftest.js
+!scripts/combat-reward-update-selftest.js
+!scripts/reward-summon-qol-selftest.js
 !scripts/font-render-selftest.js
 !scripts/monthsary-remediation-db-selftest.js
 !scripts/schema-drift-selftest.js

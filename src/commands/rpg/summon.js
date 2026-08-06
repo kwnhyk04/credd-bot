@@ -1,11 +1,16 @@
 'use strict';
 
 const pool = require('../../db/pool');
-const { runSummon } = require('../../engine/summonEngine');
+const { runSummon, claimSummonReward } = require('../../engine/summonEngine');
 const { notifyBelieverLevelUp } = require('../../utils/awardBelieverExp');
-const { buildFlipMessage, buildResultMessage } = require('../../engine/renderSummon');
+const {
+  buildFlipMessage,
+  buildResultMessage,
+  splitSummonResultLines,
+  summonOutcomeSummary,
+  summonBalanceFooter,
+} = require('../../engine/renderSummon');
 const { resolveSummonAnimation } = require('../../engine/skinResolver');
-const { emoji, emojiForDisplay, deityTierEmoji } = require('../../utils/emojis');
 const {
   assetExistsSync,
   assetExtension,
@@ -18,7 +23,6 @@ const {
   SHARDS_PER_PULL,
   ALLOWED_SUMMON_COUNTS,
   TIER_ALIAS,
-  TIER_ESSENCE_COLUMN,
 } = require('../../config/gachaRates');
 
 function reply(message, payload) {
@@ -50,6 +54,18 @@ async function execute(message, { args }) {
   let result, shardsRemaining, sacredRelics;
   try {
     await client.query('BEGIN');
+
+    const claimed = await claimSummonReward(
+      client,
+      discordId,
+      message.interactionId,
+      'belief_shards',
+    );
+    if (!claimed) {
+      await client.query('ROLLBACK');
+      await reply(message, { content: 'This summon was already processed.' });
+      return;
+    }
 
     const bagRes = await client.query(
       'SELECT belief_shards, sacred_relics FROM users_bag WHERE discord_id = $1 FOR UPDATE',
@@ -138,27 +154,33 @@ async function execute(message, { args }) {
     await sleep(flipMs);
     // Tester animation media is suspense-only. Every other skin is already a
     // header emoji. Clear any local tester attachment in the final edit.
-    await sent.edit({
-      ...(await buildResultMessage(results, balances, {
+    const resultPayload = await buildResultMessage(results, balances, {
         flipPath,
         allowMedia,
         logContext,
-      })),
+      });
+    // Components V2 flags are immutable after the initial reply; re-sending
+    // them in a PATCH can make Discord reject the result edit.
+    delete resultPayload.flags;
+    await sent.edit({
+      ...resultPayload,
       attachments: [],
     });
   } catch (err) {
     // Display-only failure: the pulls are committed — always tell the player.
     console.error('[summon] display failed:', err.message);
     if (sent) await sent.delete().catch(() => {});
-    const lines = result.pulls.map((p) => {
-      const rarity = TIER_ALIAS[p.tier];
-      return `${deityTierEmoji(rarity, '◆')} ${emojiForDisplay(p.name, 'Deity')} **${p.name}** `
-        + `${emoji(TIER_ESSENCE_COLUMN[p.tier] || 'epic_essence')} **+${Number(p.essence || 0).toLocaleString()} Essence**`;
-    });
-    await message.reply({
-      content: `✨ Invocation complete:\n${lines.join('\n')}\nBelief Shards: ${shardsRemaining.toLocaleString()}`,
-      allowedMentions: { repliedUser: false },
-    }).catch(() => {});
+    const chunks = splitSummonResultLines(results, 1450);
+    for (let i = 0; i < chunks.length; i += 1) {
+      const finalChunk = i === chunks.length - 1;
+      await message.reply({
+        content: `${i === 0 ? '✨ Invocation complete:\n' : ''}${chunks[i]}` +
+          (finalChunk
+            ? `\n${summonOutcomeSummary(results)}\n${summonBalanceFooter(balances)}`
+            : ''),
+        allowedMentions: { repliedUser: false },
+      }).catch(() => {});
+    }
   }
   // Believer level-up from summon reputation (committed with the pulls).
   notifyBelieverLevelUp(message.channel, discordId, { levelUp: result.believerLevelUp });
