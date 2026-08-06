@@ -19,7 +19,37 @@ const RAID_REWARD_LIMITS = Object.freeze({
   beliefShards: 10_000,
 });
 
+const TODAY_RAID_TOTALS_QUERY = `
+  SELECT
+    COALESCE(SUM(CASE
+      WHEN result = 'win' AND chest_dropped = 'Silver Chest' THEN 1
+      ELSE 0
+    END), 0)::int AS silver_chests,
+    COALESCE(SUM(CASE
+      WHEN result = 'win' AND chest_dropped = 'Gold Chest' THEN 1
+      ELSE 0
+    END), 0)::int AS gold_chests,
+    COALESCE(SUM(CASE
+      WHEN result = 'win' THEN belief_shards_dropped
+      ELSE 0
+    END), 0)::int AS belief_shards
+  FROM raid_logs
+  WHERE discord_id = $1
+    AND battle_type = 'raid'
+    AND ("timestamp" AT TIME ZONE 'Asia/Manila')::date =
+        (NOW() AT TIME ZONE 'Asia/Manila')::date`;
+
 const nonNegativeInt = (value) => Math.max(0, Math.floor(Number(value) || 0));
+
+async function getRaidRewardTotals(client, discordId) {
+  const result = await client.query(TODAY_RAID_TOTALS_QUERY, [discordId]);
+  const row = result.rows[0] || {};
+  return {
+    silverChests: nonNegativeInt(row.silver_chests),
+    goldChests: nonNegativeInt(row.gold_chests),
+    beliefShards: nonNegativeInt(row.belief_shards),
+  };
+}
 
 /** Pure cap calculation used by the DB allocator and deterministic tests. */
 function capRaidRewards({
@@ -52,6 +82,27 @@ function capRaidRewards({
       goldChests: Math.min(RAID_REWARD_LIMITS.goldChests, currentGold + granted.goldChests),
       beliefShards: Math.min(RAID_REWARD_LIMITS.beliefShards, currentShards + granted.beliefShards),
     },
+  };
+}
+
+function capRaidChest({ current = {}, chestCol = null, mobType = null } = {}) {
+  const allocation = capRaidRewards({
+    current,
+    requested: {
+      silverChests: chestCol === 'silver_chest' ? 1 : 0,
+      goldChests: chestCol === 'gold_chest' ? 1 : 0,
+    },
+    regularRaid: mobType === 'regular',
+    eliteMobRaid: mobType === 'elite',
+  });
+  return {
+    ...allocation,
+    chestCol: allocation.granted.silverChests > 0
+      ? 'silver_chest'
+      : allocation.granted.goldChests > 0
+        ? 'gold_chest'
+        : null,
+    notices: raidLimitNotices(allocation),
   };
 }
 
@@ -141,8 +192,11 @@ async function allocateRaidRewardLimits(client, discordId, requested, {
 
 module.exports = {
   RAID_REWARD_LIMITS,
+  TODAY_RAID_TOTALS_QUERY,
   capRaidRewards,
+  capRaidChest,
   formatRaidLimitStatus,
+  getRaidRewardTotals,
   raidLimitNotices,
   allocateRaidRewardLimits,
 };

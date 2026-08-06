@@ -710,13 +710,13 @@ check('class base and per-level scaling match the balance table',
 
 // — Knight DR ×0.75 (25% reduction) after mitigation, applied once, all modes —
 {
-  // order .9 → mob first; critPre(A) .99; mob crit .99, var .5; A var .5 (kills hp-1 mob)
+  // Raid always starts with the user; use enough mob HP for the mob to return a hit.
   const script = [0.9, 0.99, 0.99, 0.5, 0.5];
-  const sK = resolveBattle(player(), mob({ hp: 1 }), { seed: 1, rng: scripted(script) });
+  const sK = resolveBattle(player(), mob({ hp: 5000 }), { seed: 1, rng: scripted(script) });
   // 57 post-DEF × 0.75 = 42.75 → floor 42 (DR floor 57×0.25=14.25 doesn't bind)
   check('Knight takes 42 (57 × 0.75)', dmgOf(allEvents(sK), 'strikes') === 42,
     `got ${dmgOf(allEvents(sK), 'strikes')}`);
-  const sM = resolveBattle(player({ class: 'Mage', classPassive: 'overcharge' }), mob({ hp: 1 }),
+  const sM = resolveBattle(player({ class: 'Mage', classPassive: 'overcharge' }), mob({ hp: 5000 }),
     { seed: 1, rng: scripted(script) });
   check('non-Knight takes 57 (no DR)', dmgOf(allEvents(sM), 'strikes') === 57,
     `got ${dmgOf(allEvents(sM), 'strikes')}`);
@@ -857,7 +857,7 @@ check('class base and per-level scaling match the balance table',
       specialFlags: { first_strike: true },
     }),
     {
-      mode: 'raid',
+      mode: 'boss',
       // crit-pre, mob crit/variance, attack-1 variance, class roll,
       // attack-2 crit/variance, then later fallback draws.
       rng: scripted([0.99, 0.99, 0.5, 0.5, 0.24, 0.99, 0.5], 0.5),
@@ -895,7 +895,7 @@ check('class base and per-level scaling match the balance table',
       mode: 'duel',
       // both crit pre-rolls; attack-1 Tailwind succeeds; attack-1 variance;
       // class procs; attack-2 Tailwind reroll fails; attack-2 crit/variance.
-      rng: scripted([0.99, 0.99, 0.0, 0.5, 0.24, 0.99, 0.99, 0.5], 0.5),
+      rng: scripted([0.0, 0.99, 0.99, 0.0, 0.5, 0.24, 0.99, 0.99, 0.5], 0.5),
     },
   );
   const evadeAttacks = attackLines(roundEvents(freshEvade, 1));
@@ -1393,26 +1393,53 @@ check('class base and per-level scaling match the balance table',
   check('Overcharge suppresses the auto-crit on round 12', !hasEvent(roundEvents(sim, 12), '(CRIT!)'));
 }
 
-// — [v4.2] boss mode: player ALWAYS acts first; no order draw consumed —
+// — turn order policy: raid player-first, duel/PvP 50/50, boss passive override —
 {
-  // first draw 0.0 feeds the round-1 crit pre-roll (NOT an order roll) → guaranteed crit,
-  // proving the order draw is skipped. If a draw had been consumed, crit pre-roll would
-  // read 0.5 (no crit). Player still leads the round.
-  const sim = resolveBattle(player(), mob({ hp: 100000, mobType: 'boss' }),
-    { mode: 'boss', seed: 1, rng: scripted([0.0, 0.5, 0.99, 0.5]) });
-  const ev = roundEvents(sim, 1);
-  const iPlayer = ev.findIndex((e) => e.includes('attacks'));
-  const iMob = ev.findIndex((e) => e.includes('strikes'));
-  check('boss mode: player acts first', iPlayer !== -1 && iMob !== -1 && iPlayer < iMob, `player@${iPlayer} mob@${iMob}`);
-  check('boss mode: no order draw (first draw = crit pre-roll → CRIT)', hasEvent(ev, '(CRIT!)'));
-  // Sleipnir first_strike still overrides → boss first even in boss mode.
-  const simS = resolveBattle(player(), mob({ hp: 100000, mobType: 'boss', specialFlags: { first_strike: true } }),
-    { mode: 'boss', seed: 1, rng: scripted([0.99, 0.99, 0.5, 0.5]) });
-  const evS = roundEvents(simS, 1);
-  const iMobS = evS.findIndex((e) => e.includes('strikes'));
-  const iPlayerS = evS.findIndex((e) => e.includes('attacks'));
-  check('boss mode: Sleipnir first_strike overrides (boss first)', iMobS !== -1 && iPlayerS !== -1 && iMobS < iPlayerS,
-    `mob@${iMobS} player@${iPlayerS}`);
+  const firstActor = (sim, playerToken, opponentToken = 'strikes') => {
+    const events = roundEvents(sim, 1);
+    const playerAt = events.findIndex((event) => event.includes(playerToken));
+    const opponentAt = events.findIndex((event) => event.includes(opponentToken));
+    return { playerAt, opponentAt, events };
+  };
+
+  const raid = firstActor(resolveBattle(
+    player({ name: 'Raider', hp: 100000, atk: 100 }),
+    mob({ name: 'Raid Mob', hp: 100000, atk: 100 }),
+    { mode: 'raid', rng: () => 0.99 },
+  ), 'Raider attacks');
+  check('raid mode: user always acts first', raid.playerAt !== -1 && raid.opponentAt !== -1 && raid.playerAt < raid.opponentAt,
+    `player@${raid.playerAt} mob@${raid.opponentAt}`);
+
+  const duelPlayerFirst = firstActor(resolveBattle(
+    player({ name: 'Duel User', hp: 100000, atk: 100 }),
+    player({ name: 'Duel Rival', hp: 100000, atk: 100 }),
+    { mode: 'duel', rng: () => 0 },
+  ), 'Duel User attacks', 'Duel Rival attacks');
+  const duelOpponentFirst = firstActor(resolveBattle(
+    player({ name: 'Duel User', hp: 100000, atk: 100 }),
+    player({ name: 'Duel Rival', hp: 100000, atk: 100 }),
+    { mode: 'duel', rng: () => 0.99 },
+  ), 'Duel User attacks', 'Duel Rival attacks');
+  check('duel/PvP mode: low roll gives user first', duelPlayerFirst.playerAt !== -1 && duelPlayerFirst.opponentAt !== -1 && duelPlayerFirst.playerAt < duelPlayerFirst.opponentAt,
+    `player@${duelPlayerFirst.playerAt} opponent@${duelPlayerFirst.opponentAt}`);
+  check('duel/PvP mode: high roll gives opponent first', duelOpponentFirst.playerAt !== -1 && duelOpponentFirst.opponentAt !== -1 && duelOpponentFirst.opponentAt < duelOpponentFirst.playerAt,
+    `player@${duelOpponentFirst.playerAt} opponent@${duelOpponentFirst.opponentAt}`);
+
+  const boss = firstActor(resolveBattle(
+    player({ name: 'Boss User', hp: 100000, atk: 100 }),
+    mob({ name: 'Boss', hp: 100000, mobType: 'boss', atk: 100 }),
+    { mode: 'boss', rng: () => 0.99 },
+  ), 'Boss User attacks');
+  check('boss mode: user acts first by default', boss.playerAt !== -1 && boss.opponentAt !== -1 && boss.playerAt < boss.opponentAt,
+    `player@${boss.playerAt} boss@${boss.opponentAt}`);
+
+  const firstStrikeBoss = firstActor(resolveBattle(
+    player({ name: 'Boss User', hp: 100000, atk: 100 }),
+    mob({ name: 'First Strike Boss', hp: 100000, mobType: 'boss', atk: 100, specialFlags: { first_strike: true } }),
+    { mode: 'boss', rng: () => 0.99 },
+  ), 'Boss User attacks');
+  check('boss mode: first_strike passive gives boss first action', firstStrikeBoss.playerAt !== -1 && firstStrikeBoss.opponentAt !== -1 && firstStrikeBoss.opponentAt < firstStrikeBoss.playerAt,
+    `player@${firstStrikeBoss.playerAt} boss@${firstStrikeBoss.opponentAt}`);
 }
 
 // — [v4.8] snapshot cadence per mode (raid + duel on rounds 1,4,16,… / boss every 3rd) —
@@ -1457,7 +1484,7 @@ check('class base and per-level scaling match the balance table',
       hp: 3000,
       specialFlags: { first_strike: true },
     }),
-    { mode: 'raid', rng: () => 0 }
+    { mode: 'boss', rng: () => 0 }
   );
   const ev = roundEvents(sim, 1);
   const iAttack = ev.findIndex((e) => e.includes('TestUser attacks'));
@@ -1562,11 +1589,11 @@ check('class base and per-level scaling match the balance table',
   });
   const proc = resolveBattle(attacker(), loki(), {
     mode: 'duel',
-    rng: scripted([0.99, 0.99, 0.249, 0.5]),
+    rng: scripted([0.0, 0.99, 0.99, 0.249, 0.5]),
   });
   const noProc = resolveBattle(attacker(), loki(), {
     mode: 'duel',
-    rng: scripted([0.99, 0.99, 0.25, 0.5]),
+    rng: scripted([0.0, 0.99, 0.99, 0.25, 0.5]),
   });
   check('Loki proc boundary is exactly 25% each turn',
     hasEvent(roundEvents(proc, 1), 'evades the attack (Illusory Double)')
@@ -1584,7 +1611,7 @@ check('class base and per-level scaling match the balance table',
       name: 'Hydra', atk: 100, hp: 1000, def: 0, crit: 0,
       specialFlags: { first_strike: true, multi_attack: 2, multi_attack_pct: 1 },
     }),
-    { mode: 'raid', rng: scripted([0.99, 0, 0.99, 0.5, 0.99, 0.5]) },
+    { mode: 'boss', rng: scripted([0.99, 0, 0.99, 0.5, 0.99, 0.5]) },
   );
   const multiEvents = roundEvents(multi, 1);
   check('Loki consumes Illusory Double after one hit and one counter',
@@ -1741,7 +1768,7 @@ check('class base and per-level scaling match the balance table',
         name: 'Stunner', class: 'Fighter', classPassive: 'stun', atk: 10,
         hp: 100000, def: 0, crit: 0, specialFlags: { first_strike: true },
       }),
-      { mode: 'duel', rng: () => 0 }
+      { mode: 'duel', rng: scripted([0.99, 0.99, 0.0, 0.99], 0.99) }
     );
     const r2 = roundEvents(sim, 2);
     check(`on-hit timing: ${marker} does not fire while owner is stunned`,
@@ -1830,6 +1857,7 @@ check('class base and per-level scaling match the balance table',
       // Fighter fails on r1, applies its one-turn Stun on r2, and the queued
       // r3 passive survives that skipped action for the user's r4 attack.
       rng: scripted([
+        0.99,
         0.99, 0.99, 0.99, 0.5, 0.5,
         0.99, 0.00, 0.99, 0.5, 0.5,
         0.99, 0.99, 0.99, 0.5,
@@ -1859,7 +1887,7 @@ check('class base and per-level scaling match the balance table',
       name: 'Critter', class: 'Knight', classPassive: null, atk: 10,
       hp: 100000, def: 0, crit: 100, specialFlags: { first_strike: true },
     }),
-    { mode: 'duel', rng: () => 0 }
+    { mode: 'duel', rng: () => 0.99 }
   );
   check('Vidar returns a received crit on his same-round next attack',
     hasEvent(roundEvents(vidar, 1), 'Vidar: Silent Vengeance')
@@ -1933,11 +1961,11 @@ check('class base and per-level scaling match the balance table',
 
 // Magwayen drains 30% of dealt damage and Bloodlust gains one start-turn stack.
 {
-  const rolls = [0.99, 0.99, 0.99, 0.5, 0.5]; // mob first; both hits non-crit, pinned variance
+  const rolls = [0.99, 0.99, 0.5, 0.5]; // boss first-strike; both hits non-crit, pinned variance
   const magwayen = resolveBattle(
     player({ classPassive: null, deityBlessingKey: 'magwayen_soul_drain', atk: 1000, hp: 1000, def: 0, crit: 0 }),
-    mob({ atk: 400, hp: 100, def: 0, crit: 0 }),
-    { mode: 'raid', rng: scripted(rolls) }
+    mob({ atk: 400, hp: 100, def: 0, crit: 0, mobType: 'boss', specialFlags: { first_strike: true } }),
+    { mode: 'boss', rng: scripted(rolls) }
   );
   check('Magwayen Soul Drain heals 30% of actual post-mitigation HP removed',
     magwayen.winner === 'a' && hasEvent(allEvents(magwayen), 'Soul Drain — healed 30 HP')
@@ -1946,8 +1974,8 @@ check('class base and per-level scaling match the balance table',
 
   const spear = resolveBattle(
     player({ classPassive: null, weaponPassiveKey: 'spear_of_ares', atk: 1000, hp: 1000, def: 0, crit: 0 }),
-    mob({ atk: 400, hp: 100, def: 0, crit: 0 }),
-    { mode: 'raid', rng: scripted(rolls) }
+    mob({ atk: 400, hp: 100, def: 0, crit: 0, mobType: 'boss', specialFlags: { first_strike: true } }),
+    { mode: 'boss', rng: scripted(rolls) }
   );
   check('Spear of Ares Bloodlust starts at one +10% stack',
     spear.winner === 'a' && hasEvent(allEvents(spear), 'Bloodlust — ATK +10% (1 stacks)'));
@@ -2243,7 +2271,7 @@ check('class base and per-level scaling match the balance table',
 // — Sleipnir first_strike: boss acts first, no order roll —
 {
   const sim = resolveBattle(player(), mob({ hp: 100000, mobType: 'boss', specialFlags: { first_strike: true } }),
-    { seed: 1, rng: scripted([0.99, 0.99, 0.5, 0.5]) }); // critPre(A), mobCrit, mobVar, playerVar
+    { mode: 'boss', seed: 1, rng: scripted([0.99, 0.99, 0.5, 0.5]) }); // critPre(A), mobCrit, mobVar, playerVar
   const ev = roundEvents(sim, 1);
   const iMob = ev.findIndex((e) => e.includes('strikes'));
   const iPlayer = ev.findIndex((e) => e.includes('attacks'));
@@ -2358,10 +2386,10 @@ check('class base and per-level scaling match the balance table',
 // — R3: a fully absorbed hit consumes nothing (Gridr ignore ≠ Heimdall consume) —
 {
   const mk = () => player({ class: 'Mage', classPassive: 'overcharge', weaponPassiveKey: 'gridr_iron_gloves', deityBlessingKey: 'heimdall_eternal_vigilance' });
-  // order .9 → mob first. Each incoming hit rolls Ironhide after mob crit/variance.
-  const sim = resolveBattle(mk(), mob({ hp: 100000 }),
-    { seed: 1, rng: scripted([
-      0.9, 0.99, 0.99, 0.5, 0.01, 0.5,
+  // Boss first-strike starts the mob; each incoming hit rolls Ironhide after mob crit/variance.
+  const sim = resolveBattle(mk(), mob({ hp: 100000, mobType: 'boss', specialFlags: { first_strike: true } }),
+    { mode: 'boss', seed: 1, rng: scripted([
+      0.99, 0.99, 0.5, 0.01, 0.5,
       0.99, 0.99, 0.5, 0.99, 0.5,
     ]) });
   check('R3: Gridr keeps a zero-damage line for absorbed damage',
@@ -2464,7 +2492,7 @@ section('4b. Armor rework safety contracts');
       deityBlessingKey: 'skadi_winters_hunt',
       specialFlags: { first_strike: true },
     }),
-    { mode: 'duel', rng: () => 0 },
+    { mode: 'duel', rng: scripted([0.99], 0) },
   );
   const events = roundEvents(sim, 3);
   const attackDamage = dmgOf(events, 'Attacker attacks');

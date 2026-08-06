@@ -31,6 +31,7 @@ const { scaleExpForMobLevel } = require('../../config/expScaling');
 const { awardCombatExp } = require('../../utils/awardCombatExp');
 const { formatLevelRewardLine } = require('../../config/levelRewards');
 const { progressQuests } = require('../../utils/questProgress');
+const { capRaidChest, getRaidRewardTotals } = require('../../utils/raidRewardLimits');
 
 const STALE_BATTLE_MINUTES = 5;
 
@@ -67,6 +68,7 @@ function rewardSummaryText(sim, mobName, rewards) {
     parts.push(`✨ +${Number(rewards.exp || 0).toLocaleString()} EXP`);
   }
   lines.push(parts.join(' · '));
+  if (rewards.limitNotices?.length) lines.push(rewards.limitNotices.join('\n'));
   return lines.join('\n');
 }
 
@@ -149,6 +151,18 @@ async function commitRewards(discordId, sim, mobRow, rng, mobLevel) {
       throw new Error('player rows missing');
     }
     const bagBefore = bagRes.rows[0];
+
+    let limitNotices = [];
+    if (won && chestCol) {
+      const dailyTotals = await getRaidRewardTotals(client, discordId);
+      const allocation = capRaidChest({
+        current: dailyTotals,
+        chestCol,
+        mobType: mobRow.mob_type,
+      });
+      chestCol = allocation.chestCol;
+      limitNotices = allocation.notices;
+    }
 
     const bagUpd = await client.query(
       `UPDATE users_bag
@@ -239,6 +253,7 @@ async function commitRewards(discordId, sim, mobRow, rng, mobLevel) {
     const reward = {
       won, credux, exp, shards,
       chestLabel: chestCol ? CHEST_LABELS[chestCol] : null,
+      limitNotices,
       levelFrom: lvl.previousLevel, levelTo: lvl.newLevel, leveledUp: lvl.leveledUp,
       levelRewards: lvl.rewards,
       questNotices,
@@ -308,7 +323,7 @@ async function execute(message) {
           battleSkinPath,
           resultSkinPath,
           rewards,
-          notices: rewards.questNotices,
+          notices: [...rewards.limitNotices, ...rewards.questNotices],
           ownerId: discordId,
           onMessage: (msg) => pool.query(
             'UPDATE active_battles SET message_id = $2, channel_id = $3 WHERE discord_id = $1',

@@ -7,6 +7,7 @@ const path = require('node:path');
 const ROOT = path.resolve(__dirname, '..');
 const raidCommandSource = fs.readFileSync(path.join(ROOT, 'src', 'commands', 'rpg', 'raid.js'), 'utf8');
 const dailyLimitsSource = fs.readFileSync(path.join(ROOT, 'src', 'commands', 'economy', 'dailyLimits.js'), 'utf8');
+const raidLimitsSource = fs.readFileSync(path.join(ROOT, 'src', 'utils', 'raidRewardLimits.js'), 'utf8');
 const commandHandlerSource = fs.readFileSync(path.join(ROOT, 'src', 'handlers', 'commandHandler.js'), 'utf8');
 const {
   resolveBattle,
@@ -14,6 +15,7 @@ const {
 } = require(path.join(ROOT, 'src', 'engine', 'battleEngine'));
 const {
   capRaidRewards,
+  capRaidChest,
   formatRaidLimitStatus,
   raidLimitNotices,
 } = require(path.join(ROOT, 'src', 'utils', 'raidRewardLimits'));
@@ -164,23 +166,31 @@ for (const [roll, label, application] of overchargeCases) {
   check('Raid caps grant partial Silver, Gold, and Shards independently', partial.granted.silverChests === 1 && partial.granted.goldChests === 1 && partial.granted.beliefShards === 500);
   check('Raid cap totals stop exactly at 20/10/10000', partial.totals.silverChests === 20 && partial.totals.goldChests === 10 && partial.totals.beliefShards === 10000);
   check('Raid cap notices are readable', raidLimitNotices(partial).length === 3 && raidLimitNotices(partial).every((notice) => notice.includes('daily')));
+  const blockedGoldChest = capRaidChest({
+    current: { goldChests: 10 },
+    chestCol: 'gold_chest',
+    mobType: 'elite',
+  });
+  check('Elite raid does not grant Gold Chest at 10/10', blockedGoldChest.chestCol === null && blockedGoldChest.granted.goldChests === 0 && blockedGoldChest.blocked.goldChests === 1);
+  check('Blocked Gold Chest reports the daily limit', blockedGoldChest.notices.length === 1 && blockedGoldChest.notices[0].includes('10/10 Gold Chests'));
   check('Raid tracking line always shows shards and Silver Chest totals', formatRaidLimitStatus(partial.totals).includes('Belief Shards: 10,000/10,000') && formatRaidLimitStatus(partial.totals).includes('Silver Chest: 20/20'));
   check('Raid tracking line includes the reward icons', formatRaidLimitStatus(partial.totals).includes('<:belief_shards:') && formatRaidLimitStatus(partial.totals).includes('<:silver_chest:'));
   check('Raid tracking line always shows the Gold Chest total', formatRaidLimitStatus(partial.totals).includes('Gold Chest: 10/10'));
   check('Raid tracking line includes the Gold Chest icon', formatRaidLimitStatus(partial.totals).includes('<:gold_chest:'));
-  check('Raid keeps the original reward path without daily-limit work',
-    raidCommandSource.includes('const rewards = await commitRewards(discordId, sim, mobRow, rng, level);')
-      && !raidCommandSource.includes('allocateRaidRewardLimits')
-      && !raidCommandSource.includes('rewardStatus:'));
+  check('Raid enforces chest limits from the shared daily log totals',
+    raidCommandSource.includes('getRaidRewardTotals')
+      && raidCommandSource.includes('capRaidChest')
+      && raidCommandSource.includes('chestCol = allocation.chestCol'));
   check('Daily limits are read only when the new command is used',
     commandHandlerSource.includes('dailyLimitsCmd.execute(message)')
-      && dailyLimitsSource.includes('FROM raid_logs')
-      && dailyLimitsSource.includes('AT TIME ZONE \'Asia/Manila\''));
+      && dailyLimitsSource.includes('getRaidRewardTotals')
+      && raidLimitsSource.includes('FROM raid_logs')
+      && raidLimitsSource.includes('AT TIME ZONE \'Asia/Manila\''));
   check('Daily limits use the existing reward icons and all three counters',
     dailyLimitsSource.includes('formatRaidLimitStatus')
-      && dailyLimitsSource.includes('silver_chests')
-      && dailyLimitsSource.includes('gold_chests')
-      && dailyLimitsSource.includes('belief_shards'));
+      && raidLimitsSource.includes('silver_chests')
+      && raidLimitsSource.includes('gold_chests')
+      && raidLimitsSource.includes('belief_shards'));
   check('Stale raid takeover receives a fresh idempotency key',
     raidCommandSource.includes("battle_id = nextval(pg_get_serial_sequence('active_battles', 'battle_id'))"));
   const unrelated = capRaidRewards({ current: {}, requested: { silverChests: 3, goldChests: 2, beliefShards: 100 }, regularRaid: false, eliteMobRaid: false });
