@@ -11,10 +11,9 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * RNG DRAW ORDER (part of the contract — a seed fully determines a battle):
  *   PRE-BATTLE
- *     1. actor-order roll (1 draw; SKIPPED when the mob has special_flags.first_strike
- *        OR when mode === 'boss' — [v4.2] the player always acts first vs a boss, so no
- *        draw is consumed. first_strike (Sleipnir) is checked BEFORE the boss branch and
- *        still keeps the boss first. raid/duel always consume the order draw.)
+ *     1. actor-order roll (raid consumes the legacy order draw for stream stability but
+ *        always starts with the player. Boss skips the draw and starts with the player
+ *        unless special_flags.first_strike is set. Duel/PvP consumes the 50/50 draw.)
  *   PER ROUND
  *     2. pre-rolls, in actor order, for each PLAYER-kind side:
  *        a. crit pre-roll (1 draw, ALWAYS — voided if the side is skip-CC'd; also voided,
@@ -1939,14 +1938,13 @@ function resolveBattle(a, b, opts = {}) {
 
   // ── actor order ────────────────────────────────────────────────────────────
   let aFirst;
-  if (B.specialFlags.first_strike) {
-    aFirst = false; // Sleipnir: boss takes the very first action (checked before mode, no roll)
-  } else if (A.specialFlags.first_strike) {
+  if (mode === 'raid') {
+    rng(); // Preserve the legacy stream position; raid always starts with the user.
     aFirst = true;
   } else if (mode === 'boss') {
-    aFirst = true;  // [v4.2] player ALWAYS attacks first vs a boss — no order draw consumed
+    aFirst = !B.specialFlags.first_strike; // Boss first-strike passives override the default.
   } else {
-    aFirst = rng() < 0.5; // raid/duel keep the 50/50 roll
+    aFirst = rng() < 0.5; // Duel/PvP uses a fair 50/50 order roll.
   }
   const order = aFirst ? [A, B] : [B, A];
 
