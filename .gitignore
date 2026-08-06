@@ -35,18 +35,17 @@ assets/skins/testers/*
 # Generated skin-alignment artifacts (scripts/alignSkins.js, scripts/skinPreview.js)
 tmp/
 
-# Local documentation — not pushed
-# ...except architecture decision records. ADRs exist to be read by whoever picks up
-# the system next, so they have to travel with the code. Everything else under docs/
-# stays local.
+# Local documentation — not pushed, including architecture decision records.
+# Everything under docs/ stays local.
 #
 # This must be `docs/*` and not `docs/`: a trailing-slash exclusion stops git from
 # descending into the directory at all, so no negation inside it can ever match.
 docs/*
-!docs/adr/
+docs/adr/
 AGENTS.md
 AGENT.md
 CLAUDE.md
+claude.md
 Handoff.md
 handoff.md
 todo.md
