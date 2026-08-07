@@ -52,16 +52,8 @@ todo.md
 
 # Local-only development and validation scripts. Production migrations,
 # schemas, preflight, deployment, compensation, seed, and repair tools remain tracked.
-scripts/*selftest.js
-!scripts/battle-selftest.js
-!scripts/calamity-rewards-selftest.js
-!scripts/combat-log-order-selftest.js
-!scripts/combat-reward-update-selftest.js
-!scripts/reward-summon-qol-selftest.js
-!scripts/font-render-selftest.js
-!scripts/monthsary-remediation-db-selftest.js
-!scripts/schema-drift-selftest.js
-!scripts/genesis-avatar-selftest.js
+# Selftests are tracked: they are the refactor characterization gate (Phase 0/1)
+# and CI runs them via npm run selftest:full.
 scripts/*benchmark.js
 scripts/alignSkins.js
 scripts/analyze-resource-logs.js
