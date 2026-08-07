@@ -332,6 +332,251 @@ function rngOf(seed) {
   return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32);
 }
 
+const applyHitToDefender = (bt, fx, S, O, dmg, info = {}) => {
+  const prepareConfirmedHit = () => {
+    if (typeof info.prepareLandedHit !== 'function') return;
+    const prepared = info.prepareLandedHit(dmg);
+    if (Number.isFinite(prepared)) dmg = prepared;
+  };
+  if (O.kind === 'mob') {
+    // mob defenses live on the attacking player's flags (mob skills run there)
+    if (S.flags.sigbin_evade_check && !S.flags.attacks_cannot_miss) {
+      bt.shared.events.push(`👤 ${O.name} evades the attack (Shadow Step)!`);
+      return { applied: 0, negated: true, evaded: true };
+    }
+    prepareConfirmedHit();
+    if (S.flags.dwarf_shield_active) {
+      const absorbed = Math.min(dmg, S.flags.dwarf_shield_cap || 0);
+      dmg -= absorbed;
+      S.flags.dwarf_shield_active = false;
+      if (absorbed > 0) bt.shared.events.push(`⛏️ ${O.name}'s Stone Skin absorbs ${absorbed} damage!`);
+    }
+    dmg = fx.effectDamage(O, dmg);
+    fx.damage(O, dmg);
+    fx.checkDeaths('attack');
+    return { applied: Math.floor(dmg), negated: false };
+  }
+
+  const F = O.flags;
+  if (F.amihan_evade_check && !S.flags.attacks_cannot_miss) {
+    bt.shared.events.push(`💨 ${O.name} evades the attack (Tailwind)!`);
+    F.amihan_evade_bonus_stacks = (F.amihan_evade_bonus_stacks || 0) + 1;
+    return { applied: 0, negated: true, evaded: true };
+  }
+  if (F.loki_evade_check && !S.flags.attacks_cannot_miss) {
+    bt.shared.events.push(`🃏 ${O.name} evades the attack (Illusory Double)!`);
+    const counter = Math.max(0, Math.floor(F.loki_counter_dmg || 0));
+    // Illusory Double evades one attack per successful turn roll. Consume it
+    // before countering so multi-hit attackers do not trigger unlimited counters.
+    F.loki_evade_check = false;
+    F.loki_counter_dmg = 0;
+    if (counter > 0) {
+      const appliedCounter = Math.floor(fx.effectDamage(S, counter));
+      const counterTargetHpBefore = S.hp;
+      fx.damage(S, appliedCounter);
+      fx.logAt(LOG.REFLECT, `🃏 Loki's counter strikes ${S.name} for ${appliedCounter} DMG!`);
+      if (appliedCounter > 0 && O.hp > 0 && O.flags.soul_drain_pct > 0) {
+        fx.applyLifesteal(
+          O,
+          Math.min(appliedCounter, counterTargetHpBefore),
+          O.flags.soul_drain_pct,
+          'Soul Drain',
+        );
+      }
+      fx.checkDeaths('counter');
+    }
+    return { applied: 0, negated: true, evaded: true };
+  }
+
+  if (F.chooser_grace_active && !S.flags.attacks_cannot_miss) {
+    const chance = Number.isFinite(F.chooser_grace_chance) ? F.chooser_grace_chance : 0.22;
+    if (bt.rng() < chance) {
+      F.chooser_grace_chance = 0.22;
+      bt.shared.events.push("👻 Chooser's Grace — evaded! (chance reset to 22%)");
+      return { applied: 0, negated: true, evaded: true };
+    }
+  }
+  if (F.helm_darkness_active && !S.flags.attacks_cannot_miss && bt.rng() < 0.30) {
+    F.unseen_pending = true;
+    bt.shared.events.push('🌑 Veil of Hades — evaded! You are Unseen: next attack ignores 50% DEF.');
+    return { applied: 0, negated: true, evaded: true };
+  }
+
+  if (F.gridr_ironhide_active && bt.rng() < 0.20) {
+    bt.shared.events.push('🛡️ Ironhide — incoming hit ignored entirely!');
+    return { applied: 0, negated: true };
+  }
+
+  // Shieldmaiden's Guard: 10% chance to fully negate a hit and reflect 60% of it.
+  // Returning here is what prevents the double-dip — the flat 20% reflect entry in
+  // reflectSources below is never reached on a negated hit.
+  //
+  // 60% of WHAT: `wouldBeDamage` is post-DEF-mitigation and post Frostbite/Petrify
+  // amplification, but before the defender's percentage reduction lane. That lane
+  // never runs on a negated hit, so no post-reduction figure exists to use instead —
+  // this is the only well-defined basis, and it is the same one the passive already
+  // used at 100%.
+  const wouldBeDamage = fx.effectDamage(O, dmg);
+  if (F.skjaldmaer_active && bt.rng() < 0.10) {
+    bt.shared.events.push("🛡️ Shieldmaiden's Guard — incoming hit negated!");
+    fx.applyReflectedDamage(O, S, wouldBeDamage, 0.60, "Shieldmaiden's Guard");
+    return { applied: 0, negated: true };
+  }
+
+  prepareConfirmedHit();
+  dmg = fx.effectDamage(O, dmg);
+
+  const postDefDmg = dmg;
+  let damageReduction = Math.max(0, O.scratch.damageReductionPct || 0);
+  const incomingIncrease = Math.max(0, O.scratch.incomingDamageIncreasePct || 0);
+  let odinReduction = 0;
+
+  // Phalanx Wall: the registry already folded its base 20% into damageReductionPct
+  // this round. The first incoming hit of the battle adds the 30% first-hit bonus and
+  // reports the COMBINED 50%; every later hit reports the base 20%. Exactly one line
+  // per incoming attack, at DEFENSIVE priority so it sits directly under the attack
+  // that triggered it and above Thorns/DOT. Numbers are unchanged — only the logging.
+  if (F.phalanx_wall_active) {
+    if (!F.phalanx_first_hit_used) {
+      F.phalanx_first_hit_used = true;
+      damageReduction += 0.30;
+      bt.shared.events.push(`🛡️ ${O.name}'s Phalanx Wall — first hit absorbed, damage reduced by 50%.`);
+    } else {
+      bt.shared.events.push(`🛡️ ${O.name}'s Phalanx Wall — damage taken reduced by 20%.`);
+    }
+  }
+  if (F.heimdall_first_hit_available && !F.heimdall_first_hit_used) {
+    damageReduction += 0.50;
+    F.heimdall_first_hit_used = true;
+    F.heimdall_first_hit_available = false;
+    bt.shared.events.push(`👁️ Heimdall negates 50% of the first hit on ${O.name}!`);
+  } else if (info.crit && F.heimdall_crit_guard) {
+    damageReduction += 0.30;
+    bt.shared.events.push(`👁️ Heimdall blunts a critical hit on ${O.name} (-30%)!`);
+  }
+  if (F.athena_shield_active && (F.athena_hits_absorbed || 0) < 2) {
+    damageReduction += 0.40;
+    F.athena_hits_absorbed = (F.athena_hits_absorbed || 0) + 1;
+    if (F.athena_hits_absorbed >= 2) F.athena_shield_active = false;
+    bt.shared.events.push(`🛡️ Athena's Aegis absorbs 40% (${F.athena_hits_absorbed}/2)!`);
+  } else if ((F.athena_hits_absorbed || 0) >= 2) {
+    damageReduction += 0.10;
+    bt.shared.events.push("🛡️ Athena's Aegis reduces the incoming hit by 10%!");
+  }
+  if (F.odin_foresight_block) {
+    odinReduction = 0.25;
+    damageReduction += odinReduction;
+    bt.shared.events.push(`🪄 Odin: All-Father's Foresight — Reduced incoming damage by 25%!`);
+  }
+  if (F.steel_kite_shield_block) {
+    damageReduction += 0.15;
+    bt.shared.events.push('🛡️ Steel Kite Shield: Bulwark — Blocked 15% incoming damage!');
+  }
+  if (F.pelte_active && bt.rng() < 0.20) {
+    damageReduction += 0.50;
+    bt.shared.events.push('🛡️ Deflection — blocked half of the incoming hit!');
+  }
+  if (F.njord_block_check) {
+    damageReduction += F.njord_block_pct || 0;
+    bt.shared.events.push("🌊 Njord: Sea's Favor — Reduced incoming damage by 30%!");
+  }
+  if (F.echo_njord_block_check) {
+    damageReduction += F.echo_njord_block_pct || 0;
+    bt.shared.events.push("🌊 Echo · Njord: Sea's Favor — Reduced incoming damage by 20%!");
+  }
+  if (O.classPassive === 'damage_reduction') damageReduction += KNIGHT_DAMAGE_REDUCTION;
+
+  const cappedReduction = Math.min(MAX_DAMAGE_REDUCTION, damageReduction);
+  dmg *= Math.max(0, 1 - cappedReduction + incomingIncrease);
+  dmg = Math.max(0, Math.floor(dmg));
+  if (odinReduction > 0) {
+    const withoutOdinReduction = Math.min(
+      MAX_DAMAGE_REDUCTION,
+      Math.max(0, damageReduction - odinReduction),
+    );
+    const withoutOdin = Math.max(
+      0,
+      Math.floor(postDefDmg * Math.max(0, 1 - withoutOdinReduction + incomingIncrease)),
+    );
+    const prevented = Math.max(0, withoutOdin - dmg);
+    F.odin_prevented_damage = (F.odin_prevented_damage || 0) + prevented;
+  }
+
+  if (F.mail_brokkr_hit_cap > 0) {
+    const cap = Math.floor(O.maxHp * F.mail_brokkr_hit_cap);
+    if (dmg > cap) {
+      const uncapped = dmg;
+      dmg = cap;
+      bt.shared.events.push(`⚒️ Dwarven Forge — hit capped at 15% max HP (${uncapped} -> ${cap}).`);
+    }
+  }
+
+  if (dmg >= O.hp && F.sidapa_reprieve_available && !F.sidapa_reprieve_used) {
+    F.sidapa_reprieve_used = true;
+    F.sidapa_reprieve_available = false;
+    const applied = O.hp - 1;
+    fx.setHp(O, 1);
+    const revive = Math.floor(O.maxHp * 0.30);
+    fx.setHp(O, Math.min(1 + revive, O.maxHp));
+    F.sidapa_atk_bonus = 0.50;
+    if (info.crit) fx.recordReceivedCrit(O);
+    bt.shared.events.push(`🌙 Sidapa's Death's Reprieve! ${O.name} survives, heals ${revive} HP, ATK +50%!`);
+    fx.grantValkyrieResolve(O);
+    fx.grantAegisStone(O, S);
+    return { applied, negated: false };
+  }
+
+  if (dmg >= O.hp && F.titan_reprieve_available && !F.titan_reprieve_used) {
+    F.titan_reprieve_used = true;
+    F.titan_reprieve_available = false;
+    const applied = O.hp - 1;
+    fx.setHp(O, 1);
+    F.titan_atk_bonus = 1.00;
+    if (info.crit) fx.recordReceivedCrit(O);
+    bt.shared.events.push(`🔥 Titan: Forgefire Veins — ${O.name} survives at 1 HP, damage +100%!`);
+    fx.grantValkyrieResolve(O);
+    fx.grantAegisStone(O, S);
+    return { applied, negated: false };
+  }
+
+  const beforeHp = O.hp;
+  fx.damage(O, dmg);
+  const damageTaken = beforeHp - O.hp;
+  if (fx.checkDeaths('attack')) return { applied: dmg, negated: false };
+
+  const reflectSources = [
+    [F.enderby_reflect_pct || 0, 'Thornward'],
+    [F.skjaldmaer_reflect_pct || 0, "Shieldmaiden's Guard"],
+    [F.mail_brokkr_reflect || 0, 'Dwarven Forge'],
+    [F.tyr_reflect || 0, 'Oathkeeper'],
+    [F.mayari_reflect || 0, 'Lunar Veil'],
+    [F.rune_thorns_reflect || 0, 'Thorns Rune'],
+  ];
+  for (const [pct, source] of reflectSources) {
+    if (pct > 0 && damageTaken > 0 && fx.applyReflectedDamage(O, S, damageTaken, pct, source)) {
+      return { applied: dmg, negated: false };
+    }
+  }
+
+  if (F.chooser_grace_active) {
+    const current = Number.isFinite(F.chooser_grace_chance) ? F.chooser_grace_chance : 0.22;
+    F.chooser_grace_chance = Math.min(1, current + 0.08);
+    bt.shared.events.push(
+      `👻 Chooser's Grace — hit taken, evade chance now ${Math.round(F.chooser_grace_chance * 100)}%`
+    );
+  }
+  fx.grantValkyrieResolve(O);
+  fx.grantAegisStone(O, S);
+  if (info.crit) fx.recordReceivedCrit(O);
+  if (info.crit && S.flags.atlas_crit_atk_down) {
+    if (fx.tryApplyDebuff(O, 'atk_down', 2, 0.30, S)) {
+      bt.shared.events.push(`🥊 Atlas: Worldbreaker's Grip — ${O.name}'s ATK reduced 30%!`);
+    }
+  }
+  if (O.hp > 0) fx.armLowHpAttackPassives(O);
+  return { applied: dmg, negated: false };
+};
+
 /**
  * Resolve a full battle.
  * @param {object} a  player fighter (statAssembly.buildPlayerFighter shape)
@@ -823,249 +1068,13 @@ function resolveBattle(a, b, opts = {}) {
       bt.shared.events.push('⚔️ Vidar: Silent Vengeance — Wounded! Guaranteed CRIT!');
     }
   };
-  const applyHitToDefender = (S, O, dmg, info = {}) => {
-    const prepareConfirmedHit = () => {
-      if (typeof info.prepareLandedHit !== 'function') return;
-      const prepared = info.prepareLandedHit(dmg);
-      if (Number.isFinite(prepared)) dmg = prepared;
-    };
-    if (O.kind === 'mob') {
-      // mob defenses live on the attacking player's flags (mob skills run there)
-      if (S.flags.sigbin_evade_check && !S.flags.attacks_cannot_miss) {
-        bt.shared.events.push(`👤 ${O.name} evades the attack (Shadow Step)!`);
-        return { applied: 0, negated: true, evaded: true };
-      }
-      prepareConfirmedHit();
-      if (S.flags.dwarf_shield_active) {
-        const absorbed = Math.min(dmg, S.flags.dwarf_shield_cap || 0);
-        dmg -= absorbed;
-        S.flags.dwarf_shield_active = false;
-        if (absorbed > 0) bt.shared.events.push(`⛏️ ${O.name}'s Stone Skin absorbs ${absorbed} damage!`);
-      }
-      dmg = effectDamage(O, dmg);
-      damage(O, dmg);
-      checkDeaths('attack');
-      return { applied: Math.floor(dmg), negated: false };
-    }
-
-    const F = O.flags;
-    if (F.amihan_evade_check && !S.flags.attacks_cannot_miss) {
-      bt.shared.events.push(`💨 ${O.name} evades the attack (Tailwind)!`);
-      F.amihan_evade_bonus_stacks = (F.amihan_evade_bonus_stacks || 0) + 1;
-      return { applied: 0, negated: true, evaded: true };
-    }
-    if (F.loki_evade_check && !S.flags.attacks_cannot_miss) {
-      bt.shared.events.push(`🃏 ${O.name} evades the attack (Illusory Double)!`);
-      const counter = Math.max(0, Math.floor(F.loki_counter_dmg || 0));
-      // Illusory Double evades one attack per successful turn roll. Consume it
-      // before countering so multi-hit attackers do not trigger unlimited counters.
-      F.loki_evade_check = false;
-      F.loki_counter_dmg = 0;
-      if (counter > 0) {
-        const appliedCounter = Math.floor(effectDamage(S, counter));
-        const counterTargetHpBefore = S.hp;
-        damage(S, appliedCounter);
-        logAt(LOG.REFLECT, `🃏 Loki's counter strikes ${S.name} for ${appliedCounter} DMG!`);
-        if (appliedCounter > 0 && O.hp > 0 && O.flags.soul_drain_pct > 0) {
-          applyLifesteal(
-            O,
-            Math.min(appliedCounter, counterTargetHpBefore),
-            O.flags.soul_drain_pct,
-            'Soul Drain',
-          );
-        }
-        checkDeaths('counter');
-      }
-      return { applied: 0, negated: true, evaded: true };
-    }
-
-    if (F.chooser_grace_active && !S.flags.attacks_cannot_miss) {
-      const chance = Number.isFinite(F.chooser_grace_chance) ? F.chooser_grace_chance : 0.22;
-      if (bt.rng() < chance) {
-        F.chooser_grace_chance = 0.22;
-        bt.shared.events.push("👻 Chooser's Grace — evaded! (chance reset to 22%)");
-        return { applied: 0, negated: true, evaded: true };
-      }
-    }
-    if (F.helm_darkness_active && !S.flags.attacks_cannot_miss && bt.rng() < 0.30) {
-      F.unseen_pending = true;
-      bt.shared.events.push('🌑 Veil of Hades — evaded! You are Unseen: next attack ignores 50% DEF.');
-      return { applied: 0, negated: true, evaded: true };
-    }
-
-    if (F.gridr_ironhide_active && bt.rng() < 0.20) {
-      bt.shared.events.push('🛡️ Ironhide — incoming hit ignored entirely!');
-      return { applied: 0, negated: true };
-    }
-
-    // Shieldmaiden's Guard: 10% chance to fully negate a hit and reflect 60% of it.
-    // Returning here is what prevents the double-dip — the flat 20% reflect entry in
-    // reflectSources below is never reached on a negated hit.
-    //
-    // 60% of WHAT: `wouldBeDamage` is post-DEF-mitigation and post Frostbite/Petrify
-    // amplification, but before the defender's percentage reduction lane. That lane
-    // never runs on a negated hit, so no post-reduction figure exists to use instead —
-    // this is the only well-defined basis, and it is the same one the passive already
-    // used at 100%.
-    const wouldBeDamage = effectDamage(O, dmg);
-    if (F.skjaldmaer_active && bt.rng() < 0.10) {
-      bt.shared.events.push("🛡️ Shieldmaiden's Guard — incoming hit negated!");
-      applyReflectedDamage(O, S, wouldBeDamage, 0.60, "Shieldmaiden's Guard");
-      return { applied: 0, negated: true };
-    }
-
-    prepareConfirmedHit();
-    dmg = effectDamage(O, dmg);
-
-    const postDefDmg = dmg;
-    let damageReduction = Math.max(0, O.scratch.damageReductionPct || 0);
-    const incomingIncrease = Math.max(0, O.scratch.incomingDamageIncreasePct || 0);
-    let odinReduction = 0;
-
-    // Phalanx Wall: the registry already folded its base 20% into damageReductionPct
-    // this round. The first incoming hit of the battle adds the 30% first-hit bonus and
-    // reports the COMBINED 50%; every later hit reports the base 20%. Exactly one line
-    // per incoming attack, at DEFENSIVE priority so it sits directly under the attack
-    // that triggered it and above Thorns/DOT. Numbers are unchanged — only the logging.
-    if (F.phalanx_wall_active) {
-      if (!F.phalanx_first_hit_used) {
-        F.phalanx_first_hit_used = true;
-        damageReduction += 0.30;
-        bt.shared.events.push(`🛡️ ${O.name}'s Phalanx Wall — first hit absorbed, damage reduced by 50%.`);
-      } else {
-        bt.shared.events.push(`🛡️ ${O.name}'s Phalanx Wall — damage taken reduced by 20%.`);
-      }
-    }
-    if (F.heimdall_first_hit_available && !F.heimdall_first_hit_used) {
-      damageReduction += 0.50;
-      F.heimdall_first_hit_used = true;
-      F.heimdall_first_hit_available = false;
-      bt.shared.events.push(`👁️ Heimdall negates 50% of the first hit on ${O.name}!`);
-    } else if (info.crit && F.heimdall_crit_guard) {
-      damageReduction += 0.30;
-      bt.shared.events.push(`👁️ Heimdall blunts a critical hit on ${O.name} (-30%)!`);
-    }
-    if (F.athena_shield_active && (F.athena_hits_absorbed || 0) < 2) {
-      damageReduction += 0.40;
-      F.athena_hits_absorbed = (F.athena_hits_absorbed || 0) + 1;
-      if (F.athena_hits_absorbed >= 2) F.athena_shield_active = false;
-      bt.shared.events.push(`🛡️ Athena's Aegis absorbs 40% (${F.athena_hits_absorbed}/2)!`);
-    } else if ((F.athena_hits_absorbed || 0) >= 2) {
-      damageReduction += 0.10;
-      bt.shared.events.push("🛡️ Athena's Aegis reduces the incoming hit by 10%!");
-    }
-    if (F.odin_foresight_block) {
-      odinReduction = 0.25;
-      damageReduction += odinReduction;
-      bt.shared.events.push(`🪄 Odin: All-Father's Foresight — Reduced incoming damage by 25%!`);
-    }
-    if (F.steel_kite_shield_block) {
-      damageReduction += 0.15;
-      bt.shared.events.push('🛡️ Steel Kite Shield: Bulwark — Blocked 15% incoming damage!');
-    }
-    if (F.pelte_active && bt.rng() < 0.20) {
-      damageReduction += 0.50;
-      bt.shared.events.push('🛡️ Deflection — blocked half of the incoming hit!');
-    }
-    if (F.njord_block_check) {
-      damageReduction += F.njord_block_pct || 0;
-      bt.shared.events.push("🌊 Njord: Sea's Favor — Reduced incoming damage by 30%!");
-    }
-    if (F.echo_njord_block_check) {
-      damageReduction += F.echo_njord_block_pct || 0;
-      bt.shared.events.push("🌊 Echo · Njord: Sea's Favor — Reduced incoming damage by 20%!");
-    }
-    if (O.classPassive === 'damage_reduction') damageReduction += KNIGHT_DAMAGE_REDUCTION;
-
-    const cappedReduction = Math.min(MAX_DAMAGE_REDUCTION, damageReduction);
-    dmg *= Math.max(0, 1 - cappedReduction + incomingIncrease);
-    dmg = Math.max(0, Math.floor(dmg));
-    if (odinReduction > 0) {
-      const withoutOdinReduction = Math.min(
-        MAX_DAMAGE_REDUCTION,
-        Math.max(0, damageReduction - odinReduction),
-      );
-      const withoutOdin = Math.max(
-        0,
-        Math.floor(postDefDmg * Math.max(0, 1 - withoutOdinReduction + incomingIncrease)),
-      );
-      const prevented = Math.max(0, withoutOdin - dmg);
-      F.odin_prevented_damage = (F.odin_prevented_damage || 0) + prevented;
-    }
-
-    if (F.mail_brokkr_hit_cap > 0) {
-      const cap = Math.floor(O.maxHp * F.mail_brokkr_hit_cap);
-      if (dmg > cap) {
-        const uncapped = dmg;
-        dmg = cap;
-        bt.shared.events.push(`⚒️ Dwarven Forge — hit capped at 15% max HP (${uncapped} -> ${cap}).`);
-      }
-    }
-
-    if (dmg >= O.hp && F.sidapa_reprieve_available && !F.sidapa_reprieve_used) {
-      F.sidapa_reprieve_used = true;
-      F.sidapa_reprieve_available = false;
-      const applied = O.hp - 1;
-      setHp(O, 1);
-      const revive = Math.floor(O.maxHp * 0.30);
-      setHp(O, Math.min(1 + revive, O.maxHp));
-      F.sidapa_atk_bonus = 0.50;
-      if (info.crit) recordReceivedCrit(O);
-      bt.shared.events.push(`🌙 Sidapa's Death's Reprieve! ${O.name} survives, heals ${revive} HP, ATK +50%!`);
-      grantValkyrieResolve(O);
-      grantAegisStone(O, S);
-      return { applied, negated: false };
-    }
-
-    if (dmg >= O.hp && F.titan_reprieve_available && !F.titan_reprieve_used) {
-      F.titan_reprieve_used = true;
-      F.titan_reprieve_available = false;
-      const applied = O.hp - 1;
-      setHp(O, 1);
-      F.titan_atk_bonus = 1.00;
-      if (info.crit) recordReceivedCrit(O);
-      bt.shared.events.push(`🔥 Titan: Forgefire Veins — ${O.name} survives at 1 HP, damage +100%!`);
-      grantValkyrieResolve(O);
-      grantAegisStone(O, S);
-      return { applied, negated: false };
-    }
-
-    const beforeHp = O.hp;
-    damage(O, dmg);
-    const damageTaken = beforeHp - O.hp;
-    if (checkDeaths('attack')) return { applied: dmg, negated: false };
-
-    const reflectSources = [
-      [F.enderby_reflect_pct || 0, 'Thornward'],
-      [F.skjaldmaer_reflect_pct || 0, "Shieldmaiden's Guard"],
-      [F.mail_brokkr_reflect || 0, 'Dwarven Forge'],
-      [F.tyr_reflect || 0, 'Oathkeeper'],
-      [F.mayari_reflect || 0, 'Lunar Veil'],
-      [F.rune_thorns_reflect || 0, 'Thorns Rune'],
-    ];
-    for (const [pct, source] of reflectSources) {
-      if (pct > 0 && damageTaken > 0 && applyReflectedDamage(O, S, damageTaken, pct, source)) {
-        return { applied: dmg, negated: false };
-      }
-    }
-
-    if (F.chooser_grace_active) {
-      const current = Number.isFinite(F.chooser_grace_chance) ? F.chooser_grace_chance : 0.22;
-      F.chooser_grace_chance = Math.min(1, current + 0.08);
-      bt.shared.events.push(
-        `👻 Chooser's Grace — hit taken, evade chance now ${Math.round(F.chooser_grace_chance * 100)}%`
-      );
-    }
-    grantValkyrieResolve(O);
-    grantAegisStone(O, S);
-    if (info.crit) recordReceivedCrit(O);
-    if (info.crit && S.flags.atlas_crit_atk_down) {
-      if (tryApplyDebuff(O, 'atk_down', 2, 0.30, S)) {
-        bt.shared.events.push(`🥊 Atlas: Worldbreaker's Grip — ${O.name}'s ATK reduced 30%!`);
-      }
-    }
-    if (O.hp > 0) armLowHpAttackPassives(O);
-    return { applied: dmg, negated: false };
+  // applyHitToDefender lives at module scope now, but its body still drives
+  // these closure-bound helpers (they own `shared` and the event log, so they
+  // cannot be hoisted). One handle carries them across the call boundary.
+  const fx = {
+    setHp, logAt, damage, applyLifesteal,
+    effectDamage, tryApplyDebuff, checkDeaths, recordReceivedCrit,
+    grantValkyrieResolve, grantAegisStone, applyReflectedDamage, armLowHpAttackPassives,
   };
 
   // Defender reactions resolve immediately inside applyHitToDefender, but their
@@ -1075,7 +1084,7 @@ function resolveBattle(a, b, opts = {}) {
     // Everything the defender stack logs is a defensive reaction unless it overrides
     // the channel itself (reflect, counter, defeat) — so guards, evades, absorbs and
     // damage-reduction lines all land right after the attack that caused them.
-    const hit = bt.shared.events.at(LOG.DEFENSIVE, () => applyHitToDefender(S, O, dmg, info));
+    const hit = bt.shared.events.at(LOG.DEFENSIVE, () => applyHitToDefender(bt, fx, S, O, dmg, info));
     const reactions = bt.shared.events.splice(reactionStart);
     return { hit, reactions };
   };
