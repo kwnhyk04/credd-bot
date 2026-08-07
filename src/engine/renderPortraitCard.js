@@ -72,15 +72,7 @@ function fitFont(ctx, text, startPx, maxW, bold = false) {
 
 const F = (px, bold = false) => `${bold ? 'bold ' : ''}${px}px ${FONT_FAMILY}`;
 
-function roundRectPath(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
+const { roundRectPath } = require('../utils/canvasDraw');
 
 async function loadLocalImage(filePath) {
   if (Array.isArray(filePath)) {
