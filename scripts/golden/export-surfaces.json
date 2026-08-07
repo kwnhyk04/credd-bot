@@ -1,0 +1,1027 @@
+{
+  "modules": {
+    "src/engine/bossSystem.js": {
+      "bossStatusCardHeight": "function",
+      "buildBossMessage": "function",
+      "clearBossRuntimeForGuild": "function",
+      "distributeRewards": "function",
+      "fetchBossView": "function",
+      "getBossMemoryStats": "function",
+      "handleAttack": "function",
+      "handleLog": "function",
+      "postFreshLiveMessage": "function",
+      "postOfficialRedirect": "function",
+      "processQueuedCalamity": "function",
+      "redirectChannelIssue": "function",
+      "refreshLiveMessage": "function",
+      "repointLiveMessage": "function",
+      "spawnBoss": "function",
+      "tickGuild": "function"
+    },
+    "src/engine/battleEngine.js": {
+      "ARCHER_DOUBLE_ATTACK_CHANCE": "number",
+      "BLEED_MAX_PCT": "number",
+      "BLEED_MAX_STACKS": "number",
+      "BLEED_PCT_PER_STACK": "number",
+      "FIGHTER_BASH_DAMAGE_PCT": "number",
+      "FIGHTER_STUN_CHANCE": "number",
+      "FIGHTER_STUN_TURNS": "number",
+      "MAX_ROUNDS": "number",
+      "SNAPSHOT_EVERY": "number",
+      "SUDDEN_DEATH_FROM": "number",
+      "resolveBattle": "function",
+      "rngOf": "function",
+      "selectOverchargeDebuff": "function"
+    },
+    "src/engine/battleRender.js": {
+      "UPDATE_MS": "number",
+      "battleEmbed": "function",
+      "battleFrameCacheParts": "function",
+      "battleLogNavigationRow": "function",
+      "battlePhase": "function",
+      "battleResultCacheParts": "function",
+      "logEmbeds": "function",
+      "renderBattlePanel": "function",
+      "renderRewardsPanel": "function",
+      "runBattle": "function",
+      "shouldRenderBattleFrame": "function",
+      "showPaginatedBattleLog": "function"
+    },
+    "src/engine/statsLayoutRenderer.js": {
+      "getStatsLayoutCacheStats": "function",
+      "hasStatsLayout": "function",
+      "layoutPathFor": "function",
+      "renderStatsLayoutImage": "function"
+    },
+    "src/engine/profileLayoutRenderer.js": {
+      "getProfileLayoutCacheStats": "function",
+      "hasProfileLayout": "function",
+      "layoutPathFor": "function",
+      "renderProfileLayoutImage": "function"
+    },
+    "src/engine/battleLayoutRenderer.js": {
+      "clearBattleBaseCache": "function",
+      "getBattleBaseCacheStats": "function",
+      "layoutPathFor": "function",
+      "loadBattleSkin": "function",
+      "renderBattleSkinPanel": "function",
+      "validateLayout": "function"
+    },
+    "src/engine/resultLayoutRenderer.js": {
+      "clearResultBaseCache": "function",
+      "getResultBaseCacheStats": "function",
+      "layoutPathFor": "function",
+      "loadResultSkin": "function",
+      "renderResultPanel": "function",
+      "validateResultLayout": "function"
+    },
+    "src/handlers/commandHandler.js": {
+      "COMMAND_MAP": "object",
+      "IMPLEMENTED": "object",
+      "handleMessage": "function",
+      "parseMessage": "function"
+    }
+  },
+  "slash": [
+    {
+      "name": "register",
+      "canonical": "register",
+      "builder": {
+        "options": [],
+        "name": "register",
+        "description": "Create your Credd account",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "create",
+      "canonical": "create",
+      "builder": {
+        "options": [
+          {
+            "type": 1,
+            "name": "character",
+            "description": "Choose your class and create a character",
+            "options": []
+          }
+        ],
+        "name": "create",
+        "description": "Begin your journey",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "profile",
+      "canonical": "profile",
+      "builder": {
+        "options": [
+          {
+            "name": "user",
+            "description": "Whose profile (default: you)",
+            "required": false,
+            "type": 6
+          }
+        ],
+        "name": "profile",
+        "description": "View a profile card",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "stats",
+      "canonical": "stats",
+      "builder": {
+        "options": [],
+        "name": "stats",
+        "description": "View your combat statistics",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "avatars",
+      "canonical": "avatars",
+      "builder": {
+        "options": [],
+        "name": "avatars",
+        "description": "Browse your owned avatars for your current class",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "avatar",
+      "canonical": "avatar",
+      "builder": {
+        "options": [
+          {
+            "type": 1,
+            "name": "shop",
+            "description": "Browse avatars for your current class",
+            "options": []
+          },
+          {
+            "type": 1,
+            "name": "buy",
+            "description": "Buy an avatar with supporter tokens",
+            "options": [
+              {
+                "type": 3,
+                "name": "id",
+                "description": "Avatar id",
+                "required": true
+              }
+            ]
+          },
+          {
+            "type": 1,
+            "name": "equip",
+            "description": "Equip an owned avatar",
+            "options": [
+              {
+                "type": 3,
+                "name": "id",
+                "description": "Avatar id",
+                "required": true
+              }
+            ]
+          },
+          {
+            "type": 1,
+            "name": "default",
+            "description": "Use your default class avatar",
+            "options": []
+          }
+        ],
+        "name": "avatar",
+        "description": "Avatar shop and equipment",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "cred",
+      "canonical": "cred",
+      "builder": {
+        "options": [],
+        "name": "cred",
+        "description": "Check your Credux balance",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "bag",
+      "canonical": "bag",
+      "builder": {
+        "options": [
+          {
+            "type": 3,
+            "choices": [
+              {
+                "name": "chests",
+                "value": "chests"
+              },
+              {
+                "name": "weapons",
+                "value": "weapons"
+              }
+            ],
+            "name": "section",
+            "description": "Which section",
+            "required": false
+          }
+        ],
+        "name": "bag",
+        "description": "View your bag",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "open",
+      "canonical": "open",
+      "builder": {
+        "options": [
+          {
+            "type": 3,
+            "choices": [
+              {
+                "name": "Silver Chest",
+                "value": "sc"
+              },
+              {
+                "name": "Gold Chest",
+                "value": "gc"
+              },
+              {
+                "name": "Boss Treasure Chest",
+                "value": "btc"
+              },
+              {
+                "name": "Boss Golden Chest",
+                "value": "bgtc"
+              },
+              {
+                "name": "Supreme Chest",
+                "value": "supc"
+              },
+              {
+                "name": "Sacred Relic",
+                "value": "sr"
+              },
+              {
+                "name": "Supreme Relic",
+                "value": "supr"
+              },
+              {
+                "name": "Lesser Rune Bag",
+                "value": "lb"
+              },
+              {
+                "name": "Greater Rune Bag",
+                "value": "gb"
+              },
+              {
+                "name": "Divine Rune Bag",
+                "value": "db"
+              }
+            ],
+            "name": "type",
+            "description": "What to open",
+            "required": true
+          },
+          {
+            "max_value": 20,
+            "min_value": 1,
+            "type": 4,
+            "name": "amount",
+            "description": "How many to open",
+            "required": false
+          }
+        ],
+        "name": "open",
+        "description": "Open a chest or relic",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "equip",
+      "canonical": "equip",
+      "builder": {
+        "options": [
+          {
+            "type": 3,
+            "name": "weapon_id",
+            "description": "Weapon ID",
+            "required": true
+          }
+        ],
+        "name": "equip",
+        "description": "Equip a weapon",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "equipment",
+      "canonical": "equipment",
+      "builder": {
+        "options": [
+          {
+            "type": 1,
+            "name": "info",
+            "description": "View an equipment info card",
+            "options": [
+              {
+                "type": 3,
+                "name": "equipment_id",
+                "description": "Weapon or armor ID",
+                "required": true
+              }
+            ]
+          }
+        ],
+        "name": "equipment",
+        "description": "Equipment tools (weapons & armor)",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "enhance",
+      "canonical": "enhance",
+      "builder": {
+        "options": [
+          {
+            "type": 3,
+            "name": "weapon_id",
+            "description": "Weapon ID",
+            "required": true
+          }
+        ],
+        "name": "enhance",
+        "description": "Enhance a weapon",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "lock",
+      "canonical": "lock",
+      "builder": {
+        "options": [
+          {
+            "type": 3,
+            "name": "weapon_id",
+            "description": "Weapon ID",
+            "required": true
+          }
+        ],
+        "name": "lock",
+        "description": "Lock a weapon",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "unlock",
+      "canonical": "unlock",
+      "builder": {
+        "options": [
+          {
+            "type": 3,
+            "name": "weapon_id",
+            "description": "Weapon ID",
+            "required": true
+          }
+        ],
+        "name": "unlock",
+        "description": "Unlock a weapon",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "sell",
+      "canonical": "sell",
+      "builder": {
+        "options": [
+          {
+            "type": 3,
+            "name": "target",
+            "description": "weapon_id, a tier name, or \"all\"",
+            "required": true
+          }
+        ],
+        "name": "sell",
+        "description": "Sell weapon(s)",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "summon",
+      "canonical": "summon",
+      "builder": {
+        "options": [
+          {
+            "max_value": 30,
+            "min_value": 1,
+            "type": 4,
+            "name": "count",
+            "description": "How many pulls",
+            "required": false
+          }
+        ],
+        "name": "summon",
+        "description": "Invoke a deity (100 shards per pull)",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "deity",
+      "canonical": "deity",
+      "builder": {
+        "options": [
+          {
+            "type": 1,
+            "name": "collection",
+            "description": "Browse your deity collection",
+            "options": []
+          },
+          {
+            "type": 1,
+            "name": "info",
+            "description": "View a deity info card",
+            "options": [
+              {
+                "type": 3,
+                "name": "name",
+                "description": "Deity name",
+                "required": true
+              }
+            ]
+          },
+          {
+            "type": 1,
+            "name": "equip",
+            "description": "Equip a deity as your blessing",
+            "options": [
+              {
+                "type": 3,
+                "name": "name",
+                "description": "Deity name",
+                "required": true
+              }
+            ]
+          },
+          {
+            "type": 1,
+            "name": "enhance",
+            "description": "Enhance a deity with essence",
+            "options": [
+              {
+                "type": 3,
+                "name": "name",
+                "description": "Deity name",
+                "required": true
+              }
+            ]
+          }
+        ],
+        "name": "deity",
+        "description": "Deity collection & management",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "glossary",
+      "canonical": "glossary",
+      "builder": {
+        "options": [],
+        "name": "glossary",
+        "description": "Browse the Credd glossary",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "coin",
+      "canonical": "coin",
+      "builder": {
+        "options": [
+          {
+            "type": 1,
+            "name": "toss",
+            "description": "Call heads or tails",
+            "options": [
+              {
+                "min_value": 1,
+                "type": 4,
+                "name": "amount",
+                "description": "Credux wager",
+                "required": true
+              },
+              {
+                "type": 3,
+                "choices": [
+                  {
+                    "name": "heads",
+                    "value": "heads"
+                  },
+                  {
+                    "name": "tails",
+                    "value": "tails"
+                  }
+                ],
+                "name": "side",
+                "description": "Your call",
+                "required": true
+              }
+            ]
+          }
+        ],
+        "name": "coin",
+        "description": "Toss a coin with Credux",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "dice",
+      "canonical": "dice",
+      "builder": {
+        "options": [
+          {
+            "type": 1,
+            "name": "roll",
+            "description": "Call odd or even",
+            "options": [
+              {
+                "min_value": 1,
+                "type": 4,
+                "name": "amount",
+                "description": "Credux wager",
+                "required": true
+              },
+              {
+                "type": 3,
+                "choices": [
+                  {
+                    "name": "odd",
+                    "value": "odd"
+                  },
+                  {
+                    "name": "even",
+                    "value": "even"
+                  }
+                ],
+                "name": "side",
+                "description": "Your call",
+                "required": true
+              }
+            ]
+          }
+        ],
+        "name": "dice",
+        "description": "Roll for odd or even with Credux",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "baccarat",
+      "canonical": "baccarat",
+      "builder": {
+        "options": [
+          {
+            "min_value": 1,
+            "type": 4,
+            "name": "amount",
+            "description": "Credux wager",
+            "required": true
+          },
+          {
+            "type": 3,
+            "choices": [
+              {
+                "name": "banker",
+                "value": "banker"
+              },
+              {
+                "name": "player",
+                "value": "player"
+              }
+            ],
+            "name": "side",
+            "description": "Your bet",
+            "required": true
+          }
+        ],
+        "name": "baccarat",
+        "description": "Play baccarat with Credux",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "blackjack",
+      "canonical": "blackjack",
+      "builder": {
+        "options": [
+          {
+            "min_value": 1,
+            "type": 4,
+            "name": "amount",
+            "description": "Credux wager",
+            "required": true
+          }
+        ],
+        "name": "blackjack",
+        "description": "Play blackjack with Credux",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "slot",
+      "canonical": "slot",
+      "builder": {
+        "options": [
+          {
+            "type": 1,
+            "name": "machine",
+            "description": "Spin the reels",
+            "options": [
+              {
+                "min_value": 1,
+                "type": 4,
+                "name": "amount",
+                "description": "Credux wager",
+                "required": true
+              }
+            ]
+          }
+        ],
+        "name": "slot",
+        "description": "Play the slot machine with Credux",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "crash",
+      "canonical": "crash",
+      "builder": {
+        "options": [
+          {
+            "min_value": 1,
+            "type": 4,
+            "name": "amount",
+            "description": "Credux wager",
+            "required": true
+          }
+        ],
+        "name": "crash",
+        "description": "Play Crash with Credux",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "raid",
+      "canonical": "raid",
+      "builder": {
+        "options": [],
+        "name": "raid",
+        "description": "Fight a random mob",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "duel",
+      "canonical": "duel",
+      "builder": {
+        "options": [
+          {
+            "name": "user",
+            "description": "Who to duel",
+            "required": true,
+            "type": 6
+          },
+          {
+            "max_value": 50,
+            "min_value": 1,
+            "type": 4,
+            "name": "level",
+            "description": "Normalize both duelists to this level (1-50)",
+            "required": false
+          }
+        ],
+        "name": "duel",
+        "description": "Challenge another player",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "boss",
+      "canonical": "boss",
+      "builder": {
+        "options": [],
+        "name": "boss",
+        "description": "View the current server boss",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "bestow",
+      "canonical": "bestow",
+      "builder": {
+        "options": [
+          {
+            "name": "user",
+            "description": "Recipient",
+            "required": true,
+            "type": 6
+          },
+          {
+            "min_value": 1,
+            "type": 4,
+            "name": "amount",
+            "description": "Amount of Credux",
+            "required": true
+          }
+        ],
+        "name": "bestow",
+        "description": "Send Credux to another player",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "daily",
+      "canonical": "daily",
+      "builder": {
+        "options": [],
+        "name": "daily",
+        "description": "Claim your daily reward",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "quests",
+      "canonical": "quests",
+      "builder": {
+        "options": [],
+        "name": "quests",
+        "description": "View today's daily quests",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "admin",
+      "canonical": "admin",
+      "builder": {
+        "options": [
+          {
+            "type": 1,
+            "name": "setprefix",
+            "description": "Set a custom server prefix",
+            "options": [
+              {
+                "type": 3,
+                "name": "prefix",
+                "description": "1–5 letters/numbers",
+                "required": true
+              }
+            ]
+          },
+          {
+            "type": 1,
+            "name": "setbotchannel",
+            "description": "Restrict bot commands to a channel",
+            "options": [
+              {
+                "name": "channel",
+                "description": "Channel",
+                "required": true,
+                "type": 7
+              }
+            ]
+          },
+          {
+            "type": 1,
+            "name": "setannouncementchannel",
+            "description": "Official support server only for now",
+            "options": [
+              {
+                "name": "channel",
+                "description": "Channel",
+                "required": true,
+                "type": 7
+              }
+            ]
+          },
+          {
+            "type": 1,
+            "name": "setbosschannel",
+            "description": "Official support server only for now",
+            "options": [
+              {
+                "name": "channel",
+                "description": "Channel",
+                "required": true,
+                "type": 7
+              }
+            ]
+          },
+          {
+            "type": 1,
+            "name": "stats",
+            "description": "Server activity summary",
+            "options": []
+          }
+        ],
+        "name": "admin",
+        "description": "Server settings (Manage Server)",
+        "default_member_permissions": "32",
+        "type": 1
+      },
+      "hasAssemble": true
+    },
+    {
+      "name": "help",
+      "canonical": "help",
+      "builder": {
+        "options": [
+          {
+            "type": 3,
+            "choices": [
+              {
+                "name": "account",
+                "value": "account"
+              },
+              {
+                "name": "battle",
+                "value": "battle"
+              },
+              {
+                "name": "gacha",
+                "value": "gacha"
+              },
+              {
+                "name": "casino",
+                "value": "casino"
+              },
+              {
+                "name": "inventory",
+                "value": "inventory"
+              },
+              {
+                "name": "economy",
+                "value": "economy"
+              },
+              {
+                "name": "admin",
+                "value": "admin"
+              }
+            ],
+            "name": "category",
+            "description": "Filter to one category",
+            "required": false
+          }
+        ],
+        "name": "help",
+        "description": "Command help",
+        "type": 1
+      },
+      "hasAssemble": true
+    }
+  ],
+  "commandKeys": [
+    "admin",
+    "auto",
+    "avatar",
+    "avatars",
+    "baccarat",
+    "bag",
+    "bestow",
+    "blackjack",
+    "boss",
+    "buy",
+    "coin",
+    "compare",
+    "crash",
+    "create",
+    "cred",
+    "daily",
+    "deities",
+    "deity",
+    "dev",
+    "dice",
+    "duel",
+    "enhance",
+    "equip",
+    "equipment",
+    "essence",
+    "exchange",
+    "glossary",
+    "help",
+    "leaderboards",
+    "lock",
+    "open",
+    "preset",
+    "profile",
+    "pvp",
+    "quest",
+    "quests",
+    "raid",
+    "ranked",
+    "register",
+    "rune",
+    "runes",
+    "sell",
+    "set",
+    "shop",
+    "skin",
+    "slot",
+    "socket",
+    "stats",
+    "summon",
+    "supporter",
+    "title",
+    "unlock",
+    "unsocket",
+    "update",
+    "use"
+  ],
+  "commandMapKeys": [
+    "admin",
+    "auto",
+    "avatar",
+    "avatars",
+    "baccarat",
+    "bag",
+    "bestow",
+    "blackjack",
+    "boss",
+    "buy",
+    "coin",
+    "compare",
+    "crash",
+    "create",
+    "cred",
+    "daily",
+    "deities",
+    "deity",
+    "dev",
+    "dice",
+    "duel",
+    "enhance",
+    "equip",
+    "equipment",
+    "essence",
+    "exchange",
+    "glossary",
+    "help",
+    "leaderboards",
+    "lock",
+    "open",
+    "preset",
+    "profile",
+    "pvp",
+    "quest",
+    "quests",
+    "raid",
+    "ranked",
+    "register",
+    "rune",
+    "runes",
+    "sell",
+    "set",
+    "shop",
+    "skin",
+    "slot",
+    "socket",
+    "stats",
+    "summon",
+    "supporter",
+    "title",
+    "unlock",
+    "unsocket",
+    "update",
+    "use"
+  ]
+}
