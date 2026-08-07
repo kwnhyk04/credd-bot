@@ -307,6 +307,7 @@ function isPowerOfFourRound(round) {
 }
 
 const findDebuff = (side, tag) => side.debuffs.find((d) => d.tag === tag);
+const debuffValue = (side, tag) => { const d = findDebuff(side, tag); return d ? d.value : 0; };
 
 /** True when the weapon OR the equipped armor carries this passive key. */
 const hasEquippedPassive = (side, key) =>
@@ -438,7 +439,6 @@ function resolveBattle(a, b, opts = {}) {
   };
 
   // ── debuff helpers (§13.1: refresh don't stack/extend; highest value wins) ─
-  const debuffValue = (side, tag) => { const d = findDebuff(side, tag); return d ? d.value : 0; };
   const effectDamage = (side, amount) => {
     let adjusted = amount;
     if (findDebuff(side, 'frostbite')) adjusted *= 1.5;
