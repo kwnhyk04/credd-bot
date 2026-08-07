@@ -67,12 +67,7 @@ const SUB_FONT = `9px ${FONT_FAMILY}`;
 const STATUS_FONT = `9px ${FONT_FAMILY}`;
 
 /** Trim text with an ellipsis so it fits within maxW at the current ctx.font. */
-function fitText(ctx, text, maxW) {
-  if (maxW <= 0 || ctx.measureText(text).width <= maxW) return text;
-  let t = text;
-  while (t.length > 1 && ctx.measureText(`${t}…`).width > maxW) t = t.slice(0, -1);
-  return `${t}…`;
-}
+const { fitText } = require('../utils/canvasDraw');
 
 function roundRectPath(ctx, x, y, w, h, r) {
   ctx.beginPath();
