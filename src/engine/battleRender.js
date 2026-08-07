@@ -172,19 +172,10 @@ async function prefetchIcons(sim) {
 const PANEL_W = 640, CARD_H = 132, PAD = 14;
 const ICON = 14;        // weapon/deity icon edge, sized to the 12px text line
 
-function hpColor(p) {
-  if (p > 0.5) return '#43d675';
-  if (p > 0.25) return '#f0b232';
-  return '#f23f43';
-}
+const { hpColor, roundRect, fitText } = require('../utils/canvasDraw');
 
 /** Trim text with an ellipsis so it fits within maxW at the current ctx.font. */
-function fitText(ctx, text, maxW) {
-  if (maxW <= 0 || ctx.measureText(text).width <= maxW) return text;
-  let t = text;
-  while (t.length > 1 && ctx.measureText(`${t}…`).width > maxW) t = t.slice(0, -1);
-  return `${t}…`;
-}
+
 
 /**
  * Word-wrap `text` to lines that each fit within maxW at the current ctx.font ([v4.8] — the mob
@@ -219,12 +210,7 @@ function skillExtraLines(measureCtx, f, cardW) {
   return Math.max(0, wrapText(measureCtx, skillString(f), cardW - 32).length - 1);
 }
 
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
-}
+
 
 function clsLabel(f) {
   if (f.kind === 'player') return f.cls;
