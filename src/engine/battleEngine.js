@@ -306,6 +306,8 @@ function isPowerOfFourRound(round) {
   return n === 1;
 }
 
+const findDebuff = (side, tag) => side.debuffs.find((d) => d.tag === tag);
+
 /** True when the weapon OR the equipped armor carries this passive key. */
 const hasEquippedPassive = (side, key) =>
   side.weaponPassiveKey === key || side.armorPassiveKey === key;
@@ -436,7 +438,6 @@ function resolveBattle(a, b, opts = {}) {
   };
 
   // ── debuff helpers (§13.1: refresh don't stack/extend; highest value wins) ─
-  const findDebuff = (side, tag) => side.debuffs.find((d) => d.tag === tag);
   const debuffValue = (side, tag) => { const d = findDebuff(side, tag); return d ? d.value : 0; };
   const effectDamage = (side, amount) => {
     let adjusted = amount;
