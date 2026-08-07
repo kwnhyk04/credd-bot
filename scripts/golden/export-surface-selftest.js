@@ -78,8 +78,12 @@ function main() {
     console.error('[C3/C4] FAIL: baseline missing. Run with --write first (on known-good code only).');
     process.exit(1);
   }
-  const baselineStr = fs.readFileSync(BASELINE_PATH, 'utf8');
-  if (baselineStr !== actualStr) {
+  // Normalize newlines before comparing: core.autocrlf rewrites the committed
+  // baseline to CRLF on checkout, which would otherwise fail this raw-string
+  // comparison even when every value is identical.
+  const lf = (s) => s.replace(/\r\n/g, '\n');
+  const baselineStr = lf(fs.readFileSync(BASELINE_PATH, 'utf8'));
+  if (baselineStr !== lf(actualStr)) {
     // Deep-equal check with a readable first-difference report.
     const baseline = JSON.parse(baselineStr);
     const diffs = [];
