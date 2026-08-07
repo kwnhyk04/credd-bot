@@ -3,15 +3,18 @@
 /**
  * BATTLE RENDER — presentation/flow layer for engine battles.
  *
- * Pure presentation: consumes a RESOLVED sim from battleEngine.resolveBattle —
- * the whole fight is decided before any message is sent. The embed starts at
- * full green HP, waits out the resolved battle duration, then edits once to
- * Victory/Defeat + a [Battle Log] button (ephemeral reply
- * with EVERY round's events, auto-paginated). The sim seed prints in the final
- * embed footer and the Battle Log header for reproduction (`crd dev battle seed <n>`).
+ * Decides no combat: it consumes a RESOLVED sim from battleEngine.resolveBattle,
+ * so the whole fight is settled before any message is sent. It does own the
+ * Discord side of that — sending, editing, and the [Battle Log] collector. The
+ * embed starts at full green HP, waits out the resolved battle duration, then
+ * edits once to Victory/Defeat + a [Battle Log] button. That button opens the
+ * ephemeral paginated viewer, which lives in ./battleLogPager (this file
+ * re-exports logEmbeds/battleLogNavigationRow/showPaginatedBattleLog so callers
+ * are unaffected). The sim seed prints in the final embed footer and the Battle
+ * Log header for reproduction (`crd dev battle seed <n>`).
  *
  * Canvas: @napi-rs/canvas (project standard) with the bundled DejaVu Sans family
- * (same registration as renderBagItems/weaponResultRenderer). Color emoji do NOT
+ * (same registration as renderBagItems). Color emoji do NOT
  * render in node canvas on Linux, so text glyphs drawn INSIDE the panel come from
  * the DejaVu-confirmed set (★ ✦ ◆ ❖ •). Weapon/deity icons on the player card are
  * the item's CUSTOM emoji image, fetched once from the Discord CDN via the
