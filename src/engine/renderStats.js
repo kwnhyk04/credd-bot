@@ -95,22 +95,9 @@ function quoteFor(discordId) {
   return QUOTES[h % QUOTES.length];
 }
 
-function roundRectPath(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
+const { roundRectPath, fitText } = require('../utils/canvasDraw');
 
-function fitText(ctx, text, maxW) {
-  if (maxW <= 0 || ctx.measureText(text).width <= maxW) return text;
-  let t = text;
-  while (t.length > 1 && ctx.measureText(`${t}…`).width > maxW) t = t.slice(0, -1);
-  return `${t}…`;
-}
+
 
 function imageSourceCandidates(source) {
   if (!source) return [];
