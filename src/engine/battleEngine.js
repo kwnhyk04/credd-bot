@@ -319,6 +319,9 @@ const sideImmune = (side, tag) => {
   return side.immunityTags.includes('all_debuffs') || side.immunityTags.includes(tag);
 };
 
+const debuffImmune = (side, tag) =>
+  sideImmune(side, tag) || (side.kind === 'player' && side.statusImmune && isStatusEffect(tag));
+
 /** True when the weapon OR the equipped armor carries this passive key. */
 const hasEquippedPassive = (side, key) =>
   side.weaponPassiveKey === key || side.armorPassiveKey === key;
@@ -525,8 +528,6 @@ function resolveBattle(a, b, opts = {}) {
     }
     return true;
   };
-  const debuffImmune = (side, tag) =>
-    sideImmune(side, tag) || (side.kind === 'player' && side.statusImmune && isStatusEffect(tag));
   const tryApplyDebuff = (
     side,
     tag,
