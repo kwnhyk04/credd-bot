@@ -22,6 +22,23 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
+
+/**
+ * Boss implementation source, layout-agnostic: bossSystem.js plus any modules
+ * split out of it under src/engine/boss/. The source-text checks below assert
+ * WHAT the boss code says, not WHICH file holds it, so extracting a module
+ * must not fail them (Phase 2 refactor).
+ */
+function readBossSource() {
+  const parts = [fs.readFileSync(path.join(ROOT, 'src', 'engine', 'bossSystem.js'), 'utf8')];
+  const dir = path.join(ROOT, 'src', 'engine', 'boss');
+  if (fs.existsSync(dir)) {
+    for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.js')).sort()) {
+      parts.push(fs.readFileSync(path.join(dir, f), 'utf8'));
+    }
+  }
+  return parts.join('\n');
+}
 const {
   ARCHER_DOUBLE_ATTACK_CHANCE,
   BLEED_MAX_PCT,
@@ -2616,7 +2633,7 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
   const dNextDaySameSpawn = bossAttackDecision({ usedToday: 0, limit });
   check('next day resets on the same spawn', dNextDaySameSpawn.allowed === true);
 
-  const bossSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'bossSystem.js'), 'utf8');
+  const bossSource = readBossSource();
   const bossConfigSource = fs.readFileSync(path.join(ROOT, 'src', 'config', 'bosses.js'), 'utf8');
   const bossSchedulerSource = fs.readFileSync(path.join(ROOT, 'src', 'schedulers', 'bossScheduler.js'), 'utf8');
   check('same-spawn upsert resets the daily counter', /attacks = CASE[\s\S]*?ELSE 1[\s\S]*?last_daily_reset =/.test(bossSource));
@@ -3013,7 +3030,7 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
 // ════════════════════════════════════════════════════════════════════════════
 console.log(`\n${'═'.repeat(50)}`);
 {
-  const bossSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'bossSystem.js'), 'utf8');
+  const bossSource = readBossSource();
   const engineSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'battleEngine.js'), 'utf8');
   const { bossStatusCardHeight } = require(path.join(ROOT, 'src', 'engine', 'bossSystem'));
   const bakunawa = mob({
