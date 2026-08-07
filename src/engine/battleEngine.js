@@ -306,6 +306,10 @@ function isPowerOfFourRound(round) {
   return n === 1;
 }
 
+/** True when the weapon OR the equipped armor carries this passive key. */
+const hasEquippedPassive = (side, key) =>
+  side.weaponPassiveKey === key || side.armorPassiveKey === key;
+
 /** Seeded LCG in [0,1). Same generator the renderer's replay relies on. */
 function rngOf(seed) {
   let s = seed >>> 0;
@@ -382,9 +386,6 @@ function resolveBattle(a, b, opts = {}) {
   const bt = { A, B, totals, shared, moonState, rng };
   /** Push under an explicit source category (see combatLog.LOG_PRIORITY). */
   const logAt = (priority, ...texts) => bt.shared.events.at(priority, () => bt.shared.events.push(...texts));
-  const hasEquippedPassive = (side, key) =>
-    side.weaponPassiveKey === key || side.armorPassiveKey === key;
-
   const refreshFenrirPhase = () => {
     if (!bt.B.isBoss || bt.B.skillKey !== FENRIR_PASSIVE_KEY) return;
     const reconciled = reconcileFenrirPhase(bt.B.bossPassiveState, bt.B.hp, bt.B.maxHp);
