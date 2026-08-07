@@ -2721,7 +2721,10 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
   const survivingRefresh = /if \(remaining <= 0\) \{[\s\S]*?\} else \{([\s\S]*?)\n\s*\}/.exec(bossSource)?.[1] || '';
   check('surviving boss attacks schedule a coalesced progress refresh',
     /scheduleBossLiveRefresh/.test(survivingRefresh) && !/bossStatusImage/.test(survivingRefresh));
-  const scheduledRefresh = /function scheduleBossLiveRefresh[\s\S]*?\/\* .*?spawn \/ escape/.exec(bossSource)?.[0] || '';
+  // Bound the slice by the function's own closing brace rather than a section
+  // comment that follows it: the comment and the function no longer share a file
+  // once bossMessages is split out (Phase 2.3).
+  const scheduledRefresh = /function scheduleBossLiveRefresh[\s\S]*?\r?\n\}\r?\n/.exec(bossSource)?.[0] || '';
   check('scheduled boss progress refresh uses the coalesced status renderer',
     /refreshLiveMessageProgress/.test(scheduledRefresh)
       && !/refreshLiveMessage\(client, guildId\)/.test(scheduledRefresh));
