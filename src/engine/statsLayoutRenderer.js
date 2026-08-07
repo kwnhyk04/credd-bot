@@ -45,24 +45,9 @@ function hasStatsLayout(skinPath) {
   return Boolean(skinPath && (isRemoteAssetsEnabled() || assetExistsSync(layoutPathFor(skinPath))));
 }
 
-const LAYOUT_CACHE_MAX = envPositiveInt('LAYOUT_METADATA_CACHE_MAX', 64, { max: 500 });
-const layoutCache = new Map(); // layout path -> { mtimeMs, layout }
+const { createLayoutCache } = require('./layoutCore');
 
-async function loadLayout(configPath) {
-  const resolved = assetSource(configPath);
-  const mtimeMs = assetSignatureSync(resolved);
-  const cached = layoutCache.get(resolved);
-  if (cached && cached.mtimeMs === mtimeMs) {
-    layoutCache.delete(resolved);
-    layoutCache.set(resolved, cached);
-    return cached.layout;
-  }
-
-  const layout = await readAssetJson(resolved);
-  layoutCache.set(resolved, { mtimeMs, layout });
-  while (layoutCache.size > LAYOUT_CACHE_MAX) layoutCache.delete(layoutCache.keys().next().value);
-  return layout;
-}
+const { loadLayout, layoutCacheStats } = createLayoutCache();
 
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -673,7 +658,7 @@ async function renderStatsLayoutImage(d, options = {}) {
 }
 
 function getStatsLayoutCacheStats() {
-  return { entries: layoutCache.size, maxEntries: LAYOUT_CACHE_MAX };
+  return layoutCacheStats();
 }
 
 registerMemorySource('layouts.stats', getStatsLayoutCacheStats);
