@@ -5,10 +5,28 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
+
+/**
+ * Boss implementation source, layout-agnostic: bossSystem.js plus any modules
+ * split out of it under src/engine/boss/. The source-text checks below assert
+ * WHAT the boss code says, not WHICH file holds it, so extracting a module
+ * must not fail them (Phase 2 refactor).
+ */
+function readBossSource() {
+  const parts = [fs.readFileSync(path.join(ROOT, 'src', 'engine', 'bossSystem.js'), 'utf8')];
+  const dir = path.join(ROOT, 'src', 'engine', 'boss');
+  if (fs.existsSync(dir)) {
+    for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.js')).sort()) {
+      parts.push(fs.readFileSync(path.join(dir, f), 'utf8'));
+    }
+  }
+  return parts.join('\n');
+}
+
 const bosses = require(path.join(ROOT, 'src', 'config', 'bosses'));
 const calamityRewards = require(path.join(ROOT, 'src', 'engine', 'calamityRewards'));
 const rewardSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'calamityRewards.js'), 'utf8');
-const bossSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'bossSystem.js'), 'utf8');
+const bossSource = readBossSource();
 const duelSource = fs.readFileSync(path.join(ROOT, 'src', 'commands', 'rpg', 'duel.js'), 'utf8');
 const duelLocksSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'duelLocks.js'), 'utf8');
 const devSource = fs.readFileSync(path.join(ROOT, 'src', 'commands', 'rpg', 'dev.js'), 'utf8');

@@ -5,6 +5,24 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '..');
+
+/**
+ * Boss implementation source, layout-agnostic: bossSystem.js plus any modules
+ * split out of it under src/engine/boss/. The source-text checks below assert
+ * WHAT the boss code says, not WHICH file holds it, so extracting a module
+ * must not fail them (Phase 2 refactor).
+ */
+function readBossSource() {
+  const parts = [fs.readFileSync(path.join(ROOT, 'src', 'engine', 'bossSystem.js'), 'utf8')];
+  const dir = path.join(ROOT, 'src', 'engine', 'boss');
+  if (fs.existsSync(dir)) {
+    for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.js')).sort()) {
+      parts.push(fs.readFileSync(path.join(dir, f), 'utf8'));
+    }
+  }
+  return parts.join('\n');
+}
+
 const {
   formatGearDrops,
   tierSummary,
@@ -102,7 +120,7 @@ check('daily quest completion line includes the sacred relic icon', questSource.
 check('daily quest quote footer remains intact', questSource.includes('The gods reward those who prove their worth'));
 check('weekly quest full-completion footer is removed', !questSource.includes('Weekly full-completion bonus: no additional Sacred Relic'));
 
-const bossSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'bossSystem.js'), 'utf8');
+const bossSource = readBossSource();
 check('Calamity preview uses a Bonus Rewards heading', bossSource.includes('**Bonus Rewards**'));
 check('Calamity preview keeps the Supreme Chest chance explanation', bossSource.includes('Chance per eligible participant, weighted by damage contribution.'));
 check('Calamity preview still displays a one-chest bonus', bossSource.includes('Supreme Chest ×1'));
