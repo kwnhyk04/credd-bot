@@ -602,11 +602,7 @@ const CARD_COLORS = {
   enemy: '#f23f43', text: '#e7e9ec', dim: '#9aa0a8', barBg: '#3b3e44',
 };
 
-function hpColor(p) {
-  if (p > 0.5) return '#43d675';
-  if (p > 0.25) return '#f0b232';
-  return '#f23f43';
-}
+const { hpColor } = require('../utils/canvasDraw');
 
 function roundRectPath(ctx, x, y, w, h, r) {
   ctx.beginPath();
