@@ -62,133 +62,86 @@ const casinoCmds = casinoEnabled ? {
   crash: require('../commands/casino/crash'),
 } : null;
 
-// Implemented commands, keyed by CANONICAL command (first token). Shorthands route here via
-// config/aliases.js (expanded before lookup), so no direct alias keys live in this map.
+// One table per command, keyed by CANONICAL command (first token). Shorthands route
+// here via config/aliases.js (expanded before lookup), so no direct alias keys live
+// in this map. IMPLEMENTED / COMMAND_MAP below are derived views of this table, kept
+// under their original export names (Phase 1.4 merge).
 //   mw 'ban'  → ban check only (register needs this; the users row doesn't exist yet)
-//   mw 'full' → standard runMiddleware pipeline (requiresCharacter from COMMAND_MAP)
+//   mw 'full' → standard runMiddleware pipeline (requiresCharacter from this table)
 //   mw 'dev'  → superuser gate only (DEV_IDS); non-devs silent-ignore, no middleware
-const IMPLEMENTED = {
-  register: { mw: 'ban',  run: registerCmd.execute },
-  create:   { mw: 'full', run: createCmd.execute },
-  profile:  { mw: 'full', run: profileCmd.execute },
-  stats:    { mw: 'full', run: statsCmd.execute },
-  bag:      { mw: 'full', run: bagCmd.execute },
-  open:     { mw: 'full', run: openCmd.execute },
-  equip:    { mw: 'full', run: equipCmd.execute },
-  preset:   { mw: 'full', run: presetCmd.execute },
-  summon:   { mw: 'full', run: summonCmd.execute },
-  deity:    { mw: 'full', run: deityCmd.execute },
-  deities:  { mw: 'full', run: deityCmd.deities },
-  enhance:  { mw: 'full', run: enhanceCmd.execute },
-  lock:     { mw: 'full', run: lockCmd.lock },
-  unlock:   { mw: 'full', run: lockCmd.unlock },
-  sell:     { mw: 'full', run: sellCmd.execute },
-  equipment: { mw: 'full', run: equipmentCmd.execute },
-  raid:     { mw: 'full', run: raidCmd.execute },
-  auto:     { mw: 'full', run: autoRaidCmd.execute },
-  duel:     { mw: 'full', run: duelCmd.execute },
-  ranked:   { mw: 'full', run: rankedCmd.execute },
-  leaderboards: { mw: 'full', run: leaderboardCmd.execute },
-  title:    { mw: 'full', run: titleCmd.execute },
-  boss:     { mw: 'full', run: bossCmd.execute },
-  bestow:   { mw: 'full', run: bestowCmd.execute },
-  cred:     { mw: 'full', run: credCmd.execute },
-  quests:   { mw: 'full', run: questsCmd.execute },
-  quest:    { mw: 'full', run: questsCmd.execute },
+//   requiresCharacter true → character middleware check runs
+const COMMANDS = {
+  register: { mw: 'ban',  run: registerCmd.execute, requiresCharacter: false },
+  create:   { mw: 'full', run: createCmd.execute, requiresCharacter: false },
+  profile:  { mw: 'full', run: profileCmd.execute, requiresCharacter: true },
+  stats:    { mw: 'full', run: statsCmd.execute, requiresCharacter: true },
+  bag:      { mw: 'full', run: bagCmd.execute, requiresCharacter: true },
+  open:     { mw: 'full', run: openCmd.execute, requiresCharacter: true },
+  equip:    { mw: 'full', run: equipCmd.execute, requiresCharacter: true },
+  preset:   { mw: 'full', run: presetCmd.execute, requiresCharacter: true },
+  summon:   { mw: 'full', run: summonCmd.execute, requiresCharacter: true },
+  deity:    { mw: 'full', run: deityCmd.execute, requiresCharacter: true },
+  deities:  { mw: 'full', run: deityCmd.deities, requiresCharacter: true },
+  enhance:  { mw: 'full', run: enhanceCmd.execute, requiresCharacter: true },
+  lock:     { mw: 'full', run: lockCmd.lock, requiresCharacter: true },
+  unlock:   { mw: 'full', run: lockCmd.unlock, requiresCharacter: true },
+  sell:     { mw: 'full', run: sellCmd.execute, requiresCharacter: true },
+  equipment: { mw: 'full', run: equipmentCmd.execute, requiresCharacter: true },
+  raid:     { mw: 'full', run: raidCmd.execute, requiresCharacter: true },
+  auto:     { mw: 'full', run: autoRaidCmd.execute, requiresCharacter: true },  // auto raid (needs combat level)
+  duel:     { mw: 'full', run: duelCmd.execute, requiresCharacter: true },
+  ranked:   { mw: 'full', run: rankedCmd.execute, requiresCharacter: true },
+  leaderboards: { mw: 'full', run: leaderboardCmd.execute, requiresCharacter: false },
+  title:    { mw: 'full', run: titleCmd.execute, requiresCharacter: true },
+  boss:     { mw: 'full', run: bossCmd.execute, requiresCharacter: false }, // status view; Attack button enforces the gate itself
+  bestow:   { mw: 'full', run: bestowCmd.execute, requiresCharacter: false },
+  cred:     { mw: 'full', run: credCmd.execute, requiresCharacter: false },
+  quests:   { mw: 'full', run: questsCmd.execute, requiresCharacter: false },
+  quest:    { mw: 'full', run: questsCmd.execute, requiresCharacter: false },
   daily:    {
     mw: 'full',
     run: (message, { args = [] } = {}) =>
       args[0]?.toLowerCase() === 'limits' ? dailyLimitsCmd.execute(message) : dailyCmd.execute(message),
+    requiresCharacter: false,
   },
-  help:     { mw: 'full', run: helpCmd.execute },
-  admin:    { mw: 'full', run: adminCmd.execute },
-  dev:      { mw: 'dev',  run: devCmd.execute },
-  essence:  { mw: 'full', run: essenceShopCmd.execute },
-  exchange: { mw: 'full', run: exchangeCmd.execute },
-  pvp:      { mw: 'full', run: pvpShopCmd.execute },
-  socket:   { mw: 'full', run: socketCmd.socket },
-  unsocket: { mw: 'full', run: socketCmd.unsocket },
-  rune:     { mw: 'full', run: runeCmd.execute },
-  runes:    { mw: 'full', run: runeCmd.list },
-  shop:     { mw: 'full', run: shopCmd.execute },
-  skin:     { mw: 'full', run: skinCmd.execute },
-  avatars:  { mw: 'full', run: avatarCmd.collection },
-  avatar:   { mw: 'full', run: avatarCmd.execute },
-  buy:      { mw: 'full', run: buyCmd.execute },
-  use:      { mw: 'full', run: useCmd.execute },
-  supporter: { mw: 'dev', run: ticketsCmd.execute },
-  update:   { mw: 'dev', run: ticketsCmd.update },
-  set:      { mw: 'full', run: setCmd.execute },
-  glossary: { mw: 'full', run: glossaryCmd.execute },
-  compare:  { mw: 'full', run: compareCmd.execute },
+  help:     { mw: 'full', run: helpCmd.execute, requiresCharacter: false },
+  admin:    { mw: 'full', run: adminCmd.execute, requiresCharacter: false },
+  dev:      { mw: 'dev',  run: devCmd.execute, requiresCharacter: false },
+  essence:  { mw: 'full', run: essenceShopCmd.execute, requiresCharacter: true },  // essence shop
+  exchange: { mw: 'full', run: exchangeCmd.execute, requiresCharacter: true },
+  pvp:      { mw: 'full', run: pvpShopCmd.execute, requiresCharacter: true },  // pvp shop (Valor sink)
+  socket:   { mw: 'full', run: socketCmd.socket, requiresCharacter: true },
+  unsocket: { mw: 'full', run: socketCmd.unsocket, requiresCharacter: true },
+  rune:     { mw: 'full', run: runeCmd.execute, requiresCharacter: true },  // crd rune bag
+  runes:    { mw: 'full', run: runeCmd.list, requiresCharacter: true },  // crd runes
+  shop:     { mw: 'full', run: shopCmd.execute, requiresCharacter: false }, // cosmetic store; supporter status is independent of character
+  skin:     { mw: 'full', run: skinCmd.execute, requiresCharacter: false }, // cosmetic skin collection (open to all)
+  avatars:  { mw: 'full', run: avatarCmd.collection, requiresCharacter: true },
+  avatar:   { mw: 'full', run: avatarCmd.execute, requiresCharacter: true },
+  buy:      { mw: 'full', run: buyCmd.execute, requiresCharacter: false }, // buy a skin by code
+  use:      { mw: 'full', run: useCmd.execute, requiresCharacter: false }, // equip a skin by code
+  supporter: { mw: 'dev', run: ticketsCmd.execute, requiresCharacter: false }, // dev-only supporter ticket queue
+  update:   { mw: 'dev', run: ticketsCmd.update, requiresCharacter: false }, // dev-only ticket status update
+  set:      { mw: 'full', run: setCmd.execute, requiresCharacter: false }, // reset all skins to default templates
+  glossary: { mw: 'full', run: glossaryCmd.execute, requiresCharacter: false }, // reference codex (§4) — open to all
+  compare:  { mw: 'full', run: compareCmd.execute, requiresCharacter: true },  // owned-item compare (needs a character to own items)
 
   // ── Casino (Phase 10) — requiresCharacter:false (registration gate only) ──
-  coin:      { mw: 'full', run: (casinoCmds?.coin || disabledCasinoCmd).execute },
-  dice:      { mw: 'full', run: (casinoCmds?.dice || disabledCasinoCmd).execute },
-  baccarat:  { mw: 'full', run: (casinoCmds?.baccarat || disabledCasinoCmd).execute },
-  blackjack: { mw: 'full', run: (casinoCmds?.blackjack || disabledCasinoCmd).execute },
-  slot:      { mw: 'full', run: (casinoCmds?.slot || disabledCasinoCmd).execute },
-  crash:     { mw: 'full', run: (casinoCmds?.crash || disabledCasinoCmd).execute },
+  coin:      { mw: 'full', run: (casinoCmds?.coin || disabledCasinoCmd).execute, requiresCharacter: false },
+  dice:      { mw: 'full', run: (casinoCmds?.dice || disabledCasinoCmd).execute, requiresCharacter: false },
+  baccarat:  { mw: 'full', run: (casinoCmds?.baccarat || disabledCasinoCmd).execute, requiresCharacter: false },
+  blackjack: { mw: 'full', run: (casinoCmds?.blackjack || disabledCasinoCmd).execute, requiresCharacter: false },
+  slot:      { mw: 'full', run: (casinoCmds?.slot || disabledCasinoCmd).execute, requiresCharacter: false },
+  crash:     { mw: 'full', run: (casinoCmds?.crash || disabledCasinoCmd).execute, requiresCharacter: false },
 };
 
-// requiresCharacter source, keyed by canonical command. true → character middleware check runs.
-const COMMAND_MAP = {
-  register:  { requiresCharacter: false },
-  create:    { requiresCharacter: false },
-  profile:   { requiresCharacter: true },
-  stats:     { requiresCharacter: true },
-  raid:      { requiresCharacter: true },
-  auto:      { requiresCharacter: true },  // auto raid (needs combat level)
-  duel:      { requiresCharacter: true },
-  ranked:    { requiresCharacter: true },
-  leaderboards: { requiresCharacter: false },
-  title:       { requiresCharacter: true },
-  boss:      { requiresCharacter: false }, // status view; Attack button enforces the gate itself
-  summon:    { requiresCharacter: true },
-  bag:       { requiresCharacter: true },
-  open:      { requiresCharacter: true },
-  equip:     { requiresCharacter: true },
-  preset:    { requiresCharacter: true },
-  enhance:   { requiresCharacter: true },
-  lock:      { requiresCharacter: true },
-  unlock:    { requiresCharacter: true },
-  sell:      { requiresCharacter: true },
-  deity:     { requiresCharacter: true },
-  deities:   { requiresCharacter: true },
-  equipment: { requiresCharacter: true },
-  cred:      { requiresCharacter: false },
-  bestow:    { requiresCharacter: false },
-  daily:     { requiresCharacter: false },
-  quests:    { requiresCharacter: false },
-  quest:     { requiresCharacter: false },
-  help:      { requiresCharacter: false },
-  admin:     { requiresCharacter: false },
-  coin:      { requiresCharacter: false },
-  dice:      { requiresCharacter: false },
-  baccarat:  { requiresCharacter: false },
-  blackjack: { requiresCharacter: false },
-  slot:      { requiresCharacter: false },
-  crash:     { requiresCharacter: false },
-  dev:       { requiresCharacter: false },
-  essence:   { requiresCharacter: true },  // essence shop
-  exchange:  { requiresCharacter: true },
-  pvp:       { requiresCharacter: true },  // pvp shop (Valor sink)
-  socket:    { requiresCharacter: true },
-  unsocket:  { requiresCharacter: true },
-  rune:      { requiresCharacter: true },  // crd rune bag
-  runes:     { requiresCharacter: true },  // crd runes
-  shop:      { requiresCharacter: false }, // cosmetic store; supporter status is independent of character
-  skin:      { requiresCharacter: false }, // cosmetic skin collection (open to all)
-  avatars:   { requiresCharacter: true },
-  avatar:    { requiresCharacter: true },
-  buy:       { requiresCharacter: false }, // buy a skin by code
-  use:       { requiresCharacter: false }, // equip a skin by code
-  supporter: { requiresCharacter: false }, // dev-only supporter ticket queue
-  update:    { requiresCharacter: false }, // dev-only ticket status update
-  set:       { requiresCharacter: false }, // reset all skins to default templates
-  glossary:  { requiresCharacter: false }, // reference codex (§4) — open to all
-  compare:   { requiresCharacter: true },  // owned-item compare (needs a character to own items)
-};
+// Derived views — original export names and per-entry shapes preserved.
+const IMPLEMENTED = Object.fromEntries(
+  Object.entries(COMMANDS).map(([name, { mw, run }]) => [name, { mw, run }])
+);
+const COMMAND_MAP = Object.fromEntries(
+  Object.entries(COMMANDS).map(([name, { requiresCharacter }]) => [name, { requiresCharacter }])
+);
 
 /** Resolve which trigger a message starts with: 'crd' always wins; else the guild prefix. */
 function resolvePrefix(content, guildPrefix) {

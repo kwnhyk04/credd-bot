@@ -2995,8 +2995,14 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
       && circularPage(carouselPages, -1).totalPages === carouselPages.length);
 
   const cmdSrc = fs.readFileSync(path.join(ROOT, 'src', 'handlers', 'commandHandler.js'), 'utf8');
-  check('crd glossary routed (IMPLEMENTED)', /glossary: \{ mw: 'full', run: glossaryCmd\.execute \}/.test(cmdSrc));
-  check('glossary in COMMAND_MAP', /glossary:\s+\{ requiresCharacter: false \}/.test(cmdSrc));
+  // [Phase 1.4] IMPLEMENTED/COMMAND_MAP are derived views of the unified COMMANDS
+  // table; the checks assert the glossary entry in the table plus the derivations.
+  check('crd glossary routed (IMPLEMENTED)',
+    /glossary: \{ mw: 'full', run: glossaryCmd\.execute, requiresCharacter: false \}/.test(cmdSrc)
+      && /const IMPLEMENTED = Object\.fromEntries/.test(cmdSrc));
+  check('glossary in COMMAND_MAP',
+    /glossary:.*requiresCharacter: false/.test(cmdSrc)
+      && /const COMMAND_MAP = Object\.fromEntries/.test(cmdSrc));
 
   const intSrc = fs.readFileSync(path.join(ROOT, 'src', 'handlers', 'interactionHandler.js'), 'utf8');
   check('gloss namespace routed for select + buttons',
