@@ -2886,7 +2886,11 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
     'config/gachaRates.js', 'config/dropRates.js', 'config/bosses.js',
     'config/raidLoot.js', 'config/runes.js', 'utils/questProgress.js',
     'utils/selectionPools.js', 'commands/rpg/enhance.js', 'commands/rpg/open.js',
+    // bossSystem.js is a facade since the Phase 2 split; auditing it alone would
+    // pass vacuously, so every module that now holds the boss code is listed.
     'engine/bossSystem.js',
+    'engine/boss/bossRender.js', 'engine/boss/bossRuntime.js',
+    'engine/boss/bossMessages.js', 'engine/boss/bossProgress.js',
   ];
   for (const file of randomAuditFiles) {
     const source = fs.readFileSync(path.join(ROOT, 'src', file), 'utf8');
