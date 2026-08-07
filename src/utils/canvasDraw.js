@@ -3,10 +3,14 @@
 /**
  * canvasDraw.js — shared 2D-canvas drawing primitives (Phase 1.2 dedup).
  *
- * Bodies are moved VERBATIM from their duplicated copies (5× roundRect,
- * 6× roundRectPath, 4× fitText, 2× hpColor — all byte-identical before the
- * move). roundRect and roundRectPath trace the same rounded-rectangle path;
- * both names are kept so every consumer keeps its original call sites.
+ * Bodies are moved VERBATIM from byte-identical duplicated copies only:
+ * roundRect (battleRender), roundRectPath (renderPortraitCard, renderProfile,
+ * renderStats), fitText (battleRender, renderProfile, renderStats,
+ * renderQuestRows), hpColor (battleRender, bossSystem). Both rounded-rect
+ * names trace the same path; both are kept so consumers keep their call sites.
+ * Non-identical local variants intentionally remain in battleLayoutRenderer
+ * (radius-clamping), renderBagItems/renderQuestRows (lineTo+arc), bossSystem,
+ * casinoCanvas, profileLayoutRenderer, statsLayoutRenderer.
  */
 
 function hpColor(p) {
