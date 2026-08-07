@@ -31,7 +31,11 @@ const { scaleExpForMobLevel } = require('../../config/expScaling');
 const { awardCombatExp } = require('../../utils/awardCombatExp');
 const { formatLevelRewardLine } = require('../../config/levelRewards');
 const { progressQuests } = require('../../utils/questProgress');
-const { capRaidChest, getRaidRewardTotals } = require('../../utils/raidRewardLimits');
+const {
+  capRaidRewards,
+  getRaidRewardTotals,
+  raidLimitNotices,
+} = require('../../utils/raidRewardLimits');
 
 const STALE_BATTLE_MINUTES = 5;
 
@@ -153,15 +157,25 @@ async function commitRewards(discordId, sim, mobRow, rng, mobLevel) {
     const bagBefore = bagRes.rows[0];
 
     let limitNotices = [];
-    if (won && chestCol) {
+    if (won && (chestCol || shards > 0)) {
       const dailyTotals = await getRaidRewardTotals(client, discordId);
-      const allocation = capRaidChest({
+      const allocation = capRaidRewards({
         current: dailyTotals,
-        chestCol,
-        mobType: mobRow.mob_type,
+        requested: {
+          silverChests: chestCol === 'silver_chest' ? 1 : 0,
+          goldChests: chestCol === 'gold_chest' ? 1 : 0,
+          beliefShards: shards,
+        },
+        regularRaid: mobRow.mob_type === 'regular',
+        eliteMobRaid: mobRow.mob_type === 'elite',
       });
-      chestCol = allocation.chestCol;
-      limitNotices = allocation.notices;
+      shards = allocation.granted.beliefShards;
+      chestCol = allocation.granted.silverChests > 0
+        ? 'silver_chest'
+        : allocation.granted.goldChests > 0
+          ? 'gold_chest'
+          : null;
+      limitNotices = raidLimitNotices(allocation);
     }
 
     const bagUpd = await client.query(
