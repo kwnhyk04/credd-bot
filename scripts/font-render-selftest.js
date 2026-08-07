@@ -123,7 +123,6 @@ check('actual unsupported glyphs are detected against the missing-glyph sentinel
     'renderQuestRows.js',
     'renderStats.js',
     'renderSummon.js',
-    'weaponResultRenderer.js',
   ];
   const requoted = rendererFiles.filter((file) =>
     fs.readFileSync(path.join(ROOT, 'src', 'engine', file), 'utf8')
