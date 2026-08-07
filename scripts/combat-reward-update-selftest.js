@@ -179,8 +179,12 @@ for (const [roll, label, application] of overchargeCases) {
   check('Raid tracking line includes the Gold Chest icon', formatRaidLimitStatus(partial.totals).includes('<:gold_chest:'));
   check('Raid enforces chest limits from the shared daily log totals',
     raidCommandSource.includes('getRaidRewardTotals')
-      && raidCommandSource.includes('capRaidChest')
-      && raidCommandSource.includes('chestCol = allocation.chestCol'));
+      && raidCommandSource.includes('capRaidRewards')
+      && raidCommandSource.includes('chestCol = allocation.granted.silverChests'));
+  check('Raid enforces Belief Shard limits even without a chest roll',
+    raidCommandSource.includes('if (won && (chestCol || shards > 0))')
+      && raidCommandSource.includes('beliefShards: shards')
+      && raidCommandSource.includes('shards = allocation.granted.beliefShards'));
   check('Daily limits are read only when the new command is used',
     commandHandlerSource.includes('dailyLimitsCmd.execute(message)')
       && dailyLimitsSource.includes('getRaidRewardTotals')

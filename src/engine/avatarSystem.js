@@ -183,6 +183,15 @@ function seedRows() {
 
 function avatarShortId(row) {
   if (!row || row.is_default) return 'default';
+  // Catalog keys use the part after the first underscore as the public id:
+  // swordsman_cm -> cm, tester_ta -> ta, tester_712 -> 712.
+  // Keep the style + gender form as a fallback for legacy rows without a
+  // structured avatar_key.
+  const key = String(row.avatar_key || '').trim().toLowerCase();
+  const separator = key.indexOf('_');
+  if (separator >= 0 && separator < key.length - 1) {
+    return key.slice(separator + 1);
+  }
   const s = String(row.style || '').charAt(0).toLowerCase();
   const g = String(row.gender || '').charAt(0).toLowerCase();
   return `${s}${g}`;
@@ -642,8 +651,18 @@ async function getAvatarByKey(db, key, className = null) {
        FROM avatar_catalog
       WHERE (
           lower(avatar_key) = lower($1)
-          OR lower(right(avatar_key, 2)) = lower($1)
-          OR lower(left(style, 1) || left(gender, 1)) = lower($1)
+          OR (
+            strpos(avatar_key, '_') > 0
+            AND lower(substring(avatar_key FROM strpos(avatar_key, '_') + 1)) = lower($1)
+          )
+          OR (
+            lower(style) NOT IN ('founder', 'tester')
+            AND lower(right(avatar_key, 2)) = lower($1)
+          )
+          OR (
+            lower(style) NOT IN ('founder', 'tester')
+            AND lower(left(style, 1) || left(gender, 1)) = lower($1)
+          )
         )
         ${classFilter}
         AND is_active = TRUE`,

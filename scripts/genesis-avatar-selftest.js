@@ -6,6 +6,7 @@ const path = require('path');
 const {
   STYLE_COST,
   STYLE_LABEL,
+  avatarShortId,
   buildAvatarPage,
   buildAvatarPreview,
   canonicalAvatarAssetPath,
@@ -36,6 +37,11 @@ async function main() {
   assert.equal(new Set(registered).size, 10);
   assert.equal(STYLE_COST.genesis, 15);
   assert.equal(STYLE_LABEL.genesis, 'Genesis');
+  assert.equal(avatarShortId({ avatar_key: 'tester_ta', style: 'tester', gender: 'male' }), 'ta');
+  assert.equal(avatarShortId({ avatar_key: 'tester_712', style: 'tester', gender: 'male' }), '712');
+  assert.equal(avatarShortId({ avatar_key: 'fighter_cm', style: 'cyber', gender: 'male' }), 'cm');
+  assert.equal(avatarShortId({ avatar_key: 'custom_special_skin', style: 'custom', gender: 'female' }), 'special_skin');
+  assert.equal(avatarShortId({ style: 'cyber', gender: 'male' }), 'cm');
 
   assert.equal(
     genesisAvatarAssetPath('  MAGE ', ' FEMALE '),
@@ -111,6 +117,8 @@ async function main() {
   const avatarCommandSource = fs.readFileSync(path.join(__dirname, '..', 'src/commands/rpg/avatar.js'), 'utf8');
   const statsCommandSource = fs.readFileSync(path.join(__dirname, '..', 'src/commands/rpg/stats.js'), 'utf8');
   assert.match(avatarSource, /AND lower\(class_name\) = lower\(\$1\)/);
+  assert.match(avatarSource, /strpos\(avatar_key, '_'\)[\s\S]+substring\(avatar_key FROM strpos\(avatar_key, '_'\) \+ 1\)/);
+  assert.match(avatarSource, /lower\(style\) NOT IN \('founder', 'tester'\)/);
   assert.match(avatarCommandSource, /row\.class_name[\s\S]+character\.class/);
   assert.match(
     statsCommandSource,
