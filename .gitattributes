@@ -1,0 +1,11 @@
+# Golden characterization baselines (Phase 0 refactor safety net).
+#
+# The C1/C3/C4 harnesses compare these files as raw text against strings they
+# build in memory with \n. With core.autocrlf=true and no attribute, git checks
+# them out CRLF while the harness generates LF, so a plain branch switch is
+# enough to produce a mismatch that has nothing to do with the code. Pin them to
+# LF in the working tree so the comparison is byte-honest on every platform.
+scripts/golden/*.json text eol=lf
+
+# C2 compares PNG bytes; never let any filter touch them.
+scripts/golden/renders/*.png binary
