@@ -99,8 +99,8 @@ const TEXT_Y = 0.30;        // fraction of card height for the name line
 const NAME_FONT_SCALE = 0.085;
 const RARITY_FONT_SCALE = 0.055;
 // Keep a comfortable margin below Discord's 4,000-character TextDisplay limit.
-// The result body is still the same line-by-line layout; this only prevents a
-// large pull with long custom-emoji tags from making the final edit invalid.
+// Results are grouped before splitting, so repeated deities stay compact in the
+// final Components V2 message.
 const SUMMON_RESULT_CHUNK_MAX = 2800;
 
 async function loadAssetImage(source) {
@@ -397,7 +397,7 @@ function formatSummonResultLine(result) {
 }
 
 function formatSummonResults(results) {
-  return results.map(formatSummonResultLine).join('\n');
+  return groupSummonResults(results);
 }
 
 /** Split only between complete result lines so large batches remain readable. */
@@ -405,7 +405,9 @@ function splitSummonResultLines(results, maxChars = SUMMON_RESULT_CHUNK_MAX) {
   const chunks = [];
   let current = [];
   let length = 0;
-  for (const line of results.map(formatSummonResultLine)) {
+  const lines = formatSummonResults(results);
+  if (!lines) return chunks;
+  for (const line of lines.split('\n')) {
     const nextLength = length + (current.length ? 1 : 0) + line.length;
     if (current.length && nextLength > maxChars) {
       chunks.push(current.join('\n'));
@@ -419,10 +421,35 @@ function splitSummonResultLines(results, maxChars = SUMMON_RESULT_CHUNK_MAX) {
   return chunks;
 }
 
-// Kept as a compatibility alias for callers that imported the old helper;
-// it intentionally no longer groups identical pulls.
+function summonResultGroups(results) {
+  const groups = new Map();
+  for (const result of results) {
+    const name = String(result.name || 'Unknown Deity');
+    const rarity = String(result.rarity || 'Remnant');
+    const key = JSON.stringify([name, rarity]);
+    const group = groups.get(key) || { name, rarity, pulls: 0, essence: 0 };
+    group.pulls += 1;
+    if (!result.isNew) group.essence += Number(result.essence) || 0;
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
+function formatSummonGroupLine(group) {
+  const tierEmoji = RARITY_SYMBOLS[group.rarity] ?? '◆';
+  const deityEmoji = emojiForDisplay(group.name, '✨');
+  const count = group.pulls > 1 ? ` ×**${group.pulls}**` : '';
+  const deity = `${tierEmoji} ${deityEmoji} **${escapeMarkdown(group.name)}**${count}`;
+  const essence = Number(group.essence);
+  if (!Number.isSafeInteger(essence) || essence <= 0) return deity;
+  const essenceEmoji = emoji(ALIAS_TO_ESSENCE[group.rarity] ?? 'epic_essence');
+  return `${essenceEmoji} **+${essence.toLocaleString()} Essence** • ${deity}`;
+}
+
+// Keep the historical string-returning helper for callers that import it;
+// grouping is by deity+tier and the Essence total is accumulated per group.
 function groupSummonResults(results) {
-  return formatSummonResults(results);
+  return summonResultGroups(results).map(formatSummonGroupLine).join('\n');
 }
 
 /* ════════════════════════════════════════════
