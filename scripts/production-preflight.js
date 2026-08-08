@@ -93,12 +93,10 @@ const REQUIRED_COLUMNS = {
     'active_preset_slot',
     'highest_raid_streak',
     'highest_rank_streak',
-    'equipped_weapon_id',
-    'equipped_armor_id',
-    'active_deity_id',
-    'active_deity_id_2',
-    'active_deity_id_3',
-    'active_echo_deity_id',
+    // The legacy loadout columns (equipped_weapon_id, equipped_armor_id,
+    // active_deity_id{,_2,_3}, active_echo_deity_id) are deliberately absent:
+    // 20260803_05_drop_legacy_loadout.sql dropped them from user_character once
+    // the data was verified into user_presets, which owns them now.
     'equipped_title_id',
     'pvp_rating',
     'pvp_peak',
