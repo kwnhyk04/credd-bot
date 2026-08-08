@@ -1202,6 +1202,46 @@ function resolveBattle(a, b, opts = {}) {
   };
 
   // ── player attack action ───────────────────────────────────────────────────
+  const collectAdditionalAttacks = (S, allowAdditionalAttackProcs) => {
+    const additionalAttacks = [];
+    if (allowAdditionalAttackProcs) {
+      if (S.flags.labrys_double_hit) {
+        additionalAttacks.push({
+          source: 'labrys',
+          atkScale: S.flags.labrys_second_hit_pct || 0.70,
+          log: '🪓 Labrys: Double Strike activated! (70% ATK additional attack)',
+          logPriority: LOG.WEAPON,
+        });
+      }
+      if (S.flags.extra_turn) {
+        additionalAttacks.push({
+          source: 'glacial_bow',
+          atkScale: 1,
+          log: '🏹 Glacial Bow: Frostwind Volley activated!',
+          logPriority: LOG.WEAPON,
+        });
+      }
+      if (S.flags.auto_fire_shot) {
+        additionalAttacks.push({
+          source: 'auto_fire',
+          atkScale: 1,
+        });
+      }
+      if (S.classPassive === 'pierce' && bt.rng() < ARCHER_DOUBLE_ATTACK_CHANCE) {
+        additionalAttacks.push({
+          source: 'archer',
+          atkScale: 1,
+          log: `🏹 ${S.name}'s Double Attack activated!`,
+          logPriority: LOG.CLASS,
+        });
+      }
+    }
+    S.flags.labrys_double_hit = false;
+    S.flags.extra_turn = false;
+    S.flags.auto_fire_shot = false;
+    return additionalAttacks;
+  };
+
   const consumeNextAttackFlags = (S, attackHookEvents) => {
     // Durable "next attack" effects are consumed only when an attack actually begins.
     // A stun, freeze, charm, or Dizzy/Stun skip cannot silently discard them.
@@ -1618,42 +1658,7 @@ function resolveBattle(a, b, opts = {}) {
     // Their deterministic order is Labrys → Glacial Bow → Archer. Every generated
     // attack is otherwise a complete regular attack instance, but its context
     // disables every additional-attack generator to prevent recursion.
-    const additionalAttacks = [];
-    if (allowAdditionalAttackProcs) {
-      if (S.flags.labrys_double_hit) {
-        additionalAttacks.push({
-          source: 'labrys',
-          atkScale: S.flags.labrys_second_hit_pct || 0.70,
-          log: '🪓 Labrys: Double Strike activated! (70% ATK additional attack)',
-          logPriority: LOG.WEAPON,
-        });
-      }
-      if (S.flags.extra_turn) {
-        additionalAttacks.push({
-          source: 'glacial_bow',
-          atkScale: 1,
-          log: '🏹 Glacial Bow: Frostwind Volley activated!',
-          logPriority: LOG.WEAPON,
-        });
-      }
-      if (S.flags.auto_fire_shot) {
-        additionalAttacks.push({
-          source: 'auto_fire',
-          atkScale: 1,
-        });
-      }
-      if (S.classPassive === 'pierce' && bt.rng() < ARCHER_DOUBLE_ATTACK_CHANCE) {
-        additionalAttacks.push({
-          source: 'archer',
-          atkScale: 1,
-          log: `🏹 ${S.name}'s Double Attack activated!`,
-          logPriority: LOG.CLASS,
-        });
-      }
-    }
-    S.flags.labrys_double_hit = false;
-    S.flags.extra_turn = false;
-    S.flags.auto_fire_shot = false;
+    const additionalAttacks = collectAdditionalAttacks(S, allowAdditionalAttackProcs);
 
     for (const additional of additionalAttacks) {
       if (result || O.hp <= 0) break;
