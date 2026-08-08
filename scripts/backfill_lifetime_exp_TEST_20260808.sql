@@ -1,5 +1,19 @@
 -- ============================================================================
--- backfill_lifetime_exp_20260808.sql
+-- backfill_lifetime_exp_TEST_20260808.sql
+--
+-- ###########################################################################
+-- ##  TEST DATA ONLY -- NEVER RUN THIS AGAINST PRODUCTION.                 ##
+-- ###########################################################################
+--
+-- Every discord_id and every per-row value below was read out of a TEST
+-- database on 2026-08-08. The ids do not identify production accounts and the
+-- precomputed totals describe test progression, not real progression. Against
+-- any other database the pre-check aborts, which is correct; if the pre-check
+-- were removed it would write values that belong to nobody.
+--
+-- For an environment-independent backfill use scripts/backfill_lifetime_exp.sql
+-- which derives every value from combat_level and combat_exp at run time and
+-- hardcodes no ids. This file is retained only as a record of the test run.
 --
 -- PURPOSE   Repair user_character.lifetime_exp for the 20 accounts that carry
 --           progression. 19 hold 0 because the progression-v2 conversion never
