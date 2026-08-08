@@ -62,20 +62,18 @@ const pulls = [
   { name: 'Njord', rarity: 'Awakened', isNew: false, essence: 2 },
 ];
 const lines = formatSummonResults(pulls).split('\n');
-check('summon results preserve one line per pull', lines.length === pulls.length);
-check('new deity has no essence icon or zero reward', !lines[0].includes('Essence') && !lines[0].includes('+0'));
-check('duplicate puts essence before the deity', lines[1].startsWith(emoji('mythic_essence')) && lines[1].includes(' • '));
-check('duplicate keeps the actual essence amount', lines[1].includes('+2 Essence'));
-check('new result keeps the tier icon before the deity name', lines[2].includes('Freyr') && lines[2].indexOf('Freyr') > 0);
-check('identical deity pulls are not grouped', lines.filter((line) => line.includes('Njord')).length === 3 && !formatSummonResults(pulls).includes('×2'));
-check('summon result order is unchanged', lines[0].includes('Njord') && lines[1].includes('Njord') && lines[2].includes('Freyr') && lines[3].includes('Njord'));
+check('identical deity pulls are grouped', lines.length === 2 && lines.filter((line) => line.includes('Njord')).length === 1);
+check('grouped duplicate puts accumulated essence before the deity', lines[0].startsWith(emoji('mythic_essence')) && lines[0].includes('+4 Essence') && lines[0].includes(' • '));
+check('grouped result keeps the total pull count', lines[0].includes('×**3**'));
+check('new-only deity has no essence icon or zero reward', !lines[1].includes('Essence') && !lines[1].includes('+0'));
+check('grouped summon result order is unchanged', lines[0].includes('Njord') && lines[1].includes('Freyr'));
 
 const summary = summonOutcomeSummary(pulls);
 check('summary counts new pulls as Awakened', summary.includes('Awakened ×**2**'));
 check('summary counts duplicate pulls as Remnant', summary.includes('Remnant ×**2**'));
 
 const chunks = splitSummonResultLines(pulls, 100);
-check('large summon result lists split only between lines', chunks.length > 1 && chunks.join('\n').split('\n').join('|') === lines.join('|'));
+check('large summon result lists split only between grouped lines', chunks.length > 1 && chunks.join('\n').split('\n').join('|') === lines.join('|'));
 const thirtyPulls = Array.from({ length: 30 }, (_, index) => ({
   name: `Long Deity Name ${index}`,
   rarity: 'Remnant',
