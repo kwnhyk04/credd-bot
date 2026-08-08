@@ -7,7 +7,7 @@
 --           column and has earned EXP through awardCombatExp since.
 --
 -- DATE      2026-08-08
--- COMMIT    7a337d4
+-- COMMIT    de30151
 -- FORMULA   lifetime_exp = CUMULATIVE_EXP[combat_level - 1] + combat_exp
 --           (src/config/combatExp.js :: lifetimeExpFor)
 -- BACKUP    user_character_backup_20260808   (24 rows, verified identical to live before generation)
@@ -60,7 +60,7 @@ BEGIN
     ('770584603852275712', 27, 657893, 0, 8524543),
     ('780788002942615562', 12, 4032, 0, 85682),
     ('814103923027738674', 13, 2850, 0, 129500),
-    ('980773258238492762', 22, 322196, 163667, 3703846)
+    ('980773258238492762', 22, 322865, 164336, 3704515)
     ) AS e(discord_id, want_level, want_exp, want_lifetime, new_lifetime)
     LEFT JOIN public.user_character u ON u.discord_id = e.discord_id
    WHERE u.discord_id IS NULL
@@ -100,7 +100,7 @@ UPDATE public.user_character AS u
     ('770584603852275712', 27, 657893, 0, 8524543),
     ('780788002942615562', 12, 4032, 0, 85682),
     ('814103923027738674', 13, 2850, 0, 129500),
-    ('980773258238492762', 22, 322196, 163667, 3703846)
+    ('980773258238492762', 22, 322865, 164336, 3704515)
   ) AS e(discord_id, want_level, want_exp, want_lifetime, new_lifetime)
  WHERE u.discord_id = e.discord_id;
 
@@ -128,7 +128,7 @@ SELECT
     ('770584603852275712', 27, 657893, 0, 8524543),
     ('780788002942615562', 12, 4032, 0, 85682),
     ('814103923027738674', 13, 2850, 0, 129500),
-    ('980773258238492762', 22, 322196, 163667, 3703846)
+    ('980773258238492762', 22, 322865, 164336, 3704515)
      ) AS e(discord_id, want_level, want_exp, want_lifetime, new_lifetime)
        ON e.discord_id = u.discord_id
     WHERE u.lifetime_exp = e.new_lifetime)                          AS updated_to_expected,
