@@ -518,10 +518,10 @@ async function main() {
     { name: 'Mayari', rarity: 'Awakened', isNew: false, essence: 6 },
   ]);
   const duplicateSummonLines = duplicateSummonLine.split('\n');
-  assert.equal(duplicateSummonLines.length, 2);
-  assert(duplicateSummonLines.every((line) => line.includes('**Mayari**') && line.includes('+6 Essence')));
-  assert(!duplicateSummonLine.includes('x2'));
-  assert(duplicateSummonLines.every((line) => line.startsWith(`${emoji('mythic_essence')} **+6 Essence**`)));
+  assert.equal(duplicateSummonLines.length, 1);
+  assert(duplicateSummonLines.every((line) => line.includes('**Mayari**') && line.includes('+12 Essence')));
+  assert(duplicateSummonLine.includes('×**2**'));
+  assert(duplicateSummonLines.every((line) => line.startsWith(`${emoji('mythic_essence')} **+12 Essence**`)));
   const newSummonLine = groupSummonResults([
     { name: 'Apolaki', rarity: 'Undying', isNew: true, essence: 0 },
   ]);
