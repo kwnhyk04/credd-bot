@@ -1202,6 +1202,31 @@ function resolveBattle(a, b, opts = {}) {
   };
 
   // ── player attack action ───────────────────────────────────────────────────
+  /** Overcharge's single post-hit effect: select one debuff, apply it, log the outcome. */
+  const applyOverchargeDebuff = (S, O) => {
+    const selected = selectOverchargeDebuff(bt.rng());
+    let applied = false;
+    if (selected.tag === 'paralyze') {
+      applied = tryApplyDebuff(O, selected.tag, 1, 0, S);
+      if (applied) logAt(LOG.STATUS, '⚡ Overcharge: Paralyze applied!');
+    } else if (selected.tag === 'burn') {
+      const burnDamage = Math.max(0, effAtk(S) * 0.10);
+      applied = tryApplyDebuff(O, selected.tag, 1, burnDamage, S);
+      if (applied) {
+        const burn = findDebuff(O, 'burn');
+        if (burn) burn.overcharge = true;
+        logAt(LOG.STATUS, '🔥 Overcharge: Burn applied for 1 turn.');
+      }
+    } else if (selected.tag === 'def_down') {
+      applied = tryApplyDebuff(O, selected.tag, LANDED_STAT_DEBUFF_TURNS, 0.25, S);
+      if (applied) logAt(LOG.STATUS, '🛡️ Overcharge: Opponent DEF reduced by 25% for 1 turn.');
+    } else {
+      applied = tryApplyDebuff(O, selected.tag, LANDED_STAT_DEBUFF_TURNS, 0.25, S);
+      if (applied) logAt(LOG.STATUS, '⚔️ Overcharge: Opponent ATK reduced by 25% for 1 turn.');
+    }
+    if (!applied) logAt(LOG.STATUS, `🔮 Overcharge: ${selected.label} was resisted.`);
+  };
+
   const playerAttack = (S, O, context = {}) => {
     const isPrimaryAttack = context.isPrimaryAttack !== false;
     const isAdditionalAttack = !isPrimaryAttack;
@@ -1431,27 +1456,7 @@ function resolveBattle(a, b, opts = {}) {
       // normal damage has been logged/resolved. The engine's immunity path may still
       // resist the selected effect, but there is never a second roll or a second effect.
       if (mainHit && overchargeFired && !res.negated && O.hp > 0) {
-        const selected = selectOverchargeDebuff(bt.rng());
-        let applied = false;
-        if (selected.tag === 'paralyze') {
-          applied = tryApplyDebuff(O, selected.tag, 1, 0, S);
-          if (applied) logAt(LOG.STATUS, '⚡ Overcharge: Paralyze applied!');
-        } else if (selected.tag === 'burn') {
-          const burnDamage = Math.max(0, effAtk(S) * 0.10);
-          applied = tryApplyDebuff(O, selected.tag, 1, burnDamage, S);
-          if (applied) {
-            const burn = findDebuff(O, 'burn');
-            if (burn) burn.overcharge = true;
-            logAt(LOG.STATUS, '🔥 Overcharge: Burn applied for 1 turn.');
-          }
-        } else if (selected.tag === 'def_down') {
-          applied = tryApplyDebuff(O, selected.tag, LANDED_STAT_DEBUFF_TURNS, 0.25, S);
-          if (applied) logAt(LOG.STATUS, '🛡️ Overcharge: Opponent DEF reduced by 25% for 1 turn.');
-        } else {
-          applied = tryApplyDebuff(O, selected.tag, LANDED_STAT_DEBUFF_TURNS, 0.25, S);
-          if (applied) logAt(LOG.STATUS, '⚔️ Overcharge: Opponent ATK reduced by 25% for 1 turn.');
-        }
-        if (!applied) logAt(LOG.STATUS, `🔮 Overcharge: ${selected.label} was resisted.`);
+        applyOverchargeDebuff(S, O);
       }
 
       // class on-hit effects (landed main hit only)
