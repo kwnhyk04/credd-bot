@@ -1202,6 +1202,33 @@ function resolveBattle(a, b, opts = {}) {
   };
 
   // ── player attack action ───────────────────────────────────────────────────
+  /** Adds or refreshes one Swordsman Bleed stack, capped at BLEED_MAX_STACKS. */
+  const applySwordsmanBleedStack = (S, O) => {
+    bt.rng(); // reserved draw — stream stability (bleed value is deterministic now)
+    const ex = findDebuff(O, 'bleed');
+    const stacks = Math.min(BLEED_MAX_STACKS, (ex && ex.stacks ? ex.stacks : 0) + 1);
+    const value = Math.min(BLEED_MAX_PCT, stacks * BLEED_PCT_PER_STACK) * S.atk;
+    if (ex) {
+      ex.turnsLeft = 2;
+      ex.value = Math.max(ex.value, value);
+      ex.stacks = stacks;
+      ex.category = EFFECT_CATEGORY.DOT;
+    } else {
+      O.debuffs.push({
+        tag: 'bleed',
+        category: EFFECT_CATEGORY.DOT,
+        turnsLeft: 2,
+        value,
+        stacks,
+        armed: false,
+        source: S,
+      });
+    }
+    const pct = Math.round(Math.min(BLEED_MAX_PCT, stacks * BLEED_PCT_PER_STACK) * 100);
+    logAt(LOG.CLASS,
+      `🩸 Swordsman Passive — applied Bleed. Current stack: ${stacks}/${BLEED_MAX_STACKS} (${pct}% ATK/turn).`);
+  };
+
   /** Overcharge's single post-hit effect: select one debuff, apply it, log the outcome. */
   const applyOverchargeDebuff = (S, O) => {
     const selected = selectOverchargeDebuff(bt.rng());
@@ -1511,29 +1538,7 @@ function resolveBattle(a, b, opts = {}) {
       // survived the damage that triggered it. `result` alone is not enough, because a
       // boss pool can reach 0 without ending the battle.
       if (S.classPassive === 'bleed' && !res.negated && O.hp > 0 && !debuffImmune(O, 'bleed')) {
-        bt.rng(); // reserved draw — stream stability (bleed value is deterministic now)
-        const ex = findDebuff(O, 'bleed');
-        const stacks = Math.min(BLEED_MAX_STACKS, (ex && ex.stacks ? ex.stacks : 0) + 1);
-        const value = Math.min(BLEED_MAX_PCT, stacks * BLEED_PCT_PER_STACK) * S.atk;
-        if (ex) {
-          ex.turnsLeft = 2;
-          ex.value = Math.max(ex.value, value);
-          ex.stacks = stacks;
-          ex.category = EFFECT_CATEGORY.DOT;
-        } else {
-          O.debuffs.push({
-            tag: 'bleed',
-            category: EFFECT_CATEGORY.DOT,
-            turnsLeft: 2,
-            value,
-            stacks,
-            armed: false,
-            source: S,
-          });
-        }
-        const pct = Math.round(Math.min(BLEED_MAX_PCT, stacks * BLEED_PCT_PER_STACK) * 100);
-        logAt(LOG.CLASS,
-          `🩸 Swordsman Passive — applied Bleed. Current stack: ${stacks}/${BLEED_MAX_STACKS} (${pct}% ATK/turn).`);
+        applySwordsmanBleedStack(S, O);
       }
       if (mainHit) {
         S.flags.crossbow_pierce = false;
