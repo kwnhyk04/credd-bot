@@ -143,21 +143,12 @@ COMMIT;
 -- ============================================================================
 -- RESTORE, if this needs undoing. Run as its own transaction.
 --
+-- UNSAFE to restore combat_exp or combat_level from the backup: live gameplay
+-- has advanced past the snapshot, so it would delete EXP players have earned.
+--
 --   BEGIN;
 --   UPDATE public.user_character u
 --      SET lifetime_exp = b.lifetime_exp
---     FROM user_character_backup_20260808 b
---    WHERE u.discord_id = b.discord_id;
---   COMMIT;
---
--- The backup also holds the pre-change combat_level and combat_exp, which this
--- file never modifies. To restore those as well:
---
---   BEGIN;
---   UPDATE public.user_character u
---      SET lifetime_exp = b.lifetime_exp,
---          combat_exp   = b.combat_exp,
---          combat_level = b.combat_level
 --     FROM user_character_backup_20260808 b
 --    WHERE u.discord_id = b.discord_id;
 --   COMMIT;
