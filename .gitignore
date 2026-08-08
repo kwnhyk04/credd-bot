@@ -35,13 +35,12 @@ assets/skins/testers/*
 # Generated skin-alignment artifacts (scripts/alignSkins.js, scripts/skinPreview.js)
 tmp/
 
-# Local documentation — not pushed, including architecture decision records.
-# Everything under docs/ stays local.
+# Agent instruction and scratch files stay local.
 #
-# This must be `docs/*` and not `docs/`: a trailing-slash exclusion stops git from
-# descending into the directory at all, so no negation inside it can ever match.
-docs/*
-docs/adr/
+# docs/ is TRACKED. CLAUDE.md makes /docs the documentation source of truth —
+# every file there is ingested by the site's RAG chatbot, and the docs index is
+# required to list every document. Ignoring the directory contradicted that, and
+# meant documentation work could never actually land.
 AGENTS.md
 AGENT.md
 CLAUDE.md
