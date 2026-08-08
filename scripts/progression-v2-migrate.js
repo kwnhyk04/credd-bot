@@ -55,6 +55,9 @@ const SAMPLE_SIZE = 20;
 
 const args = process.argv.slice(2);
 const EXECUTE = args.includes('--execute');
+// Opt-in escape hatch for the one case the idempotency guard gets wrong: a row whose
+// lifetime_exp is PARTIAL rather than finished. See the guard in main() for why.
+const FORCE_RECOMPUTE_ALL = args.includes('--force-recompute-all');
 const SCRIPT = path.basename(__filename);
 
 function fmt(n) { return Number(n).toLocaleString('en-US'); }
@@ -143,18 +146,39 @@ async function main() {
     // ── idempotency guard ───────────────────────────────────────────────────
     // An unconverted row reads lifetime_exp = 0, including a brand-new level 1
     // player, so "every row is zero" correctly means "not yet converted".
+    //
+    // That reasoning holds only while nothing else writes the column. Once the column
+    // is live, awardCombatExp increments it on every EXP grant, so an account that
+    // predates the column and has played since reads > 0 while still being PARTIAL —
+    // its total covers only post-column grants. One such row makes this guard refuse
+    // every future run, including the conversion that would fix it.
+    //
+    // --force-recompute-all is the opt-in for exactly that case. It is safe because
+    // the formula derives lifetime_exp from combat_level and combat_exp alone and
+    // never reads the existing lifetime_exp, so recomputing a partial row repairs it
+    // and recomputing a correct row is a no-op. The default path below is unchanged:
+    // without the flag, any converted row still aborts the run.
     const already = await client.query(
       'SELECT count(*)::int AS n FROM user_character WHERE lifetime_exp > 0'
     );
-    if (Number(already.rows[0].n) > 0) {
+    if (Number(already.rows[0].n) > 0 && !FORCE_RECOMPUTE_ALL) {
       console.log(
         `ALREADY CONVERTED — ${fmt(already.rows[0].n)} row(s) have lifetime_exp > 0.\n`
-        + 'Refusing to run so a second pass cannot double-convert. Nothing was changed.'
+        + 'Refusing to run so a second pass cannot double-convert. Nothing was changed.\n'
+        + 'If those totals are PARTIAL rather than finished, re-run with '
+        + '--force-recompute-all to recompute every progression-bearing row.'
       );
       return;
     }
 
     // ── scan ────────────────────────────────────────────────────────────────
+    // A first conversion takes every row: a level 1 player with 0 exp converts to
+    // lifetime_exp 0, so including them costs nothing. A forced recompute restricts
+    // to rows that actually carry progression, so untouched level 1 rows stay out of
+    // the change set entirely rather than being rewritten with the zero they hold.
+    const SCAN_PREDICATE = FORCE_RECOMPUTE_ALL
+      ? 'AND (combat_level > 1 OR combat_exp > 0)'
+      : '';
     const rows = [];
     let after = '';
     for (;;) {
@@ -162,6 +186,7 @@ async function main() {
         `SELECT discord_id, combat_level, combat_exp
            FROM user_character
           WHERE discord_id > $1
+            ${SCAN_PREDICATE}
           ORDER BY discord_id
           LIMIT $2`,
         [after, PAGE_SIZE]
