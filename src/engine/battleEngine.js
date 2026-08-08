@@ -1202,6 +1202,42 @@ function resolveBattle(a, b, opts = {}) {
   };
 
   // ── player attack action ───────────────────────────────────────────────────
+  const consumeNextAttackFlags = (S, attackHookEvents) => {
+    // Durable "next attack" effects are consumed only when an attack actually begins.
+    // A stun, freeze, charm, or Dizzy/Stun skip cannot silently discard them.
+    const amihanStacks = Math.max(0, Number(S.flags.amihan_evade_bonus_stacks) || 0);
+    if (amihanStacks > 0) {
+      S.scratch.playerAtkMult += amihanStacks * 0.20;
+      S.flags.amihan_evade_bonus_stacks = 0;
+      attackHookEvents.push(`💨 Amihan: Tailwind — Evade momentum! ATK +${amihanStacks * 20}%!`);
+    }
+    if (S.flags.idiyanale_attack_bonus_pending) {
+      S.scratch.playerAtkMult += S.flags.idiyanale_attack_bonus_pending;
+      S.flags.idiyanale_attack_bonus_pending = 0;
+    }
+    if (S.flags.mimir_attack_bonus_pending) {
+      S.scratch.playerAtkMult += S.flags.mimir_attack_bonus_pending;
+      S.flags.mimir_attack_bonus_pending = 0;
+    }
+    if (S.flags.artemis_auto_crit_pending) {
+      S.scratch.nextAttackAutoCrit = true;
+      S.flags.artemis_auto_crit_pending = false;
+      if (S.flags.artemis_first_attack_pending) {
+        S.flags.artemis_first_attack_pending = false;
+        S.flags.artemis_first_used = true;
+      }
+    }
+    if (S.flags.vidar_auto_crit_pending) {
+      S.scratch.nextAttackAutoCrit = true;
+      S.flags.vidar_auto_crit_pending = false;
+    }
+    if (S.flags.unseen_pending) {
+      S.scratch.ignoreDefPct = Math.max(S.scratch.ignoreDefPct, 0.50);
+      S.flags.unseen_pending = false;
+      attackHookEvents.push('🌑 Veil of Hades — Unseen consumed; 50% of enemy DEF ignored.');
+    }
+  };
+
   /** Adds or refreshes one Swordsman Bleed stack, capped at BLEED_MAX_STACKS. */
   const applySwordsmanBleedStack = (S, O) => {
     bt.rng(); // reserved draw — stream stability (bleed value is deterministic now)
@@ -1309,39 +1345,7 @@ function resolveBattle(a, b, opts = {}) {
     for (const hook of S.scratch.attackHooks) hook();
     const attackHookEvents = bt.shared.events.splice(attackHookEventStart);
 
-    // Durable "next attack" effects are consumed only when an attack actually begins.
-    // A stun, freeze, charm, or Dizzy/Stun skip cannot silently discard them.
-    const amihanStacks = Math.max(0, Number(S.flags.amihan_evade_bonus_stacks) || 0);
-    if (amihanStacks > 0) {
-      S.scratch.playerAtkMult += amihanStacks * 0.20;
-      S.flags.amihan_evade_bonus_stacks = 0;
-      attackHookEvents.push(`💨 Amihan: Tailwind — Evade momentum! ATK +${amihanStacks * 20}%!`);
-    }
-    if (S.flags.idiyanale_attack_bonus_pending) {
-      S.scratch.playerAtkMult += S.flags.idiyanale_attack_bonus_pending;
-      S.flags.idiyanale_attack_bonus_pending = 0;
-    }
-    if (S.flags.mimir_attack_bonus_pending) {
-      S.scratch.playerAtkMult += S.flags.mimir_attack_bonus_pending;
-      S.flags.mimir_attack_bonus_pending = 0;
-    }
-    if (S.flags.artemis_auto_crit_pending) {
-      S.scratch.nextAttackAutoCrit = true;
-      S.flags.artemis_auto_crit_pending = false;
-      if (S.flags.artemis_first_attack_pending) {
-        S.flags.artemis_first_attack_pending = false;
-        S.flags.artemis_first_used = true;
-      }
-    }
-    if (S.flags.vidar_auto_crit_pending) {
-      S.scratch.nextAttackAutoCrit = true;
-      S.flags.vidar_auto_crit_pending = false;
-    }
-    if (S.flags.unseen_pending) {
-      S.scratch.ignoreDefPct = Math.max(S.scratch.ignoreDefPct, 0.50);
-      S.flags.unseen_pending = false;
-      attackHookEvents.push('🌑 Veil of Hades — Unseen consumed; 50% of enemy DEF ignored.');
-    }
+    consumeNextAttackFlags(S, attackHookEvents);
     // Mage Overcharge is a turn-based modifier consumed only by the primary
     // attack on every 3rd round. Any Labrys, Archer, Glacial Bow, or future
     // additional attack gets the normal multiplier and a fresh crit roll.
