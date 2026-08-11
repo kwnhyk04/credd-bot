@@ -3,14 +3,11 @@
 /**
  * `crd daily` — collect the daily attendance reward (Master §19, Phase 8).
  *
- * Two streaks (users.monthly_streak 1–30 rolling, overall_streak lifetime-consecutive).
- * Resets midnight PHT. A consecutive day advances both; a missed day (or first claim)
- * resets both to Day 1. Rewards (Credux + Belief Shards + a Silver/Gold chest) scale by
- * the monthly day position per the §19 tables.
- *
- * NOTE on §19 wording: "Overall Streak … never resets" is read as "never resets on the
- * 30-day cycle boundary"; a *missed day* still resets both streaks ("Miss a day → FULL
- * RESET of both streaks"). Flagged for confirmation.
+ * Two counters: users.monthly_streak is the rolling 1–30 reward cycle, while
+ * users.overall_streak is the current consecutive attendance streak. A consecutive PHT
+ * day advances both; a missed day (or first claim) resets both to Day 1, preserving the
+ * existing cycle behavior. Base rewards use the monthly day; milestone rewards use only
+ * the consecutive streak, which continues across the monthly wrap.
  *
  * Lock order: users_bag → users (Phase-5 convention; same as bestow). game_logs rows use
  * action 'Daily' (credux / shards / chest).
@@ -73,21 +70,32 @@ const GOLD_DAYS = new Set([7, 14, 21, 28, 29, 30]);
 function dailyReward(day) {
   const gold = GOLD_DAYS.has(day);
   let credux; let shards;
-  if (day === 30) [credux, shards] = [25000, 35];
-  else if (day === 29) [credux, shards] = [18000, 28];
-  else if (day === 28) [credux, shards] = [15000, 25];
-  else if (day >= 22) [credux, shards] = [4000, 10];   // 22–27
-  else if (day === 21) [credux, shards] = [12000, 20];
-  else if (day >= 15) [credux, shards] = [3000, 8];    // 15–20
-  else if (day === 14) [credux, shards] = [8000, 15];
-  else if (day >= 8) [credux, shards] = [2000, 5];     // 8–13
-  else if (day === 7) [credux, shards] = [5000, 10];
-  else [credux, shards] = [1000, 3];                   // 1–6
+  if (day === 30) [credux, shards] = [1500000, 1000];
+  else if (day === 29) [credux, shards] = [1000000, 750];
+  else if (day === 28) [credux, shards] = [750000, 600];
+  else if (day >= 22) [credux, shards] = [150000, 250];   // 22–27
+  else if (day === 21) [credux, shards] = [600000, 500];
+  else if (day >= 15) [credux, shards] = [100000, 200];   // 15–20
+  else if (day === 14) [credux, shards] = [400000, 350];
+  else if (day >= 8) [credux, shards] = [75000, 150];     // 8–13
+  else if (day === 7) [credux, shards] = [250000, 250];
+  else [credux, shards] = [50000, 100];                   // 1–6
   return {
     credux, shards,
     chestCol: gold ? 'gold_chest' : 'silver_chest',
     chestLabel: gold ? 'Gold Chest' : 'Silver Chest',
   };
+}
+
+/** Bonus chest earned by the newly reached consecutive streak, if any. */
+function streakMilestone(streak) {
+  if (streak === 15) {
+    return { chestCol: 'boss_treasure_chest', chestLabel: 'Boss Treasure Chest' };
+  }
+  if (streak >= 30 && streak % 15 === 0) {
+    return { chestCol: 'boss_golden_chest', chestLabel: 'Boss Golden Chest' };
+  }
+  return null;
 }
 
 /**
@@ -119,13 +127,17 @@ async function claimDaily(client, discordId, { bypass = false } = {}) {
   const overall = consecutive ? Number(u.overall_streak) + 1 : 1;
   const rw = dailyReward(monthly);
   const col = rw.chestCol; // whitelisted literal
+  const milestone = streakMilestone(overall);
+  const milestoneCol = milestone?.chestCol; // whitelisted literal
+  const milestoneSet = milestoneCol ? `,\n            ${milestoneCol} = ${milestoneCol} + 1` : '';
+  const milestoneReturning = milestoneCol ? `, ${milestoneCol} AS milestone_chest_count` : '';
 
   const bagUpd = await client.query(
     `UPDATE users_bag
-        SET credux = credux + $2, belief_shards = belief_shards + $3, ${col} = ${col} + 1,
+        SET credux = credux + $2, belief_shards = belief_shards + $3, ${col} = ${col} + 1${milestoneSet},
             lifetime_credux_earned = lifetime_credux_earned + $2
       WHERE discord_id = $1
-      RETURNING credux, belief_shards, ${col} AS chest_count`,
+      RETURNING credux, belief_shards, ${col} AS chest_count${milestoneReturning}`,
     [discordId, rw.credux, rw.shards]
   );
   const after = bagUpd.rows[0];
@@ -152,10 +164,21 @@ async function claimDaily(client, discordId, { bypass = false } = {}) {
      VALUES ($1, 'Daily', $2, $3, $4)`,
     [discordId, col, Number(after.chest_count) - 1, Number(after.chest_count)]
   );
+  if (milestone) {
+    await client.query(
+      `INSERT INTO game_logs (discord_id, action, item_type, previous_chest_count, updated_chest_count)
+       VALUES ($1, 'Daily', $2, $3, $4)`,
+      [
+        discordId, milestone.chestCol,
+        Number(after.milestone_chest_count) - 1, Number(after.milestone_chest_count),
+      ]
+    );
+  }
 
   return {
     status: 'ok', day: monthly, monthly, overall,
     credux: rw.credux, shards: rw.shards, chestLabel: rw.chestLabel,
+    milestoneChestLabel: milestone?.chestLabel || null,
   };
 }
 
@@ -164,6 +187,9 @@ async function buildDailyPayload(result, logContext = {}, eventResult = null) {
   const creduxIcon = emojiForDisplay('Credux Coin', '💰');
   const shardIcon = emojiForDisplay('Belief Shards', '🔮');
   const chestIcon = emojiForDisplay(result.chestLabel, '🎁');
+  const milestoneChestIcon = result.milestoneChestLabel
+    ? emojiForDisplay(result.milestoneChestLabel, '🎁')
+    : null;
 
   const container = new ContainerBuilder().setAccentColor(ACCENT);
   const files = [];
@@ -185,15 +211,19 @@ async function buildDailyPayload(result, logContext = {}, eventResult = null) {
         g.addItems((item) => item.setURL(image.url)));
     }
   }
+  let attendanceRewards =
+    `${creduxIcon} **+${result.credux.toLocaleString()}** Credux\n` +
+    `${shardIcon} **+${result.shards}** Belief Shards\n` +
+    `${chestIcon} **+1** ${result.chestLabel}`;
+  if (result.milestoneChestLabel) {
+    attendanceRewards += `\n${milestoneChestIcon} **+1** ${result.milestoneChestLabel}`;
+  }
+
   container
     .addTextDisplayComponents((td) => td.setContent(`## 📅 Daily Attendance — Day ${result.day}`))
-    .addTextDisplayComponents((td) => td.setContent(`-# Month: ${result.monthly} / 30 · Overall: ${result.overall} days`))
+    .addTextDisplayComponents((td) => td.setContent(`-# Month: ${result.monthly} / 30 · Streak: ${result.overall} days`))
     .addSeparatorComponents(sep)
-    .addTextDisplayComponents((td) => td.setContent(
-      `${creduxIcon} **+${result.credux.toLocaleString()}** Credux\n` +
-      `${shardIcon} **+${result.shards}** Belief Shards\n` +
-      `${chestIcon} **+1** ${result.chestLabel}`
-    ));
+    .addTextDisplayComponents((td) => td.setContent(attendanceRewards));
 
   if (eventResult?.status === 'ok') {
     const relicIcon = emojiForDisplay('Sacred Relic');
@@ -254,4 +284,10 @@ async function execute(message) {
   }, eventResult));
 }
 
-module.exports = { execute, claimDaily, dailyReward, buildDailyPayload, banner };
+module.exports = {
+  execute,
+  claimDaily,
+  dailyReward,
+  buildDailyPayload,
+  banner,
+};

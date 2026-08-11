@@ -1096,8 +1096,9 @@ async function devDaily(message, args, devId) {
     await client.query('BEGIN');
     result = await dailyCmd.claimDaily(client, target.id, { bypass: true });
     if (result.status === 'ok') {
+      const milestone = result.milestoneChestLabel ? `, +1 ${result.milestoneChestLabel}` : '';
       await logDev(client, devId, 'daily_grant', target.id,
-        `Day ${result.day}: +${result.credux} Credux, +${result.shards} shards, ${result.chestLabel} (attendance bypassed)`);
+        `Day ${result.day}: +${result.credux} Credux, +${result.shards} shards, ${result.chestLabel}${milestone} (attendance bypassed)`);
     }
     await client.query('COMMIT');
   } catch (err) {
@@ -1109,9 +1110,10 @@ async function devDaily(message, args, devId) {
   }
 
   if (result.status === 'missing') return reply(message, `<@${target.id}> is not registered.`);
+  const milestone = result.milestoneChestLabel ? ` · +1 ${result.milestoneChestLabel}` : '';
   return reply(message,
-    `✅ Daily granted to <@${target.id}> — Day ${result.day} (Month ${result.monthly}/30 · Overall ${result.overall}). ` +
-    `+${result.credux.toLocaleString()} Credux · +${result.shards} Belief Shards · +1 ${result.chestLabel}. (attendance bypassed)`);
+    `✅ Daily granted to <@${target.id}> — Day ${result.day} (Month ${result.monthly}/30 · Streak ${result.overall}). ` +
+    `+${result.credux.toLocaleString()} Credux · +${result.shards} Belief Shards · +1 ${result.chestLabel}${milestone}. (attendance bypassed)`);
 }
 
 // ── crd dev use <profile|bskin|bresultskin|summonskin> <inc> | founderskin | skin <id> ──

@@ -45,7 +45,7 @@ crd cred
 | Normal boss defeat | 100,000 |
 | Greater Boss — Twin Chest | 150,000 |
 | Greater Boss — Golden Chest | 200,000 |
-| Daily attendance | 1,000 – 25,000 by streak day |
+| Daily attendance | 50,000 – 1,500,000 by 30-day reward-cycle day |
 | Daily quest completion | 3,000 – 12,000 per quest |
 | Weekly quest completion | 20,000 – 25,000 per quest |
 | Weekly quest grand reward | 50,000 |
@@ -89,18 +89,24 @@ Example:
 crd daily
 ```
 
-Two streaks are tracked:
+Two attendance counters are tracked:
 
 <!-- src: src/commands/economy/daily.js:5 -->
 
-| Streak | Behaviour |
+| Counter | Behaviour |
 |---|---|
-| Monthly streak | Cycles 1 to 30 and wraps back to 1 |
-| Overall streak | Lifetime consecutive days, no wrap |
+| Monthly streak | Base-reward cycle from 1 to 30, then wraps back to 1 |
+| Overall streak | Current consecutive PHT attendance days; no 30-day wrap |
 
 Claiming on a consecutive day advances both. Missing a day resets **both** to day 1.
 Claiming twice in one PHT day replies *"⏳ You already claimed today (Day N). Come back
 after midnight PHT."*
+
+The monthly day determines Credux, Belief Shards and the regular Silver/Gold Chest. The
+consecutive streak separately determines bonus Boss chests: Streak 15 grants one Boss
+Treasure Chest; Streak 30 and every additional 15 consecutive days grant one Boss Golden
+Chest. These are added to the regular daily chest and become earnable again after a
+broken streak.
 
 ## What are the daily attendance rewards
 
@@ -108,21 +114,23 @@ after midnight PHT."*
 
 | Monthly day | Credux | Belief Shards | Chest |
 |---|---|---|---|
-| 1 – 6 | 1,000 | 3 | Silver Chest |
-| 7 | 5,000 | 10 | **Gold Chest** |
-| 8 – 13 | 2,000 | 5 | Silver Chest |
-| 14 | 8,000 | 15 | **Gold Chest** |
-| 15 – 20 | 3,000 | 8 | Silver Chest |
-| 21 | 12,000 | 20 | **Gold Chest** |
-| 22 – 27 | 4,000 | 10 | Silver Chest |
-| 28 | 15,000 | 25 | **Gold Chest** |
-| 29 | 18,000 | 28 | **Gold Chest** |
-| 30 | 25,000 | 35 | **Gold Chest** |
+| 1 – 6 | 50,000 | 100 | Silver Chest |
+| 7 | 250,000 | 250 | **Gold Chest** |
+| 8 – 13 | 75,000 | 150 | Silver Chest |
+| 14 | 400,000 | 350 | **Gold Chest** |
+| 15 – 20 | 100,000 | 200 | Silver Chest |
+| 21 | 600,000 | 500 | **Gold Chest** |
+| 22 – 27 | 150,000 | 250 | Silver Chest |
+| 28 | 750,000 | 600 | **Gold Chest** |
+| 29 | 1,000,000 | 750 | **Gold Chest** |
+| 30 | 1,500,000 | 1,000 | **Gold Chest** |
 
 Gold Chest days are 7, 14, 21, 28, 29 and 30. Every other day gives a Silver Chest.
 
-A perfect 30-day cycle totals 96,000 Credux, 244 Belief Shards, 24 Silver Chests and
-6 Gold Chests.
+A complete 30-day base-reward cycle totals 6,750,000 Credux, 7,650 Belief Shards,
+24 Silver Chests and 6 Gold Chests. Those totals exclude milestone chests. A new unbroken
+streak also earns one Boss Treasure Chest at Streak 15 and one Boss Golden Chest at
+Streak 30 during its first 30 claims.
 
 ## How do I send Credux to another player
 
@@ -193,7 +201,7 @@ No. Every bestow confirmation carries this warning:
 | Normal boss defeat | 1,000 |
 | Greater Boss — Twin Chest | 1,500 |
 | Greater Boss — Golden Chest | 2,000 |
-| Daily attendance | 3 – 35 by streak day |
+| Daily attendance | 100 – 1,000 by 30-day reward-cycle day |
 | Daily quest completion | 5 – 18 per quest |
 
 Belief Shards have exactly one sink: `crd summon`, at 100 shards per pull.

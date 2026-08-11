@@ -242,7 +242,7 @@ successfully reached. Rune sell prices are in the Rune System document.
 | Character creation | 10 Silver Chests |
 | Raid win vs regular mob | 10% chance of 1 Silver Chest |
 | Raid win vs elite mob | 20% chance of 1 Gold Chest |
-| Daily attendance | 1 Silver or Gold Chest depending on streak day |
+| Daily attendance | 1 Silver or Gold Chest by reward-cycle day, plus Boss milestone chests by consecutive streak |
 | Normal boss defeat | 1 Boss Treasure Chest |
 | Greater Boss defeat | 2 Boss Treasure Chests, or 1 Boss Golden Chest |
 | Combat level-ups | Gold, Boss Treasure or Boss Golden by bracket |

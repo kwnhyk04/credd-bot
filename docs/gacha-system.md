@@ -171,7 +171,7 @@ crd use supr
 | Raid win vs elite mob | 15–20 Belief Shards |
 | Auto raid claim | Scaled Belief Shards (20% of expected raid yield) |
 | Boss defeat | 1,000 / 1,500 / 2,000 Belief Shards by boss variant |
-| Daily attendance | 3–35 Belief Shards by streak day |
+| Daily attendance | 100–1,000 Belief Shards by 30-day reward-cycle day |
 | Daily quests | 5–18 Belief Shards per completed quest |
 | Weekly quest grand reward | 1 Sacred Relic |
 | PvP Shop | Sacred Relic 800 Valor, Supreme Relic 15,000 Valor |

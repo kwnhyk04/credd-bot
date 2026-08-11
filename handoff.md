@@ -2678,3 +2678,54 @@ Validation:
   module surfaces, 56 commands, and 32 slash definitions.
 - Direct summon validation confirmed a mixed 23 Remnant / 7 Awakened batch
   summarizes to 30 total pulls. `node --check` and `git diff --check` passed.
+
+## Follow-up: daily attendance rewards and consecutive streak milestones
+
+Timestamp: 2026-08-11 +08:00
+Patch name: Daily attendance reward and streak update
+Commit: included with this handoff entry
+
+The normal 30-day attendance cycle now grants the requested higher Credux and
+Belief Shard amounts while retaining the existing Silver/Gold Chest schedule:
+
+- Days 1-6 grant 50,000 Credux and 100 Belief Shards; Day 7 grants 250,000
+  and 250; Days 8-13 grant 75,000 and 150; Day 14 grants 400,000 and 350.
+- Days 15-20 grant 100,000 Credux and 200 Belief Shards; Day 21 grants
+  600,000 and 500; Days 22-27 grant 150,000 and 250.
+- Days 28, 29, and 30 grant 750,000/600, 1,000,000/750, and
+  1,500,000/1,000 respectively. The complete base cycle totals 6,750,000
+  Credux, 7,650 Belief Shards, 24 Silver Chests, and 6 Gold Chests.
+
+The persisted `users.overall_streak` value is now presented and rewarded as the
+current consecutive attendance streak. Existing `last_daily_claim_date` checks use
+PostgreSQL PHT calendar dates: yesterday advances the streak, an older or missing
+date resets it to 1, and a same-day claim remains blocked without another reward or
+increment. The rolling monthly reward cycle still wraps after Day 30 and preserves
+its existing missed-day reset behavior, but it never determines milestone eligibility.
+
+Streak 15 adds one Boss Treasure Chest. Streak 30 and every further multiple of 15
+(45, 60, 75, and onward) add one Boss Golden Chest. Eligibility is calculated from
+the newly reached streak, so 14-to-15, 29-to-30, and 44-to-45 are correct. The bonus
+chest is granted and logged with the regular reward under the existing row locks and
+transaction, remains outside raid daily caps, and becomes earnable again after a
+broken streak. Player and dev output now say `Streak`, show the bonus with existing
+item emoji definitions, and the active economy, gacha, and inventory documentation
+reflects the new values.
+
+No database table, column, migration, schema file, duplicate attendance state, or
+production/test database write was added or executed.
+
+Validation:
+
+- `npm.cmd run selftest:daily-attendance` passed exact reward brackets, required
+  milestone days, PHT midnight rollover, same-day duplicate protection, missed-day
+  reset and milestone re-earning, restart reconstruction, and a 45-claim sequence.
+- `npm.cmd run selftest:full` passed the complete repository chain, including 433
+  battle checks, schema drift, lifecycle, help (183), casino (187), and all other
+  package verification suites.
+- Golden C1/C2/C3/C4 harnesses passed separately: 150 battle simulations, 5 renders,
+  8 module surfaces, 56 commands, and 32 slash definitions remained byte-identical.
+- A rendered Day 15 / Streak 45 card showed the regular Silver Chest plus the
+  additional Boss Golden Chest with the registered icon.
+- `node --check` passed for the modified JavaScript, and `git diff --check` found no
+  whitespace errors; Git emitted only the existing Windows LF-to-CRLF notices.
