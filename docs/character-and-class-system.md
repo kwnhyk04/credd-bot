@@ -135,7 +135,7 @@ constants used by both the class card and the battle engine.
 |---|---|---|
 | Swordsman | Bleed + Battle Rhythm | Each attack inflicts 4% Bleed, stacking up to 20% (5 stacks), and effective ATK increases by 5% each turn up to 30% for the battle. |
 | Fighter | Stun | Every attack gains +50% damage. Each primary attack has a 30% chance to become a Bash with another additive +50% damage relative to the normal attack. A landed Bash stuns the target for 1 turn and leaves a 15% next-real-attack miss chance from Dizzy; Dizzy is consumed by that attack attempt. |
-| Mage | Overcharge | On every 3rd round the primary attack is multiplied by 2.75, cannot crit, and applies exactly one random 25% debuff: Paralyze, Burn, DEF Down, or ATK Down. |
+| Mage | Overcharge | On every 3rd round the primary attack deals 2.75× damage (275% of normal damage before other bonuses), cannot crit, and applies exactly one random 25% debuff: Paralyze, Burn, DEF Down, or ATK Down. |
 | Knight | Damage Reduction | Incoming damage reduced by 25%; outgoing damage increased by 30%; restores 1.5% of maximum HP each turn. |
 | Archer | Armor Pierce & Double Attack | Attacks ignore 25% of target DEF and have a 35% chance to immediately perform one extra attack through the normal same-turn attack pipeline. That is at most two attacks per turn; the extra attack cannot recursively trigger another Archer attack. Attack-scoped effects apply to both attacks (including Apollo Bow's 25% DEF ignore), while turn-scoped buffs are applied once for the turn. |
 
