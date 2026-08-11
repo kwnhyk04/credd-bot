@@ -406,7 +406,7 @@ function formatSummonResultLine(result) {
   if (!Number.isSafeInteger(essence) || essence <= 0) {
     return `${deity} • Duplicate`;
   }
-  return `${deity} ${essenceEmoji} x**1**`;
+  return `${deity} ${essenceEmoji} x**${essence.toLocaleString()}**`;
 }
 
 function formatSummonResults(results) {
@@ -451,14 +451,13 @@ function summonResultGroups(results) {
 function formatSummonGroupLine(group) {
   const tierEmoji = RARITY_SYMBOLS[group.rarity] ?? '◆';
   const deityEmoji = emojiForDisplay(group.name, '✨');
-  const count = ` x**${group.pulls}**`;
   const deity = `${tierEmoji} ${deityEmoji} **${escapeMarkdown(group.name)}**`;
   const essence = Number(group.essence);
   if (!Number.isSafeInteger(essence) || essence <= 0) {
-    return group.pulls > 1 ? `${deity}${count}` : deity;
+    return group.pulls > 1 ? `${deity} x**${group.pulls}**` : deity;
   }
   const essenceEmoji = emoji(ALIAS_TO_ESSENCE[group.rarity] ?? 'epic_essence');
-  return `${deity} ${essenceEmoji}${count}`;
+  return `${deity} ${essenceEmoji} x**${essence.toLocaleString()}**`;
 }
 
 // Keep the historical string-returning helper for callers that import it;

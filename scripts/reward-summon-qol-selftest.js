@@ -84,12 +84,12 @@ const pulls = [
 ];
 const lines = formatSummonResults(pulls).split('\n');
 check('identical deity pulls are grouped', lines.length === 2 && lines.filter((line) => line.includes('Njord')).length === 1);
-check('grouped duplicate uses tier, deity, essence icon, and count order',
+check('grouped duplicate uses tier, deity, essence icon, and total Essence count order',
   lines[0].startsWith('<:mythical_icon:')
-    && lines[0].includes(`${emoji('njord')} **Njord** ${emoji('mythic_essence')} x**3**`)
+    && lines[0].includes(`${emoji('njord')} **Njord** ${emoji('mythic_essence')} x**4**`)
     && !lines[0].includes('Awakened')
     && !lines[0].includes('Essence'));
-check('grouped result keeps the total pull count', lines[0].includes('x**3**'));
+check('grouped result keeps the total duplicate Essence count', lines[0].includes('x**4**'));
 check('new-only deity has no tier wording, essence icon, or zero reward',
   !lines[1].includes('Remnant') && !lines[1].includes('Essence') && !lines[1].includes('+0'));
 check('grouped summon result order is unchanged', lines[0].includes('Njord') && lines[1].includes('Freyr'));
@@ -103,14 +103,25 @@ check('single new row omits the rarity wording and x1', !singleNewLine.includes(
 const singleDuplicateLine = formatSummonResultLine({
   name: 'Artemis', rarity: 'Awakened', isNew: false, essence: 2,
 });
-check('single duplicate row places essence icon and x1 after the deity', singleDuplicateLine.includes(
-  `${emoji('artemis')} **Artemis** ${emoji('mythic_essence')} x**1**`
-) && !singleDuplicateLine.includes('Awakened') && !singleDuplicateLine.includes('**2**'));
+check('single duplicate row places essence icon and its count after the deity', singleDuplicateLine.includes(
+  `${emoji('artemis')} **Artemis** ${emoji('mythic_essence')} x**2**`
+) && !singleDuplicateLine.includes('Awakened'));
 const singleDuplicateGroupLine = formatSummonResults([{
   name: 'Artemis', rarity: 'Awakened', isNew: false, essence: 2,
 }]);
-check('grouped single duplicate keeps the x1 count', singleDuplicateGroupLine.includes(
-  `${emoji('artemis')} **Artemis** ${emoji('mythic_essence')} x**1**`
+check('grouped single duplicate keeps its Essence count', singleDuplicateGroupLine.includes(
+  `${emoji('artemis')} **Artemis** ${emoji('mythic_essence')} x**2**`
+));
+
+const highTierDuplicateLines = formatSummonResults([
+  { name: 'Legendary Deity', rarity: 'Undying', isNew: false, essence: 5 },
+  { name: 'Supreme Deity', rarity: 'Primordial', isNew: false, essence: 10 },
+]).split('\n');
+check('Legendary duplicates show x5 Essence', highTierDuplicateLines[0].includes(
+  `${emoji('legendary_essence')} x**5**`
+));
+check('Supreme duplicates show x10 Essence', highTierDuplicateLines[1].includes(
+  `${emoji('supreme_essence')} x**10**`
 ));
 
 const summary = summonOutcomeSummary(pulls);
