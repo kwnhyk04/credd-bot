@@ -217,10 +217,11 @@ async function buildDailyPayload(result, logContext = {}) {
   if (result.milestoneChestLabel) {
     attendanceRewards += `\n${milestoneChestIcon} **+1** ${result.milestoneChestLabel}`;
   }
+  const streakUnit = Number(result.overall) === 1 ? 'day' : 'days';
 
   container
     .addTextDisplayComponents((td) => td.setContent(`## 📅 Daily Attendance — Day ${result.day}`))
-    .addTextDisplayComponents((td) => td.setContent(`-# Month: ${result.monthly} / 30 · Streak: ${result.overall} days`))
+    .addTextDisplayComponents((td) => td.setContent(`-# Month: ${result.monthly} / 30 · Streak: ${result.overall} ${streakUnit}`))
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent(attendanceRewards));
 

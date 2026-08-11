@@ -304,7 +304,8 @@ function testDisplayAndScope() {
     path.join(__dirname, '..', 'src', 'commands', 'economy', 'daily.js'),
     'utf8'
   );
-  assert.match(source, /Month: \$\{result\.monthly\} \/ 30 · Streak: \$\{result\.overall\} days/);
+  assert.match(source, /const streakUnit = Number\(result\.overall\) === 1 \? 'day' : 'days';/);
+  assert.match(source, /Month: \$\{result\.monthly\} \/ 30 · Streak: \$\{result\.overall\} \$\{streakUnit\}/);
   assert.doesNotMatch(source, /· Overall:/);
   assert.doesNotMatch(source, /raidRewardLimits/);
 }

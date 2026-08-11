@@ -67,6 +67,12 @@ const RESULT_LAYOUT = {
   canvas: { w: WIDTH, h: HEIGHT },
   panel: { x: 100, y: 100, w: 568, h: 300 },
 };
+const FOUNDER_DEFEATED_KEY = 'skins/founder/founder_defeated.png';
+const FOUNDER_DEFEATED_LAYOUT = {
+  canvas: { w: 1774, h: 887 },
+  panel: { x: 271, y: 460, w: 1217, h: 227 },
+  rewards: { orientation: 'horizontal', center_x: 880 },
+};
 
 const remoteObjects = new Map();
 const putRemote = (key, body) => remoteObjects.set(key, Buffer.isBuffer(body) ? body : Buffer.from(body));
@@ -82,6 +88,11 @@ putRemote(folderKey('founder_victory.layout.json'), JSON.stringify(RESULT_LAYOUT
 putRemote(folderKey('founder_defeated.png'), png);
 putRemote(folderKey('founder_defeated.layout.json'), JSON.stringify(RESULT_LAYOUT));
 putRemote(folderKey('founder_summon.webp'), png);
+putRemote(FOUNDER_DEFEATED_KEY, png);
+putRemote(
+  FOUNDER_DEFEATED_KEY.replace(/\.png$/, '.layout.json'),
+  JSON.stringify(FOUNDER_DEFEATED_LAYOUT)
+);
 
 const networkCalls = [];
 global.fetch = async (input, init = {}) => {
@@ -407,6 +418,14 @@ async function main() {
   assert.equal(summon.source, 'override');
   assert.equal(summon.kind, 'tester-media');
   assert.equal(summon.mediaPath, summon.path);
+
+  const founderDefeated = await loadResultSkin(assetPath(FOUNDER_DEFEATED_KEY));
+  assert.ok(founderDefeated?.image, 'Founder defeated R2 skin and layout should load');
+  assert.deepEqual(
+    founderDefeated.layout.panel,
+    { x: 271, y: 523, w: 1217, h: 227 },
+    'Founder defeated rewards must render below the built-in rewards heading'
+  );
 
   // Verify profile and stats share one decoded custom R2 background.
   const profileImage = await loadCachedImage(profile.path);

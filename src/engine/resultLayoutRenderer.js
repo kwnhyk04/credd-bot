@@ -21,6 +21,7 @@ const {
   assetSignatureSync,
   loadAssetImage: loadAssetImageSource,
   readAssetJson,
+  relativeAssetPath,
 } = require('../utils/assets');
 const { envNumber, envPositiveInt } = require('../utils/runtimeLogs');
 const { encodeOpaqueCanvas, releaseCanvas } = require('../utils/canvasEncode');
@@ -47,6 +48,15 @@ const resultBaseCache = new Map(); // skin path -> { signature, canvas, bytes, l
 let resultBaseCacheBytes = 0;
 const warned = new Set();
 
+// Result media/layouts live in R2, so production cannot rely on a corrected
+// local JSON file. Keep narrowly scoped geometry corrections here and apply
+// them to both local and managed-remote asset paths.
+const RESULT_LAYOUT_OVERRIDES = Object.freeze({
+  'skins/founder/founder_defeated.png': Object.freeze({
+    panel: Object.freeze({ y: 523 }),
+  }),
+});
+
 function warnOnce(key, message) {
   if (warned.has(key)) return;
   warned.add(key);
@@ -56,6 +66,22 @@ function warnOnce(key, message) {
 
 function layoutPathFor(skinPath) {
   return skinPath.replace(/\.[^.]+$/, '.layout.json');
+}
+
+function applyResultLayoutOverrides(skinPath, layout) {
+  let assetKey;
+  try {
+    assetKey = relativeAssetPath(skinPath).replace(/\\/g, '/').toLowerCase();
+  } catch {
+    return layout;
+  }
+  const overrides = RESULT_LAYOUT_OVERRIDES[assetKey];
+  if (!overrides) return layout;
+  return {
+    ...layout,
+    panel: overrides.panel ? { ...layout?.panel, ...overrides.panel } : layout?.panel,
+    rewards: overrides.rewards ? { ...layout?.rewards, ...overrides.rewards } : layout?.rewards,
+  };
 }
 
 function isRect(value) {
@@ -163,7 +189,7 @@ async function loadResultSkin(skinPath) {
   const cached = skinCache.get(skinPath);
   let promise = cached && cached.signature === signature ? cached.promise : null;
   if (!promise) promise = (async () => {
-    const layout = await readAssetJson(configPath);
+    const layout = applyResultLayoutOverrides(skinPath, await readAssetJson(configPath));
     if (!validateResultLayout(layout)) {
       warnOnce(configPath, `[resultLayout] invalid layout ${configPath}; using default rewards strip.`);
       return null;
