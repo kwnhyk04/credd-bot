@@ -406,7 +406,7 @@ function formatSummonResultLine(result) {
   if (!Number.isSafeInteger(essence) || essence <= 0) {
     return `${deity} • Duplicate`;
   }
-  return `${deity} ${essenceEmoji} **${essence.toLocaleString()}**`;
+  return `${deity} ${essenceEmoji}`;
 }
 
 function formatSummonResults(results) {
@@ -456,7 +456,7 @@ function formatSummonGroupLine(group) {
   const essence = Number(group.essence);
   if (!Number.isSafeInteger(essence) || essence <= 0) return `${deity}${count}`;
   const essenceEmoji = emoji(ALIAS_TO_ESSENCE[group.rarity] ?? 'epic_essence');
-  return `${deity} ${essenceEmoji} **${essence.toLocaleString()}**${count}`;
+  return `${deity} ${essenceEmoji}${count}`;
 }
 
 // Keep the historical string-returning helper for callers that import it;
