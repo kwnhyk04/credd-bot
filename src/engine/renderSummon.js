@@ -406,7 +406,7 @@ function formatSummonResultLine(result) {
   if (!Number.isSafeInteger(essence) || essence <= 0) {
     return `${deity} • Duplicate`;
   }
-  return `${deity} ${essenceEmoji} x**${essence.toLocaleString()}**`;
+  return `${deity} ${essenceEmoji} x**1**`;
 }
 
 function formatSummonResults(results) {
@@ -457,11 +457,12 @@ function formatSummonGroupLine(group) {
     return group.pulls > 1 ? `${deity} x**${group.pulls}**` : deity;
   }
   const essenceEmoji = emoji(ALIAS_TO_ESSENCE[group.rarity] ?? 'epic_essence');
-  return `${deity} ${essenceEmoji} x**${essence.toLocaleString()}**`;
+  return `${deity} ${essenceEmoji} x**${group.pulls}**`;
 }
 
 // Keep the historical string-returning helper for callers that import it;
-// grouping is by deity+tier and the duplicate reward total is accumulated per group.
+// grouping is by deity+tier; duplicate rows show only the grouped pull count
+// after the tier Essence icon (for example, `icon x2`).
 function groupSummonResults(results) {
   return summonResultGroups(results).map(formatSummonGroupLine).join('\n');
 }
