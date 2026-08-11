@@ -1213,6 +1213,7 @@ const PASSIVE_REGISTRY = {
   // ── DEITY BLESSINGS — Norse ──────────────────────────────────────────────
 
   'odin_all_fathers_wisdom': (bs) => {
+    bs.playerAtkMult += 0.50;
     // Even turns prevent 25%; the immediately following odd-turn attack consumes it.
     if (bs.currentTurn % 2 === 0) {
       bs.flags.odin_foresight_block = true;
@@ -1342,8 +1343,9 @@ const PASSIVE_REGISTRY = {
 
   // ── DEITY BLESSINGS — Greek ──────────────────────────────────────────────
 
-  // Chain Lightning: 50% proc, +50% attack damage and a persistent 5% DEF-shred stack.
+  // Constant +50% ATK; Chain Lightning can add another +50% and a persistent DEF shred.
   'zeus_thunder_sovereign': (bs) => {
+    bs.playerAtkMult += 0.50;
     let proc = false;
     bs.onAttack(() => {
       proc = bs.rng() < 0.50;

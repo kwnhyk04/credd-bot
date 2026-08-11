@@ -7,7 +7,8 @@
  *   - buildPlayerFighter: user_character + equipped weapon/armor + ACTIVE deity
  *     curr_* (additive), with uncapped class + weapon CRIT under v5.
  *     CRIT is NEVER scaled by weapon or deity enhancement. The weapon's unified
- *     damage % (bonus_dmg_pct) is read straight off the row.
+ *     damage % (bonus_dmg_pct) is read through the fixed-tier config so legacy
+ *     Genesis rows use the current rider without any database mutation.
  *   - buildMobFighter: base + per_level × level (C1 — Master §16 formula, NOT
  *     level − 1), level clamped to the configured mob range. Carries skill_key /
  *     immunity_tags / special_flags for the engine.
@@ -21,6 +22,7 @@
  */
 
 const { CLASSES } = require('../config/classes');
+const { effectiveWeaponBonusDmgPct } = require('../config/dropRates');
 const { ELITE_SPAWN_CHANCE } = require('../config/raidLoot');
 const { resolveBlessingSlots, computeResonanceMods } = require('../config/blessings');
 const { computeDeityProgressionStats } = require('./deityEnhancement');
@@ -304,9 +306,12 @@ async function buildPlayerFighter(db, discordId, { levelOverride = null } = {}) 
     hp: stats.hp,
     def: stats.def,
     crit: stats.crit,
-    bonusDmgPct: Number(r.bonus_dmg_pct) || 0,
+    bonusDmgPct: weapon
+      ? effectiveWeaponBonusDmgPct(r.weapon_tier, r.bonus_dmg_pct)
+      : 0,
     weaponPassiveKey: weapon ? r.passive_key : 'none',
     weaponName: weapon ? r.weapon_name : null,
+    weaponTier: weapon ? r.weapon_tier : null,
     armorPassiveKey: armor ? r.armor_passive_key : 'none',
     armorName: armor ? r.armor_name : null,
     deityBlessingKey: slot1BlessingKey,

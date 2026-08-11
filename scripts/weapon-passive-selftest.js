@@ -13,6 +13,13 @@ const fs = require('fs');
 const path = require('path');
 const PASSIVES = require('../src/engine/passiveRegistry');
 const { resolveBattle } = require('../src/engine/battleEngine');
+const { weaponEntry } = require('../src/commands/rpg/compare');
+const {
+  GENESIS_STATS,
+  SUPREME_STATS,
+  rollWeaponStats,
+  effectiveWeaponBonusDmgPct,
+} = require('../src/config/dropRates');
 const {
   EFFECT_CATEGORY,
   effectCategory,
@@ -763,6 +770,29 @@ audit('trident_of_poseidon', () => {
 });
 
 // ── Genesis tier — the five First Arms (specs/genesis_tier_weapons.md) ──────
+
+assert.equal(GENESIS_STATS.bonus_dmg_pct, 100, 'Genesis fixed damage rider is +100%');
+assert.equal(rollWeaponStats('Genesis', 'Sword').bonus_dmg_pct, 100,
+  'new Genesis drops store the fixed +100% rider');
+assert.equal(effectiveWeaponBonusDmgPct('Genesis', 50), 100,
+  'legacy Genesis rows use the replacement +100% value, not 50% + 100%');
+assert.equal(effectiveWeaponBonusDmgPct('Supreme', SUPREME_STATS.bonus_dmg_pct), 50,
+  'Supreme damage rider remains unchanged');
+const genesisDisplay = weaponEntry({
+  name: 'Kiri', tier: 'Genesis', enhancement: 1,
+  curr_atk: 1_600, crit: 20, bonus_dmg_pct: 50,
+  passive_name: 'Thousand Partings', passive_description: 'Unchanged.',
+}, 'test-id');
+assert(genesisDisplay.includes('+100% DMG') && !genesisDisplay.includes('+50% DMG'),
+  'owned Genesis comparison display normalizes legacy rows to +100%');
+for (const relative of [
+  'src/commands/rpg/equipment.js',
+  'src/commands/rpg/open.js',
+]) {
+  const displaySource = fs.readFileSync(path.join(ROOT, relative), 'utf8');
+  assert(displaySource.includes('effectiveWeaponBonusDmgPct'),
+    `${relative} must render Genesis damage from the centralized fixed-tier helper`);
+}
 
 audit('kiri', () => {
   // Ramp is attack-bound: +20% per attack, capped at +120%.

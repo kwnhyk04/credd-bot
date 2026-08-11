@@ -21,12 +21,15 @@ const {
 const guildConfig = require('../../handlers/guildConfigCache');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay } = require('../../utils/emojis');
+const { isRemoteSource } = require('../../utils/assets');
+const { makeOptimizedAttachment } = require('../../utils/imageOutput');
+const { discordImageAttachmentsAllowed } = require('../../utils/egressGuard');
 const {
-  envBool, envNumber, envPositiveInt, performanceLog,
+  envBool, envNumber, envPositiveInt, bandwidthLog, performanceLog,
 } = require('../../utils/runtimeLogs');
 const { beginActivity } = require('../../utils/networkTelemetry');
 const {
-  isGreaterBoss, isCalamityBoss, bossRewards,
+  isGreaterBoss, isCalamityBoss, bossRewards, bossBagReward,
   MAX_BOSS_ATTACKS_PER_DAY, bossAttackDecision,
 } = require('../../config/bosses');
 const {
@@ -34,7 +37,11 @@ const {
   isOfficialGuild,
   supportMarkdownLink,
 } = require('../../config/officialSupport');
-const { SUPREME_CHEST_REWARD } = require('../calamityRewards');
+const {
+  SUPREME_CHEST_REWARD,
+  DIVINE_BAG_REWARD,
+  grantedCalamityBonusRewards,
+} = require('../calamityRewards');
 const {
   bossPassiveText, bossStatusText, bossStatusImage, bossBanner, bossLore,
   bossImagePath, bossImagePathForMessage, bossImageMaxWidth, bossCrit,
@@ -75,6 +82,31 @@ function bossDailyAttackLimit() {
 
 function devBossHasUnlimitedAttacks(state, mobRow) {
   return state?.spawn_source === 'dev' && !isCalamityBoss(mobRow?.name);
+}
+
+function calamityBonusRewardBlock(status, bonusRewardResults = null) {
+  const supremeIcon = emojiForDisplay(SUPREME_CHEST_REWARD.label, '👑');
+  const divineIcon = emojiForDisplay(DIVINE_BAG_REWARD.label, '✨');
+  if (status === 'active') {
+    return `\n\n**Bonus Rewards**\n` +
+      `${supremeIcon} ${SUPREME_CHEST_REWARD.label} ×${SUPREME_CHEST_REWARD.qty}\n` +
+      `${divineIcon} ${DIVINE_BAG_REWARD.label} ×${DIVINE_BAG_REWARD.qty}\n` +
+      '-# *Two independent chances per eligible participant, each weighted by the same damage contribution.*';
+  }
+  if (status !== 'dead') return '';
+  const granted = grantedCalamityBonusRewards(bonusRewardResults || {});
+  if (granted.length === 0) return '';
+  const lines = granted.map((item) => {
+    const icon = emojiForDisplay(item.label, '🎁');
+    return `${icon} ${item.label} ×${item.qty} each · **${item.winnerCount}** ` +
+      `winner${item.winnerCount === 1 ? '' : 's'}`;
+  });
+  return `\n\n**Bonus Rewards**\n${lines.join('\n')}`;
+}
+
+function bossBagRewardLine(bagReward) {
+  const icon = emojiForDisplay(bagReward.label, '🎒');
+  return `${icon} ${bagReward.label} ×${bagReward.qty}`;
 }
 
 async function fetchBossView(guildId) {
@@ -128,6 +160,7 @@ async function buildBossMessage(view, {
   forceAssetRefresh = false,
   phase = 'snapshot',
   telemetryCommand = 'boss',
+  bonusRewardResults = null,
 } = {}) {
   const { state, mobRow, attackers, attackerCount, isDev = false } = view;
   const { status } = state;
@@ -141,6 +174,7 @@ async function buildBossMessage(view, {
     spawnSource: state.spawn_source,
   });
   const reward = bossRewards(mobRow.name, spawnChest);
+  const bagReward = bossBagReward(mobRow.name, spawnChest);
 
   // header — evocative flavor line (mythology-flavored, or Greater apex framing) above
   // the boss name; terminal states swap the flavor for a small status subtext
@@ -273,8 +307,9 @@ async function buildBossMessage(view, {
     ? supremeChestIcon : spawnChest.column === 'boss_golden_chest' ? goldChestIcon : chestIcon;
   // [v4.8] drop the "(this fight)" qualifier — redundant; rewards are understood to be this boss's.
   const chestLine = `${spawnChestIcon} ${spawnChest.label} ×${spawnChest.qty}`;
+  const bagLine = bossBagRewardLine(bagReward);
   const calamityBonusBlock = calamity
-    ? `\n\n**Bonus Rewards**\n${supremeChestIcon} Supreme Chest ×1\n-# *Chance per eligible participant, weighted by damage contribution.*`
+    ? calamityBonusRewardBlock(status, bonusRewardResults)
     : '';
   container
     .addSeparatorComponents(sep)
@@ -283,6 +318,7 @@ async function buildBossMessage(view, {
       `${creduxIcon} Credux ×${reward.credux.toLocaleString()}\n` +
       `${expIcon} Combat EXP ×${reward.exp.toLocaleString()}\n` +
       `${chestLine}\n` +
+      `${bagLine}\n` +
       `${shardIcon} Belief Shards ×${reward.shards.toLocaleString()}` +
       calamityBonusBlock
     ));
@@ -673,6 +709,8 @@ module.exports = {
   bossImageRefreshEnabled,
   bossDailyAttackLimit,
   devBossHasUnlimitedAttacks,
+  calamityBonusRewardBlock,
+  bossBagRewardLine,
   fetchBossView,
   buildBossMessage,
   resolveAnnounceChannelId,

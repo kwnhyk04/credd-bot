@@ -40,14 +40,16 @@ const {
 const { beginActivity } = require('../../utils/networkTelemetry');
 const { bossFeatTitlesFor } = require('../../config/titles');
 const {
-  isGreaterBoss, isCalamityBoss, bossRewards, rollBossChest, hpMultiplierForChest,
+  isGreaterBoss, isCalamityBoss, bossRewards, bossBagReward, rollBossChest, hpMultiplierForChest,
   bossMaxHpForChest, inferChestFromGreaterHp, bossChestForSpawn,
   pickWeightedBoss, selectWeightedBossPool, pickBossFromPool,
   MAX_BOSS_ATTACKS_PER_DAY, bossAttackDecision,
 } = require('../../config/bosses');
 const {
   SUPREME_CHEST_REWARD,
+  DIVINE_BAG_REWARD,
   rollCalamitySupremeRewards,
+  grantedCalamityBonusRewards,
 } = require('../calamityRewards');
 const {
   bossRedirectMessage,
@@ -347,9 +349,12 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
   let attackerIds = [];
   let reward = null;
   let chest = null;
+  let bagReward = null;
   let supremeWinnerIds = [];
+  let divineWinnerIds = [];
   let totalEligibleDamage = 0;
   let supremeBagUpd = { rows: [] };
+  let divineBagUpd = { rows: [] };
   let bagUpd = { rows: [] };
   let expResults = new Map();
   try {
@@ -385,6 +390,7 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
       spawnSource: flip.rows[0].spawn_source,
     }); // { column (whitelisted), qty, label }
     reward = bossRewards(bossName, chest);
+    bagReward = bossBagReward(bossName, chest);
 
     const atk = await dbc.query(
       `SELECT discord_id, total_damage FROM boss_attack_log
@@ -398,7 +404,8 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
     if (calamity) {
       const rolls = rollCalamitySupremeRewards(participantRows);
       totalEligibleDamage = rolls.totalEligibleDamage;
-      supremeWinnerIds = rolls.winnerIds;
+      supremeWinnerIds = rolls.supremeWinnerIds;
+      divineWinnerIds = rolls.divineWinnerIds;
     }
 
     if (attackerIds.length > 0) {
@@ -420,12 +427,15 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
         const rowRes = await dbc.query(
           `UPDATE users_bag
               SET credux = credux + $2,
-                  belief_shards = belief_shards + $3,
-                  lifetime_credux_earned = lifetime_credux_earned + $2,
-                  ${chest.column} = ${chest.column} + $4
-            WHERE discord_id = $1
-            RETURNING discord_id, credux, belief_shards, ${chest.column} AS chest_count`,
-          [discordId, reward.credux, allocation.granted.beliefShards, chest.qty]
+                   belief_shards = belief_shards + $3,
+                   lifetime_credux_earned = lifetime_credux_earned + $2,
+                   ${chest.column} = ${chest.column} + $4,
+                   ${bagReward.column} = ${bagReward.column} + $5
+             WHERE discord_id = $1
+             RETURNING discord_id, credux, belief_shards,
+                       ${chest.column} AS chest_count,
+                       ${bagReward.column} AS bag_count`,
+          [discordId, reward.credux, allocation.granted.beliefShards, chest.qty, bagReward.qty]
         );
         if (rowRes.rows.length === 0) throw new Error(`missing reward bag row for ${discordId}`);
         rowRes.rows[0].granted_shards = allocation.granted.beliefShards;
@@ -439,6 +449,16 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
             WHERE discord_id = ANY($1)
             RETURNING discord_id, supreme_chest AS chest_count`,
           [supremeWinnerIds, SUPREME_CHEST_REWARD.qty]
+        );
+      }
+
+      if (calamity && divineWinnerIds.length > 0) {
+        divineBagUpd = await dbc.query(
+          `UPDATE users_bag
+              SET ${DIVINE_BAG_REWARD.column} = ${DIVINE_BAG_REWARD.column} + $2
+            WHERE discord_id = ANY($1)
+            RETURNING discord_id, ${DIVINE_BAG_REWARD.column} AS bag_count`,
+          [divineWinnerIds, DIVINE_BAG_REWARD.qty]
         );
       }
 
@@ -460,7 +480,8 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
 
       // game_logs — one row per currency/item per attacker (action 'Boss'),
       // before/after balances, bulk via unnest
-      const ids = [], prevCred = [], newCred = [], prevSh = [], newSh = [], prevCh = [], newCh = [];
+      const ids = [], prevCred = [], newCred = [], prevSh = [], newSh = [];
+      const prevCh = [], newCh = [], prevBag = [], newBag = [];
       for (const r of bagUpd.rows) {
         ids.push(r.discord_id);
         newCred.push(Number(r.credux));
@@ -469,6 +490,8 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
         prevSh.push(r.belief_shards - r.granted_shards);
         newCh.push(r.chest_count);
         prevCh.push(r.chest_count - chest.qty);
+        newBag.push(r.bag_count);
+        prevBag.push(r.bag_count - bagReward.qty);
       }
       await dbc.query(
         `INSERT INTO game_logs (discord_id, action, previous_credux, updated_credux)
@@ -488,6 +511,12 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
             FROM unnest($1::varchar[], $2::int[], $3::int[]) AS u(id, prev, upd)`,
         [ids, prevCh, newCh, chest.column]
       );
+      await dbc.query(
+        `INSERT INTO game_logs (discord_id, action, item_type, previous_chest_count, updated_chest_count)
+          SELECT u.id, 'Boss', $4, u.prev, u.upd
+            FROM unnest($1::varchar[], $2::int[], $3::int[]) AS u(id, prev, upd)`,
+        [ids, prevBag, newBag, bagReward.column]
+      );
 
       if (supremeBagUpd.rows.length > 0) {
         const supremeIds = [], previousSupreme = [], updatedSupreme = [];
@@ -501,6 +530,21 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
            SELECT u.id, 'Boss', $4, u.prev, u.upd
              FROM unnest($1::varchar[], $2::int[], $3::int[]) AS u(id, prev, upd)`,
           [supremeIds, previousSupreme, updatedSupreme, SUPREME_CHEST_REWARD.column]
+        );
+      }
+
+      if (divineBagUpd.rows.length > 0) {
+        const divineIds = [], previousDivine = [], updatedDivine = [];
+        for (const row of divineBagUpd.rows) {
+          divineIds.push(row.discord_id);
+          updatedDivine.push(row.bag_count);
+          previousDivine.push(row.bag_count - DIVINE_BAG_REWARD.qty);
+        }
+        await dbc.query(
+          `INSERT INTO game_logs (discord_id, action, item_type, previous_chest_count, updated_chest_count)
+           SELECT u.id, 'Boss', $4, u.prev, u.upd
+             FROM unnest($1::varchar[], $2::int[], $3::int[]) AS u(id, prev, upd)`,
+          [divineIds, previousDivine, updatedDivine, DIVINE_BAG_REWARD.column]
         );
       }
     }
@@ -520,6 +564,7 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
     includeBanner: 'remote-only',
     phase: 'final',
     telemetryCommand: 'boss:final',
+    bonusRewardResults: { supremeWinnerIds, divineWinnerIds },
   }).catch(() => {});
   const view = await fetchBossView(guildId).catch(() => null);
   if (view && isCalamityBoss(view.mobRow.name) && totalEligibleDamage <= 0) {
@@ -541,7 +586,15 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
         spawnSource: view.state.spawn_source,
       });
       const r = reward || bossRewards(view.mobRow.name, c);
+      const guaranteedBag = bagReward || bossBagReward(view.mobRow.name, c);
       const greater = isGreaterBoss(view.mobRow.name);
+      const grantedBonuses = grantedCalamityBonusRewards({ supremeWinnerIds, divineWinnerIds });
+      const bonusSummary = grantedBonuses.length > 0
+        ? ` Bonus Rewards: ${grantedBonuses.map((item) =>
+          `**${item.winnerCount}** challenger${item.winnerCount === 1 ? '' : 's'} received ` +
+          `${item.qty}× ${item.label}`
+        ).join(' · ')}.`
+        : '';
       // Grouped level-up + level-reward summary (spec S3) from the same
       // distribution transaction — post-commit display only.
       let levelLine = '';
@@ -563,16 +616,15 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
         }
       }
       await channel.send({
-        // Calamity's bonus is an independent roll per valid damage participant;
-        // only the guaranteed chest is included in the shared participation line.
+        // Calamity bonuses are independent per valid damage participant. Failed
+        // bonus rolls stay hidden; successful item counts are reported separately.
         content:
           `🎉 ${greater ? '☠️ **GREATER** ' : ''}**${view.mobRow.name}** has fallen! ` +
           `All **${attackerIds.length}** challenger${attackerIds.length === 1 ? '' : 's'} receive: ` +
           `${r.credux.toLocaleString()} Credux · ${r.exp.toLocaleString()} Combat EXP · ${c.qty}× ${c.label} · ` +
+          `${guaranteedBag.qty}× ${guaranteedBag.label} · ` +
           `${r.shards.toLocaleString()} Belief Shards.` +
-          (isCalamityBoss(view.mobRow.name)
-            ? ` Each eligible participant also received an independent chance at 1 Supreme Chest; **${supremeWinnerIds.length}** won.`
-            : '') +
+          (isCalamityBoss(view.mobRow.name) ? bonusSummary : '') +
           levelLine,
         allowedMentions: { parse: [] },
       }).catch(() => {});

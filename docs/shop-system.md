@@ -46,9 +46,11 @@ crd shop buy 5 10
 crd shop buy 1
 ```
 
-Limits count **total quantity**, not the number of commands, and are stored in the
-database rather than in memory. The shop card shows your usage as `daily 3/10` along with
-a relative timestamp for the next reset.
+The shop card groups products under **Unlimited**, **Monthly**, **Daily**, and **Weekly**.
+Unlimited has no reset; each limited category shows one relative reset countdown in its
+heading, while each limited item shows its purchased quantity against its cap. Limits
+count **total quantity**, not the number of commands, and are stored in the database
+rather than in memory.
 
 ## When do CRD Shop limits reset
 

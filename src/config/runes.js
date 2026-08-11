@@ -66,9 +66,9 @@ const RUNE_VALUE_RANGES = {
 // ── Rune bags (stockpiled; bought in essence shop, opened with lb/gb/db) ─────
 // poolKey = essence_bag_def.bag_key (supplies the weighted rune_pool drop table).
 const BAGS = {
-  lesser:  { alias: 'lb', column: 'lesser_rune_bag',  display: 'Lesser Rune Bag',  gifKey: 'lesser_bag',  poolKey: 'lesser',  emojiName: 'lesser_bag' },
-  greater: { alias: 'gb', column: 'greater_rune_bag', display: 'Greater Rune Bag', gifKey: 'greater_bag', poolKey: 'greater', emojiName: 'greater_bag' },
-  divine:  { alias: 'db', column: 'divine_rune_bag',  display: 'Divine Rune Bag',  gifKey: 'divine_bag',  poolKey: 'divine',  emojiName: 'divine_bag' },
+  lesser:  { alias: 'lb', column: 'lesser_rune_bag',  name: 'Lesser Bag',  display: 'Lesser Rune Bag',  gifKey: 'lesser_bag',  poolKey: 'lesser',  emojiName: 'lesser_bag' },
+  greater: { alias: 'gb', column: 'greater_rune_bag', name: 'Greater Bag', display: 'Greater Rune Bag', gifKey: 'greater_bag', poolKey: 'greater', emojiName: 'greater_bag' },
+  divine:  { alias: 'db', column: 'divine_rune_bag',  name: 'Divine Bag',  display: 'Divine Rune Bag',  gifKey: 'divine_bag',  poolKey: 'divine',  emojiName: 'divine_bag' },
 };
 // open alias → bag key
 const BAG_ALIAS = { lb: 'lesser', gb: 'greater', db: 'divine' };

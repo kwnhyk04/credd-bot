@@ -131,6 +131,24 @@ async function main() {
   assert.equal(existing.fighter.atk, classStats.atk + 75);
   assert(existing.sql.includes('COALESCE(ud.sigils, 0) AS d1_unlocked_sigils'));
 
+  const supreme = await fighterFor(playerRow({
+    w_atk: 20, w_crit: 5, bonus_dmg_pct: 50,
+    passive_key: 'mjolnir', weapon_name: 'Mjolnir', weapon_tier: 'Supreme',
+  }));
+  assert.equal(supreme.fighter.weaponTier, 'Supreme');
+  assert.equal(supreme.fighter.weaponPassiveKey, 'mjolnir');
+  assert.equal(supreme.fighter.bonusDmgPct, 50);
+  assert(supreme.sql.includes('active_wr.tier AS weapon_tier'));
+
+  const legacyGenesisRow = playerRow({
+    w_atk: 1_600, w_crit: 20, bonus_dmg_pct: 50,
+    passive_key: 'kiri', weapon_name: 'Kiri', weapon_tier: 'Genesis',
+  });
+  const genesis = await fighterFor(legacyGenesisRow);
+  assert.equal(genesis.fighter.weaponTier, 'Genesis');
+  assert.equal(genesis.fighter.bonusDmgPct, 100);
+  assert.equal(legacyGenesisRow.bonus_dmg_pct, 50, 'fighter assembly must not mutate stored equipment data');
+
   const zero = await fighterFor(playerRow({ d1_unlocked_sigils: 0 }));
   assert.equal(zero.fighter.atk, classStats.atk + 50);
 

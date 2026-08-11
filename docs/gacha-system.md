@@ -189,8 +189,16 @@ failure never costs you a pull.
 
 | Result element | Content |
 |---|---|
-| Per pull | Tier symbol, tier alias, deity name, and NEW or essence gained |
+| Per pull | Tier symbol, tier alias, deity name, and either NEW or an essence icon plus count for a duplicate |
 | Footer | Belief Shards remaining and Sacred Relic count |
+
+Text result rows place a duplicate's essence icon and count before its tier and deity;
+the literal word `Essence` is not appended after that count. Repeated pulls of the same
+deity and rarity are compressed into one row with a `×N` pull count, and their duplicate
+essence is totaled in that row. The batch summary counts the actual rarity of every pull
+independently of whether each result is new or a duplicate, so a mixed batch is shown as
+separate totals such as `◆ Remnant ×**23** - ❖ Awakened ×**7**` rather than one combined
+category.
 
 Equipped summon skins change the flip presentation. Most skins swap only the animated
 header emoji; tester sets may use full-size suspense media with a configurable

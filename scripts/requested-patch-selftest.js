@@ -38,7 +38,8 @@ const {
 const player = (over = {}) => ({
   name: 'Hero', kind: 'player', class: 'Test', classPassive: null,
   atk: 100, hp: 100000, def: 0, crit: 0, bonusDmgPct: 0,
-  weaponPassiveKey: 'none', armorPassiveKey: 'none', deityBlessingKey: 'none',
+  weaponPassiveKey: 'none', weaponTier: null,
+  armorPassiveKey: 'none', deityBlessingKey: 'none',
   ...over,
 });
 const mob = (over = {}) => ({
@@ -258,10 +259,11 @@ async function main() {
   assert(events(fighter).some((event) => event.includes('unable to act (stun)')));
 
   const odin = resolveBattle(
-    player({ atk: 0, deityBlessingKey: 'odin_all_fathers_wisdom' }),
+    player({ deityBlessingKey: 'odin_all_fathers_wisdom' }),
     mob({ atk: 100 }),
     { rng: () => 0.5 }
   );
+  assert.equal(firstDamage(odin), 150);
   assert(events(odin).some((event) => event.includes('released 25 stored damage')));
 
   const bathalaFlags = {};
@@ -293,7 +295,7 @@ async function main() {
     };
     PASSIVES.zeus_thunder_sovereign(zeus);
     for (const hook of attackHooks) hook();
-    assert.equal(zeus.playerAtkMult, 0.5);
+    assert.equal(zeus.playerAtkMult, 1.0);
     for (const hook of landedHitHooks) hook();
   }
   assert.equal(zeusFlags.zeus_def_shred_stacks, 6);
@@ -570,6 +572,11 @@ async function main() {
   assert.equal(WEAPON_UPDATES.find((entry) => entry.requestedName === 'Laevateinn').name, 'Laevateinn Staff');
   const passiveData = fs.readFileSync(path.join(__dirname, '..', 'assets', 'data', 'passive_registry_keys.md'), 'utf8');
   const passiveSql = fs.readFileSync(path.join(__dirname, 'final-passive-description-updates.sql'), 'utf8');
+  const supremeSql = fs.readFileSync(
+    path.join(__dirname, 'update-supreme-weapon-deity-atk-descriptions.sql'),
+    'utf8',
+  );
+  const deitySql = fs.readFileSync(path.join(__dirname, 'deity-passive-description-update.sql'), 'utf8');
   const userWordingSql = fs.readFileSync(path.join(__dirname, 'update-user-passive-descriptions.sql'), 'utf8');
   assert(
     passiveSql.indexOf('DO $passive_updates$') >= 0
@@ -581,6 +588,34 @@ async function main() {
   const passiveLineByKey = new Map(
     [...passiveData.matchAll(/^- `([^`]+)` — ([^\r\n]+)$/gm)].map((match) => [match[1], match[2]]),
   );
+  const supremeDescription = 'Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle.';
+  const deityDescription = 'Increase ATK by +50%.';
+  const registryDescription = (key) => {
+    const line = passiveLineByKey.get(key);
+    if (!line) return undefined;
+    const separator = line.indexOf(': ');
+    return separator === -1 ? undefined : line.slice(separator + 2);
+  };
+  for (const key of [
+    'mjolnir', 'gungnir', 'thunderbolt_of_zeus', 'trident_of_poseidon',
+  ]) {
+    assert(registryDescription(key)?.startsWith(supremeDescription),
+      `Supreme weapon description does not start with the shared ATK text for ${key}`);
+    assert(supremeSql.includes(`'weapon', '${key}', '${supremeDescription}`),
+      `Supreme description SQL is missing ${key}`);
+  }
+  for (const key of ['odin_all_fathers_wisdom', 'zeus_thunder_sovereign']) {
+    assert(registryDescription(key)?.startsWith(deityDescription),
+      `deity description does not start with the constant ATK text for ${key}`);
+    assert(supremeSql.includes(`'deity', '${key}', '${deityDescription}`),
+      `Supreme/deity description SQL is missing ${key}`);
+    assert(deitySql.includes(key) && deitySql.includes(deityDescription),
+      `deity-passive-description-update.sql is missing ${key}`);
+  }
+  assert(supremeSql.includes("WHERE tier = 'Supreme'"));
+  assert(supremeSql.includes('supreme_count <> 4'));
+  assert(supremeSql.includes('weapon_count <> 4 OR deity_count <> 2'));
+  assert(!supremeSql.includes('ALTER TABLE'));
   assert.equal((passiveSql.match(/^\s+\('deity',/gm) || []).length, 38);
   assert.equal((passiveSql.match(/^\s+\('weapon',/gm) || []).length, 10);
   assert.equal((passiveSql.match(/^\s+\('mob',/gm) || []).length, 4);

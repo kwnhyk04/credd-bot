@@ -21,6 +21,7 @@ const { TIER_ALIAS } = require('../../config/gachaRates');
 const { MAX_SIGILS } = require('../../config/ascension');
 const { computeDeityProgressionStats } = require('../../engine/deityEnhancement');
 const { DIVINE_BLESSING_DEITIES } = require('../../config/blessings');
+const { effectiveWeaponBonusDmgPct } = require('../../config/dropRates');
 const { fetchGear } = require('./equipment');
 
 const BRAND = 0x5865f2;
@@ -97,7 +98,8 @@ function weaponEntry(g, id) {
     `ATK ${Number(g.curr_atk || 0).toLocaleString()}`,
     `CRIT ${Number(g.crit || 0).toFixed(1)}%`,
   ];
-  if (Number(g.bonus_dmg_pct || 0) > 0) stats.push(`+${Number(g.bonus_dmg_pct)}% DMG`);
+  const bonus = effectiveWeaponBonusDmgPct(g.tier, g.bonus_dmg_pct);
+  if (bonus > 0) stats.push(`+${bonus}% DMG`);
   const hasPassive = g.passive_name && g.passive_name.toLowerCase() !== 'none';
   const passive = hasPassive
     ? `-# ${g.passive_name}: ${g.passive_description || 'No passive.'}`

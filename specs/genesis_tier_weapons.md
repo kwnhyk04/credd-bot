@@ -1,7 +1,7 @@
 # GENESIS TIER: The Five First Arms
 
 **Tier:** Genesis (above Supreme)
-**Base Stats (all weapons):** Attack 1600 | Crit Rate 20% | Crit Damage +50%
+**Base Stats (all weapons):** Attack 1600 | Crit Rate 20% | Damage +100%
 
 *Before the world had a name, the Forger-Before-Gods shaped five instruments to carve existence out of the void. When creation was finished, the Forger vanished, but the tools remained, scattered and waiting for hands worthy of the beginning.*
 

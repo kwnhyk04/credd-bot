@@ -25,6 +25,11 @@ function readBossSource() {
 
 const bosses = require(path.join(ROOT, 'src', 'config', 'bosses'));
 const calamityRewards = require(path.join(ROOT, 'src', 'engine', 'calamityRewards'));
+const {
+  calamityBonusRewardBlock,
+  bossBagRewardLine,
+  buildBossMessage,
+} = require(path.join(ROOT, 'src', 'engine', 'boss', 'bossMessages'));
 const rewardSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'calamityRewards.js'), 'utf8');
 const bossSource = readBossSource();
 const duelSource = fs.readFileSync(path.join(ROOT, 'src', 'commands', 'rpg', 'duel.js'), 'utf8');
@@ -53,6 +58,15 @@ function run(name, fn) {
   }
 }
 
+async function runAsync(name, fn) {
+  try {
+    await fn();
+    check(name, true);
+  } catch (err) {
+    check(name, false, err.message);
+  }
+}
+
 run('regular and developer Calamity spawns share one guaranteed golden chest', () => {
   assert.deepEqual(bosses.bossChestForSpawn('Fenrir', 'natural'), {
     column: 'boss_golden_chest', qty: 1, label: 'Boss Golden Chest',
@@ -68,6 +82,41 @@ run('normal boss chest behavior remains unchanged', () => {
   });
 });
 
+run('guaranteed boss bags match every existing spawn variant without inheritance', () => {
+  const normal = bosses.bossBagReward('Medusa', bosses.bossChestForSpawn('Medusa'));
+  const greater = bosses.bossBagReward('Jotun', {
+    column: 'boss_treasure_chest', qty: 2, label: 'Boss Treasure Chest',
+  });
+  const greater2x = bosses.bossBagReward('Jotun', {
+    column: 'boss_golden_chest', qty: 1, label: 'Boss Golden Chest',
+  });
+  const calamityNatural = bosses.bossBagReward('Fenrir', bosses.bossChestForSpawn('Fenrir', 'natural'));
+  const calamityDev = bosses.bossBagReward('Fenrir', bosses.bossChestForSpawn('Fenrir', 'dev'));
+  assert.deepEqual(normal, {
+    column: 'lesser_rune_bag', qty: 1, label: 'Lesser Bag', emojiName: 'lesser_bag',
+  });
+  assert.deepEqual(greater, {
+    column: 'greater_rune_bag', qty: 1, label: 'Greater Bag', emojiName: 'greater_bag',
+  });
+  assert.deepEqual(greater2x, {
+    column: 'greater_rune_bag', qty: 2, label: 'Greater Bag', emojiName: 'greater_bag',
+  });
+  assert.equal(greater2x.qty, 2, '2x Greater must not inherit another Greater Bag');
+  assert.deepEqual(calamityNatural, {
+    column: 'greater_rune_bag', qty: 3, label: 'Greater Bag', emojiName: 'greater_bag',
+  });
+  assert.deepEqual(calamityDev, calamityNatural);
+});
+
+run('existing currency, EXP, shard, and chest rewards remain unchanged', () => {
+  const twin = { column: 'boss_treasure_chest', qty: 2 };
+  const golden = { column: 'boss_golden_chest', qty: 1 };
+  assert.deepEqual(bosses.bossRewards('Medusa'), { credux: 100_000, exp: 20_000, shards: 1_000 });
+  assert.deepEqual(bosses.bossRewards('Jotun', twin), { credux: 150_000, exp: 30_000, shards: 1_500 });
+  assert.deepEqual(bosses.bossRewards('Jotun', golden), { credux: 200_000, exp: 40_000, shards: 2_000 });
+  assert.deepEqual(bosses.bossRewards('Fenrir', golden), { credux: 400_000, exp: 80_000, shards: 4_000 });
+});
+
 run('damage ratio is not rounded before threshold calculation', () => {
   const logs = [];
   const result = calamityRewards.rollCalamitySupremeRewards([
@@ -80,7 +129,7 @@ run('damage ratio is not rounded before threshold calculation', () => {
   assert.equal(logs[0].supremeChestGranted, 0);
 });
 
-run('every eligible participant receives an independent roll', () => {
+run('every eligible participant receives two independent rolls at the same threshold', () => {
   const rolls = [];
   const result = calamityRewards.rollCalamitySupremeRewards([
     { discord_id: 'a', total_damage: 3 },
@@ -88,9 +137,77 @@ run('every eligible participant receives an independent roll', () => {
     { discord_id: 'zero', total_damage: 0 },
     { discord_id: 'negative', total_damage: -1 },
   ], { randomInteger: (min, max) => { rolls.push([min, max]); return 0; }, logger: () => {} });
-  assert.equal(rolls.length, 2);
+  assert.equal(rolls.length, 4);
   assert.deepEqual(result.winnerIds, ['a', 'b']);
+  assert.deepEqual(result.supremeWinnerIds, ['a', 'b']);
+  assert.deepEqual(result.divineWinnerIds, ['a', 'b']);
   assert.equal(result.rolls.every((roll) => roll.supremeChestGranted === 1), true);
+  assert.equal(result.rolls.every((roll) => roll.divineBagGranted === 1), true);
+  assert.equal(result.rolls.every((roll) => roll.calculatedThreshold > 0), true);
+});
+
+run('Supreme and Divine independent rolls allow all four outcomes', () => {
+  const low = 0;
+  const high = calamityRewards.ROLL_SCALE - 1;
+  const firstParticipant = (supremeRoll, divineRoll) => {
+    const draws = [supremeRoll, divineRoll, high, high];
+    const result = calamityRewards.rollCalamitySupremeRewards([
+      { discord_id: 'target', total_damage: 1 },
+      { discord_id: 'other', total_damage: 1 },
+    ], { randomInteger: () => draws.shift(), logger: () => {} });
+    return result.rolls[0];
+  };
+  const both = firstParticipant(low, low);
+  const supremeOnly = firstParticipant(low, high);
+  const divineOnly = firstParticipant(high, low);
+  const neither = firstParticipant(high, high);
+  assert.deepEqual(
+    [both.supremeSuccess, both.divineSuccess],
+    [true, true],
+  );
+  assert.deepEqual(
+    [supremeOnly.supremeSuccess, supremeOnly.divineSuccess],
+    [true, false],
+  );
+  assert.deepEqual(
+    [divineOnly.supremeSuccess, divineOnly.divineSuccess],
+    [false, true],
+  );
+  assert.deepEqual(
+    [neither.supremeSuccess, neither.divineSuccess],
+    [false, false],
+  );
+});
+
+run('reward display uses credited quantities and hides failed Calamity bonuses', () => {
+  const normal = bosses.bossBagReward('Medusa');
+  const greater = bosses.bossBagReward('Jotun', { column: 'boss_treasure_chest', qty: 2 });
+  const greater2x = bosses.bossBagReward('Jotun', { column: 'boss_golden_chest', qty: 1 });
+  const calamity = bosses.bossBagReward('Fenrir');
+  assert(bossBagRewardLine(normal).includes('Lesser Bag ×1'));
+  assert(bossBagRewardLine(greater).includes('Greater Bag ×1'));
+  assert(bossBagRewardLine(greater2x).includes('Greater Bag ×2'));
+  assert(bossBagRewardLine(calamity).includes('Greater Bag ×3'));
+
+  const neither = calamityBonusRewardBlock('dead', {
+    supremeWinnerIds: [], divineWinnerIds: [],
+  });
+  const supremeOnly = calamityBonusRewardBlock('dead', {
+    supremeWinnerIds: ['a'], divineWinnerIds: [],
+  });
+  const divineOnly = calamityBonusRewardBlock('dead', {
+    supremeWinnerIds: [], divineWinnerIds: ['a'],
+  });
+  const both = calamityBonusRewardBlock('dead', {
+    supremeWinnerIds: ['a'], divineWinnerIds: ['b'],
+  });
+  assert.equal(neither, '');
+  assert(supremeOnly.includes('Supreme Chest ×1') && !supremeOnly.includes('Divine Bag'));
+  assert(divineOnly.includes('Divine Bag ×1') && !divineOnly.includes('Supreme Chest'));
+  assert(both.includes('Supreme Chest ×1') && both.includes('Divine Bag ×1'));
+  const preview = calamityBonusRewardBlock('active');
+  assert(preview.includes('Supreme Chest ×1') && preview.includes('Divine Bag ×1'));
+  assert(preview.includes('Two independent chances'));
 });
 
 run('zero eligible damage skips rolls safely', () => {
@@ -100,6 +217,7 @@ run('zero eligible damage skips rolls safely', () => {
   ], { randomInteger: () => { randomCalls += 1; return 0; }, logger: () => {} });
   assert.equal(randomCalls, 0);
   assert.deepEqual(result.winnerIds, []);
+  assert.deepEqual(result.divineWinnerIds, []);
   assert.equal(result.totalEligibleDamage, 0);
 });
 
@@ -112,7 +230,9 @@ check('Calamity roll uses node crypto randomInt',
 check('defeat handler grants guaranteed and independent bonus separately',
   /rollCalamitySupremeRewards\(participantRows\)/.test(bossSource)
   && /supreme_chest = supreme_chest \+ \$2/.test(bossSource)
-  && /\$\{chest\.column\} = \$\{chest\.column\} \+ \$4/.test(bossSource));
+  && /\$\{DIVINE_BAG_REWARD\.column\} = \$\{DIVINE_BAG_REWARD\.column\} \+ \$2/.test(bossSource)
+  && /\$\{chest\.column\} = \$\{chest\.column\} \+ \$4/.test(bossSource)
+  && /\$\{bagReward\.column\} = \$\{bagReward\.column\} \+ \$5/.test(bossSource));
 
 check('duplicate completion is blocked by the atomic active to dead transition',
   /status = 'dead',[\s\S]*?status = 'active' AND current_hp <= 0/.test(bossSource)
@@ -145,5 +265,53 @@ check('duel cleanup clears the specific DB lock and releases before rendering',
   && duelSource.indexOf('await safeReleaseDuelLock(duelLock);') < duelSource.indexOf('let battleSkinPath = null;')
   && /finally \{[\s\S]*?safeReleaseDuelLock\(duelLock\)/.test(duelSource));
 
-console.log(`CALAMITY_REWARDS ${JSON.stringify({ passed, failed, failures })}`);
-if (failed > 0) process.exitCode = 1;
+function bossView(name, { spawnId, hpMultiplier = 1, status = 'active' }) {
+  const baseHp = 100;
+  return {
+    state: {
+      guild_id: 'guild', spawn_id: spawnId, max_hp: baseHp * hpMultiplier,
+      current_hp: status === 'dead' ? 0 : baseHp * hpMultiplier,
+      scaled_atk: 10, scaled_def: 5, status, spawn_source: 'natural',
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+    },
+    mobRow: {
+      name, mythology: 'Greek', base_hp: baseHp, base_atk: 10, base_def: 5,
+      base_crit: 0, skill_name: null, skill_description: null,
+    },
+    attackers: [], attackerCount: 0, isDev: false,
+  };
+}
+
+async function finish() {
+  await runAsync('live boss payload renders exact guaranteed bags and successful bonuses', async () => {
+    const options = { includeStatusImage: false, includeBanner: false };
+    const normal = await buildBossMessage(
+      bossView('Medusa', { spawnId: 'normal' }), options,
+    );
+    const greater2x = await buildBossMessage(
+      bossView('Jotun', { spawnId: 'greater-2x', hpMultiplier: 2 }), options,
+    );
+    const calamity = await buildBossMessage(
+      bossView('Fenrir', { spawnId: 'calamity', status: 'dead' }),
+      {
+        ...options,
+        bonusRewardResults: { supremeWinnerIds: ['a'], divineWinnerIds: ['b'] },
+      },
+    );
+    const normalText = JSON.stringify(normal.components[0].toJSON());
+    const greaterText = JSON.stringify(greater2x.components[0].toJSON());
+    const calamityText = JSON.stringify(calamity.components[0].toJSON());
+    assert(normalText.includes('Lesser Bag ×1') && normalText.includes('lesser_bag'));
+    assert(greaterText.includes('Greater Bag ×2') && greaterText.includes('greater_bag'));
+    assert(calamityText.includes('Greater Bag ×3'));
+    assert(calamityText.includes('Supreme Chest ×1') && calamityText.includes('Divine Bag ×1'));
+  });
+
+  console.log(`CALAMITY_REWARDS ${JSON.stringify({ passed, failed, failures })}`);
+  if (failed > 0) process.exitCode = 1;
+}
+
+finish().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});

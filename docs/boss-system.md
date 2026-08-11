@@ -175,8 +175,10 @@ maxHp = max(1, floor(base_hp * hpMultiplier))
 
 ATK, DEF and CRIT are never multiplied — only HP.
 
-A natural Calamity awards 3 Boss Golden Chests. A dev-spawned Calamity awards 1
-Supreme Chest. Calamities have no HP multiplier and pay twice the Greater Golden reward.
+Natural and dev-spawned Calamities both award 1 Boss Golden Chest through the same
+participation pipeline. Calamities have no HP multiplier and pay twice the Greater Golden
+currency/EXP/Shard reward. Every eligible participant also receives 3 Greater Bags, while Supreme
+Chest and Divine Bag are separate damage-share bonus rolls.
 
 The Greater spawn announcement is prefixed:
 
@@ -186,20 +188,26 @@ The Greater spawn announcement is prefixed:
 
 ## What rewards do I get for defeating a boss
 
-Rewards are participation-based. Every player who landed at least one attack on that
-spawn receives the identical bundle when the boss falls — there is no top-damage bonus.
+Rewards are participation-based. Normal and Greater bosses reward every recorded attacker;
+Calamity rewards participants with positive damage. Every eligible participant receives the
+identical guaranteed bundle when the boss falls. Calamity then adds the two individual
+damage-share bonus rolls described below; there is no ranked top-damage prize.
 
 <!-- src: src/config/bosses.js:31 -->
 
-| Boss variant | Credux | Combat EXP (base) | Belief Shards | Chest |
-|---|---|---|---|---|
-| Normal boss | 100,000 | 20,000 | 1,000 | 1 × Boss Treasure Chest |
-| Greater — Twin Chest | 150,000 | 30,000 | 1,500 | 2 × Boss Treasure Chest |
-| Greater — Golden Chest | 200,000 | 40,000 | 2,000 | 1 × Boss Golden Chest |
-| Calamity (natural) | 400,000 | 80,000 | 4,000 | 3 × Boss Golden Chest |
-| Calamity (dev) | 400,000 | 80,000 | 4,000 | 1 × Supreme Chest |
+| Boss variant | Credux | Combat EXP (base) | Belief Shards | Chest | Guaranteed bag |
+|---|---|---|---|---|---|
+| Normal boss | 100,000 | 20,000 | 1,000 | 1 × Boss Treasure Chest | 1 × Lesser Bag |
+| Greater — Twin Chest | 150,000 | 30,000 | 1,500 | 2 × Boss Treasure Chest | 1 × Greater Bag |
+| Greater — Golden Chest (2× HP) | 200,000 | 40,000 | 2,000 | 1 × Boss Golden Chest | 2 × Greater Bag |
+| Calamity (natural or dev) | 400,000 | 80,000 | 4,000 | 1 × Boss Golden Chest | 3 × Greater Bag |
 
-Credux, Shards and chests are paid flat. **Combat EXP is scaled by each attacker's own
+For each eligible Calamity participant, the existing Supreme Chest chance is their damage
+divided by total eligible damage. Divine Bag uses that exact same unrounded chance in a
+second independent `node:crypto` roll. A participant can therefore receive neither bonus,
+either one, or both. The final result shows only bonus items that were actually granted.
+
+Credux, Shards, chests and guaranteed bags are paid flat. **Combat EXP is scaled by each attacker's own
 combat level**, never by the boss's level:
 
 <!-- src: src/utils/awardCombatExp.js:86 -->
@@ -221,7 +229,7 @@ The defeat announcement reads:
 
 ```text
 🎉 <Boss Name> has fallen! All 12 challengers receive:
-100,000 Credux · 20,000 Combat EXP · 1× Boss Treasure Chest · 1,000 Belief Shards.
+100,000 Credux · 20,000 Combat EXP · 1× Boss Treasure Chest · 1× Lesser Bag · 1,000 Belief Shards.
 ```
 
 Reward distribution and the status flip share one transaction, so payouts are

@@ -78,6 +78,7 @@ scripts/skinPreview.js
 !scripts/repair-tester-avatar-assignments.sql
 !scripts/deity-passive-description-update.sql
 !scripts/update-combat-effect-descriptions.sql
+!scripts/update-supreme-weapon-deity-atk-descriptions.sql
 !scripts/migrations/*.sql
 
 # OS / editor

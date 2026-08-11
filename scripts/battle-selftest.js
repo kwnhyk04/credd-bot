@@ -67,6 +67,10 @@ const { applyCombatExp, EXP_REQUIRED, MAX_COMBAT_LEVEL } = require(path.join(ROO
 const { CLASSES, CLASS_PASSIVE_VALUES } = require(path.join(ROOT, 'src', 'config', 'classes'));
 const { runeDescription } = require(path.join(ROOT, 'src', 'config', 'runes'));
 const {
+  SUPREME_WEAPON_ATK_PER_TURN,
+  SUPREME_WEAPON_ATK_MAX,
+} = require(path.join(ROOT, 'src', 'config', 'combat'));
+const {
   GREATER_BOSSES, CALAMITY_BOSSES, CALAMITY_SPAWN_CHANCE, GREATER_SPAWN_CHANCE, NORMAL_SPAWN_CHANCE,
   GREATER_CHEST_GOLDEN_CHANCE, GREATER_TWIN_REWARD, GREATER_GOLDEN_REWARD,
   bossRewards, rollBossChest, hpMultiplierForChest, bossMaxHpForChest,
@@ -88,7 +92,7 @@ function player(over = {}) {
     name: 'Hero', kind: 'player', class: 'Knight', classPassive: 'damage_reduction',
     level: 50, atk: 300, hp: 2000, def: 150, crit: 20,
     bonusDmgPct: 0,
-    weaponPassiveKey: 'none', weaponName: 'Test Blade',
+    weaponPassiveKey: 'none', weaponName: 'Test Blade', weaponTier: null,
     deityBlessingKey: 'none', deityName: null,
   }, over);
 }
@@ -525,11 +529,11 @@ check('class base and per-level scaling match the balance table',
   };
 
   const zeus = runPassive('zeus_thunder_sovereign');
-  check('Zeus does not roll or buff before an attack starts',
-    zeus.rollsUsed() === 0 && zeus.bs.playerAtkMult === 0);
+  check('Zeus applies its constant +50% without rolling before an attack starts',
+    zeus.rollsUsed() === 0 && zeus.bs.playerAtkMult === 0.50);
   zeus.attackHooks[0]();
-  check('Zeus rolls and grants +50% on the actual attack',
-    zeus.rollsUsed() === 1 && zeus.bs.playerAtkMult === 0.50);
+  check('Zeus Chain Lightning adds another +50% on a procced attack',
+    zeus.rollsUsed() === 1 && zeus.bs.playerAtkMult === 1.00);
   for (const hook of zeus.landedHitHooks) hook();
   check('Zeus applies one 5% shred stack only after the hit lands',
     zeus.bs.flags.zeus_def_shred_stacks === 1);
@@ -685,6 +689,170 @@ check('class base and per-level scaling match the balance table',
   check('crit ≈ non-crit ÷1.5 ×2.5', Math.abs(r1 - Math.floor((r2 / 1.5) * 2.5)) <= 1, `got ${r1} vs ${Math.floor((r2 / 1.5) * 2.5)}`);
   check('round 1 marked CRIT', hasEvent(roundEvents(sim, 1), '(CRIT!)'));
   check('round 2 not marked CRIT', !hasEvent(roundEvents(sim, 2), '(CRIT!)'));
+}
+
+// — Genesis replaces its former +50% rider with one +100% rider. —
+{
+  const target = mob({ atk: 0, hp: 100_000, def: 0, crit: 0 });
+  const genesis = resolveBattle(player({
+    class: 'Test', classPassive: null, atk: 100, hp: 100_000, def: 0, crit: 0,
+    weaponTier: 'Genesis', bonusDmgPct: 50, weaponPassiveKey: 'none',
+  }), target, { mode: 'boss', rng: () => 0.5 });
+  const otherTier = resolveBattle(player({
+    class: 'Test', classPassive: null, atk: 100, hp: 100_000, def: 0, crit: 0,
+    weaponTier: 'Legendary', bonusDmgPct: 50, weaponPassiveKey: 'none',
+  }), target, { mode: 'boss', rng: () => 0.5 });
+  check('Genesis 100 base-equivalent attack becomes 200 through the existing damage lane',
+    dmgOf(roundEvents(genesis, 1), 'Hero attacks') === 200);
+  check('Genesis old +50% is replaced instead of stacked into 250 damage',
+    dmgOf(roundEvents(genesis, 1), 'Hero attacks') !== 250);
+  check('the same stored rider remains unchanged for a non-Genesis weapon tier',
+    dmgOf(roundEvents(otherTier, 1), 'Hero attacks') === 150);
+}
+
+// — Every Supreme weapon gains one +10% ATK stack per turn, capped at +50%. —
+{
+  const supremeKeys = [
+    'mjolnir', 'gungnir', 'thunderbolt_of_zeus', 'trident_of_poseidon',
+  ];
+  const supremePlayer = (over = {}) => player({
+    class: 'Test', classPassive: null, atk: 100, hp: 100_000, def: 0, crit: 0,
+    weaponTier: 'Supreme', weaponPassiveKey: 'none', ...over,
+  });
+  const target = (over = {}) => mob({
+    atk: 0, hp: 100_000, def: 0, crit: 0, ...over,
+  });
+
+  check('Supreme weapon stack constants are +10% per turn and +50% maximum',
+    SUPREME_WEAPON_ATK_PER_TURN === 0.10 && SUPREME_WEAPON_ATK_MAX === 0.50);
+
+  const progression = resolveBattle(supremePlayer(), target(), {
+    mode: 'boss', rng: () => 0.5,
+  });
+  const damageByTurn = [1, 2, 3, 4, 5, 6]
+    .map((turn) => dmgOf(roundEvents(progression, turn), 'Hero attacks'));
+  check('Supreme weapon ATK progresses +10/+20/+30/+40/+50 and stays capped',
+    damageByTurn.join(',') === '110,120,130,140,150,150', damageByTurn.join(','));
+  check('Supreme weapon stack log reaches +50% once and does not add a turn-6 stack',
+    hasEvent(roundEvents(progression, 5), 'total +50%')
+      && !hasEvent(roundEvents(progression, 6), 'Supreme Weapon:'));
+
+  for (const weaponPassiveKey of supremeKeys) {
+    const sim = resolveBattle(supremePlayer({ weaponPassiveKey }), target(), {
+      mode: 'boss', rng: () => 0.5,
+    });
+    check(`Supreme shared ATK stack applies alongside ${weaponPassiveKey}`,
+      hasEvent(roundEvents(sim, 1), 'Supreme Weapon: +10% ATK stack gained (total +10%)'));
+  }
+
+  const legendary = resolveBattle(
+    supremePlayer({ weaponTier: 'Legendary' }), target(), { mode: 'boss', rng: () => 0.5 },
+  );
+  check('non-Supreme weapon tiers do not receive the shared ATK stack',
+    dmgOf(roundEvents(legendary, 1), 'Hero attacks') === 100
+      && !hasEvent(allEvents(legendary), 'Supreme Weapon:'));
+
+  const supremeDuel = resolveBattle(
+    supremePlayer(), supremePlayer({ name: 'Rival' }),
+    { mode: 'duel', rng: () => 0.5 },
+  );
+  check('both Supreme weapon owners gain one stack in a duel turn',
+    roundEvents(supremeDuel, 1)
+      .filter((event) => event.includes('Supreme Weapon:')).length === 2);
+
+  const reusedFighter = supremePlayer();
+  const firstBattle = resolveBattle(reusedFighter, target(), { mode: 'boss', rng: () => 0.5 });
+  const secondBattle = resolveBattle(reusedFighter, target(), { mode: 'boss', rng: () => 0.5 });
+  check('Supreme weapon ATK stacks reset between battles',
+    hasEvent(roundEvents(firstBattle, 1), 'total +10%')
+      && hasEvent(roundEvents(secondBattle, 1), 'total +10%')
+      && !hasEvent(roundEvents(secondBattle, 1), 'total +20%'));
+
+  const classOnly = resolveBattle(
+    supremePlayer({ class: 'Swordsman', classPassive: 'bleed' }),
+    target({ def: 100 }),
+    { mode: 'raid', rng: () => 0.5 },
+  );
+  const classAndRune = resolveBattle(
+    supremePlayer({
+      class: 'Swordsman', classPassive: 'bleed',
+      effectRunes: [{ effect_key: 'piercing', value: 20 }],
+    }),
+    target({ def: 100 }),
+    { mode: 'raid', rng: () => 0.5 },
+  );
+  check('Supreme ATK combines with class stacks and an effect rune',
+    dmgOf(roundEvents(classOnly, 1), 'Hero attacks') === 76
+      && dmgOf(roundEvents(classAndRune, 1), 'Hero attacks') === 82
+      && hasEvent(roundEvents(classAndRune, 1), 'Current bonus: 5%')
+      && hasEvent(roundEvents(classAndRune, 1), 'total +10%'));
+}
+
+// — Odin and Zeus add constant +50% ATK without replacing their unique effects. —
+{
+  const deityPlayer = (over = {}) => player({
+    class: 'Test', classPassive: null, atk: 100, hp: 100_000, def: 0, crit: 0,
+    ...over,
+  });
+  const target = (over = {}) => mob({
+    atk: 0, hp: 100_000, def: 0, crit: 0, ...over,
+  });
+
+  const odin = resolveBattle(
+    deityPlayer({ deityBlessingKey: 'odin_all_fathers_wisdom' }),
+    target({ atk: 100 }),
+    { mode: 'raid', rng: () => 0.5 },
+  );
+  check('Odin grants constant +50% ATK',
+    dmgOf(roundEvents(odin, 1), 'Hero attacks') === 150);
+  check('Odin Foresight still reduces, stores, and releases prevented damage',
+    hasEvent(roundEvents(odin, 2), 'Reduced incoming damage by 25%')
+      && dmgOf(roundEvents(odin, 2), 'Dummy strikes') === 75
+      && hasEvent(roundEvents(odin, 3), 'released 25 stored damage')
+      && dmgOf(roundEvents(odin, 3), 'Hero attacks') === 175);
+
+  const zeusNoProc = resolveBattle(
+    deityPlayer({ deityBlessingKey: 'zeus_thunder_sovereign' }), target(),
+    { mode: 'raid', rng: () => 0.5 },
+  );
+  check('Zeus grants constant +50% ATK when Chain Lightning does not proc',
+    dmgOf(roundEvents(zeusNoProc, 1), 'Hero attacks') === 150
+      && !hasEvent(roundEvents(zeusNoProc, 1), 'Chain Lightning'));
+
+  const zeusRolls = [0.5, 0.99, 0, 0.5];
+  const zeusProc = resolveBattle(
+    deityPlayer({ deityBlessingKey: 'zeus_thunder_sovereign' }), target(),
+    { mode: 'raid', rng: scripted(zeusRolls, 0.5) },
+  );
+  check('Zeus Chain Lightning remains additive to the new constant +50% ATK',
+    dmgOf(roundEvents(zeusProc, 1), 'Hero attacks') === 200
+      && hasEvent(roundEvents(zeusProc, 1), 'Chain Lightning — +50% damage')
+      && hasEvent(roundEvents(zeusProc, 1), 'Enemy DEF -5%'));
+
+  const supremeOdin = resolveBattle(
+    deityPlayer({
+      weaponTier: 'Supreme', weaponPassiveKey: 'trident_of_poseidon',
+      bonusDmgPct: 50, deityBlessingKey: 'odin_all_fathers_wisdom',
+    }),
+    target(),
+    { mode: 'raid', rng: () => 0.5 },
+  );
+  check('Supreme weapon and Odin ATK bonuses combine additively',
+    dmgOf(roundEvents(supremeOdin, 1), 'Hero attacks') === 240
+      && hasEvent(roundEvents(supremeOdin, 1), 'total +10%'));
+
+  const supremeZeusRolls = [0.5, 0.99, 0, 0.5];
+  const supremeZeus = resolveBattle(
+    deityPlayer({
+      weaponTier: 'Supreme', weaponPassiveKey: 'trident_of_poseidon',
+      bonusDmgPct: 50, deityBlessingKey: 'zeus_thunder_sovereign',
+    }),
+    target(),
+    { mode: 'raid', rng: scripted(supremeZeusRolls, 0.5) },
+  );
+  check('Supreme weapon and Zeus constant/proc bonuses combine additively',
+    dmgOf(roundEvents(supremeZeus, 1), 'Hero attacks') === 315
+      && hasEvent(roundEvents(supremeZeus, 1), 'Chain Lightning'));
 }
 
 // — Idiyanale: every 3rd turn the attack deals +75% more damage via the effATK lane
@@ -1271,6 +1439,35 @@ check('class base and per-level scaling match the balance table',
       && dmgOf([mjolnirR3[1]], 'attacks') === 117
       && roundEvents(mjolnirArcher, 3)
         .filter((event) => event.includes('CRUSH!')).length === 1);
+
+  const supremeArcher = resolveBattle(
+    base({
+      class: 'Archer', classPassive: 'pierce',
+      weaponPassiveKey: 'none', weaponTier: 'Supreme',
+    }),
+    target(),
+    { mode: 'boss', rng: () => 0 },
+  );
+  const supremeArcherR1 = attackLines(supremeArcher, 1);
+  check('Archer additional attack does not increment the Supreme weapon stack',
+    supremeArcherR1.length === 2
+      && supremeArcherR1.every((event) => dmgOf([event], 'attacks') === 99)
+      && roundEvents(supremeArcher, 1)
+        .filter((event) => event.includes('Supreme Weapon:')).length === 1
+      && hasEvent(roundEvents(supremeArcher, 2), 'total +20%'));
+
+  const genesisArcher = resolveBattle(
+    base({
+      class: 'Archer', classPassive: 'pierce',
+      weaponPassiveKey: 'none', weaponTier: 'Genesis', bonusDmgPct: 50,
+    }),
+    target(),
+    { mode: 'boss', rng: () => 0 },
+  );
+  const genesisArcherR1 = attackLines(genesisArcher, 1);
+  check('Genesis +100% rider applies equally to Archer primary and additional attacks',
+    genesisArcherR1.length === 2
+      && genesisArcherR1.every((event) => dmgOf([event], 'attacks') === 180));
 
   const turnSafety = resolveBattle(
     base({ class: 'Archer', classPassive: 'pierce', atk: 0 }),
@@ -2262,7 +2459,8 @@ check('class base and per-level scaling match the balance table',
   const sim = resolveBattle(mk(), mob({ hp: 50000, def: 200 }), { seed: 1, rng: () => 0 });
   const r3 = dmgOf(roundEvents(sim, 3), 'attacks');
   check('R8: Zeus procs Chain Lightning', hasEvent(roundEvents(sim, 3), 'Chain Lightning'));
-  check('R8: highest-wins r3 damage = 571', r3 === 571, `got ${r3}`);
+  check('R8: highest-wins r3 damage includes Zeus constant +50% ATK',
+    r3 === 730, `got ${r3}`);
 }
 
 // — def_down immunity blocks ALL sources including the laevateinn stack —
@@ -2272,7 +2470,8 @@ check('class base and per-level scaling match the balance table',
     { seed: 1, rng: () => 0 });
   check('def_down-immune: no Sundering Flame stacks', !hasEvent(allEvents(sim), 'Sundering Flame'));
   const r3 = dmgOf(roundEvents(sim, 3), 'attacks');
-  check('def_down-immune r3 damage = 486', r3 === 486, `got ${r3}`);
+  check('def_down-immune r3 damage includes Zeus constant +50% ATK',
+    r3 === 621, `got ${r3}`);
 }
 
 // — R9: Babaylan ATK +100% only on a non-empty cleanse —

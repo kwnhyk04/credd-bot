@@ -134,14 +134,19 @@ constants used by both the class card and the battle engine.
 | Class | Passive | Exact effect |
 |---|---|---|
 | Swordsman | Bleed + Battle Rhythm | Each attack inflicts 4% Bleed, stacking up to 20% (5 stacks), and effective ATK increases by 5% each turn up to 30% for the battle. |
-| Fighter | Stun | Every attack gains +50% damage. Each has a 30% chance to become a Bash with another additive +50% damage, Stun the target for 1 turn, and leave a 15% next-attack miss chance from Dizzy. |
+| Fighter | Stun | Every attack gains +50% damage. Each primary attack has a 30% chance to become a Bash with another additive +50% damage relative to the normal attack, Stun the target for 1 turn, and leave a 15% next-real-attack miss chance from Dizzy. Dizzy is consumed by that attack attempt. |
 | Mage | Overcharge | On every 3rd round the primary attack is multiplied by 2.75, cannot crit, and applies exactly one random 25% debuff: Paralyze, Burn, DEF Down, or ATK Down. |
 | Knight | Damage Reduction | Incoming damage reduced by 25%; outgoing damage increased by 30%; restores 1.5% of maximum HP each turn. |
-| Archer | Armor Pierce & Double Attack | Attacks ignore 25% of target DEF and have a 35% chance to immediately perform one extra attack through the normal same-turn attack pipeline. |
+| Archer | Armor Pierce & Double Attack | Attacks ignore 25% of target DEF and have a 35% chance to immediately perform one extra attack through the normal same-turn attack pipeline. That is at most two attacks per turn; the extra attack cannot recursively trigger another Archer attack. Attack-scoped effects apply to both attacks, while turn-scoped buffs are applied once for the turn. |
 
 <!-- src: src/engine/battleEngine.js:128 -->
 Knight's damage reduction is 25% and its outgoing bonus is 30%. Mage's Overcharge
 multiplier is 2.75 and fires on rounds 3, 6, 9 and so on.
+
+## How do I view current class passives
+
+Use `crd class passives` to view the current passive description for every playable
+class. This account-level reference does not require a character.
 
 <!-- src: src/config/combat.js:26 -->
 
@@ -342,7 +347,7 @@ economy and reference commands do not.
 
 | Requires a character | Account only (no character needed) |
 |---|---|
-| profile, stats, preset, raid, auto, duel, ranked, title, summon, bag, open, equip, enhance, lock, unlock, sell, deity, deities, equipment, essence, exchange, pvp, socket, unsocket, rune, runes, avatars, avatar, compare | register, create, leaderboards, boss, cred, bestow, daily, quests, help, admin, shop, skin, buy, use, set, glossary, and all casino games |
+| profile, stats, preset, raid, auto, duel, ranked, title, summon, bag, open, equip, enhance, lock, unlock, sell, deity, deities, equipment, essence, exchange, pvp, socket, unsocket, rune, runes, avatars, avatar, compare | register, create, leaderboards, boss, cred, bestow, daily, quests, help, admin, shop, class, skin, buy, use, set, glossary, and all casino games |
 
 Attempting a character-gated command without one replies:
 *"You don't have a character yet. Use `crd create character` to get started."*

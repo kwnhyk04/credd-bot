@@ -40,6 +40,9 @@ const {
 } = require(path.join(ROOT, 'src', 'engine', 'summonEngine'));
 const { CHEST_ALIASES } = require(path.join(ROOT, 'src', 'config', 'dropRates'));
 const { emoji } = require(path.join(ROOT, 'src', 'utils', 'emojis'));
+const {
+  calamityBonusRewardBlock,
+} = require(path.join(ROOT, 'src', 'engine', 'boss', 'bossMessages'));
 
 let passed = 0;
 function check(name, condition) {
@@ -186,9 +189,12 @@ check('daily quest quote footer remains intact', questSource.includes('The gods 
 check('weekly quest full-completion footer is removed', !questSource.includes('Weekly full-completion bonus: no additional Sacred Relic'));
 
 const bossSource = readBossSource();
+const calamityPreview = calamityBonusRewardBlock('active');
 check('Calamity preview uses a Bonus Rewards heading', bossSource.includes('**Bonus Rewards**'));
-check('Calamity preview keeps the Supreme Chest chance explanation', bossSource.includes('Chance per eligible participant, weighted by damage contribution.'));
-check('Calamity preview still displays a one-chest bonus', bossSource.includes('Supreme Chest ×1'));
+check('Calamity preview explains two independent damage-weighted chances',
+  bossSource.includes('Two independent chances per eligible participant, each weighted by the same damage contribution.'));
+check('Calamity preview displays both one-item bonus rolls',
+  calamityPreview.includes('Supreme Chest ×1') && calamityPreview.includes('Divine Bag ×1'));
 
 const openCommandSource = fs.readFileSync(path.join(ROOT, 'src', 'commands', 'rpg', 'open.js'), 'utf8');
 check('normal summons use the shared summon formatter for fallback output', summonCommandSource.includes('splitSummonResultLines(results, 1450)'));

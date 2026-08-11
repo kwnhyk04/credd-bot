@@ -75,7 +75,7 @@ Supreme and Genesis weapons do **not** roll — their stats are fixed:
 | Tier | ATK | CRIT | Damage bonus |
 |---|---|---|---|
 | Supreme | 800 | 10.0% | +50% |
-| Genesis | 1,600 | 20.0% | +50% |
+| Genesis | 1,600 | 20.0% | +100% |
 
 ## What is the Legendary damage rider
 
@@ -228,6 +228,10 @@ actually change a hit.
 
 <!-- src: assets/data/passive_registry_keys.md:69 -->
 
+Every Supreme weapon also gains **+10% ATK at the start of each turn**, stacking up to
+**+50%** for the battle. This shared stack is in addition to the unique passive listed
+for each weapon below and resets after the battle.
+
 | Weapon | Passive | Effect |
 |---|---|---|
 | Apollo's Silver Bow | Unerring Arrow | Ignores 25% of enemy DEF. Every 3rd turn the attack is a guaranteed CRIT, counted in your own attack turns so a turn lost to crowd control does not burn a count |
@@ -239,7 +243,8 @@ actually change a hit.
 ## What are the Genesis weapons (First Arms)
 
 Five Genesis weapons exist. They drop only from the Genesis Chest, have fixed stats
-(1,600 ATK, 20% CRIT, +50% damage), and are the only weapons that enhance past +10.
+(1,600 ATK, 20% CRIT, +100% damage), and are the only weapons that enhance past +10.
+The current Genesis damage bonus is +100%; it replaces the former +50% value.
 
 <!-- src: assets/data/passive_registry_keys.md:75 -->
 

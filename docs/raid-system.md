@@ -95,18 +95,35 @@ Regular mob:
 
 | Outcome | Credux | Combat EXP (base) | Belief Shards | Chest |
 |---|---|---|---|---|
-| Win | 500–1,000 | 200–300 | 5–10 (100% chance) | 10% chance of 1 Silver Chest |
+| Win | 500–1,000 | 200–300 | 5–10 (100% chance) | 20% chance of 1 Silver Chest |
 | Loss | 0 | 50 | 0 | none |
 
 Elite mob:
 
 | Outcome | Credux | Combat EXP (base) | Belief Shards | Chest |
 |---|---|---|---|---|
-| Win | 1,500–2,000 | 400–600 | 15–20 (100% chance) | 20% chance of 1 Gold Chest |
+| Win | 1,500–2,000 | 400–600 | 15–20 (100% chance) | 50% chance of 1 Gold Chest |
 | Loss | 0 | 150 | 0 | none |
 
 Belief Shards drop on every win — `shardChance` is 1.0 for both categories. Only the
 chest roll is chance-based.
+
+## What are the daily raid reward limits
+
+Raid reward allocation tracks these limits per player and per PHT calendar day. Belief
+Shard payouts from manual raids, auto-raid claims and boss participation use the Shard
+limit; the Silver/Gold limits apply to the regular and elite manual-raid chest drops:
+
+| Reward | Daily maximum |
+|---|---|
+| Belief Shards | 10,000 |
+| Silver Chests | 20 |
+| Gold Chests | 5 |
+
+The limits are separate from the chest drop chances above and reset at midnight PHT.
+Once one limit is reached, only that capped portion of a later raid reward is omitted;
+other rewards from the same win continue to be paid. The raid result does not show a
+daily-limit warning. Use `crd daily limits` to view today's tracked totals.
 
 ## How much EXP does a raid actually pay
 

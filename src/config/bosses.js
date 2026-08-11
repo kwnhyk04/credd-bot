@@ -1,6 +1,7 @@
 'use strict';
 
 const { chance, int, unit } = require('../utils/secureRng');
+const { BAGS } = require('./runes');
 
 /**
  * Greater Boss tier — Master §16 [v4.4].
@@ -121,6 +122,30 @@ function bossRewards(name, chest = null) {
   if (isCalamityBoss(name)) return CALAMITY_REWARD;
   if (!isGreaterBoss(name)) return NORMAL_REWARD;
   return greaterVariantForChest(chest)?.reward || GREATER_TWIN_REWARD;
+}
+
+/**
+ * Guaranteed rune-bag reward for the fixed boss spawn variant. Item columns,
+ * names, and emoji keys come from the existing rune-bag registry. The Greater
+ * Golden variant is the existing 2x-HP Greater Boss and receives exactly two
+ * Greater Bags; rewards do not inherit from lower tiers.
+ */
+function bossBagReward(name, chest = null) {
+  let bag = BAGS.lesser;
+  let qty = 1;
+  if (isCalamityBoss(name)) {
+    bag = BAGS.greater;
+    qty = 3;
+  } else if (isGreaterBoss(name)) {
+    bag = BAGS.greater;
+    qty = greaterVariantForChest(chest)?.key === 'golden' ? 2 : 1;
+  }
+  return {
+    column: bag.column,
+    qty,
+    label: bag.name,
+    emojiName: bag.emojiName,
+  };
 }
 
 /**
@@ -281,6 +306,7 @@ module.exports = {
   bossTier,
   greaterVariantForChest,
   bossRewards,
+  bossBagReward,
   rollBossChest,
   hpMultiplierForChest,
   bossMaxHpForChest,

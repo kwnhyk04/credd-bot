@@ -7,12 +7,12 @@ UPDATE deity_roster
 
 UPDATE deity_roster
    SET blessing_name = 'All-Father''s Foresight',
-       blessing_description = 'On even-numbered battle turns, takes 25% less damage and stores the damage prevented. On the immediately following odd-numbered turn, adds the stored amount to the next attack, then clears it. Resets after battle.'
+       blessing_description = 'Increase ATK by +50%. On even-numbered battle turns, takes 25% less damage and stores the damage prevented. On the immediately following odd-numbered turn, adds the stored amount to the next attack, then clears it. Resets after battle.'
  WHERE blessing_key = 'odin_all_fathers_wisdom';
 
 UPDATE deity_roster
    SET blessing_name = 'Chain Lightning',
-       blessing_description = 'Each attack has a 50% chance to deal 50% additional damage and add a 5% DEF shred. The DEF shred stacks up to 6 times (30%) and resets after battle.'
+       blessing_description = 'Increase ATK by +50%. Each attack has a 50% chance to deal 50% additional damage and add a 5% DEF shred. The DEF shred stacks up to 6 times (30%) and resets after battle.'
  WHERE blessing_key = 'zeus_thunder_sovereign';
 
 COMMIT;

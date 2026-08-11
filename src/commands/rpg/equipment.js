@@ -22,6 +22,7 @@ const { assetPath, isRemoteAssetsEnabled, remoteAssetAvailable, relativeAssetPat
 const { bandwidthLog } = require('../../utils/runtimeLogs');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { formatEnhancedName } = require('../../utils/enhancementFormat');
+const { effectiveWeaponBonusDmgPct } = require('../../config/dropRates');
 
 const SOCKET_LANES = {
   weapon: { native: 'offense', opposite: 'defense' },
@@ -178,7 +179,7 @@ function statBlock(g) {
       `Attack: ${Number(g.curr_atk || 0).toLocaleString()}`,
       `Critical Rate: ${Number(g.crit || 0).toFixed(1)}%`,
     ];
-    const bonus = Number(g.bonus_dmg_pct || 0);
+    const bonus = effectiveWeaponBonusDmgPct(g.tier, g.bonus_dmg_pct);
     if (bonus > 0) lines.push(`Bonus: +${bonus}% DMG`);
     return lines.join('\n');
   }

@@ -87,6 +87,7 @@ hitMultiplier = (crit ? 2.0 : 1) + damagePct / 100
 |---|---|---|
 | No damage bonus | ×1.0 | ×2.0 |
 | Supreme weapon (+50%) | ×1.5 | ×2.5 |
+| Genesis weapon (+100%) | ×2.0 | ×3.0 |
 | Supreme weapon + a 50% deity proc | ×2.0 | ×3.0 |
 | Katana passive (+30%) | ×1.3 | ×2.3 |
 | Legendary weapon rider (+25%) | ×1.25 | ×2.25 |
@@ -101,7 +102,7 @@ Damage % stacks additively from every active source.
 |---|---|
 | Legendary weapon bonus rider (25% of Legendary drops roll it) | +25% |
 | Supreme weapon (fixed on every Supreme weapon) | +50% |
-| Genesis weapon (fixed on every Genesis weapon) | +50% |
+| Genesis weapon (fixed on every Genesis weapon) | +100% |
 | Katana — Lethal Edge passive | +30% |
 | Deity blessing procs | varies per blessing |
 

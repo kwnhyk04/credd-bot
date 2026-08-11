@@ -4,7 +4,7 @@ const pool = require('../../db/pool');
 const {
   CHESTS, CHEST_ALIASES, MAX_OPEN,
   rollTier, rollGearClass, rollArmorType, rollWeaponStats, rollArmorStats,
-  rollNativeSocketCount, buildSocketArray,
+  rollNativeSocketCount, buildSocketArray, effectiveWeaponBonusDmgPct,
 } = require('../../config/dropRates');
 const { generateUniqueGearId, generateUniqueRuneUid } = require('../../utils/weaponId');
 const { runSummon, claimSummonReward } = require('../../engine/summonEngine');
@@ -229,7 +229,8 @@ function dropStatsLine(d) {
     return `HP ${d.hp} · DEF ${d.def} · ${d.type}`;
   }
   const critTxt = d.crit > 0 ? ` · CRIT ${Number(d.crit).toFixed(1)}%` : '';
-  const bonus = d.bonus_dmg_pct ? ` · +${Number(d.bonus_dmg_pct)}% DMG` : '';
+  const bonusPct = effectiveWeaponBonusDmgPct(d.tier, d.bonus_dmg_pct);
+  const bonus = bonusPct ? ` · +${bonusPct}% DMG` : '';
   return `ATK ${d.atk}${critTxt}${bonus}`;
 }
 

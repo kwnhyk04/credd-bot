@@ -297,7 +297,7 @@ in slot 1, where they supply the Primary channel.
 
 | Deity | Blessing | Effect |
 |---|---|---|
-| Odin | All-Father's Foresight | On even turns take 25% less damage and store the prevented damage; add it to the next odd-turn attack, then clear it |
+| Odin | All-Father's Foresight | ATK +50% for the battle. On even turns take 25% less damage and store the prevented damage; add it to the next odd-turn attack, then clear it |
 | Thor | Mjolnir's Wrath | 30% chance per attack to Stun and Paralyze for 3 turns; while Paralyzed the enemy takes 20% of your base ATK per turn and has a 10% chance to skip its turn |
 | Freya | Valkyrie's Embrace | ATK +30% all battle; once per battle at 40% HP or below, restore 20% max HP |
 | Loki | Illusory Double | 25% chance each turn to evade an attack and counter for 100% ATK |
@@ -321,7 +321,7 @@ in slot 1, where they supply the Primary channel.
 
 | Deity | Blessing | Effect |
 |---|---|---|
-| Zeus | Chain Lightning | 50% chance per attack to deal 50% additional damage and add a 5% DEF shred, stacking up to 6 times (30%), resetting after battle |
+| Zeus | Chain Lightning | ATK +50% for the battle. 50% chance per attack to deal 50% additional damage and add a 5% DEF shred, stacking up to 6 times (30%), resetting after battle |
 | Ares | Blood Frenzy | End of each turn, +10% ATK, stacking to +50% |
 | Poseidon | Tidal Force | 30% chance per attack to Stun and shred DEF by 30% for 2 turns; the shred refreshes but does not stack |
 | Hades | Soul Harvest | While the enemy is below 30% HP, ATK +50% for the rest of the battle |

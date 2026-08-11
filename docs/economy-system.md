@@ -95,18 +95,25 @@ Two attendance counters are tracked:
 
 | Counter | Behaviour |
 |---|---|
-| Monthly streak | Base-reward cycle from 1 to 30, then wraps back to 1 |
-| Overall streak | Current consecutive PHT attendance days; no 30-day wrap |
+| 30-day reward cycle | Base-reward day from 1 to 30, then wraps back to 1 |
+| Consecutive Streak | Consecutive PHT attendance days; continues past day 30 without wrapping |
 
-Claiming on a consecutive day advances both. Missing a day resets **both** to day 1.
+Claiming on a consecutive day advances both. Missing a full PHT attendance calendar day
+resets both to day 1. The player-facing counter is named **Streak**, not Overall.
 Claiming twice in one PHT day replies *"⏳ You already claimed today (Day N). Come back
 after midnight PHT."*
 
-The monthly day determines Credux, Belief Shards and the regular Silver/Gold Chest. The
-consecutive streak separately determines bonus Boss chests: Streak 15 grants one Boss
-Treasure Chest; Streak 30 and every additional 15 consecutive days grant one Boss Golden
-Chest. These are added to the regular daily chest and become earnable again after a
-broken streak.
+The 30-day reward-cycle day determines Credux, Belief Shards and the regular Silver/Gold
+Chest. The consecutive Streak separately determines these additional milestone chests:
+
+| Streak reached | Additional reward |
+|---|---|
+| 15 | 1 Boss Treasure Chest |
+| 30, 45, 60, 75, 90, and every additional 15 days | 1 Boss Golden Chest |
+
+Milestone chests are added to the regular daily reward. Breaking the Streak resets the
+milestone progression, so the rewards can be earned again at Streak 15 and 30 on a new
+consecutive run.
 
 ## What are the daily attendance rewards
 
@@ -128,9 +135,8 @@ broken streak.
 Gold Chest days are 7, 14, 21, 28, 29 and 30. Every other day gives a Silver Chest.
 
 A complete 30-day base-reward cycle totals 6,750,000 Credux, 7,650 Belief Shards,
-24 Silver Chests and 6 Gold Chests. Those totals exclude milestone chests. A new unbroken
-streak also earns one Boss Treasure Chest at Streak 15 and one Boss Golden Chest at
-Streak 30 during its first 30 claims.
+24 Silver Chests and 6 Gold Chests. Those totals exclude the additional milestone chests;
+the consecutive Streak can continue beyond day 30 and keeps earning its 15-day milestones.
 
 ## How do I send Credux to another player
 

@@ -2729,3 +2729,49 @@ Validation:
   additional Boss Golden Chest with the registered icon.
 - `node --check` passed for the modified JavaScript, and `git diff --check` found no
   whitespace errors; Git emitted only the existing Windows LF-to-CRLF notices.
+
+## Follow-up: source-of-truth documentation synchronization
+
+Timestamp: 2026-08-11 +08:00
+Patch name: Current gameplay documentation sync
+Commit: included with this handoff entry
+
+The active root `/docs` source-of-truth pages were audited against the current code and
+updated without changing the existing document structure or RAG/upsert infrastructure:
+
+- `gacha-system.md` now describes compact duplicate text rows without a literal
+  `Essence` suffix, duplicate grouping, and rarity-based mixed-pull summaries.
+- `raid-system.md` and `inventory-system.md` now use the configured 20% Silver and 50%
+  Gold raid chest chances. `raid-system.md` also documents the 10,000 Belief Shard,
+  20 Silver Chest, and 5 Gold Chest daily limits, including silent omission after a cap
+  and the `crd daily limits` status command.
+- `character-and-class-system.md` now records Fighter's primary Bash/Dizzy consumption,
+  Archer's two-attack non-recursive pipeline and turn-scoped behavior, the
+  `crd class passives` command, and its account-only access.
+- `shop-system.md` now documents the Unlimited/Monthly/Daily/Weekly category display and
+  category-level reset countdowns while retaining the verified IDs, prices, caps and
+  purchase syntax.
+- `economy-system.md` now distinguishes the 30-day reward cycle from the continuing
+  consecutive Streak, uses the player-facing `Streak` terminology, and lists the repeatable
+  15/30+ milestone chest rewards and reset behavior.
+- `deity-system.md` appends the implemented +50% battle ATK to Odin and Zeus. The Supreme
+  section of `weapon-system.md` documents the shared +10% per-turn stack up to +50%; its
+  Genesis section records the implemented +100% damage value.
+
+The boss rotation, boss participation bundles, Calamity independent bonus rolls, daily
+attendance base values, and active completed-event status already matched the current
+implementation and needed no additional wording changes. Monthsary references remain
+only in the activity log and dated planning/deployment records, which are intentional
+history rather than active player guidance.
+
+One implementation/documentation boundary remains explicit: the textual summon result
+format no longer appends the word `Essence`, while the separate canvas badge renderer still
+uses its legacy `+N Essence` badge text. No gameplay code was changed in this documentation
+pass.
+
+Validation:
+
+- Source/config checks, stale-value scans, JavaScript syntax checks, the full repository
+  self-test chain, golden harnesses, and `git diff --check` were run after the updates.
+- No database, SQL script, RAG pipeline, metadata schema, or vector index was modified or
+  executed.

@@ -95,13 +95,24 @@ const SUPREME_STATS = {
 };
 
 // [Genesis update] Genesis fixed weapon stats (specs/genesis_tier_weapons.md):
-// ATK 1600 · Crit Rate 20%. The spec's "+50% Crit Damage" is carried by the
+// ATK 1600 · Crit Rate 20%. The shared +100% damage bonus is carried by the
 // same damage-rider stat the Supreme tier uses (bonus_dmg_pct) — the engine
 // has no separate crit-damage stat.
 const GENESIS_STATS = {
   atk: 1600, crit: 20.0,
-  bonus_dmg_pct: 50.00,
+  bonus_dmg_pct: 100.00,
 };
+
+/**
+ * Effective battle/display damage rider for an owned weapon. Existing Genesis
+ * rows may still store the former 50 value, so the tier's current fixed config
+ * wins at runtime without mutating persistent equipment data.
+ */
+function effectiveWeaponBonusDmgPct(tier, storedValue) {
+  if (tier === 'Genesis') return GENESIS_STATS.bonus_dmg_pct;
+  const value = Number(storedValue);
+  return Number.isFinite(value) ? value : 0;
+}
 
 // Legendary bonus rider: 25% chance → +25% damage % (single unified stat).
 const LEGENDARY_BONUS_CHANCE = 0.25;
@@ -255,6 +266,7 @@ module.exports = {
   rollArmorType,
   rollNativeSocketCount,
   buildSocketArray,
+  effectiveWeaponBonusDmgPct,
   rollWeaponStats,
   rollArmorStats,
 };

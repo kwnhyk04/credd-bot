@@ -235,20 +235,22 @@ locked items are always excluded.
 Enhanced items additionally refund 30% of the canonical costs of the levels they
 successfully reached. Rune sell prices are in the Rune System document.
 
-## Where do chests come from
+## Where do chests and boss bags come from
 
-| Source | Chests |
-|---|---|
-| Character creation | 10 Silver Chests |
-| Raid win vs regular mob | 10% chance of 1 Silver Chest |
-| Raid win vs elite mob | 20% chance of 1 Gold Chest |
-| Daily attendance | 1 Silver or Gold Chest by reward-cycle day, plus Boss milestone chests by consecutive streak |
-| Normal boss defeat | 1 Boss Treasure Chest |
-| Greater Boss defeat | 2 Boss Treasure Chests, or 1 Boss Golden Chest |
-| Combat level-ups | Gold, Boss Treasure or Boss Golden by bracket |
-| Believer level-ups | Gold, Boss Treasure or Boss Golden by bracket |
-| CRD Shop | Silver, Gold and Diamond Chests for Credux |
-| PvP Shop | Supreme Chest for 6,000 Valor |
-| Ranked weekly and season rewards | By bracket payload |
+| Source | Chests | Guaranteed boss bag |
+|---|---|---|
+| Character creation | 10 Silver Chests | — |
+| Raid win vs regular mob | 20% chance of 1 Silver Chest | — |
+| Raid win vs elite mob | 50% chance of 1 Gold Chest | — |
+| Daily attendance | 1 Silver or Gold Chest by reward-cycle day, plus Boss milestone chests by consecutive streak | — |
+| Normal boss defeat | 1 Boss Treasure Chest | 1 Lesser Bag |
+| Greater Boss — Twin variant | 2 Boss Treasure Chests | 1 Greater Bag |
+| Greater Boss — Golden (2× HP) variant | 1 Boss Golden Chest | 2 Greater Bags |
+| Calamity Boss defeat | 1 Boss Golden Chest; independent Supreme Chest bonus chance | 3 Greater Bags; independent Divine Bag bonus chance |
+| Combat level-ups | Gold, Boss Treasure or Boss Golden by bracket | — |
+| Believer level-ups | Gold, Boss Treasure or Boss Golden by bracket | — |
+| CRD Shop | Silver, Gold and Diamond Chests for Credux | — |
+| PvP Shop | Supreme Chest for 6,000 Valor | — |
+| Ranked weekly and season rewards | By bracket payload | — |
 
 Auto raid never grants chests.

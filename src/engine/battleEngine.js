@@ -67,8 +67,8 @@
  *   critLevel = a rolled crit OR a Double (Idiyanale, a guaranteed crit-level hit that DOES
  *   take the rider). damage% = weapon bonusDmgPct + procced sources (Katana +30, future
  *   deity blessings via scratch.damageBonusPct), summed additively, applied to crit AND
- *   non-crit. Supreme 50% → ×1.5 / ×2.5; Supreme + double → ×2.5; Supreme + deity 50% (proc)
- *   → ×2.0 / ×3.0. Mob "X% ATK" nukes are a clean ×(pct) and do
+ *   non-crit. Supreme 50% → ×1.5 / ×2.5; Genesis 100% → ×2.0 / ×3.0;
+ *   Supreme + double → ×2.5; Supreme + deity 50% (proc) → ×2.0 / ×3.0. Mob "X% ATK" nukes are a clean ×(pct) and do
  *   not also crit. (+X% ATK riders scale effATK pre-mitigation — see playerAtkMult.)
  *   → floor → defender stack (R3) → apply → death check (§35.3 first-to-0, R5)
  *
@@ -102,10 +102,12 @@ const {
 } = require('./combatLog');
 const {
   CRIT_MULT, OVERCHARGE_MULT, hitMultiplier,
+  SUPREME_WEAPON_ATK_PER_TURN, SUPREME_WEAPON_ATK_MAX,
   AEGIS_DR_PER_STACK, AEGIS_STACKS_TO_PETRIFY, AEGIS_PETRIFY_DAMAGE_AMP,
   PETRIFY_DEFAULT_DAMAGE_AMP,
 } = require('../config/combat');
 const { CLASS_PASSIVE_VALUES } = require('../config/classes');
+const { effectiveWeaponBonusDmgPct } = require('../config/dropRates');
 const {
   EFFECT_CATEGORY,
   EFFECT_DEFINITIONS,
@@ -599,9 +601,10 @@ function resolveBattle(a, b, opts = {}) {
     name: f.name,
     hp: f.hp, maxHp: f.hp,
     atk: f.atk, def: f.def, crit: Number(f.crit) || 0,
-    bonusDmgPct: Number(f.bonusDmgPct) || 0,   // unified damage % from the weapon (§35.2)
+    bonusDmgPct: effectiveWeaponBonusDmgPct(f.weaponTier, f.bonusDmgPct),
     classPassive: f.classPassive || null,
     weaponPassiveKey: f.weaponPassiveKey || 'none',
+    weaponTier: f.weaponTier || null,
     armorPassiveKey: f.armorPassiveKey || 'none',   // [v5] equipped-armor passive
     deityBlessingKey: f.deityBlessingKey || 'none',
     echoBlessingKey: f.echoBlessingKey || 'none',
@@ -1894,6 +1897,26 @@ function resolveBattle(a, b, opts = {}) {
     }
   };
 
+  /** Apply the shared Supreme-weapon ATK stack once for this side's battle turn. */
+  const processSupremeWeaponPassive = (side) => {
+    if (side.kind !== 'player' || side.hp <= 0 || side.weaponTier !== 'Supreme') return;
+    if (side.flags.supreme_weapon_stack_turn === bt.shared.round) return;
+
+    side.flags.supreme_weapon_stack_turn = bt.shared.round;
+    const previous = Number(side.flags.supreme_weapon_atk_bonus_pct) || 0;
+    const next = Math.min(
+      SUPREME_WEAPON_ATK_MAX,
+      previous + SUPREME_WEAPON_ATK_PER_TURN,
+    );
+    side.flags.supreme_weapon_atk_bonus_pct = next;
+    side.scratch.playerAtkMult += next;
+    if (next > previous) {
+      logAt(LOG.WEAPON,
+        `⚔️ Supreme Weapon: +${Math.round((next - previous) * 100)}% ATK stack gained ` +
+        `(total +${Math.round(next * 100)}%).`);
+    }
+  };
+
   const runRegistry = (key, perspective) => {
     if (result) return;
     const fn = PASSIVE_REGISTRY[key] || PASSIVE_REGISTRY.none;
@@ -2108,14 +2131,20 @@ function resolveBattle(a, b, opts = {}) {
     if (mode === 'duel') {
       for (const side of order) {
         const P = perspectiveOf(side);
-        collectPassiveEvents(side, LOG.WEAPON, () => runRegistry(side.weaponPassiveKey, P));
+        collectPassiveEvents(side, LOG.WEAPON, () => {
+          processSupremeWeaponPassive(side);
+          runRegistry(side.weaponPassiveKey, P);
+        });
         collectPassiveEvents(side, LOG.BLESSING, () => runRegistry(side.deityBlessingKey, P));
         collectPassiveEvents(side, LOG.ECHO_BLESSING, () => runRegistry(side.echoBlessingKey, P));  // [v5 Phase 3] echo blessing
         collectPassiveEvents(side, LOG.ARMOR, () => runRegistry(side.armorPassiveKey, P));
         collectPassiveEvents(side, LOG.RUNE, () => applyRunes(side, P));
       }
     } else {
-      collectPassiveEvents(bt.A, LOG.WEAPON, () => runRegistry(bt.A.weaponPassiveKey, PA));
+      collectPassiveEvents(bt.A, LOG.WEAPON, () => {
+        processSupremeWeaponPassive(bt.A);
+        runRegistry(bt.A.weaponPassiveKey, PA);
+      });
       collectPassiveEvents(bt.A, LOG.BLESSING, () => runRegistry(bt.A.deityBlessingKey, PA));
       collectPassiveEvents(bt.A, LOG.ECHO_BLESSING, () => runRegistry(bt.A.echoBlessingKey, PA));      // [v5 Phase 3] echo blessing
       collectPassiveEvents(bt.A, LOG.ARMOR, () => runRegistry(bt.A.armorPassiveKey, PA));
