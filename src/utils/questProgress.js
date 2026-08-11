@@ -1,7 +1,6 @@
 'use strict';
 
 const { int, range: secureRange } = require('./secureRng');
-const { claimEventQuestDay } = require('../engine/monthsaryEvent');
 const { emoji } = require('./emojis');
 
 /**
@@ -246,8 +245,6 @@ async function progressQuests(client, discordId, deltas) {
       );
     }
     notices.push(completionNotice(type, q.target_count, credux, shards));
-    const eventClaim = await claimEventQuestDay(client, discordId);
-    if (eventClaim.status === 'ok') notices.push(eventClaim.notice);
   }
   const dailyBonusNotice = await grantDailyCompletionBonus(client, discordId);
   if (dailyBonusNotice) notices.push(dailyBonusNotice);
