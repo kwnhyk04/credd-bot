@@ -62,6 +62,7 @@ const REMOTE_FETCH_MISS_TTL_MS = Math.max(
   envNumber('ASSET_REMOTE_MISS_TTL_MS', 600_000, { min: 0, max: 86_400_000 })
 );
 const REMOTE_FETCH_MISS_MAX = envPositiveInt('ASSET_REMOTE_MISS_MAX', 1000, { max: 10_000 });
+const REMOTE_FETCH_TIMEOUT_MS = envPositiveInt('ASSET_FETCH_TIMEOUT_MS', 10_000, { max: 120_000 });
 
 const bufferCache = new Map();
 const imageCache = new Map();
@@ -916,7 +917,7 @@ async function fetchUncachedAssetBuffer(resolved) {
     let res = null;
     const r2Origin = managedRemoteRelativePath(resolved) !== null;
     try {
-      res = await fetch(resolved);
+      res = await fetch(resolved, { signal: AbortSignal.timeout(REMOTE_FETCH_TIMEOUT_MS) });
       if (!res.ok) {
         recordAssetDownload(assetCategory(resolved), 0, false);
         networkRecorded = true;
@@ -1198,7 +1199,10 @@ function remoteAssetAvailable(relativePath) {
   record.promise = (async () => {
     let res = null;
     try {
-      res = await fetch(url, { method: 'HEAD' });
+      res = await fetch(url, {
+        method: 'HEAD',
+        signal: AbortSignal.timeout(REMOTE_FETCH_TIMEOUT_MS),
+      });
       recordAssetHead(assetCategory(url), res.ok);
       recordR2Read('head', 0, res.ok);
       if (res.ok) clearRemoteFetchMiss(url);

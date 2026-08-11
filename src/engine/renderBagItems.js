@@ -66,6 +66,7 @@ const ICON_CACHE_MAX_BYTES = Math.max(1024 * 1024, envNumber('EMOJI_IMAGE_CACHE_
 const ICON_CACHE_TTL_MS = Math.max(0, envNumber('EMOJI_IMAGE_CACHE_TTL_MS', 1_800_000, { min: 0, max: 86_400_000 }));
 const ICON_REMOTE_MISS_TTL_MS = Math.max(0, envNumber('EMOJI_REMOTE_MISS_TTL_MS', 600_000, { min: 0, max: 86_400_000 }));
 const ICON_REMOTE_MISS_MAX = envPositiveInt('EMOJI_REMOTE_MISS_MAX', 256, { max: 2000 });
+const ICON_FETCH_TIMEOUT_MS = envPositiveInt('EMOJI_FETCH_TIMEOUT_MS', 10_000, { max: 120_000 });
 const iconCache = new Map(); // key -> { image, bytes, lastUsed }
 const iconInflight = new Map(); // key -> Promise<Image|null>
 const iconRemoteMisses = new Map(); // URL -> expiresAt
@@ -155,7 +156,7 @@ async function loadDiskCachedIcon(key, category, url) {
     let downloadRecorded = false;
     const download = async () => {
       fetchAttempted = true;
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(ICON_FETCH_TIMEOUT_MS) });
       if (!res.ok) {
         if (ICON_REMOTE_MISS_TTL_MS && [404, 410].includes(Number(res.status))) {
           iconRemoteMisses.delete(cacheKey);
