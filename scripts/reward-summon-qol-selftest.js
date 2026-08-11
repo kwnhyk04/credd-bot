@@ -103,9 +103,15 @@ check('single new row omits the rarity wording and x1', !singleNewLine.includes(
 const singleDuplicateLine = formatSummonResultLine({
   name: 'Artemis', rarity: 'Awakened', isNew: false, essence: 2,
 });
-check('single duplicate row places essence icon after the deity', singleDuplicateLine.includes(
-  `${emoji('artemis')} **Artemis** ${emoji('mythic_essence')}`
+check('single duplicate row places essence icon and x1 after the deity', singleDuplicateLine.includes(
+  `${emoji('artemis')} **Artemis** ${emoji('mythic_essence')} x**1**`
 ) && !singleDuplicateLine.includes('Awakened') && !singleDuplicateLine.includes('**2**'));
+const singleDuplicateGroupLine = formatSummonResults([{
+  name: 'Artemis', rarity: 'Awakened', isNew: false, essence: 2,
+}]);
+check('grouped single duplicate keeps the x1 count', singleDuplicateGroupLine.includes(
+  `${emoji('artemis')} **Artemis** ${emoji('mythic_essence')} x**1**`
+));
 
 const summary = summonOutcomeSummary(pulls);
 check('summary counts actual Awakened pulls by rarity', summary.includes('Awakened ×**3**'));
