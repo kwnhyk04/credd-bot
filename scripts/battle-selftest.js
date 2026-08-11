@@ -64,7 +64,7 @@ const {
   computeClassBattleStats, assemblePlayerStats, computeMobStats, computeBossStats,
 } = require(path.join(ROOT, 'src', 'engine', 'statAssembly'));
 const { applyCombatExp, EXP_REQUIRED, MAX_COMBAT_LEVEL } = require(path.join(ROOT, 'src', 'config', 'combatExp'));
-const { CLASSES, CLASS_PASSIVE_VALUES } = require(path.join(ROOT, 'src', 'config', 'classes'));
+const { CLASSES, CLASS_PASSIVE_VALUES, computeClassStats } = require(path.join(ROOT, 'src', 'config', 'classes'));
 const { runeDescription } = require(path.join(ROOT, 'src', 'config', 'runes'));
 const {
   SUPREME_WEAPON_ATK_PER_TURN,
@@ -208,7 +208,7 @@ check('class base and per-level scaling match the balance table',
     },
     Knight: {
       base: { hp: 1000, atk: 200, def: 300, crit: 5.0 },
-      scaling: { hp: 200, atk: 70, def: 100, crit: 0.0 },
+      scaling: { hp: 200, atk: 50, def: 80, crit: 0.0 },
     },
     Archer: {
       base: { hp: 600, atk: 300, def: 150, crit: 5.0 },
@@ -659,6 +659,22 @@ check('class base and per-level scaling match the balance table',
   }
   // Swordsman/Archer reach 39.3 at L50; Knight stays flat at 5.0.
   check('§1: Swordsman Lv50 crit 39.3', Math.abs(computeClassBattleStats('Swordsman', 50).crit - 39.3) < 1e-9);
+
+  for (const [cls, config] of Object.entries(CLASSES)) {
+    const steps = 49;
+    const expected = {
+      hp: Math.floor(config.base.hp + config.scaling.hp * steps),
+      atk: Math.floor(config.base.atk + config.scaling.atk * steps),
+      def: Math.floor(config.base.def + config.scaling.def * steps),
+      crit: config.base.crit + config.scaling.crit * steps,
+    };
+    const battleStats = computeClassBattleStats(cls, 50);
+    const displayStats = computeClassStats(cls, 50);
+    check(`§1: ${cls} battle stats read current config scaling`, JSON.stringify(battleStats) === JSON.stringify(expected),
+      `got ${JSON.stringify(battleStats)} expected ${JSON.stringify(expected)}`);
+    check(`§1: ${cls} display stats read current config scaling`, JSON.stringify(displayStats) === JSON.stringify(expected),
+      `got ${JSON.stringify(displayStats)} expected ${JSON.stringify(expected)}`);
+  }
 }
 
 // — Katana ×2.30 vs base ×2.00 (forced crit, pinned variance) —
