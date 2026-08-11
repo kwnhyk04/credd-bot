@@ -1293,14 +1293,15 @@ const attackDamageOnRound = (sim, round) => {
     player(armoredTarget),
     { mode: 'duel', rng: () => 0 },
   );
-  // Tolerance of 1, not an exact float match: damage is floored to an integer at the
-  // end of the pipeline, and Charmed Hide's 10% reduction means the baseline no longer
-  // divides evenly by 1.20. The property under test is "+20% and no stun rider", which
-  // a one-unit rounding difference does not weaken.
+  // Fighter's permanent +50% and Jarngreipr's +20% share the additive ATK lane:
+  // 170% total, not 150% × 120% = 180%. Tolerance covers the final integer floor.
+  const jarngreiprOverFighter = 1.70 / 1.50;
   assert(
-    Math.abs(firstAttackDamage(armoredJarngreipr) - firstAttackDamage(armoredBaseline) * 1.20) <= 1,
+    Math.abs(firstAttackDamage(armoredJarngreipr)
+      - firstAttackDamage(armoredBaseline) * jarngreiprOverFighter) <= 1,
     'Jarngreipr keeps only its base bonus when stun is blocked: got '
-    + `${firstAttackDamage(armoredJarngreipr)}, expected ~${firstAttackDamage(armoredBaseline) * 1.20}`,
+    + `${firstAttackDamage(armoredJarngreipr)}, expected ~`
+    + `${firstAttackDamage(armoredBaseline) * jarngreiprOverFighter}`,
   );
   assert(!has(events(armoredJarngreipr), 'Bash deals'));
 
@@ -1317,7 +1318,7 @@ const attackDamageOnRound = (sim, round) => {
   assert(has(events(wardedJarngreipr), 'negated Stun'));
   close(
     firstAttackDamage(wardedJarngreipr),
-    firstAttackDamage(wardedBaseline) * 1.20,
+    firstAttackDamage(wardedBaseline) * jarngreiprOverFighter,
     'Jarngreipr keeps only its base bonus when Spirit Ward blocks stun',
   );
   assert(!has(events(wardedJarngreipr), 'Bash deals'));

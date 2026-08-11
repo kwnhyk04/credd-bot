@@ -10,6 +10,7 @@ const { withNetworkContext } = require('../utils/networkTelemetry');
 
 const registerCmd = require('../commands/rpg/register');
 const createCmd = require('../commands/rpg/create');
+const classPassivesCmd = require('../commands/rpg/classPassives');
 const profileCmd = require('../commands/rpg/profile');
 const statsCmd = require('../commands/rpg/stats');
 const bagCmd = require('../commands/rpg/bag');
@@ -73,6 +74,7 @@ const casinoCmds = casinoEnabled ? {
 const COMMANDS = {
   register: { mw: 'ban',  run: registerCmd.execute, requiresCharacter: false },
   create:   { mw: 'full', run: createCmd.execute, requiresCharacter: false },
+  class:    { mw: 'full', run: classPassivesCmd.execute, requiresCharacter: false },
   profile:  { mw: 'full', run: profileCmd.execute, requiresCharacter: true },
   stats:    { mw: 'full', run: statsCmd.execute, requiresCharacter: true },
   bag:      { mw: 'full', run: bagCmd.execute, requiresCharacter: true },

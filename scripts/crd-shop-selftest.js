@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const pool = require('../src/db/pool');
 const { CRD_SHOP, periodKey, nextReset } = require('../src/config/crdShop');
-const { buy } = require('../src/commands/rpg/crdShop');
+const { buildShop, buy } = require('../src/commands/rpg/crdShop');
 const { emoji } = require('../src/utils/emojis');
 
 function messageFor(userId = 'shop-user') {
@@ -130,7 +130,34 @@ async function main() {
   assert.equal(nextReset('monthly', beforeMonth).toISOString(), '2026-07-31T16:00:00.000Z');
 
   const originalConnect = pool.connect;
+  const originalQuery = pool.query;
   try {
+    pool.query = async (sql, params) => {
+      assert(sql.includes('LEFT JOIN crd_shop_purchases'));
+      assert.equal(params[0], 'shop-user');
+      return {
+        rows: [
+          { credux: 12_345_678, product_id: 2, period_key: periodKey('monthly'), qty: 5 },
+          { credux: 12_345_678, product_id: 5, period_key: periodKey('daily'), qty: 4 },
+          { credux: 12_345_678, product_id: 7, period_key: periodKey('weekly'), qty: 1 },
+        ],
+      };
+    };
+    const shopView = await buildShop('shop-user');
+    const shopJson = JSON.stringify(shopView.components[0].toJSON());
+    const categoryPositions = ['**Unlimited**', '**Monthly**', '**Daily**', '**Weekly**']
+      .map((heading) => shopJson.indexOf(heading));
+    assert(categoryPositions.every((position) => position >= 0));
+    assert.deepEqual([...categoryPositions].sort((a, b) => a - b), categoryPositions);
+    assert.equal((shopJson.match(/resets <t:/g) || []).length, 3);
+    assert(!shopJson.includes('no limit'));
+    assert(shopJson.includes('**5/10**'));
+    assert(shopJson.includes('**4/10**'));
+    assert(shopJson.includes('**1/1**'));
+    for (const id of CRD_SHOP.map((item) => item.id)) {
+      assert(shopJson.includes('`' + id + '`'), `shop view missing product ${id}`);
+    }
+
     const state = { bag: { credux: 100_000, silver_chest: 0 }, tracking: new Map() };
     const fake = installFakePool(state);
     const valid = messageFor();
@@ -199,6 +226,7 @@ async function main() {
     assert.match(rollback.replies[0].content, /nothing was spent/);
   } finally {
     pool.connect = originalConnect;
+    pool.query = originalQuery;
   }
 
   console.log('CRD SHOP SELFTEST: passed');

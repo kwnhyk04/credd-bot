@@ -129,11 +129,13 @@ const LANDED_STAT_DEBUFF_TURNS = 2;
 const MITIGATION_K = 200;         // §12: 1 − DEF/(DEF+200)
 const ARCHER_PIERCE = CLASS_PASSIVE_VALUES.Archer.defenseIgnore;
 const ARCHER_DOUBLE_ATTACK_CHANCE = CLASS_PASSIVE_VALUES.Archer.doubleAttackChance;
+const FIGHTER_DAMAGE_BONUS = CLASS_PASSIVE_VALUES.Fighter.damageBonus;
 const FIGHTER_STUN_CHANCE = CLASS_PASSIVE_VALUES.Fighter.stunChance;
 const FIGHTER_STUN_TURNS = CLASS_PASSIVE_VALUES.Fighter.stunTurns;
 const FIGHTER_BASH_DAMAGE_PCT = CLASS_PASSIVE_VALUES.Fighter.bashDamage;
-const KNIGHT_DAMAGE_REDUCTION = 0.25;
-const KNIGHT_HEAL_PCT = 0.10;
+const FIGHTER_DIZZY_MISS_CHANCE = CLASS_PASSIVE_VALUES.Fighter.dizzyMissChance;
+const KNIGHT_DAMAGE_REDUCTION = CLASS_PASSIVE_VALUES.Knight.damageReduction;
+const KNIGHT_HEAL_PCT = CLASS_PASSIVE_VALUES.Knight.regeneration;
 const SWORDSMAN_ATK_PER_TURN = CLASS_PASSIVE_VALUES.Swordsman.atkPerTurn;
 const SWORDSMAN_ATK_MAX = CLASS_PASSIVE_VALUES.Swordsman.atkMax;
 const MAX_DAMAGE_REDUCTION = 0.70;
@@ -156,7 +158,7 @@ const OVERCHARGE_EVERY = 3;       // [v4.2] fires on rounds 3, 6, 9, …
 const BLEED_PCT_PER_STACK = CLASS_PASSIVE_VALUES.Swordsman.bleedPerAttack;
 const BLEED_MAX_PCT = CLASS_PASSIVE_VALUES.Swordsman.bleedMax;
 const BLEED_MAX_STACKS = Math.ceil(BLEED_MAX_PCT / BLEED_PCT_PER_STACK);
-const KNIGHT_OUTGOING_BONUS = 0.30;
+const KNIGHT_OUTGOING_BONUS = CLASS_PASSIVE_VALUES.Knight.outgoingDamageBonus;
 
 const SKIP_TAGS = ['stun', 'paralyze', 'freeze', 'petrify', 'charm', 'confuse', 'miss'];
 // Thor uses separate linked status and DOT IDs so status immunity never blocks damage.
@@ -923,7 +925,11 @@ function resolveBattle(a, b, opts = {}) {
   // ── effective stats ────────────────────────────────────────────────────────
   const effAtk = (S, extraAtkMult = 0) => {
     const mult = S.kind === 'player' ? S.scratch.playerAtkMult : 0;
-    const classBonus = S.classPassive === 'damage_reduction' ? KNIGHT_OUTGOING_BONUS : 0;
+    const classBonus = S.classPassive === 'damage_reduction'
+      ? KNIGHT_OUTGOING_BONUS
+      : S.classPassive === 'stun'
+        ? FIGHTER_DAMAGE_BONUS
+        : 0;
     const raw = S.atk * (1 + mult + extraAtkMult + classBonus - debuffValue(S, 'atk_down'));
     // Keep exact percentage stacks such as 10% + 5% from becoming 114.999999...
     // and being truncated to 114 by the downstream integer damage floor.
@@ -1442,17 +1448,24 @@ function resolveBattle(a, b, opts = {}) {
         return amount;
       };
       let dmg = rolledDamage(reactiveAtkMult);
+      let fighterBashDmg = willFighterStun
+        ? rolledDamage(reactiveAtkMult + FIGHTER_BASH_DAMAGE_PCT)
+        : null;
       let jarngreiprDmg = jarngreiprEligible
-        ? rolledDamage(reactiveAtkMult + 0.50)
+        ? rolledDamage(reactiveAtkMult + FIGHTER_BASH_DAMAGE_PCT + 0.50)
         : null;
       if (mainHit && S.flags.odin_foresight_bonus > 0) {
         const bonus = Math.floor(S.flags.odin_foresight_bonus);
         dmg += bonus;
+        if (fighterBashDmg != null) fighterBashDmg += bonus;
         if (jarngreiprDmg != null) jarngreiprDmg += bonus;
         S.flags.odin_foresight_bonus = 0;
         preHitEvents.push(`🪄 Odin: All-Father's Foresight — released ${bonus} stored damage!`);
       }
       dmg = Math.max(0, Math.floor(dmg));
+      if (fighterBashDmg != null) {
+        fighterBashDmg = Math.max(0, Math.floor(fighterBashDmg));
+      }
       if (jarngreiprDmg != null) {
         jarngreiprDmg = Math.max(0, Math.floor(jarngreiprDmg));
       }
@@ -1460,17 +1473,17 @@ function resolveBattle(a, b, opts = {}) {
       let fighterStunResolved = false;
       let fighterStunned = false;
       let jarngreiprTriggered = false;
-      const prepareLandedHit = jarngreiprEligible
+      const prepareLandedHit = willFighterStun
         ? () => {
           fighterStunResolved = true;
           fighterStunned = tryApplyDebuff(O, 'stun', fighterStunTurns, 0, S);
-          jarngreiprTriggered = fighterStunned;
-          if (jarngreiprTriggered) dmg = jarngreiprDmg;
+          jarngreiprTriggered = fighterStunned && jarngreiprEligible;
+          if (fighterStunned) dmg = jarngreiprTriggered ? jarngreiprDmg : fighterBashDmg;
           return dmg;
         }
         : null;
 
-      const tag = overchargeFired ? ' *(Overcharge!)*'
+      let tag = overchargeFired ? ' *(Overcharge!)*'
         : doubled ? ' *(Double!)*'
         : critApplied ? ' *(CRIT!)*' : '';
       const targetHpBeforeHit = O.hp;
@@ -1480,6 +1493,7 @@ function resolveBattle(a, b, opts = {}) {
         dmg,
         { crit: critApplied, prepareLandedHit },
       );
+      if (fighterStunned) tag += ' *(Bash!)*';
       const actualDamageDealt = Math.min(res.applied, targetHpBeforeHit);
       const attackLabel = attackSource === 'auto_fire'
         ? `🏹 ${S.name}'s Auto-Fire triggered — additional shot`
@@ -1540,32 +1554,13 @@ function resolveBattle(a, b, opts = {}) {
             ? fighterStunned
             : addDebuff(O, 'stun', fighterStunTurns);
           if (stunned) {
-            logAt(LOG.CLASS, `👊 ${S.name}'s blow stuns ${O.name} for ${fighterStunTurns} turn!`);
+            logAt(LOG.CLASS, `👊 ${S.name}'s Bash stuns ${O.name} for ${fighterStunTurns} turn!`);
             if (jarngreiprTriggered) {
               logAt(LOG.WEAPON, '⚡ Thunder Grip — enemy Stunned, Bash deals +50% bonus damage!');
             }
-            const bash = Math.max(0, Math.floor(dmg * FIGHTER_BASH_DAMAGE_PCT));
-            const bashTargetHpBefore = O.hp;
-            const { hit: bashResult, reactions: bashReactions } = applyHitWithReactions(
-              S,
-              O,
-              bash,
-              { crit: false },
-            );
-            logAt(LOG.ATTACK, `💥 ${S.name} follows with Bash for **${bashResult.applied} DMG**!`);
-            bt.shared.events.push(...bashReactions);
-            if (bashResult.applied > 0 && S.hp > 0 && S.flags.soul_drain_pct > 0) {
-              applyLifesteal(
-                S,
-                Math.min(bashResult.applied, bashTargetHpBefore),
-                S.flags.soul_drain_pct,
-                'Soul Drain',
-              );
-            }
-            if (result || O.hp <= 0) return;
             O.flags.dizzy_pending = true;
             logAt(LOG.CLASS,
-              `💫 ${O.name} becomes Dizzy and is stunned for ${fighterStunTurns} turn!`);
+              `💫 ${O.name} becomes Dizzy — ${Math.round(FIGHTER_DIZZY_MISS_CHANCE * 100)}% chance to miss the next attack.`);
           }
         }
       }
@@ -1745,8 +1740,6 @@ function resolveBattle(a, b, opts = {}) {
     if (skipTags.length > 0) {
       const hadStun = skipTags.some((d) => d.tag === 'stun');
       const hadFreeze = skipTags.some((d) => d.tag === 'freeze');
-      let fighterDizzyExpired = false;
-
       const paralyze = skipTags.find((d) => d.tag === 'paralyze');
       if (paralyze && paralyze.source) {
         const paralyzeDamage = Math.max(0, Math.floor(effAtk(paralyze.source) * 0.05));
@@ -1767,10 +1760,6 @@ function resolveBattle(a, b, opts = {}) {
       // class passive can't immediately re-chain it (see the stun-lock guard above).
       if (hadStun && !S.debuffs.some((d) => d.tag === 'stun')) {
         S.flags.stun_immune_until = bt.shared.round + 1;
-        if (S.flags.dizzy_pending) {
-          S.flags.dizzy_pending = false;
-          fighterDizzyExpired = true;
-        }
       }
       // Skadi: when a Freeze wears off the victim is left Frostbitten (+50% damage taken).
       // turnsLeft 2 so it reliably covers the next round's incoming attack ("1 turn").
@@ -1778,9 +1767,7 @@ function resolveBattle(a, b, opts = {}) {
         addDebuff(S, 'frostbite', 2);
         bt.shared.events.push(`🧊 ${S.name} is Frostbitten — takes +50% damage!`);
       }
-      bt.shared.events.push(fighterDizzyExpired
-        ? `💫 ${S.name} is unable to act (Dizzy, stun)!`
-        : `⏸️ ${S.name} is unable to act (${skipTags.map((d) => d.tag).join(', ')})!`);
+      bt.shared.events.push(`⏸️ ${S.name} is unable to act (${skipTags.map((d) => d.tag).join(', ')})!`);
       return;
     }
     // Thor's linked Paralyze status controls the 10% action-skip chance while its
@@ -1789,12 +1776,19 @@ function resolveBattle(a, b, opts = {}) {
       bt.shared.events.push(`⚡ ${S.name} is paralyzed and cannot move!`);
       return;
     }
-    // Dizzy is the Fighter Bash/Stun presentation state. It expires with that
-    // single skipped turn and never adds a second missed action. If the linked
-    // Stun was cleansed first, clear the orphaned indicator before acting.
-    if (S.flags.dizzy_pending && !findDebuff(S, 'stun')) {
+    // Fighter Bash leaves one pending miss check. Stun/other skips are not attack
+    // attempts, so Dizzy survives them; the next real attempt consumes it whether
+    // the roll misses or the attack proceeds normally.
+    if (S.flags.dizzy_pending) {
       S.flags.dizzy_pending = false;
-      bt.shared.events.push(`💫 ${S.name} recovers from Dizzy and attacks.`);
+      const dizzyMissed = bt.rng() < FIGHTER_DIZZY_MISS_CHANCE;
+      if (dizzyMissed && !S.flags.attacks_cannot_miss) {
+        bt.shared.events.push(`💫 ${S.name} misses the attack (Dizzy)!`);
+        return;
+      }
+      if (dizzyMissed) {
+        bt.shared.events.push(`🏹 ${S.name}'s Moira overcomes Dizzy; the attack cannot miss.`);
+      }
     }
     if (S.kind === 'player') {
       if (S.classPassive === 'overcharge') {
@@ -1883,7 +1877,7 @@ function resolveBattle(a, b, opts = {}) {
       const restored = side.hp - before;
       if (restored > 0) {
         logAt(LOG.CLASS,
-          `🛡️ Knight Passive: Restored 10% max HP (+${restored.toLocaleString()} HP).`);
+          `🛡️ Knight Passive: Restored ${KNIGHT_HEAL_PCT * 100}% max HP (+${restored.toLocaleString()} HP).`);
       }
     }
 

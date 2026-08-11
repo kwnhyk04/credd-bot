@@ -365,12 +365,23 @@ function summonFlipEmoji(flipPath = null) {
 }
 
 function summonOutcomeSummary(results) {
-  const awakened = results.filter((r) => r.isNew).length;
-  const remnant = results.length - awakened;
-  return [
-    awakened > 0 ? `${RARITY_SYMBOLS.Awakened} Awakened ×**${awakened}**` : null,
-    remnant > 0 ? `${RARITY_SYMBOLS.Remnant} Remnant ×**${remnant}**` : null,
-  ].filter(Boolean).join(' - ');
+  const counts = new Map();
+  for (const result of results) {
+    const rarity = String(result.rarity || 'Remnant');
+    counts.set(rarity, (counts.get(rarity) || 0) + 1);
+  }
+
+  // Keep the established rarity order for known categories while preserving
+  // first-seen order for any future result categories added to the registry.
+  const knownOrder = Object.keys(RARITY_SYMBOLS);
+  const orderedRarities = [
+    ...knownOrder.filter((rarity) => counts.has(rarity)),
+    ...[...counts.keys()].filter((rarity) => !knownOrder.includes(rarity)),
+  ];
+
+  return orderedRarities
+    .map((rarity) => `${RARITY_SYMBOLS[rarity] ?? '◆'} ${rarity} ×**${counts.get(rarity)}**`)
+    .join(' - ');
 }
 
 function summonBalanceFooter(balances = {}) {
@@ -382,18 +393,19 @@ function summonBalanceFooter(balances = {}) {
 }
 
 function formatSummonResultLine(result) {
-  const tierEmoji = RARITY_SYMBOLS[result.rarity] ?? '◆';
+  const rarity = String(result.rarity || 'Remnant');
+  const tierEmoji = RARITY_SYMBOLS[rarity] ?? '◆';
   const rawName = String(result.name || 'Unknown Deity');
   const deityEmoji = emojiForDisplay(rawName, '✨');
-  const deity = `${tierEmoji} ${deityEmoji} **${escapeMarkdown(rawName)}**`;
+  const deity = `${tierEmoji} ${rarity}, ${deityEmoji} **${escapeMarkdown(rawName)}**`;
   if (result.isNew) return deity;
 
-  const essenceEmoji = emoji(ALIAS_TO_ESSENCE[result.rarity] ?? 'epic_essence');
+  const essenceEmoji = emoji(ALIAS_TO_ESSENCE[rarity] ?? 'epic_essence');
   const essence = Number(result.essence);
   if (!Number.isSafeInteger(essence) || essence <= 0) {
     return `${deity} • Duplicate`;
   }
-  return `${essenceEmoji} **+${essence.toLocaleString()} Essence** • ${deity}`;
+  return `${essenceEmoji} **${essence.toLocaleString()}**, ${deity}`;
 }
 
 function formatSummonResults(results) {
@@ -439,15 +451,15 @@ function formatSummonGroupLine(group) {
   const tierEmoji = RARITY_SYMBOLS[group.rarity] ?? '◆';
   const deityEmoji = emojiForDisplay(group.name, '✨');
   const count = group.pulls > 1 ? ` ×**${group.pulls}**` : '';
-  const deity = `${tierEmoji} ${deityEmoji} **${escapeMarkdown(group.name)}**${count}`;
+  const deity = `${tierEmoji} ${group.rarity}, ${deityEmoji} **${escapeMarkdown(group.name)}**${count}`;
   const essence = Number(group.essence);
   if (!Number.isSafeInteger(essence) || essence <= 0) return deity;
   const essenceEmoji = emoji(ALIAS_TO_ESSENCE[group.rarity] ?? 'epic_essence');
-  return `${essenceEmoji} **+${essence.toLocaleString()} Essence** • ${deity}`;
+  return `${essenceEmoji} **${essence.toLocaleString()}**, ${deity}`;
 }
 
 // Keep the historical string-returning helper for callers that import it;
-// grouping is by deity+tier and the Essence total is accumulated per group.
+// grouping is by deity+tier and the duplicate reward total is accumulated per group.
 function groupSummonResults(results) {
   return summonResultGroups(results).map(formatSummonGroupLine).join('\n');
 }

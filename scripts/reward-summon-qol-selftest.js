@@ -81,14 +81,78 @@ const pulls = [
 ];
 const lines = formatSummonResults(pulls).split('\n');
 check('identical deity pulls are grouped', lines.length === 2 && lines.filter((line) => line.includes('Njord')).length === 1);
-check('grouped duplicate puts accumulated essence before the deity', lines[0].startsWith(emoji('mythic_essence')) && lines[0].includes('+4 Essence') && lines[0].includes(' • '));
+check('grouped duplicate uses icon/count, tier, deity with no Essence literal',
+  lines[0].startsWith(`${emoji('mythic_essence')} **4**,`)
+    && lines[0].includes('Awakened,')
+    && lines[0].includes('**Njord**')
+    && !lines[0].includes('Essence'));
 check('grouped result keeps the total pull count', lines[0].includes('×**3**'));
 check('new-only deity has no essence icon or zero reward', !lines[1].includes('Essence') && !lines[1].includes('+0'));
 check('grouped summon result order is unchanged', lines[0].includes('Njord') && lines[1].includes('Freyr'));
 
 const summary = summonOutcomeSummary(pulls);
-check('summary counts new pulls as Awakened', summary.includes('Awakened ×**2**'));
-check('summary counts duplicate pulls as Remnant', summary.includes('Remnant ×**2**'));
+check('summary counts actual Awakened pulls by rarity', summary.includes('Awakened ×**3**'));
+check('summary counts actual Remnant pulls by rarity', summary.includes('Remnant ×**1**'));
+
+const summaryCounts = (summaryText) => [...summaryText.matchAll(/×\*\*(\d+)\*\*/g)]
+  .map((match) => Number(match[1]));
+const remnantOnly = Array.from({ length: 30 }, (_, index) => ({
+  name: `Remnant Deity ${index}`,
+  rarity: 'Remnant',
+  isNew: index === 0,
+  essence: index === 0 ? 0 : 1,
+}));
+const awakenedOnly = Array.from({ length: 30 }, (_, index) => ({
+  name: `Awakened Deity ${index}`,
+  rarity: 'Awakened',
+  isNew: index === 0,
+  essence: index === 0 ? 0 : 2,
+}));
+const mixedPulls = [
+  ...remnantOnly.slice(0, 23),
+  ...awakenedOnly.slice(0, 7),
+];
+check('30 Remnant pulls summarize as Remnant ×30', (() => {
+  const text = summonOutcomeSummary(remnantOnly);
+  return text.includes('Remnant ×**30**') && summaryCounts(text).reduce((a, b) => a + b, 0) === 30;
+})());
+check('30 Awakened pulls summarize as Awakened ×30', (() => {
+  const text = summonOutcomeSummary(awakenedOnly);
+  return text.includes('Awakened ×**30**') && summaryCounts(text).reduce((a, b) => a + b, 0) === 30;
+})());
+check('mixed 23/7 pulls summarize each rarity correctly', (() => {
+  const text = summonOutcomeSummary(mixedPulls);
+  return text.includes('Remnant ×**23**')
+    && text.includes('Awakened ×**7**')
+    && summaryCounts(text).reduce((a, b) => a + b, 0) === mixedPulls.length;
+})());
+check('duplicate-compressed body rows still contribute their raw pull quantity', (() => {
+  const duplicateGroup = Array.from({ length: 5 }, () => ({
+    name: 'Nike', rarity: 'Remnant', isNew: false, essence: 1,
+  }));
+  const body = formatSummonResults(duplicateGroup);
+  const text = summonOutcomeSummary(duplicateGroup);
+  return body.includes('×**5**')
+    && text.includes('Remnant ×**5**')
+    && summaryCounts(text).reduce((a, b) => a + b, 0) === duplicateGroup.length;
+})());
+check('multiple duplicate groups across result types preserve the batch total', (() => {
+  const duplicateGroups = [
+    ...Array.from({ length: 5 }, () => ({ name: 'Nike', rarity: 'Remnant', isNew: false, essence: 1 })),
+    ...Array.from({ length: 2 }, () => ({ name: 'Njord', rarity: 'Awakened', isNew: false, essence: 2 })),
+  ];
+  const text = summonOutcomeSummary(duplicateGroups);
+  return text.includes('Remnant ×**5**')
+    && text.includes('Awakened ×**2**')
+    && summaryCounts(text).reduce((a, b) => a + b, 0) === duplicateGroups.length;
+})());
+check('future result categories aggregate generically', (() => {
+  const text = summonOutcomeSummary([
+    { name: 'A', rarity: 'Event', isNew: true, essence: 0 },
+    { name: 'B', rarity: 'Event', isNew: false, essence: 1 },
+  ]);
+  return text.includes('◆ Event ×**2**') && summaryCounts(text).reduce((a, b) => a + b, 0) === 2;
+})());
 
 const chunks = splitSummonResultLines(pulls, 100);
 check('large summon result lists split only between grouped lines', chunks.length > 1 && chunks.join('\n').split('\n').join('|') === lines.join('|'));
@@ -99,9 +163,12 @@ const thirtyPulls = Array.from({ length: 30 }, (_, index) => ({
   essence: 2,
 }));
 check('30-pull summon result components stay below Discord text limits', splitSummonResultLines(thirtyPulls).every((chunk) => chunk.length <= 2800));
-check('malformed duplicate rewards never render zero Essence', !formatSummonResultLine({
-  name: 'Njord', rarity: 'Awakened', isNew: false, essence: 0,
-}).includes('+0 Essence'));
+check('malformed duplicate rewards never render zero or the Essence literal', (() => {
+  const line = formatSummonResultLine({
+    name: 'Njord', rarity: 'Awakened', isNew: false, essence: 0,
+  });
+  return !line.includes('+0') && !line.includes('Essence');
+})());
 check('Markdown in deity names is escaped', formatSummonResultLine({
   name: 'Njord_*', rarity: 'Awakened', isNew: true, essence: 0,
 }).includes('Njord\\_\\*'));

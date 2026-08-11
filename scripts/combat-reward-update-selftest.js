@@ -14,11 +14,13 @@ const {
   selectOverchargeDebuff,
 } = require(path.join(ROOT, 'src', 'engine', 'battleEngine'));
 const {
+  RAID_REWARD_LIMITS,
   capRaidRewards,
   capRaidChest,
   formatRaidLimitStatus,
   raidLimitNotices,
 } = require(path.join(ROOT, 'src', 'utils', 'raidRewardLimits'));
+const { RAID_LOOT, rollRaidChest } = require(path.join(ROOT, 'src', 'config', 'raidLoot'));
 const {
   grantDailyCompletionBonus,
   progressWeekly,
@@ -137,7 +139,7 @@ for (const [roll, label, application] of overchargeCases) {
   };
   const inputHp = knight.hp;
   const sim = resolveBattle(knight, mob({ atk: 2000 }), { mode: 'boss', rng: () => 0.5 });
-  check('Knight heals from maximum HP and logs actual restoration', eventsOf(sim, 2).some((event) => event.includes('Knight Passive: Restored 10% max HP (+1,000 HP).')));
+  check('Knight heals 1.5% of maximum HP and logs actual restoration', eventsOf(sim, 2).some((event) => event.includes('Knight Passive: Restored 1.5% max HP (+150 HP).')));
   check('Knight combat healing does not mutate stored input HP', knight.hp === inputHp);
 
   const defeated = resolveBattle(knight, mob({ atk: 100000 }), { mode: 'boss', rng: () => 0.5 });
@@ -151,31 +153,31 @@ for (const [roll, label, application] of overchargeCases) {
   };
   const sim = resolveBattle(swordsman, mob({ hp: 1_000_000 }), { mode: 'boss', rng: () => 0.5 });
   const stackEvents = sim.rounds.flatMap((round) => round.events).filter((event) => event.includes('Swordsman Passive: ATK increased'));
-  check('Swordsman stack progression is 5/10/15/20/25%', stackEvents.map((event) => Number(/Current bonus: (\d+)%/.exec(event)?.[1])).slice(0, 5).join(',') === '5,10,15,20,25');
-  check('Swordsman stack never exceeds 25%', stackEvents.every((event) => Number(/Current bonus: (\d+)%/.exec(event)?.[1]) <= 25));
+  check('Swordsman stack progression is 5/10/15/20/25/30%', stackEvents.map((event) => Number(/Current bonus: (\d+)%/.exec(event)?.[1])).slice(0, 6).join(',') === '5,10,15,20,25,30');
+  check('Swordsman stack never exceeds 30%', stackEvents.every((event) => Number(/Current bonus: (\d+)%/.exec(event)?.[1]) <= 30));
   check('Swordsman stack does not mutate stored input ATK', swordsman.atk === 100);
 }
 
 {
   const partial = capRaidRewards({
-    current: { silverChests: 19, goldChests: 9, beliefShards: 9500 },
+    current: { silverChests: 19, goldChests: 4, beliefShards: 9500 },
     requested: { silverChests: 3, goldChests: 2, beliefShards: 1000 },
     regularRaid: true,
     eliteMobRaid: true,
   });
   check('Raid caps grant partial Silver, Gold, and Shards independently', partial.granted.silverChests === 1 && partial.granted.goldChests === 1 && partial.granted.beliefShards === 500);
-  check('Raid cap totals stop exactly at 20/10/10000', partial.totals.silverChests === 20 && partial.totals.goldChests === 10 && partial.totals.beliefShards === 10000);
-  check('Raid cap notices are readable', raidLimitNotices(partial).length === 3 && raidLimitNotices(partial).every((notice) => notice.includes('daily')));
+  check('Raid cap totals stop exactly at 20/5/10000', partial.totals.silverChests === 20 && partial.totals.goldChests === 5 && partial.totals.beliefShards === 10000);
+  check('Capped Silver, Gold, and Shard portions emit no battle notices', raidLimitNotices(partial).length === 0);
   const blockedGoldChest = capRaidChest({
-    current: { goldChests: 10 },
+    current: { goldChests: 5 },
     chestCol: 'gold_chest',
     mobType: 'elite',
   });
-  check('Elite raid does not grant Gold Chest at 10/10', blockedGoldChest.chestCol === null && blockedGoldChest.granted.goldChests === 0 && blockedGoldChest.blocked.goldChests === 1);
-  check('Blocked Gold Chest reports the daily limit', blockedGoldChest.notices.length === 1 && blockedGoldChest.notices[0].includes('10/10 Gold Chests'));
+  check('Elite raid does not grant Gold Chest at 5/5', blockedGoldChest.chestCol === null && blockedGoldChest.granted.goldChests === 0 && blockedGoldChest.blocked.goldChests === 1);
+  check('Blocked Gold Chest emits no daily-limit notice', blockedGoldChest.notices.length === 0);
   check('Raid tracking line always shows shards and Silver Chest totals', formatRaidLimitStatus(partial.totals).includes('Belief Shards: 10,000/10,000') && formatRaidLimitStatus(partial.totals).includes('Silver Chest: 20/20'));
   check('Raid tracking line includes the reward icons', formatRaidLimitStatus(partial.totals).includes('<:belief_shards:') && formatRaidLimitStatus(partial.totals).includes('<:silver_chest:'));
-  check('Raid tracking line always shows the Gold Chest total', formatRaidLimitStatus(partial.totals).includes('Gold Chest: 10/10'));
+  check('Raid tracking line always shows the Gold Chest total', formatRaidLimitStatus(partial.totals).includes('Gold Chest: 5/5'));
   check('Raid tracking line includes the Gold Chest icon', formatRaidLimitStatus(partial.totals).includes('<:gold_chest:'));
   check('Raid enforces chest limits from the shared daily log totals',
     raidCommandSource.includes('getRaidRewardTotals')
@@ -200,7 +202,18 @@ for (const [roll, label, application] of overchargeCases) {
   const unrelated = capRaidRewards({ current: {}, requested: { silverChests: 3, goldChests: 2, beliefShards: 100 }, regularRaid: false, eliteMobRaid: false });
   check('Non-raid chest sources do not consume raid chest caps', unrelated.granted.silverChests === 0 && unrelated.granted.goldChests === 0 && unrelated.granted.beliefShards === 100);
   const blocked = capRaidRewards({ current: { beliefShards: 10000 }, requested: { beliefShards: 1 } });
-  check('Fully capped rewards grant zero, never negative', blocked.granted.beliefShards === 0 && blocked.blocked.beliefShards === 1);
+  check('Fully capped rewards grant zero, never negative, and remain silent', blocked.granted.beliefShards === 0 && blocked.blocked.beliefShards === 1 && raidLimitNotices(blocked).length === 0);
+  check('Runtime raid caps remain exactly 20 Silver, 5 Gold, and 10,000 Shards',
+    RAID_REWARD_LIMITS.silverChests === 20
+      && RAID_REWARD_LIMITS.goldChests === 5
+      && RAID_REWARD_LIMITS.beliefShards === 10000);
+  check('Raid chest drop chances are exactly 20% Silver and 50% Gold',
+    RAID_LOOT.regular.win.chestChance === 0.20
+      && RAID_LOOT.elite.win.chestChance === 0.50
+      && rollRaidChest(RAID_LOOT.regular.win, () => 0.199999) === 'silver_chest'
+      && rollRaidChest(RAID_LOOT.regular.win, () => 0.20) === null
+      && rollRaidChest(RAID_LOOT.elite.win, () => 0.499999) === 'gold_chest'
+      && rollRaidChest(RAID_LOOT.elite.win, () => 0.50) === null);
 }
 
 {

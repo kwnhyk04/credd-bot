@@ -139,8 +139,21 @@ and Bakunawa**. Natural selection is 70% normal, 25% Greater, and 5% Calamity.
 | Normal spawn chance | 70% |
 | Greater spawn chance | 25% |
 | Calamity spawn chance | 5% |
-| Selection within a pool | Uniform |
+| Selection within a pool | Uniform among the unused bosses in the current shuffled bag |
 | Fallback | If the chosen pool is empty, the other pool is used |
+
+A natural spawn first rolls its tier, preserving those probabilities. Within the selected
+tier, each currently eligible boss is used once before that tier's bag repeats; a new bag
+also avoids immediately repeating the previous boss when the pool has more than one entry.
+The bag is reconstructed from distinct spawn IDs in the existing `boss_attack_log`, so it
+survives process/container restarts without a new table, column, or migration. Queued dev
+spawns and the current direct dev spawn are excluded from this history, while explicit
+named developer spawns continue to bypass the automatic selector.
+
+One limitation follows directly from the no-schema constraint: `boss_attack_log` does not
+store `spawn_source`, and `boss_state` retains only the latest spawn. After a later spawn
+overwrites that row, an old non-queued direct dev spawn is no longer distinguishable from
+natural history. Queued dev/Calamity spawns remain identifiable by their existing queue row.
 
 A Greater Boss then rolls one nested variant, once per spawn, which fixes both its HP
 multiplier and the chest every attacker receives:

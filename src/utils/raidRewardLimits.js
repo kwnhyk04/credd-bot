@@ -15,7 +15,7 @@ const TODAY_PHT = `(NOW() AT TIME ZONE 'Asia/Manila')::date`;
 
 const RAID_REWARD_LIMITS = Object.freeze({
   silverChests: 20,
-  goldChests: 10,
+  goldChests: 5,
   beliefShards: 10_000,
 });
 
@@ -106,28 +106,11 @@ function capRaidChest({ current = {}, chestCol = null, mobType = null } = {}) {
   };
 }
 
-function raidLimitNotices(allocation) {
-  const { granted, blocked, totals } = allocation;
-  const notices = [];
-  if (blocked.silverChests > 0) {
-    notices.push(granted.silverChests > 0
-      ? `You received ${granted.silverChests} Silver Chest${granted.silverChests === 1 ? '' : 's'}. ` +
-        `${blocked.silverChests} exceeded your daily raid limit of ${RAID_REWARD_LIMITS.silverChests}.`
-      : `Daily raid limit reached: ${totals.silverChests}/${RAID_REWARD_LIMITS.silverChests} Silver Chests.`);
-  }
-  if (blocked.goldChests > 0) {
-    notices.push(granted.goldChests > 0
-      ? `You received ${granted.goldChests} Gold Chest${granted.goldChests === 1 ? '' : 's'}. ` +
-        `${blocked.goldChests} exceeded your daily Elite Mob raid limit of ${RAID_REWARD_LIMITS.goldChests}.`
-      : `Daily raid limit reached: ${totals.goldChests}/${RAID_REWARD_LIMITS.goldChests} Gold Chests.`);
-  }
-  if (blocked.beliefShards > 0) {
-    notices.push(granted.beliefShards > 0
-      ? `You received ${granted.beliefShards.toLocaleString()} Belief Shards. ` +
-        `The remaining ${blocked.beliefShards.toLocaleString()} exceeded your daily raid limit of ${RAID_REWARD_LIMITS.beliefShards.toLocaleString()}.`
-      : `Daily raid limit reached: ${totals.beliefShards.toLocaleString()}/${RAID_REWARD_LIMITS.beliefShards.toLocaleString()} Belief Shards.`);
-  }
-  return notices;
+function raidLimitNotices() {
+  // Caps remain fully enforced by capRaidRewards/allocateRaidRewardLimits. Capped
+  // portions are intentionally silent in raid and boss result messages; players
+  // can inspect the same counters explicitly with `crd daily limits`.
+  return [];
 }
 
 /**

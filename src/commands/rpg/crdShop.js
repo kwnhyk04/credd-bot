@@ -26,6 +26,12 @@ const supporterShop = require('./shop');
 const BRAND = 0x9b59b6; // Credux-economy purple (create/bag family)
 const SHOP_QUOTE = '-# *"Every believer\'s coin finds its way home."*';
 const CREDUX = emoji('credux_coin');
+const SHOP_CATEGORIES = Object.freeze([
+  Object.freeze({ period: null, label: 'Unlimited' }),
+  Object.freeze({ period: 'monthly', label: 'Monthly' }),
+  Object.freeze({ period: 'daily', label: 'Daily' }),
+  Object.freeze({ period: 'weekly', label: 'Weekly' }),
+]);
 
 function reply(message, content) {
   return message.reply({ content, allowedMentions: { repliedUser: false } });
@@ -63,17 +69,17 @@ async function fetchState(discordId) {
 async function buildShop(viewerId) {
   const { credux, purchased } = await fetchState(viewerId);
 
-  const rowsText = CRD_SHOP.map((it) => {
-    const price = `${CREDUX} **${it.price.toLocaleString()}**`;
-    if (!it.limit) {
-      return `\`${it.id}\` ${emoji(it.emojiName)} **${it.name}** - ${price} - no limit`;
-    }
-    const bought = purchased[it.id] || 0;
-    return (
-      `\`${it.id}\` ${emoji(it.emojiName)} **${it.name}** - ${price} - ` +
-      `${it.limit.period} **${bought}/${it.limit.cap}** - resets ${resetStamp(it.limit.period)}`
-    );
-  }).join('\n');
+  const rowsText = SHOP_CATEGORIES.map(({ period, label }) => {
+    const heading = period ? `**${label}** • resets ${resetStamp(period)}` : `**${label}**`;
+    const items = CRD_SHOP
+      .filter((item) => (item.limit?.period || null) === period)
+      .map((item) => {
+        const price = `${CREDUX} **${item.price.toLocaleString()}**`;
+        const usage = item.limit ? ` - **${purchased[item.id] || 0}/${item.limit.cap}**` : '';
+        return `\`${item.id}\` ${emoji(item.emojiName)} **${item.name}** - ${price}${usage}`;
+      });
+    return `${heading}\n${items.join('\n')}`;
+  }).join('\n\n');
 
   const container = new ContainerBuilder().setAccentColor(BRAND);
   container.addTextDisplayComponents((td) => td.setContent(`## ${CREDUX} CRD Shop`));

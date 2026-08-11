@@ -133,11 +133,11 @@ constants used by both the class card and the battle engine.
 
 | Class | Passive | Exact effect |
 |---|---|---|
-| Swordsman | Bleed + Battle Rhythm | Each attack inflicts 4% Bleed, stacking up to 20% (5 stacks), and effective ATK increases by 5% each turn up to 25% for the battle. |
-| Fighter | Stun | 25% chance to Stun the target for 1 turn. Bash deals 100% of the triggering hit and leaves the target Dizzy. |
+| Swordsman | Bleed + Battle Rhythm | Each attack inflicts 4% Bleed, stacking up to 20% (5 stacks), and effective ATK increases by 5% each turn up to 30% for the battle. |
+| Fighter | Stun | Every attack gains +50% damage. Each has a 30% chance to become a Bash with another additive +50% damage, Stun the target for 1 turn, and leave a 15% next-attack miss chance from Dizzy. |
 | Mage | Overcharge | On every 3rd round the primary attack is multiplied by 2.75, cannot crit, and applies exactly one random 25% debuff: Paralyze, Burn, DEF Down, or ATK Down. |
-| Knight | Damage Reduction | Incoming damage reduced by 25%; outgoing damage increased by 30%; restores 10% of maximum HP each turn. |
-| Archer | Armor Pierce & Double Attack | Attacks ignore 25% of target DEF and have a 25% chance to immediately perform an extra attack. |
+| Knight | Damage Reduction | Incoming damage reduced by 25%; outgoing damage increased by 30%; restores 1.5% of maximum HP each turn. |
+| Archer | Armor Pierce & Double Attack | Attacks ignore 25% of target DEF and have a 35% chance to immediately perform one extra attack through the normal same-turn attack pipeline. |
 
 <!-- src: src/engine/battleEngine.js:128 -->
 Knight's damage reduction is 25% and its outgoing bonus is 30%. Mage's Overcharge

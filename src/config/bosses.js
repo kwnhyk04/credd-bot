@@ -1,6 +1,6 @@
 'use strict';
 
-const { chance, int } = require('../utils/secureRng');
+const { chance, int, unit } = require('../utils/secureRng');
 
 /**
  * Greater Boss tier — Master §16 [v4.4].
@@ -189,32 +189,72 @@ function bossChestForSpawn(name, spawnSource = 'natural', rng = null) {
   return spawnSource === 'dev' ? { ...CALAMITY_DEV_CHEST } : { ...CALAMITY_NATURAL_CHEST };
 }
 
-/**
- * Pick a boss row with the weighted tier roll: 5% Calamity / 25% Greater / 70% normal, then
- * uniform within the chosen pool. Falls back to the other pool if one is empty so
- * a missing Greater seed (or an all-Greater roster) never crashes. Returns
- * { row, greater } or null when there are no boss rows at all.
- */
-function pickWeightedBoss(allBosses, rng = null) {
+/** Choose the tier pool without changing the established 5% / 25% / 70% odds. */
+function selectWeightedBossPool(allBosses, rng = null) {
   if (!allBosses || allBosses.length === 0) return null;
   const calamity = allBosses.filter((b) => isCalamityBoss(b.name));
   const greater = allBosses.filter((b) => isGreaterBoss(b.name));
   const normal = allBosses.filter((b) => !isGreaterBoss(b.name) && !isCalamityBoss(b.name));
-  const roll = typeof rng === 'function' ? rng() : chance(1);
+  const roll = typeof rng === 'function' ? rng() : unit();
   let pool;
   if (roll < CALAMITY_SPAWN_CHANCE) pool = calamity;
   else if (roll < CALAMITY_SPAWN_CHANCE + GREATER_SPAWN_CHANCE) pool = greater;
   else pool = normal;
   if (pool.length === 0) pool = greater.length > 0 ? greater : (normal.length > 0 ? normal : calamity);
-  if (pool.length === 0) return null;
-  const index = typeof rng === 'function' ? Math.floor(rng() * pool.length) : int(pool.length);
-  const row = pool[index];
+  return pool.length > 0 ? pool : null;
+}
+
+/**
+ * Reconstruct the unused portion of a shuffled bag from persistent spawn history.
+ * `recentMobIds` is newest-first and `totalSpawns` counts prior spawns in this
+ * currently eligible tier pool. A topology change can make old history imperfect;
+ * the fallbacks retain fairness and, whenever possible, avoid an immediate repeat.
+ */
+function rotationCandidates(pool, { recentMobIds = [], totalSpawns = 0 } = {}) {
+  if (!Array.isArray(pool) || pool.length === 0) return [];
+  if (pool.length === 1) return [...pool];
+
+  const position = Math.max(0, Number(totalSpawns) || 0) % pool.length;
+  const currentBagIds = new Set(
+    recentMobIds.slice(0, position).map((mobId) => String(mobId))
+  );
+  let candidates = pool.filter((row) => !currentBagIds.has(String(row.mob_id)));
+
+  const previousId = recentMobIds[0] == null ? null : String(recentMobIds[0]);
+  if (position === 0 && previousId != null) {
+    candidates = candidates.filter((row) => String(row.mob_id) !== previousId);
+  }
+  if (candidates.length === 0 && previousId != null) {
+    candidates = pool.filter((row) => String(row.mob_id) !== previousId);
+  }
+  return candidates.length > 0 ? candidates : [...pool];
+}
+
+function pickBossFromPool(pool, rotationState = {}, rng = null) {
+  const candidates = rotationCandidates(pool, rotationState);
+  if (candidates.length === 0) return null;
+  const roll = typeof rng === 'function' ? rng() : null;
+  const index = roll == null
+    ? int(candidates.length)
+    : Math.min(candidates.length - 1, Math.floor(Math.max(0, roll) * candidates.length));
+  const row = candidates[index];
   return {
     row,
     greater: isGreaterBoss(row.name),
     calamity: isCalamityBoss(row.name),
     tier: bossTier(row.name),
   };
+}
+
+/**
+ * Pick a boss row with the weighted tier roll, then uniformly within that tier.
+ * The optional rotation state lets callers apply the same shuffled-bag policy;
+ * callers that need to load state after seeing the selected tier can use the two
+ * helpers above. Returns null only when the full roster is empty.
+ */
+function pickWeightedBoss(allBosses, rng = null, rotationState = {}) {
+  const pool = selectWeightedBossPool(allBosses, rng);
+  return pickBossFromPool(pool, rotationState, rng);
 }
 
 module.exports = {
@@ -246,5 +286,8 @@ module.exports = {
   bossMaxHpForChest,
   inferChestFromGreaterHp,
   bossChestForSpawn,
+  selectWeightedBossPool,
+  rotationCandidates,
+  pickBossFromPool,
   pickWeightedBoss,
 };

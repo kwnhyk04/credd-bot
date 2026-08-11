@@ -64,7 +64,7 @@ const {
   computeClassBattleStats, assemblePlayerStats, computeMobStats, computeBossStats,
 } = require(path.join(ROOT, 'src', 'engine', 'statAssembly'));
 const { applyCombatExp, EXP_REQUIRED, MAX_COMBAT_LEVEL } = require(path.join(ROOT, 'src', 'config', 'combatExp'));
-const { CLASSES } = require(path.join(ROOT, 'src', 'config', 'classes'));
+const { CLASSES, CLASS_PASSIVE_VALUES } = require(path.join(ROOT, 'src', 'config', 'classes'));
 const { runeDescription } = require(path.join(ROOT, 'src', 'config', 'runes'));
 const {
   GREATER_BOSSES, CALAMITY_BOSSES, CALAMITY_SPAWN_CHANCE, GREATER_SPAWN_CHANCE, NORMAL_SPAWN_CHANCE,
@@ -171,15 +171,19 @@ section('3. Determinism — 100 seeds, identical sims');
 // ════════════════════════════════════════════════════════════════════════════
 section('4. Targeted scenarios');
 
-check('class descriptions expose the updated Swordsman, Archer, and Fighter values',
+check('class descriptions expose every updated class-passive value',
   CLASSES.Swordsman.passiveLine.includes('4% Bleed')
     && CLASSES.Swordsman.passiveLine.includes('20%')
+    && CLASSES.Swordsman.passiveLine.includes('+30%')
     && CLASSES.Archer.passiveLine.includes('25%')
+    && CLASSES.Archer.passiveLine.includes('35%')
     && CLASSES.Archer.passiveLine.includes('additional attack')
-    && CLASSES.Fighter.passiveLine.includes('25%')
+    && CLASSES.Fighter.passiveLine.includes('+50%')
+    && CLASSES.Fighter.passiveLine.includes('30%')
     && CLASSES.Fighter.passiveLine.includes('1 turn')
-    && CLASSES.Fighter.passiveLine.includes('100%')
-    && CLASSES.Fighter.passiveLine.includes('Dizzy'));
+    && CLASSES.Fighter.passiveLine.includes('15%')
+    && CLASSES.Fighter.passiveLine.includes('Dizzy')
+    && CLASSES.Knight.passiveLine.includes('1.5%'));
 
 check('class base and per-level scaling match the balance table',
   JSON.stringify(Object.fromEntries(Object.entries(CLASSES).map(([name, config]) => [
@@ -776,17 +780,17 @@ check('class base and per-level scaling match the balance table',
   });
   const attackLines = (events) => events.filter((event) => event.includes('Hero attacks'));
 
-  check('Archer Double Attack chance constant is exactly 25%',
-    ARCHER_DOUBLE_ATTACK_CHANCE === 0.25);
+  check('Archer Double Attack chance constant is exactly 35%',
+    ARCHER_DOUBLE_ATTACK_CHANCE === 0.35);
 
   // Boss mode pins player-first and avoids an initiative draw:
   // crit-pre, attack-1 variance, Double Attack roll, attack-2 crit, attack-2 variance.
   const failed = resolveBattle(
     mkArcher({ crit: 0 }),
     mob({ hp: 100000, atk: 0 }),
-    { mode: 'boss', rng: scripted([0.99, 0.5, 0.25], 0.5) },
+    { mode: 'boss', rng: scripted([0.99, 0.5, 0.35], 0.5) },
   );
-  check('Archer 25% boundary fails and produces one attack',
+  check('Archer 35% boundary fails and produces one attack',
     attackLines(roundEvents(failed, 1)).length === 1
       && !hasEvent(roundEvents(failed, 1), 'Double Attack activated'));
 
@@ -934,6 +938,32 @@ check('class base and per-level scaling match the balance table',
       && roundEvents(dotTiming, 1)
         .filter((event) => event.includes('suffers') && event.includes('Burn damage')).length === 1);
 
+  const apolloBow = resolveBattle(
+    mkArcher({
+      atk: 100,
+      crit: 0,
+      bonusDmgPct: 50,
+      weaponPassiveKey: 'apollos_silver_bow',
+      weaponName: "Apollo's Silver Bow",
+    }),
+    mob({ hp: 100000, atk: 0, def: 100 }),
+    { mode: 'boss', rng: scripted([0.99, 0.5, 0.34, 0.99, 0.5], 0.5) },
+  );
+  const apolloAttacks = attackLines(roundEvents(apolloBow, 1));
+  check('Apollo Bow and normal damage modifiers apply to both Archer attacks',
+    apolloAttacks.length === 2
+      && apolloAttacks.every((event) => dmgOf([event], 'attacks') === 109)
+      && roundEvents(apolloBow, 1)
+        .filter((event) => event.includes('25% of enemy DEF ignored')).length === 1,
+    roundEvents(apolloBow, 1).join(' | '));
+  check('Archer attack 2 inherits the primary attack modifier snapshot',
+    /ignoreDefPct: S\.scratch\.ignoreDefPct/.test(
+      fs.readFileSync(path.join(ROOT, 'src', 'engine', 'battleEngine.js'), 'utf8')
+    )
+      && /S\.scratch\.ignoreDefPct = scratchBaseline\.ignoreDefPct/.test(
+        fs.readFileSync(path.join(ROOT, 'src', 'engine', 'battleEngine.js'), 'utf8')
+      ));
+
   for (const mode of ['raid', 'boss', 'duel']) {
     const opponent = mode === 'duel'
       ? player({ name: 'Rival', classPassive: null, atk: 0, hp: 100000, crit: 0 })
@@ -958,8 +988,8 @@ check('class base and per-level scaling match the balance table',
     if (hasEvent(roundEvents(sim, 1), 'Double Attack activated')) procs += 1;
   }
   const procRate = procs / N;
-  console.log(`   Archer proc-rate over ${N} battles (round 1): ${(procRate * 100).toFixed(1)}% (exp 25%)`);
-  check('Archer Double Attack proc rate ≈ 25%',
+  console.log(`   Archer proc-rate over ${N} battles (round 1): ${(procRate * 100).toFixed(1)}% (exp 35%)`);
+  check('Archer Double Attack proc rate ≈ 35%',
     Math.abs(procRate - ARCHER_DOUBLE_ATTACK_CHANCE) < 0.03,
     `got ${(procRate * 100).toFixed(1)}%`);
 }
@@ -1102,17 +1132,18 @@ check('class base and per-level scaling match the balance table',
   );
   const fighterR3 = roundEvents(fighterAdditional, 3);
   const fighterR3Attacks = attackLines(fighterAdditional, 3);
-  check('Fighter Labrys attack gets an independent 25% Stun/Bash roll',
+  check('Fighter Labrys attack gets an independent 30% Stun/Bash roll',
     fighterR3Attacks.length === 2
       && !fighterR3Attacks[0].includes('(CRIT!)')
-      && hasEvent(fighterR3, 'blow stuns Dummy for 1 turn')
-      && hasEvent(fighterR3, 'becomes Dizzy and is stunned for 1 turn'));
-  const fighterBash = dmgOf(fighterR3, 'follows with Bash');
-  check('Fighter Labrys Bash deals 100% of its triggering 70% strike',
-    dmgOf([fighterR3Attacks[1]], 'attacks') === 70 && fighterBash === 70,
-    `attack=${dmgOf([fighterR3Attacks[1]], 'attacks')} bash=${fighterBash}`);
+      && fighterR3Attacks[1].includes('(Bash!)')
+      && hasEvent(fighterR3, 'Bash stuns Dummy for 1 turn')
+      && hasEvent(fighterR3, 'becomes Dizzy'));
+  check('Fighter Labrys Bash is one additive 200%-baseline attack',
+    dmgOf([fighterR3Attacks[1]], 'attacks') === 140
+      && !hasEvent(fighterR3, 'follows with Bash'),
+    `attack=${dmgOf([fighterR3Attacks[1]], 'attacks')}`);
   check('Fighter Labrys Stun skips exactly one eligible action',
-    hasEvent(roundEvents(fighterAdditional, 4), 'unable to act (Dizzy, stun)')
+    hasEvent(roundEvents(fighterAdditional, 4), 'unable to act (stun)')
       && hasEvent(roundEvents(fighterAdditional, 5), 'Dummy strikes'));
 
   const fighterBothRoll = resolveBattle(
@@ -1129,9 +1160,10 @@ check('class base and per-level scaling match the balance table',
   );
   check('two successful Fighter rolls in one turn cannot extend Stun',
     roundEvents(fighterBothRoll, 3)
-      .filter((event) => event.includes('blow stuns')).length === 1
+      .filter((event) => event.includes('Bash stuns')).length === 1
       && roundEvents(fighterBothRoll, 3)
-        .filter((event) => event.includes('follows with Bash')).length === 1
+        .filter((event) => event.includes('(Bash!)')).length === 1
+      && !hasEvent(roundEvents(fighterBothRoll, 3), 'follows with Bash')
       && hasEvent(roundEvents(fighterBothRoll, 4), 'unable to act')
       && hasEvent(roundEvents(fighterBothRoll, 5), 'Dummy strikes'));
 
@@ -2048,41 +2080,76 @@ check('class base and per-level scaling match the balance table',
     allEvents(bossBelowExecuteBar).join(' | '));
 }
 
-// — Fighter stun: exactly 25%, exactly one skipped turn, Bash is 100%, Dizzy remains visible. —
+// — Fighter: +50% always, 30% additive Bash, one-turn Stun, one-attempt Dizzy. —
 {
-  const mkF = () => player({ class: 'Fighter', classPassive: 'stun' });
-  check('Fighter constants are 25% Stun for 1 turn and 100% Bash',
-    FIGHTER_STUN_CHANCE === 0.25
+  const mkF = (over = {}) => player({
+    class: 'Fighter', classPassive: 'stun', crit: 0, ...over,
+  });
+  check('Fighter constants are +50%, 30% Stun, +50% Bash, and 15% Dizzy',
+    CLASS_PASSIVE_VALUES.Fighter.damageBonus === 0.50
+      && FIGHTER_STUN_CHANCE === 0.30
       && FIGHTER_STUN_TURNS === 1
-      && FIGHTER_BASH_DAMAGE_PCT === 1.00);
+      && FIGHTER_BASH_DAMAGE_PCT === 0.50
+      && CLASS_PASSIVE_VALUES.Fighter.dizzyMissChance === 0.15);
 
-  const noOpeningStun = resolveBattle(mkF(), mob({ hp: 100000 }),
-    { seed: 1, rng: scripted([0.0, 0.99, 0.25]) });
-  check('Fighter 25% boundary does not Stun',
-    !hasEvent(roundEvents(noOpeningStun, 1), 'blow stuns')
-      && hasEvent(roundEvents(noOpeningStun, 1), 'strikes'));
+  const neutral = resolveBattle(
+    player({ class: 'Mage', classPassive: null, atk: 100, crit: 0 }),
+    mob({ hp: 100000, atk: 0, def: 0 }),
+    { mode: 'boss', rng: scripted([0.99, 0.5], 0.5) },
+  );
+  const noOpeningStun = resolveBattle(
+    mkF({ atk: 100 }),
+    mob({ hp: 100000, atk: 0, def: 0 }),
+    { mode: 'boss', rng: scripted([0.99, 0.30, 0.5], 0.5) },
+  );
+  check('Fighter 30% boundary does not Stun',
+    !hasEvent(roundEvents(noOpeningStun, 1), 'Bash stuns')
+      && !hasEvent(roundEvents(noOpeningStun, 1), '(Bash!)'));
+  check('every ordinary Fighter attack is 150% of the normal-equivalent baseline',
+    dmgOf(roundEvents(noOpeningStun, 1), 'Hero attacks') === 150
+      && dmgOf(roundEvents(neutral, 1), 'Hero attacks') === 100);
 
-  const stunned = resolveBattle(mkF(), mob({ hp: 100000 }),
-    { seed: 1, rng: scripted([0.0, 0.99, 0.24]) });
+  const stunned = resolveBattle(
+    mkF({ atk: 100 }),
+    mob({ hp: 100000, atk: 100, def: 0 }),
+    { mode: 'boss', rng: scripted([0.99, 0.29, 0.5, 0.99], 0.5) },
+  );
   const r1 = roundEvents(stunned, 1);
   const r2 = roundEvents(stunned, 2);
   const r3 = roundEvents(stunned, 3);
-  const mainDamage = dmgOf(r1, 'Hero attacks');
-  const bashDamage = dmgOf(r1, 'follows with Bash');
-  check('Fighter Stun logs exactly 1 turn', hasEvent(r1, 'stuns Dummy for 1 turn!')
+  const bashDamage = dmgOf(r1, 'Hero attacks');
+  check('Fighter Stun logs exactly 1 turn', hasEvent(r1, 'Bash stuns Dummy for 1 turn!')
     && !hasEvent(allEvents(stunned), 'stuns Dummy for 2 turns!'));
-  check('Fighter Bash is exactly 100% of the triggering hit',
-    bashDamage === Math.floor(mainDamage * FIGHTER_BASH_DAMAGE_PCT),
-    `main=${mainDamage}, bash=${bashDamage}`);
-  check('Fighter Dizzy remains visible in application and skipped-turn logs',
-    hasEvent(r1, 'becomes Dizzy and is stunned for 1 turn')
-      && hasEvent(r2, 'Dizzy, stun'));
+  check('Fighter Bash is one additive 200%-baseline attack, never 225%',
+    bashDamage === 200
+      && r1.filter((event) => event.includes('Hero attacks')).length === 1
+      && hasEvent(r1, '(Bash!)')
+      && !hasEvent(r1, 'follows with Bash'),
+    `bash=${bashDamage}`);
+  check('Fighter Bash applies a visible 15% next-attempt Dizzy state',
+    hasEvent(r1, 'becomes Dizzy — 15% chance to miss the next attack.'));
   check('new Stun does not cancel the target action already due in round 1',
     hasEvent(r1, 'Dummy strikes'));
   check('Fighter target skips exactly round 2 and acts normally in round 3',
     hasEvent(r2, 'unable to act')
       && !hasEvent(r2, 'Dummy strikes')
       && hasEvent(r3, 'Dummy strikes'));
+
+  const dizzyMiss = resolveBattle(
+    mkF({ atk: 10, hp: 100000, def: 100000 }),
+    mob({
+      hp: 100000, atk: 10, def: 0, crit: 0,
+      specialFlags: { first_strike: true },
+    }),
+    { mode: 'boss', rng: () => 0 },
+  );
+  check('Dizzy persists through the Stun skip until the next attack attempt',
+    hasEvent(roundEvents(dizzyMiss, 2), 'unable to act (stun)')
+      && !hasEvent(roundEvents(dizzyMiss, 2), 'misses the attack (Dizzy)')
+      && hasEvent(roundEvents(dizzyMiss, 3), 'misses the attack (Dizzy)'));
+  check('Dizzy is consumed after a missed attempt',
+    !hasEvent(roundEvents(dizzyMiss, 3), 'Dummy strikes')
+      && hasEvent(roundEvents(dizzyMiss, 4), 'Dummy strikes'));
 
   const lethalBash = resolveBattle(
     player({
@@ -2100,8 +2167,8 @@ check('class base and per-level scaling match the balance table',
     lethalBash.winner === 'a'
       && !hasEvent(allEvents(lethalBash), 'becomes Dizzy'),
     allEvents(lethalBash).join(' | '));
-  check('Dizzy does not add a second missed action',
-    !hasEvent(allEvents(stunned), 'misses its attack due to Dizzy'));
+  check('a successful Dizzy roll is also consumed after that attack attempt',
+    allEvents(stunned).filter((event) => event.includes('Dizzy')).length === 1);
 
   const guarded = resolveBattle(mkF(), mob({ hp: 100000 }), { seed: 1, rng: () => 0 });
   let forcedWorst = 0;
@@ -2127,14 +2194,14 @@ check('class base and per-level scaling match the balance table',
   );
   const firstThree = [1, 2, 3].flatMap((round) => roundEvents(mixedStuns, round));
   check('central guard still prevents Poseidon from refreshing Fighter Stun',
-    firstThree.filter((event) => event.includes('blow stuns')).length === 1
+    firstThree.filter((event) => event.includes('Bash stuns')).length === 1
       && hasEvent(roundEvents(mixedStuns, 3), 'Dummy strikes'),
     firstThree.join(' | '));
 
   const immune = resolveBattle(mkF(), mob({ hp: 100000, immunityTags: ['stun'] }),
     { seed: 1, rng: scripted([0.0, 0.99, 0.0]) });
   check('Fighter Stun immunity behavior is unchanged',
-    !hasEvent(allEvents(immune), 'blow stuns') && hasEvent(roundEvents(immune, 1), 'strikes'));
+    !hasEvent(allEvents(immune), 'Bash stuns') && hasEvent(roundEvents(immune, 1), 'strikes'));
 }
 
 {
@@ -2164,7 +2231,7 @@ check('class base and per-level scaling match the balance table',
     roundEvents(shieldmaiden, 1).join(' | '));
 }
 
-// Round 1 is a clean Bernoulli draw, so the observed proc rate must be 25%
+// Round 1 is a clean Bernoulli draw, so the observed proc rate must be 30%
 // and no legacy two-turn path may appear.
 {
   const N = 4000;
@@ -2181,8 +2248,8 @@ check('class base and per-level scaling match the balance table',
     if (hasEvent(r1, 'for 2 turns!')) twoTurn += 1;
   }
   const procRate = oneTurn / N;
-  console.log(`   Fighter proc-rate over ${N} battles (round 1): ${(procRate * 100).toFixed(1)}% (exp 25%)`);
-  check('Fighter Stun proc rate ≈ 25%',
+  console.log(`   Fighter proc-rate over ${N} battles (round 1): ${(procRate * 100).toFixed(1)}% (exp 30%)`);
+  check('Fighter Stun proc rate ≈ 30%',
     Math.abs(procRate - FIGHTER_STUN_CHANCE) < 0.03,
     `got ${(procRate * 100).toFixed(1)}%`);
   check('Fighter has no two-turn Stun path', twoTurn === 0, `found ${twoTurn}`);

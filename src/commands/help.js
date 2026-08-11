@@ -27,6 +27,7 @@ const CATEGORIES = [
     lines: [
       { canonical: 'register', cmd: 'crd register (reg)', desc: 'Create your account' },
       { canonical: 'create', cmd: 'crd create character (cc)', desc: 'Choose your class' },
+      { canonical: 'class', cmd: 'crd class passives', desc: 'View every class passive', prefixOnly: true },
       { canonical: 'profile', cmd: 'crd profile [@user] (p)', desc: 'Identity + believer progress card' },
       { canonical: 'stats', cmd: 'crd stats [@user]', desc: 'Combat card — gear, deities, stats' },
       { canonical: 'avatars', cmd: 'crd avatars', desc: 'Browse owned avatars for your class' },

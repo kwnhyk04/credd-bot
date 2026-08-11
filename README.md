@@ -50,8 +50,8 @@ Commercial use, hosting commercial instances, or distributing commercial derivat
 
 ### Reward and combat update notes
 
-- Knight restores 10% max HP each turn; Swordsman gains battle-local ATK stacks up to +25%; Mage Overcharge selects one of four equal-probability debuffs on each successful third-round primary hit.
-- Raid rewards use persistent PHT-date caps of 20 Silver Chests from regular raids, 10 Gold Chests from Elite Mob raids, and 10,000 raid-earned Belief Shards. Partial grants are reported in the reward summary.
+- Knight restores 1.5% max HP each turn; Swordsman gains battle-local ATK stacks up to +30%; Mage Overcharge selects one of four equal-probability debuffs on each successful third-round primary hit.
+- Raid rewards use persistent PHT-date caps of 20 Silver Chests from regular raids, 5 Gold Chests from Elite Mob raids, and 10,000 raid-earned Belief Shards. Capped portions are silently omitted while other eligible rewards continue.
 - Completing the daily quest set grants `Daily Quest Completion Bonus: +1 Sacred Relic`. Each weekly quest grants +1 Sacred Relic; weekly full completion grants no additional Sacred Relic.
 
 ## Project Layout

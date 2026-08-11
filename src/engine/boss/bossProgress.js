@@ -42,7 +42,7 @@ const { bossFeatTitlesFor } = require('../../config/titles');
 const {
   isGreaterBoss, isCalamityBoss, bossRewards, rollBossChest, hpMultiplierForChest,
   bossMaxHpForChest, inferChestFromGreaterHp, bossChestForSpawn,
-  pickWeightedBoss,
+  pickWeightedBoss, selectWeightedBossPool, pickBossFromPool,
   MAX_BOSS_ATTACKS_PER_DAY, bossAttackDecision,
 } = require('../../config/bosses');
 const {
@@ -92,6 +92,52 @@ const MOB_BATTLE_COLUMNS = `
   atk_per_level, base_def, def_per_level, base_crit, skill_key,
   skill_name, skill_description, immunity_tags, special_flags
 `;
+
+/**
+ * Read the persistent portion of a tier's shuffled bag. Attack rows survive
+ * process restarts without adding storage. Queued Calamities and the currently
+ * visible direct dev spawn are excluded so identified developer controls do not
+ * advance the natural rotation.
+ */
+async function fetchBossRotationState(db, guildId, bossPool) {
+  const mobIds = bossPool.map((row) => Number(row.mob_id));
+  if (mobIds.length === 0) return { recentMobIds: [], totalSpawns: 0 };
+
+  const { rows } = await db.query(
+    `WITH spawn_history AS (
+       SELECT bal.boss_spawn_id, bal.mob_id, MAX(bal.attacked_at) AS last_seen_at
+         FROM boss_attack_log bal
+        WHERE bal.guild_id = $1
+          AND bal.mob_id = ANY($2::int[])
+          AND NOT EXISTS (
+            SELECT 1
+              FROM boss_spawn_queue q
+             WHERE q.spawn_id = bal.boss_spawn_id
+          )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM boss_state bs
+             WHERE bs.guild_id = bal.guild_id
+               AND bs.spawn_id = bal.boss_spawn_id
+               AND bs.spawn_source = 'dev'
+          )
+        GROUP BY bal.boss_spawn_id, bal.mob_id
+     ), ranked AS (
+       SELECT boss_spawn_id, mob_id, last_seen_at, COUNT(*) OVER () AS total_spawns
+         FROM spawn_history
+     )
+     SELECT mob_id, total_spawns
+       FROM ranked
+      ORDER BY last_seen_at DESC, boss_spawn_id DESC
+      LIMIT $3`,
+    [guildId, mobIds, mobIds.length]
+  );
+
+  return {
+    recentMobIds: rows.map((row) => Number(row.mob_id)),
+    totalSpawns: Number(rows[0]?.total_spawns || 0),
+  };
+}
 
 async function processQueuedCalamity(client, guildId, { db = pool, spawn = spawnBoss } = {}) {
   const dbc = await db.connect();
@@ -196,7 +242,8 @@ async function spawnBoss(client, guildId, {
   const source = spawnSource || (force ? 'dev' : 'natural');
   if (!['natural', 'dev'].includes(source)) return false;
 
-  // Forced names use the roster row directly; natural spawns use the tier roll.
+  // Forced names use the roster row directly. Natural spawns keep the existing
+  // weighted tier roll, then draw without replacement from that tier's bag.
   let pick;
   if (bossName) {
     const named = await fetchMobByName(pool, bossName);
@@ -207,7 +254,17 @@ async function spawnBoss(client, guildId, {
       calamity: isCalamityBoss(named.name),
     };
   } else {
-    pick = pickWeightedBoss(await fetchAllBosses(pool));
+    const allBosses = await fetchAllBosses(pool);
+    if (source === 'natural') {
+      const bossPool = selectWeightedBossPool(allBosses);
+      const rotationState = bossPool
+        ? await fetchBossRotationState(pool, guildId, bossPool)
+        : null;
+      pick = pickBossFromPool(bossPool, rotationState || {});
+    } else {
+      // Unnamed development spawns retain the historical weighted random path.
+      pick = pickWeightedBoss(allBosses);
+    }
   }
   if (!pick) return false;
   const { row, greater, calamity } = pick;
@@ -294,7 +351,6 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
   let totalEligibleDamage = 0;
   let supremeBagUpd = { rows: [] };
   let bagUpd = { rows: [] };
-  let raidLimitNoticeCount = 0;
   let expResults = new Map();
   try {
     await dbc.query('BEGIN');
@@ -361,7 +417,6 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
         const allocation = await allocateRaidRewardLimits(dbc, discordId, {
           beliefShards: reward.shards,
         });
-        if (allocation.notices.length > 0) raidLimitNoticeCount += 1;
         const rowRes = await dbc.query(
           `UPDATE users_bag
               SET credux = credux + $2,
@@ -514,10 +569,7 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
           `🎉 ${greater ? '☠️ **GREATER** ' : ''}**${view.mobRow.name}** has fallen! ` +
           `All **${attackerIds.length}** challenger${attackerIds.length === 1 ? '' : 's'} receive: ` +
           `${r.credux.toLocaleString()} Credux · ${r.exp.toLocaleString()} Combat EXP · ${c.qty}× ${c.label} · ` +
-          `${r.shards.toLocaleString()} Belief Shards${raidLimitNoticeCount > 0 ? ' subject to each participant\'s daily raid limit' : ''}.` +
-          (raidLimitNoticeCount > 0
-            ? ` Daily raid Belief Shard limits were applied to ${raidLimitNoticeCount} participant${raidLimitNoticeCount === 1 ? '' : 's'}.`
-            : '') +
+          `${r.shards.toLocaleString()} Belief Shards.` +
           (isCalamityBoss(view.mobRow.name)
             ? ` Each eligible participant also received an independent chance at 1 Supreme Chest; **${supremeWinnerIds.length}** won.`
             : '') +

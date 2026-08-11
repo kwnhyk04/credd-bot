@@ -228,12 +228,12 @@ async function main() {
   );
   assert.deepEqual(titleBadge, { x: 584, y: 486, w: 192, h: 96 });
 
-  assert.equal(RAID_LOOT.regular.win.chestChance, 0.10);
-  assert.equal(RAID_LOOT.elite.win.chestChance, 0.20);
-  assert.equal(rollRaidChest(RAID_LOOT.regular.win, () => 0.099), 'silver_chest');
-  assert.equal(rollRaidChest(RAID_LOOT.regular.win, () => 0.10), null);
-  assert.equal(rollRaidChest(RAID_LOOT.elite.win, () => 0.199), 'gold_chest');
-  assert.equal(rollRaidChest(RAID_LOOT.elite.win, () => 0.20), null);
+  assert.equal(RAID_LOOT.regular.win.chestChance, 0.20);
+  assert.equal(RAID_LOOT.elite.win.chestChance, 0.50);
+  assert.equal(rollRaidChest(RAID_LOOT.regular.win, () => 0.199), 'silver_chest');
+  assert.equal(rollRaidChest(RAID_LOOT.regular.win, () => 0.20), null);
+  assert.equal(rollRaidChest(RAID_LOOT.elite.win, () => 0.499), 'gold_chest');
+  assert.equal(rollRaidChest(RAID_LOOT.elite.win, () => 0.50), null);
 
   const neutral = resolveBattle(player(), mob(), { rng: () => 0.5 });
   const knight = resolveBattle(player({ class: 'Knight', classPassive: 'damage_reduction' }), mob(), { rng: () => 0.5 });
@@ -252,9 +252,10 @@ async function main() {
     mob(),
     { rng: () => fighterRolls.length ? fighterRolls.shift() : 0.5 }
   );
-  assert(events(fighter).some((event) => event.includes('follows with Bash')));
-  assert(events(fighter).some((event) => event.includes('becomes Dizzy and is stunned for 1 turn')));
-  assert(events(fighter).some((event) => event.includes('unable to act (Dizzy, stun)')));
+  assert(events(fighter).some((event) => event.includes('Hero attacks') && event.includes('(Bash!)')));
+  assert(!events(fighter).some((event) => event.includes('follows with Bash')));
+  assert(events(fighter).some((event) => event.includes('becomes Dizzy — 15% chance')));
+  assert(events(fighter).some((event) => event.includes('unable to act (stun)')));
 
   const odin = resolveBattle(
     player({ atk: 0, deityBlessingKey: 'odin_all_fathers_wisdom' }),
@@ -519,9 +520,11 @@ async function main() {
   ]);
   const duplicateSummonLines = duplicateSummonLine.split('\n');
   assert.equal(duplicateSummonLines.length, 1);
-  assert(duplicateSummonLines.every((line) => line.includes('**Mayari**') && line.includes('+12 Essence')));
+  assert(duplicateSummonLines.every((line) =>
+    line.includes('**Mayari**') && line.includes('**12**,') && !line.includes('Essence')));
   assert(duplicateSummonLine.includes('×**2**'));
-  assert(duplicateSummonLines.every((line) => line.startsWith(`${emoji('mythic_essence')} **+12 Essence**`)));
+  assert(duplicateSummonLines.every((line) =>
+    line.startsWith(`${emoji('mythic_essence')} **12**,`)));
   const newSummonLine = groupSummonResults([
     { name: 'Apolaki', rarity: 'Undying', isNew: true, essence: 0 },
   ]);

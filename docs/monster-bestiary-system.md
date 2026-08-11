@@ -186,8 +186,10 @@ The Norse giant is seeded as `Jotun` without the diacritic, and that is the exac
 the tier check matches. Hydra, a former Greater Boss, is now a normal boss with no HP
 multiplier or tier-specific reward.
 
-Natural spawn selection is 70% normal / 25% Greater / 5% Calamity. Full spawn, HP, and
-reward details are in the Boss System document.
+Natural spawn selection is 70% normal / 25% Greater / 5% Calamity. Within the selected
+tier, existing spawn history supplies a restart-safe shuffled bag so eligible bosses do not
+repeat before that bag is exhausted. Full spawn, HP, and reward details are in the Boss
+System document.
 
 ## What are monster immunities
 

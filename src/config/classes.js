@@ -23,18 +23,27 @@ const CLASS_PASSIVE_VALUES = Object.freeze({
     bleedPerAttack: 0.04,
     bleedMax: 0.20,
     atkPerTurn: 0.05,
-    atkMax: 0.25,
+    atkMax: 0.30,
   }),
   Archer: Object.freeze({
     defenseIgnore: 0.25,
-    doubleAttackChance: 0.25,
+    doubleAttackChance: 0.35,
   }),
   Fighter: Object.freeze({
-    stunChance: 0.25,
+    damageBonus: 0.50,
+    stunChance: 0.30,
     stunTurns: 1,
-    bashDamage: 1.00,
+    bashDamage: 0.50,
+    dizzyMissChance: 0.15,
+  }),
+  Knight: Object.freeze({
+    damageReduction: 0.25,
+    outgoingDamageBonus: 0.30,
+    regeneration: 0.015,
   }),
 });
+
+const passivePct = (value) => Number((value * 100).toFixed(10));
 
 const CLASSES = {
   Swordsman: {
@@ -46,7 +55,10 @@ const CLASSES = {
       'A warrior forged for the battlefield. Neither the strongest nor the fastest, but the most reliable. ' +
       'The Swordsman walks the line between offense and defense, adapting to any fight. Every strike leaves a mark, and every mark bleeds.',
     passiveLine:
-      '**Passive: Bleed** — Attacks inflict 4% Bleed, stacking up to 20%. Gains +5% ATK each turn, stacking up to +25% for the battle.',
+      `**Passive: Bleed** — Attacks inflict ${passivePct(CLASS_PASSIVE_VALUES.Swordsman.bleedPerAttack)}% Bleed, ` +
+      `stacking up to ${passivePct(CLASS_PASSIVE_VALUES.Swordsman.bleedMax)}%. Gains ` +
+      `+${passivePct(CLASS_PASSIVE_VALUES.Swordsman.atkPerTurn)}% ATK each turn, stacking up to ` +
+      `+${passivePct(CLASS_PASSIVE_VALUES.Swordsman.atkMax)}% for the battle.`,
   },
   Fighter: {
     emoji: '👊',
@@ -57,7 +69,11 @@ const CLASSES = {
       'A warrior who does not wait for the fight to come — they bring it. The Fighter is built on aggression, raw power, ' +
       "and the unshakable belief that the best defense is a fist to the jaw. When a Fighter lands, the enemy feels it. And sometimes, they don't get back up.",
     passiveLine:
-      '**Passive: Stun** — Attacks have a 25% chance to Stun the target for 1 turn. Bash deals 100% of the triggering hit and leaves the target Dizzy.',
+      `**Passive: Stun** — Attacks deal +${passivePct(CLASS_PASSIVE_VALUES.Fighter.damageBonus)}% damage and have a ` +
+      `${passivePct(CLASS_PASSIVE_VALUES.Fighter.stunChance)}% chance to become a Bash. Bash adds another ` +
+      `+${passivePct(CLASS_PASSIVE_VALUES.Fighter.bashDamage)}% damage, Stuns for ` +
+      `${CLASS_PASSIVE_VALUES.Fighter.stunTurns} turn, and leaves the target Dizzy with a ` +
+      `${passivePct(CLASS_PASSIVE_VALUES.Fighter.dizzyMissChance)}% chance to miss its next attack.`,
   },
   Mage: {
     emoji: '🔮',
@@ -79,7 +95,8 @@ const CLASSES = {
       'The Knight does not fall easily. Where others break under pressure, the Knight absorbs it, holds the line, and keeps fighting. ' +
       'Every blow the enemy lands is one they will regret. Endurance is not passive — it is a weapon.',
     passiveLine:
-      '**Passive: Damage Reduction** — Incoming damage is reduced, outgoing damage is increased, and the Knight restores 10% of maximum HP every turn.',
+      `**Passive: Damage Reduction** — Incoming damage is reduced, outgoing damage is increased, and the Knight restores ` +
+      `${passivePct(CLASS_PASSIVE_VALUES.Knight.regeneration)}% of maximum HP every turn.`,
   },
   Archer: {
     emoji: '🏹',
@@ -90,7 +107,9 @@ const CLASSES = {
       'Swift, precise, and deadly from a distance. The Archer does not wait for the enemy to come — they are already gone before the enemy arrives. ' +
       'Every arrow finds its mark, and no armor is thick enough to stop what cannot be seen coming.',
     passiveLine:
-      "**Passive: Armor Pierce & Double Attack** — Attacks ignore 25% of the target's Defense and have a 25% chance to immediately perform an additional attack.",
+      `**Passive: Armor Pierce & Double Attack** — Attacks ignore ` +
+      `${passivePct(CLASS_PASSIVE_VALUES.Archer.defenseIgnore)}% of the target's Defense and have a ` +
+      `${passivePct(CLASS_PASSIVE_VALUES.Archer.doubleAttackChance)}% chance to immediately perform an additional attack.`,
   },
 };
 
