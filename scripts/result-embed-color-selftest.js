@@ -39,10 +39,30 @@ check('deity Epic is blue', getDeityResultColor([{ rarity: 'Remnant' }], FALLBAC
 check('deity Mythic is purple', getDeityResultColor([{ rarity: 'Awakened' }], FALLBACK) === TIER_COLOR.Mythic);
 check('deity Legendary is gold', getDeityResultColor([{ rarity: 'Undying' }], FALLBACK) === TIER_COLOR.Legendary);
 check('deity Supreme is red', getDeityResultColor([{ rarity: 'Primordial' }], FALLBACK) === TIER_COLOR.Supreme);
+check('deity Epic plus Mythic resolves to purple', getDeityResultColor([
+  { rarity: 'Remnant' }, { rarity: 'Awakened' },
+], FALLBACK) === TIER_COLOR.Mythic);
+check('deity Mythic plus Legendary resolves to gold', getDeityResultColor([
+  { rarity: 'Awakened' }, { rarity: 'Undying' },
+], FALLBACK) === TIER_COLOR.Legendary);
+check('deity Legendary plus Supreme resolves to red', getDeityResultColor([
+  { rarity: 'Undying' }, { rarity: 'Primordial' },
+], FALLBACK) === TIER_COLOR.Supreme);
+check('deity Epic plus Supreme resolves to red', getDeityResultColor([
+  { rarity: 'Remnant' }, { rarity: 'Primordial' },
+], FALLBACK) === TIER_COLOR.Supreme);
 check('deity uses the highest tier rather than quantity', getDeityResultColor([
   ...Array.from({ length: 29 }, () => ({ rarity: 'Remnant' })),
   { rarity: 'Awakened' },
 ], FALLBACK) === TIER_COLOR.Mythic);
+check('deity Mythic x29 plus Legendary x1 resolves to gold', getDeityResultColor([
+  ...Array.from({ length: 29 }, () => ({ rarity: 'Awakened' })),
+  { rarity: 'Undying' },
+], FALLBACK) === TIER_COLOR.Legendary);
+check('deity Legendary x29 plus Supreme x1 resolves to red', getDeityResultColor([
+  ...Array.from({ length: 29 }, () => ({ rarity: 'Undying' })),
+  { rarity: 'Primordial' },
+], FALLBACK) === TIER_COLOR.Supreme);
 check('deity Supreme wins anywhere in the result', getDeityResultColor([
   ...Array.from({ length: 29 }, () => ({ rarity: 'Awakened' })),
   { rarity: 'Primordial' },
@@ -55,7 +75,32 @@ check('chest Mythic is purple', getChestResultColor([{ tier: 'Mythical' }], FALL
 check('chest Legendary is gold', getChestResultColor([{ tier: 'Legendary' }], FALLBACK) === CHEST_TIER_COLOR.Legendary);
 check('chest Supreme is red', getChestResultColor([{ tier: 'Supreme' }], FALLBACK) === CHEST_TIER_COLOR.Supreme);
 check('chest Genesis is white', getChestResultColor([{ tier: 'Genesis' }], FALLBACK) === CHEST_TIER_COLOR.Genesis);
+check('chest Rare plus Mythic resolves to purple', getChestResultColor([
+  { tier: 'Rare' }, { tier: 'Mythical' },
+], FALLBACK) === CHEST_TIER_COLOR.Mythic);
+check('chest Mythic plus Legendary resolves to gold', getChestResultColor([
+  { tier: 'Mythical' }, { tier: 'Legendary' },
+], FALLBACK) === CHEST_TIER_COLOR.Legendary);
+check('chest Legendary plus Supreme resolves to red', getChestResultColor([
+  { tier: 'Legendary' }, { tier: 'Supreme' },
+], FALLBACK) === CHEST_TIER_COLOR.Supreme);
 check('chest Genesis wins over Supreme', getChestResultColor([
+  ...Array.from({ length: 29 }, () => ({ tier: 'Supreme' })),
+  { tier: 'Genesis' },
+], FALLBACK) === CHEST_TIER_COLOR.Genesis);
+check('chest Rare x29 plus Mythic x1 resolves to purple', getChestResultColor([
+  ...Array.from({ length: 29 }, () => ({ tier: 'Rare' })),
+  { tier: 'Mythical' },
+], FALLBACK) === CHEST_TIER_COLOR.Mythic);
+check('chest Mythic x29 plus Legendary x1 resolves to gold', getChestResultColor([
+  ...Array.from({ length: 29 }, () => ({ tier: 'Mythical' })),
+  { tier: 'Legendary' },
+], FALLBACK) === CHEST_TIER_COLOR.Legendary);
+check('chest Legendary x29 plus Supreme x1 resolves to red', getChestResultColor([
+  ...Array.from({ length: 29 }, () => ({ tier: 'Legendary' })),
+  { tier: 'Supreme' },
+], FALLBACK) === CHEST_TIER_COLOR.Supreme);
+check('chest Supreme x29 plus Genesis x1 resolves to white', getChestResultColor([
   ...Array.from({ length: 29 }, () => ({ tier: 'Supreme' })),
   { tier: 'Genesis' },
 ], FALLBACK) === CHEST_TIER_COLOR.Genesis);
@@ -65,10 +110,27 @@ check('rune Epic is blue', getRuneResultColor([{ tier: 'Epic' }], FALLBACK) === 
 check('rune Mythic is purple', getRuneResultColor([{ tier: 'Mythical' }], FALLBACK) === RUNE_TIER_COLOR.Mythic);
 check('rune Legendary is gold', getRuneResultColor([{ tier: 'Legendary' }], FALLBACK) === RUNE_TIER_COLOR.Legendary);
 check('rune Supreme is red', getRuneResultColor([{ tier: 'Supreme' }], FALLBACK) === RUNE_TIER_COLOR.Supreme);
+check('rune Epic plus Mythic resolves to purple', getRuneResultColor([
+  { tier: 'Epic' }, { tier: 'Mythical' },
+], FALLBACK) === RUNE_TIER_COLOR.Mythic);
+check('rune Mythic plus Legendary resolves to gold', getRuneResultColor([
+  { tier: 'Mythical' }, { tier: 'Legendary' },
+], FALLBACK) === RUNE_TIER_COLOR.Legendary);
+check('rune Legendary plus Supreme resolves to red', getRuneResultColor([
+  { tier: 'Legendary' }, { tier: 'Supreme' },
+], FALLBACK) === RUNE_TIER_COLOR.Supreme);
 check('rune highest tier is independent of quantity', getRuneResultColor([
   ...Array.from({ length: 29 }, () => ({ tier: 'Epic' })),
   { tier: 'Mythic' },
 ], FALLBACK) === RUNE_TIER_COLOR.Mythic);
+check('rune Mythic x29 plus Legendary x1 resolves to gold', getRuneResultColor([
+  ...Array.from({ length: 29 }, () => ({ tier: 'Mythical' })),
+  { tier: 'Legendary' },
+], FALLBACK) === RUNE_TIER_COLOR.Legendary);
+check('rune Legendary x29 plus Supreme x1 resolves to red', getRuneResultColor([
+  ...Array.from({ length: 29 }, () => ({ tier: 'Legendary' })),
+  { tier: 'Supreme' },
+], FALLBACK) === RUNE_TIER_COLOR.Supreme);
 check('rune Supreme wins anywhere in the result', getRuneResultColor([
   ...Array.from({ length: 29 }, () => ({ tier: 'Legendary' })),
   { tier: 'Supreme' },
