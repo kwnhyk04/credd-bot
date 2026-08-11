@@ -2746,7 +2746,8 @@ updated without changing the existing document structure or RAG/upsert infrastru
   20 Silver Chest, and 5 Gold Chest daily limits, including silent omission after a cap
   and the `crd daily limits` status command.
 - `character-and-class-system.md` now records Fighter's primary Bash/Dizzy consumption,
-  Archer's two-attack non-recursive pipeline and turn-scoped behavior, the
+  Archer's two-attack non-recursive pipeline, Apollo Bow's DEF-ignore coverage on both
+  legitimate attacks, and turn-scoped behavior, the
   `crd class passives` command, and its account-only access.
 - `shop-system.md` now documents the Unlimited/Monthly/Daily/Weekly category display and
   category-level reset countdowns while retaining the verified IDs, prices, caps and
