@@ -523,14 +523,16 @@ async function main() {
   const duplicateSummonLines = duplicateSummonLine.split('\n');
   assert.equal(duplicateSummonLines.length, 1);
   assert(duplicateSummonLines.every((line) =>
-    line.includes('**Mayari**') && line.includes('**12**,') && !line.includes('Essence')));
+    line.includes('**Mayari**') && line.includes(`${emoji('mythic_essence')} **12**`)
+      && !line.includes('Awakened') && !line.includes('Essence')));
   assert(duplicateSummonLine.includes('×**2**'));
   assert(duplicateSummonLines.every((line) =>
-    line.startsWith(`${emoji('mythic_essence')} **12**,`)));
+    line.startsWith(`${RARITY_SYMBOLS.Awakened} ${emoji('mayari')} **Mayari** ${emoji('mythic_essence')} **12**`)));
   const newSummonLine = groupSummonResults([
     { name: 'Apolaki', rarity: 'Undying', isNew: true, essence: 0 },
   ]);
   assert(!newSummonLine.includes('New'));
+  assert(!newSummonLine.includes('Undying'));
   assert(!newSummonLine.includes('Essence'));
   assert(!newSummonLine.includes('+0'));
 

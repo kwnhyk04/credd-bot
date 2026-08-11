@@ -398,7 +398,7 @@ function formatSummonResultLine(result) {
   const tierEmoji = RARITY_SYMBOLS[rarity] ?? '◆';
   const rawName = String(result.name || 'Unknown Deity');
   const deityEmoji = emojiForDisplay(rawName, '✨');
-  const deity = `${tierEmoji} ${rarity}, ${deityEmoji} **${escapeMarkdown(rawName)}**`;
+  const deity = `${tierEmoji} ${deityEmoji} **${escapeMarkdown(rawName)}**`;
   if (result.isNew) return deity;
 
   const essenceEmoji = emoji(ALIAS_TO_ESSENCE[rarity] ?? 'epic_essence');
@@ -406,7 +406,7 @@ function formatSummonResultLine(result) {
   if (!Number.isSafeInteger(essence) || essence <= 0) {
     return `${deity} • Duplicate`;
   }
-  return `${essenceEmoji} **${essence.toLocaleString()}**, ${deity}`;
+  return `${deity} ${essenceEmoji} **${essence.toLocaleString()}**`;
 }
 
 function formatSummonResults(results) {
@@ -452,11 +452,11 @@ function formatSummonGroupLine(group) {
   const tierEmoji = RARITY_SYMBOLS[group.rarity] ?? '◆';
   const deityEmoji = emojiForDisplay(group.name, '✨');
   const count = group.pulls > 1 ? ` ×**${group.pulls}**` : '';
-  const deity = `${tierEmoji} ${group.rarity}, ${deityEmoji} **${escapeMarkdown(group.name)}**${count}`;
+  const deity = `${tierEmoji} ${deityEmoji} **${escapeMarkdown(group.name)}**`;
   const essence = Number(group.essence);
-  if (!Number.isSafeInteger(essence) || essence <= 0) return deity;
+  if (!Number.isSafeInteger(essence) || essence <= 0) return `${deity}${count}`;
   const essenceEmoji = emoji(ALIAS_TO_ESSENCE[group.rarity] ?? 'epic_essence');
-  return `${essenceEmoji} **${essence.toLocaleString()}**, ${deity}`;
+  return `${deity} ${essenceEmoji} **${essence.toLocaleString()}**${count}`;
 }
 
 // Keep the historical string-returning helper for callers that import it;
