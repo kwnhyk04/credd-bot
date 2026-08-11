@@ -22,6 +22,7 @@ const {
 const { smallDivider: sep } = require('../utils/componentsV2');
 const { emoji, emojiForDisplay, gearTierEmoji } = require('../utils/emojis');
 const { capitalizeLower } = require('../utils/textFormat');
+const { getChestResultColor, getRuneResultColor } = require('../utils/resultEmbedColors');
 
 const ANIMATION_MS = 5000; // chest/relic/rune-bag reveal countdown (owner: 5s)
 
@@ -135,7 +136,7 @@ function animationPayload(gifKey, animTitle) {
  */
 async function buildWeaponResultPayload(p) {
   const container = new ContainerBuilder()
-    .setAccentColor(0xf0b232)
+    .setAccentColor(getChestResultColor(p.items, 0xf0b232))
     .addTextDisplayComponents((td) =>
       td.setContent(openHeaderLine(p.gifKey, p.title) + '\n*' + (CHEST_FLAVOR[p.gifKey] || 'The chest creaks open...') + '*')
     )
@@ -210,7 +211,7 @@ async function playAnimatedOpen(message, { gifKey, animTitle, buildResult }) {
  */
 async function buildRuneResultPayload(p) {
   const container = new ContainerBuilder()
-    .setAccentColor(0x9b59b6)
+    .setAccentColor(getRuneResultColor(p.items, 0x9b59b6))
     .addTextDisplayComponents((td) =>
       td.setContent(openHeaderLine(p.gifKey, p.title) + '\n*' + (CHEST_FLAVOR[p.gifKey] || 'The bag spills open...') + '*')
     )

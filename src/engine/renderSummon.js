@@ -42,6 +42,7 @@ const { assertDiscordImageAttachmentsAllowed } = require('../utils/egressGuard')
 const { tagDiscordAttachmentBuffer } = require('../utils/networkTelemetry');
 const { getEmojiIcon } = require('./renderBagItems');
 const { TIER_ALIAS, TIER_ESSENCE_COLUMN } = require('../config/gachaRates');
+const { getDeityResultColor } = require('../utils/resultEmbedColors');
 
 // rarity alias → essence emoji name, derived from the ACTUAL duplicate-conversion
 // constants (summonEngine credits TIER_ESSENCE_COLUMN[tier] on a dupe; TIER_ALIAS
@@ -328,7 +329,7 @@ async function buildResultMessage(results, balances, opts = {}) {
 
   // The animation is suspense-only. The result keeps the equipped summon
   // emoji in its header, but omits both remote media and local attachments.
-  const container = new ContainerBuilder().setAccentColor(ACCENT);
+  const container = new ContainerBuilder().setAccentColor(getDeityResultColor(results, ACCENT));
   const files = await addSummonHeader(container, {
     flipPath: opts.flipPath,
     headerEmoji: opts.headerEmoji,
