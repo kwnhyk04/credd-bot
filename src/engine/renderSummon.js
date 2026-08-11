@@ -451,7 +451,7 @@ function summonResultGroups(results) {
 function formatSummonGroupLine(group) {
   const tierEmoji = RARITY_SYMBOLS[group.rarity] ?? '◆';
   const deityEmoji = emojiForDisplay(group.name, '✨');
-  const count = group.pulls > 1 ? ` ×**${group.pulls}**` : '';
+  const count = group.pulls > 1 ? ` x**${group.pulls}**` : '';
   const deity = `${tierEmoji} ${deityEmoji} **${escapeMarkdown(group.name)}**`;
   const essence = Number(group.essence);
   if (!Number.isSafeInteger(essence) || essence <= 0) return `${deity}${count}`;

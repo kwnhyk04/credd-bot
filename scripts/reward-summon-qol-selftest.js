@@ -86,10 +86,10 @@ const lines = formatSummonResults(pulls).split('\n');
 check('identical deity pulls are grouped', lines.length === 2 && lines.filter((line) => line.includes('Njord')).length === 1);
 check('grouped duplicate uses tier, deity, total essence, and count order',
   lines[0].startsWith('<:mythical_icon:')
-    && lines[0].includes(`${emoji('njord')} **Njord** ${emoji('mythic_essence')} **4** ×**3**`)
+    && lines[0].includes(`${emoji('njord')} **Njord** ${emoji('mythic_essence')} **4** x**3**`)
     && !lines[0].includes('Awakened')
     && !lines[0].includes('Essence'));
-check('grouped result keeps the total pull count', lines[0].includes('×**3**'));
+check('grouped result keeps the total pull count', lines[0].includes('x**3**'));
 check('new-only deity has no tier wording, essence icon, or zero reward',
   !lines[1].includes('Remnant') && !lines[1].includes('Essence') && !lines[1].includes('+0'));
 check('grouped summon result order is unchanged', lines[0].includes('Njord') && lines[1].includes('Freyr'));
@@ -149,7 +149,7 @@ check('duplicate-compressed body rows still contribute their raw pull quantity',
   }));
   const body = formatSummonResults(duplicateGroup);
   const text = summonOutcomeSummary(duplicateGroup);
-  return body.includes('×**5**')
+  return body.includes('x**5**')
     && text.includes('Remnant ×**5**')
     && summaryCounts(text).reduce((a, b) => a + b, 0) === duplicateGroup.length;
 })());
