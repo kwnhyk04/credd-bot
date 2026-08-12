@@ -3000,9 +3000,14 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
     pickWeightedBoss(weightedBossRows, scripted([0.29, 0])).row.name === 'Jotun'
       && pickWeightedBoss(weightedBossRows, scripted([0.31, 0])).row.name === 'Medusa'
       && /const spawnChest = greater \|\| calamity/.test(bossSource));
-  const survivingRefresh = /if \(remaining <= 0\) \{[\s\S]*?\} else \{([\s\S]*?)\n\s*\}/.exec(bossSource)?.[1] || '';
-  check('surviving boss attacks schedule a coalesced progress refresh',
-    /scheduleBossLiveRefresh/.test(survivingRefresh) && !/bossStatusImage/.test(survivingRefresh));
+  const survivingRefresh = /if \(remaining > 0\) \{([\s\S]*?scheduleBossLiveRefresh[\s\S]*?)\n\s*\}/.exec(bossSource)?.[1] || '';
+  check('surviving boss attacks schedule an immediate coalesced progress refresh',
+    /scheduleBossLiveRefresh/.test(survivingRefresh)
+      && /immediate:\s*true/.test(survivingRefresh)
+      && /await\s+scheduleBossLiveRefresh/.test(survivingRefresh)
+      && !/bossStatusImage/.test(survivingRefresh));
+  const committedAttackRefresh = /await dbc\.query\('COMMIT'\)[\s\S]*?await scheduleBossLiveRefresh[\s\S]*?await interaction\.editReply/.test(bossSource);
+  check('boss attack refresh is invoked after commit and before the attack response finishes', committedAttackRefresh);
   // Bound the slice by the function's own closing brace rather than a section
   // comment that follows it: the comment and the function no longer share a file
   // once bossMessages is split out (Phase 2.3).
@@ -3010,16 +3015,32 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
   check('scheduled boss progress refresh uses the coalesced status renderer',
     /refreshLiveMessageProgress/.test(scheduledRefresh)
       && !/refreshLiveMessage\(client, guildId\)/.test(scheduledRefresh));
+  check('attack refresh bypasses debounce without disabling scheduler coalescing',
+    /immediate = false/.test(scheduledRefresh)
+      && /const debounceMs = immediate \? 0 : bossProgressRefreshDebounceMs\(\)/.test(scheduledRefresh)
+      && /clearTimeout\(existing\.timer\)[\s\S]*?setTimeout\(existing\.run, 0\)/.test(scheduledRefresh)
+      && /immediate: pending\.immediate/.test(scheduledRefresh));
   const progressRefresh = /async function refreshLiveMessageProgress[\s\S]*?\r?\n\}\r?\n\r?\nfunction scheduleBossLiveRefresh/.exec(bossSource)?.[0] || '';
   check('surviving boss attacks keep the Canvas status image',
     /includeStatusImage = bossImageRefreshEnabled\(\)/.test(progressRefresh)
       && /includeStatusImage,/.test(progressRefresh)
       && /includeBanner:\s*'remote-only'/.test(progressRefresh)
       && /BOSS_IMAGE_REFRESH_ENABLED', true/.test(bossSource));
+  check('boss status cache keys and fallbacks cannot reuse stale HP',
+    /currentHp: Number\(state\.current_hp\)/.test(bossSource)
+      && /lastMatchesState/.test(bossSource)
+      && /last\.currentHp === Number\(state\.current_hp\)/.test(bossSource));
+  check('boss refresh and terminal cleanup dependencies are wired',
+    /chestForSpawn, clearPendingBossRefresh, rememberSpawn, purgeBossRuntimeForGuild/.test(bossSource)
+      && /envNumber, envPositiveInt, bandwidthLog, performanceLog/.test(bossSource));
   check('stale boss progress refreshes are lifecycle-guarded',
     /shouldApply:\s*\(view\)/.test(scheduledRefresh)
       && /view\?\.state\?\.status === 'active'/.test(scheduledRefresh)
-      && /pending\.cancelled/.test(scheduledRefresh));
+      && /pending\.cancelled/.test(scheduledRefresh)
+      && /view\.state\.status !== 'active'\) pending\.cancelled = true/.test(scheduledRefresh));
+  check('attack refresh completion includes any coalesced follow-up generation',
+    /let followupDone = null/.test(scheduledRefresh)
+      && /followupDone\.then\(\(\) => pending\.finish\(\), \(\) => pending\.finish\(\)\)/.test(scheduledRefresh));
   check('boss final waits for an already-running progress edit',
     /await clearPendingBossRefresh\(guildId, 'dead'\)/.test(bossSource)
       && /return pending\.done/.test(bossSource));
@@ -3033,6 +3054,8 @@ section('5. Fuzz — ~2,000 seeded battles, invariants');
   check('boss message recovery preserves the rendered status payload',
     /postFreshLiveMessage\(client, guildId, payload\)/.test(bossSource)
       && !/attachmentEditAttempted[\s\S]*?includeStatusImage:\s*false/.test(bossSource));
+  check('boss progress edits strip immutable Components-V2 flags',
+    /const editablePayload = \{ \.\.\.payload \};[\s\S]*?delete editablePayload\.flags[\s\S]*?msg\.edit\(\{ \.\.\.editablePayload/.test(bossSource));
 
   const renderSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'battleRender.js'), 'utf8');
   const {

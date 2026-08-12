@@ -44,7 +44,7 @@ const { isGreaterBoss, isCalamityBoss } = require('../../config/bosses');
 
 const BOSS_ASSET_DIR = localAssetPath('monsters/boss');
 
-const lastBossStatusUrls = new Map(); // guildId -> { spawnId, url }
+const lastBossStatusUrls = new Map(); // guildId -> { spawnId, status, currentHp, maxHp, url }
 
 function bossImageMaxWidth() {
   return Math.floor(envNumber('BOSS_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 }));
@@ -509,13 +509,23 @@ async function bossStatusImage(state, mobRow, {
     { returnImageOnFailure: true, logContext }
   );
   if (cached?.url) {
-    lastBossStatusUrls.set(state.guild_id, { spawnId: state.spawn_id, url: cached.url });
+    lastBossStatusUrls.set(state.guild_id, {
+      spawnId: state.spawn_id,
+      status: state.status,
+      currentHp: Number(state.current_hp),
+      maxHp: Number(state.max_hp),
+      url: cached.url,
+    });
     return { url: cached.url, file: null };
   }
   const last = lastBossStatusUrls.get(state.guild_id);
+  const lastMatchesState = last?.spawnId === state.spawn_id
+    && last.status === state.status
+    && last.currentHp === Number(state.current_hp)
+    && last.maxHp === Number(state.max_hp);
   if (cached?.image) {
     console.warn(`[boss] boss image r2 upload failed (guild=${state.guild_id}, spawn=${state.spawn_id}, cache=${cached.cache || 'unknown'}).`);
-    if (last?.url && last.spawnId === state.spawn_id) {
+    if (last?.url && lastMatchesState) {
       performanceLog('reused last boss image URL', {
         ...logContext,
         cacheStatus: cached.cache || 'image-fallback',
@@ -533,7 +543,7 @@ async function bossStatusImage(state, mobRow, {
     });
     return null;
   }
-  if (last?.url && last.spawnId === state.spawn_id) {
+  if (last?.url && lastMatchesState) {
     performanceLog('reused last boss image URL', {
       ...logContext,
       cacheStatus: 'missing',

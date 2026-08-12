@@ -801,6 +801,15 @@ async function handleAttackImpl(interaction) {
       rememberBossLog(state.spawn_id, discordId, sim);
       rememberSpawn(guildId, state.spawn_id);
 
+      // The attack transaction is committed. Refresh the live HP/leaderboard
+      // immediately; scheduler reconciliation keeps its normal debounce.
+      if (remaining > 0) {
+        await scheduleBossLiveRefresh(interaction.client, guildId, {
+          spawnId: state.spawn_id,
+          immediate: true,
+        });
+      }
+
       if (sim.bossThresholdEvents?.length) {
         const channelId = liveMessages.get(guildId)?.channelId || await resolveAnnounceChannelId(guildId);
         const channel = channelId ? await interaction.client.channels.fetch(channelId).catch(() => null) : null;
@@ -816,8 +825,6 @@ async function handleAttackImpl(interaction) {
 
       if (remaining <= 0) {
         await distributeRewards(interaction.client, guildId, state.spawn_id);
-      } else {
-        scheduleBossLiveRefresh(interaction.client, guildId, { spawnId: state.spawn_id });
       }
 
       const survived = sim.outcome === 'boss_timeout';

@@ -38,6 +38,11 @@ const {
   runSummon,
   claimSummonReward,
 } = require(path.join(ROOT, 'src', 'engine', 'summonEngine'));
+const {
+  ESSENCE_PER_DUPLICATE,
+  TIER_ALIAS,
+  TIER_ESSENCE_COLUMN,
+} = require(path.join(ROOT, 'src', 'config', 'gachaRates'));
 const { CHEST_ALIASES } = require(path.join(ROOT, 'src', 'config', 'dropRates'));
 const { emoji } = require(path.join(ROOT, 'src', 'utils', 'emojis'));
 const {
@@ -84,13 +89,12 @@ const pulls = [
 ];
 const lines = formatSummonResults(pulls).split('\n');
 check('identical deity pulls are grouped', lines.length === 2 && lines.filter((line) => line.includes('Njord')).length === 1);
-check('grouped duplicate uses tier, deity, essence icon, and pull count order',
+check('grouped duplicate uses tier, deity, essence icon, and Essence total order',
   lines[0].startsWith('<:mythical_icon:')
-    && lines[0].includes(`${emoji('njord')} **Njord** ${emoji('mythic_essence')} x**3**`)
+    && lines[0].includes(`${emoji('njord')} **Njord** ${emoji('mythic_essence')} x**4**`)
     && !lines[0].includes('Awakened')
-    && !lines[0].includes('Essence')
-    && !lines[0].includes(`${emoji('mythic_essence')} **2**`));
-check('grouped result keeps only the grouped pull count', lines[0].includes('x**3**') && !lines[0].includes('x**4**'));
+    && !lines[0].includes('Awakened'));
+check('grouped result displays tier Essence value times duplicate copies', lines[0].includes('x**4**') && !lines[0].includes('x**3**'));
 check('new-only deity has no tier wording, essence icon, or zero reward',
   !lines[1].includes('Remnant') && !lines[1].includes('Essence') && !lines[1].includes('+0'));
 check('grouped summon result order is unchanged', lines[0].includes('Njord') && lines[1].includes('Freyr'));
@@ -104,26 +108,48 @@ check('single new row omits the rarity wording and x1', !singleNewLine.includes(
 const singleDuplicateLine = formatSummonResultLine({
   name: 'Artemis', rarity: 'Awakened', isNew: false, essence: 2,
 });
-check('single duplicate row places essence icon and x1 after the deity', singleDuplicateLine.includes(
-  `${emoji('artemis')} **Artemis** ${emoji('mythic_essence')} x**1**`
-) && !singleDuplicateLine.includes('Awakened') && !singleDuplicateLine.includes(`${emoji('mythic_essence')} **2**`));
+check('single duplicate row places the awarded Essence amount after the deity', singleDuplicateLine.includes(
+  `${emoji('artemis')} **Artemis** ${emoji('mythic_essence')} x**2**`
+) && !singleDuplicateLine.includes('Awakened'));
 const singleDuplicateGroupLine = formatSummonResults([{
   name: 'Artemis', rarity: 'Awakened', isNew: false, essence: 2,
 }]);
-check('grouped single duplicate keeps x1 and no separate Essence number', singleDuplicateGroupLine.includes(
-  `${emoji('artemis')} **Artemis** ${emoji('mythic_essence')} x**1**`
-) && !singleDuplicateGroupLine.includes(`${emoji('mythic_essence')} **2**`));
+check('grouped single duplicate keeps its awarded Essence amount', singleDuplicateGroupLine.includes(
+  `${emoji('artemis')} **Artemis** ${emoji('mythic_essence')} x**2**`
+));
 
 const highTierDuplicateLines = formatSummonResults([
   { name: 'Legendary Deity', rarity: 'Undying', isNew: false, essence: 5 },
   { name: 'Supreme Deity', rarity: 'Primordial', isNew: false, essence: 10 },
 ]).split('\n');
-check('Legendary duplicates show the pull count', highTierDuplicateLines[0].includes(
-  `${emoji('legendary_essence')} x**1**`
+check('Legendary duplicates show the configured Essence amount', highTierDuplicateLines[0].includes(
+  `${emoji('legendary_essence')} x**5**`
 ));
-check('Supreme duplicates show the pull count', highTierDuplicateLines[1].includes(
-  `${emoji('supreme_essence')} x**1**`
+check('Supreme duplicates show the configured Essence amount', highTierDuplicateLines[1].includes(
+  `${emoji('supreme_essence')} x**10**`
 ));
+
+const tierEssenceLines = formatSummonResults([
+  ...Array.from({ length: 5 }, () => ({ name: 'Epic Deity', rarity: 'Remnant', isNew: false, essence: 1 })),
+  ...Array.from({ length: 3 }, () => ({ name: 'Mythic Deity', rarity: 'Awakened', isNew: false, essence: 2 })),
+  ...Array.from({ length: 3 }, () => ({ name: 'Legendary Deity', rarity: 'Undying', isNew: false, essence: 5 })),
+  ...Array.from({ length: 2 }, () => ({ name: 'Supreme Deity', rarity: 'Primordial', isNew: false, essence: 10 })),
+]).split('\n');
+check('grouped tier totals are Epic x5, Mythic x6, Legendary x15, and Supreme x20',
+  tierEssenceLines.some((line) => line.includes(`${emoji('epic_essence')} x**5**`))
+    && tierEssenceLines.some((line) => line.includes(`${emoji('mythic_essence')} x**6**`))
+    && tierEssenceLines.some((line) => line.includes(`${emoji('legendary_essence')} x**15**`))
+    && tierEssenceLines.some((line) => line.includes(`${emoji('supreme_essence')} x**20**`)));
+for (const [tier, perDuplicate] of Object.entries(ESSENCE_PER_DUPLICATE)) {
+  for (const copies of [1, tier === 'Epic' ? 5 : tier === 'Mythic' ? 3 : tier === 'Legendary' ? 3 : 2]) {
+    const rarity = TIER_ALIAS[tier];
+    const line = formatSummonResults(Array.from({ length: copies }, () => ({
+      name: `${tier} Validation Deity`, rarity, isNew: false, essence: perDuplicate,
+    })));
+    check(`${tier} x${copies} displays Essence x${perDuplicate * copies}`,
+      line.includes(`${emoji(`${tier.toLowerCase()}_essence`)} x**${perDuplicate * copies}**`));
+  }
+}
 
 const summary = summonOutcomeSummary(pulls);
 check('summary counts actual Awakened pulls by rarity', summary.includes('Awakened ×**3**'));
@@ -234,7 +260,7 @@ check('Sacred and Supreme Relics share the summon result builder', openCommandSo
 check('all configured equipment chests use the shared result builder', CHEST_ALIASES.length === 7
   && openCommandSource.includes('buildWeaponResultPayload({'));
 
-function makeSummonClient({ alreadyOwned = false } = {}) {
+function makeSummonClient({ alreadyOwned = false, tier = 'Epic' } = {}) {
   const today = new Date('2026-08-07T00:00:00.000Z');
   const state = {
     bag: {
@@ -252,7 +278,7 @@ function makeSummonClient({ alreadyOwned = false } = {}) {
     deity_id: 7,
     name: 'Njord',
     mythology: 'Norse',
-    tier: 'Epic',
+    tier,
     base_hp: 100,
     base_atk: 50,
     base_def: 25,
@@ -296,7 +322,9 @@ function makeSummonClient({ alreadyOwned = false } = {}) {
       }
       if (sql.startsWith('INSERT INTO game_logs')) return { rows: [] };
       if (sql.startsWith('UPDATE users_bag SET')) {
-        state.bag.epic_essence = params[1];
+        const column = Object.keys(state.bag).find((name) => sql.includes(`${name} = $2`));
+        if (!column) throw new Error(`missing Essence column in update: ${sql}`);
+        state.bag[column] = params[1];
         return { rows: [] };
       }
       if (sql.startsWith('WITH updated AS')) {
@@ -334,6 +362,24 @@ async function integrationChecks() {
     check('previously owned deities remain duplicates for every roll',
       existingResult.pulls.every((pull) => pull.isDupe) && existing.state.inserted.length === 0);
     check('existing-deity duplicate Essence is credited exactly', existing.state.bag.epic_essence === 2);
+
+    for (const [tier, perDuplicate] of Object.entries(ESSENCE_PER_DUPLICATE)) {
+      const count = tier === 'Supreme' ? 2 : 3;
+      const tierClient = makeSummonClient({ alreadyOwned: true, tier });
+      const tierResult = await runSummon(tierClient.client, `tier-${tier}`, { count, forceTier: tier });
+      const earned = tierResult.pulls.reduce((total, pull) => total + pull.essence, 0);
+      const column = TIER_ESSENCE_COLUMN[tier];
+      const rendered = formatSummonResults(tierResult.pulls.map((pull) => ({
+        name: pull.name,
+        rarity: TIER_ALIAS[pull.tier],
+        isNew: !pull.isDupe,
+        essence: pull.essence,
+      })));
+      check(`${tier} duplicate credit uses ${perDuplicate} Essence per copy`,
+        earned === perDuplicate * count && tierClient.state.bag[column] === earned);
+      check(`${tier} display matches the committed Essence total`,
+        rendered.includes(`x**${earned}**`));
+    }
 
     const claimedKeys = new Set();
     const guardClient = {

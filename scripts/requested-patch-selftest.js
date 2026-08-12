@@ -524,11 +524,11 @@ async function main() {
   assert.equal(duplicateSummonLines.length, 1);
   assert(duplicateSummonLines.every((line) =>
     line.includes('**Mayari**') && line.includes(emoji('mythic_essence'))
-      && line.includes('x**2**')
+      && line.includes('x**12**')
       && !line.includes('Awakened') && !line.includes('Essence')));
-  assert(duplicateSummonLine.includes('x**2**'));
+  assert(duplicateSummonLine.includes('x**12**'));
   assert(duplicateSummonLines.every((line) =>
-    line.startsWith(`${RARITY_SYMBOLS.Awakened} ${emoji('mayari')} **Mayari** ${emoji('mythic_essence')} x**2**`)));
+    line.startsWith(`${RARITY_SYMBOLS.Awakened} ${emoji('mayari')} **Mayari** ${emoji('mythic_essence')} x**12**`)));
   const newSummonLine = groupSummonResults([
     { name: 'Apolaki', rarity: 'Undying', isNew: true, essence: 0 },
   ]);

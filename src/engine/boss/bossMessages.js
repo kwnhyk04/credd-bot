@@ -49,7 +49,8 @@ const {
 const {
   liveMessages, nonOfficialRedirects, currentSpawn, pendingBossRefreshes,
   lastBossReconciliations, logCache,
-  chestForSpawn, clearPendingBossRefresh, bossProgressRefreshDebounceMs,
+  chestForSpawn, clearPendingBossRefresh, rememberSpawn, purgeBossRuntimeForGuild,
+  bossProgressRefreshDebounceMs,
 } = require('./bossRuntime');
 
 const NON_OFFICIAL_REDIRECT_COOLDOWN_MS = 6 * 60 * 60_000;
@@ -557,8 +558,19 @@ async function refreshLiveMessage(client, guildId, options = {}) {
   if (!shouldApply()) return false;
   if (msg && shouldApply()) {
     const retainedAttachments = existingBanner?.id ? [{ id: existingBanner.id }] : [];
-    const edited = await msg.edit({ ...payload, attachments: retainedAttachments }).catch(() => null);
+    // Components-V2 flags are immutable after the live message is created.
+    // `crd boss` sends this flag on the initial post, but repeating it in the
+    // attack-triggered PATCH makes Discord reject the edit and leaves the old
+    // HP/leaderboard visible. Keep the flag for fresh-message recovery only.
+    const editablePayload = { ...payload };
+    delete editablePayload.flags;
+    const edited = await msg.edit({ ...editablePayload, attachments: retainedAttachments }).catch(() => null);
     if (edited) return true;
+    // A tracked message that rejected an edit must not produce a duplicate
+    // boss message for every attack. The bounded scheduler retry can try again;
+    // `crd boss` remains the explicit recovery path when the message is gone or
+    // Discord continues rejecting edits.
+    return false;
   }
   // Preserve the status Canvas if an edit cannot be applied and the live
   // message must be reconstructed. This rare fallback may repeat an attempted
@@ -582,25 +594,39 @@ async function refreshLiveMessageProgress(client, guildId, {
 }
 
 function scheduleBossLiveRefresh(client, guildId, {
-  spawnId = null, retryAttempt = 0, telemetryCommand = 'boss:attack',
+  spawnId = null, retryAttempt = 0, telemetryCommand = 'boss:attack', immediate = false,
 } = {}) {
   const existing = pendingBossRefreshes.get(guildId);
   if (existing) {
     existing.spawnId = spawnId || existing.spawnId;
     existing.telemetryCommand = telemetryCommand || existing.telemetryCommand;
-    if (existing.running) existing.rerun = true;
+    if (immediate) {
+      existing.immediate = true;
+      existing.retryAttempt = 0;
+      if (existing.running) {
+        existing.rerun = true;
+      } else if (existing.timer && existing.run) {
+        clearTimeout(existing.timer);
+        existing.timer = setTimeout(existing.run, 0);
+      }
+    } else if (existing.running) {
+      existing.rerun = true;
+    }
     bandwidthLog('boss progress refresh coalesced', {
       system: 'boss',
       command: existing.telemetryCommand,
       imageType: 'boss_status',
       guildId,
       spawnId: existing.spawnId,
-      debounceMs: bossProgressRefreshDebounceMs(),
+      debounceMs: existing.immediate ? 0 : bossProgressRefreshDebounceMs(),
+      immediate: existing.immediate,
     });
-    return;
+    return existing.done;
   }
 
-  const debounceMs = bossProgressRefreshDebounceMs();
+  // Scheduler/reconciliation refreshes retain their coalescing delay. Only a
+  // post-commit player attack opts into the zero-delay path.
+  const debounceMs = immediate ? 0 : bossProgressRefreshDebounceMs();
   bandwidthLog('boss progress refresh scheduled', {
     system: 'boss',
     command: telemetryCommand,
@@ -608,6 +634,7 @@ function scheduleBossLiveRefresh(client, guildId, {
     guildId,
     spawnId,
     debounceMs,
+    immediate,
     retryAttempt,
   });
 
@@ -617,6 +644,7 @@ function scheduleBossLiveRefresh(client, guildId, {
     spawnId,
     retryAttempt,
     telemetryCommand,
+    immediate,
     running: false,
     rerun: false,
     cancelled: false,
@@ -629,7 +657,7 @@ function scheduleBossLiveRefresh(client, guildId, {
     },
   };
 
-  const timer = setTimeout(async () => {
+  const run = async () => {
     if (pendingBossRefreshes.get(guildId) !== pending || pending.cancelled) {
       pending.finish();
       return;
@@ -656,17 +684,24 @@ function scheduleBossLiveRefresh(client, guildId, {
       try {
         refreshSucceeded = await refreshLiveMessageProgress(client, guildId, {
           telemetryCommand: pending.telemetryCommand,
-          shouldApply: (view) => (
-            !pending.cancelled
-            && pendingBossRefreshes.get(guildId) === pending
-            && (!pending.spawnId || view?.state?.spawn_id === pending.spawnId)
-            && view?.state?.status === 'active'
-          ),
+          shouldApply: (view) => {
+            // A final/death transition can race an attack-triggered refresh
+            // that was queued just after the terminal cleanup began. Mark the
+            // pending work cancelled when the fetched state is terminal so
+            // it cannot delete/recreate or overwrite the completed message.
+            if (view?.state && view.state.status !== 'active') pending.cancelled = true;
+            return (
+              !pending.cancelled
+              && pendingBossRefreshes.get(guildId) === pending
+              && (!pending.spawnId || view?.state?.spawn_id === pending.spawnId)
+              && view?.state?.status === 'active'
+            );
+          },
         });
         if (!refreshSucceeded) failureReason = 'no-message-updated';
       } catch (err) {
         failureReason = err.message;
-        console.error(`[boss] debounced refresh failed (guild ${guildId}):`, err.message);
+        console.error(`[boss] progress refresh failed (guild ${guildId}):`, err.message);
       }
       bandwidthLog(refreshSucceeded ? 'boss progress refresh updated' : 'boss progress refresh failed', {
         system: 'boss',
@@ -680,29 +715,41 @@ function scheduleBossLiveRefresh(client, guildId, {
       });
     } finally {
       pending.running = false;
+      let followupDone = null;
       if (pendingBossRefreshes.get(guildId) === pending) {
         pendingBossRefreshes.delete(guildId);
         if (!pending.cancelled && !refreshSucceeded && pending.retryAttempt < BOSS_PROGRESS_REFRESH_MAX_RETRIES) {
-          scheduleBossLiveRefresh(client, guildId, {
+          followupDone = scheduleBossLiveRefresh(client, guildId, {
             spawnId: pending.spawnId,
             retryAttempt: pending.retryAttempt + 1,
             telemetryCommand: pending.telemetryCommand,
+            immediate: pending.immediate,
           });
         } else if (!pending.cancelled && pending.rerun) {
-          scheduleBossLiveRefresh(client, guildId, {
+          followupDone = scheduleBossLiveRefresh(client, guildId, {
             spawnId: pending.spawnId,
             telemetryCommand: pending.telemetryCommand,
+            immediate: pending.immediate,
           });
         } else if (!pending.cancelled && !refreshSucceeded) {
           liveMessages.delete(guildId);
         }
       }
-      pending.finish();
+      if (followupDone) {
+        // Keep callers that awaited the attack-triggered refresh blocked until
+        // the latest coalesced generation has rendered, not merely until an
+        // older snapshot finished its edit.
+        followupDone.then(() => pending.finish(), () => pending.finish());
+      } else {
+        pending.finish();
+      }
     }
-  }, debounceMs);
+  };
 
-  pending.timer = timer;
+  pending.run = run;
+  pending.timer = setTimeout(run, debounceMs);
   pendingBossRefreshes.set(guildId, pending);
+  return pending.done;
 }
 
 module.exports = {

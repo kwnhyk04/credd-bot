@@ -14,7 +14,7 @@
  */
 
 const {
-  envNumber, envPositiveInt, performanceLog,
+  envNumber, envPositiveInt, bandwidthLog, performanceLog,
 } = require('../../utils/runtimeLogs');
 const { registerMemorySource } = require('../../utils/memoryRegistry');
 const {
