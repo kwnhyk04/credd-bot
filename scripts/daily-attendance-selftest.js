@@ -196,6 +196,33 @@ async function testNewStreakValueDeterminesMilestone() {
   assert.equal(day45.client.bag.boss_golden_chest, 1);
 }
 
+async function testCycleAndStreakStaySeparate() {
+  const cases = [
+    { monthly: 28, overall: 28, day: 29, cycle: 29, milestone: null },
+    { monthly: 29, overall: 29, day: 30, cycle: 30, milestone: 'Boss Golden Chest' },
+    { monthly: 30, overall: 30, day: 31, cycle: 1, milestone: null },
+    { monthly: 1, overall: 31, day: 32, cycle: 2, milestone: null },
+    { monthly: 14, overall: 44, day: 45, cycle: 15, milestone: 'Boss Golden Chest' },
+    { monthly: 29, overall: 59, day: 60, cycle: 30, milestone: 'Boss Golden Chest' },
+    { monthly: 30, overall: 60, day: 61, cycle: 1, milestone: null },
+  ];
+
+  for (const expected of cases) {
+    const { result } = await claimFromState({
+      monthly: expected.monthly,
+      overall: expected.overall,
+    });
+    assert.equal(result.day, expected.day);
+    assert.equal(result.overall, expected.day);
+    assert.equal(result.monthly, expected.cycle);
+    assert.equal(result.milestoneChestLabel, expected.milestone);
+    const reward = dailyReward(expected.cycle);
+    assert.equal(result.credux, reward.credux);
+    assert.equal(result.shards, reward.shards);
+    assert.equal(result.chestLabel, reward.chestLabel);
+  }
+}
+
 async function testFortyFiveClaimsAndDuplicateGuard() {
   const client = new FakeAttendanceClient();
   const start = Date.parse('2026-01-01T04:00:00.000Z');
@@ -299,13 +326,79 @@ async function testPhtBoundaryAndRestartPersistence() {
   assert.equal(second.overall, 2);
 }
 
+async function testSafePersistedStreakRestoration() {
+  const now = '2026-08-20T04:00:00.000Z';
+  const today = phtDateKey(now);
+
+  const alreadyClaimed = new FakeAttendanceClient({
+    now,
+    monthly: 17,
+    overall: 47,
+    lastDate: today,
+  });
+  const beforeAlready = JSON.stringify({
+    user: alreadyClaimed.user,
+    bag: alreadyClaimed.bag,
+    logs: alreadyClaimed.logs,
+  });
+  assert.deepEqual(await claimDaily(alreadyClaimed, 'today_user'), {
+    status: 'already',
+    monthly: 17,
+    overall: 47,
+  });
+  assert.equal(JSON.stringify({
+    user: alreadyClaimed.user,
+    bag: alreadyClaimed.bag,
+    logs: alreadyClaimed.logs,
+  }), beforeAlready);
+
+  const yesterdayClaim = new FakeAttendanceClient({
+    now,
+    monthly: 17,
+    overall: 47,
+    lastDate: shiftDate(today, -1),
+  });
+  const resumed = await claimDaily(yesterdayClaim, 'yesterday_user');
+  assert.equal(resumed.day, 48);
+  assert.equal(resumed.overall, 48);
+  assert.equal(resumed.monthly, 18);
+
+  const restarted = new FakeAttendanceClient({
+    now,
+    monthly: 1,
+    overall: 31,
+    lastDate: shiftDate(today, -1),
+  });
+  const afterRestart = await claimDaily(restarted, 'restart_streak_user');
+  assert.equal(afterRestart.day, 32);
+  assert.equal(afterRestart.overall, 32);
+  assert.equal(afterRestart.monthly, 2);
+
+  const expired = new FakeAttendanceClient({
+    now,
+    monthly: 17,
+    overall: 47,
+    lastDate: shiftDate(today, -2),
+  });
+  const reset = await claimDaily(expired, 'expired_user');
+  assert.equal(reset.day, 1);
+  assert.equal(reset.overall, 1);
+  assert.equal(reset.monthly, 1);
+  assert.equal(reset.milestoneChestLabel, null);
+}
+
 function testDisplayAndScope() {
   const source = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'commands', 'economy', 'daily.js'),
     'utf8'
   );
+  assert.match(source, /status: 'ok', day: overall, monthly, overall,/);
+  assert.doesNotMatch(source, /status: 'ok', day: monthly, monthly, overall,/);
+  assert.match(source, /Daily Attendance — Day \$\{result\.day\}/);
   assert.match(source, /const streakUnit = Number\(result\.overall\) === 1 \? 'day' : 'days';/);
   assert.match(source, /Month: \$\{result\.monthly\} \/ 30 · Streak: \$\{result\.overall\} \$\{streakUnit\}/);
+  assert.match(source, /last_daily_claim_date = \$\{TODAY\}/);
+  assert.match(source, /last_daily_claim_date = \$\{TODAY\} - INTERVAL '1 day'/);
   assert.doesNotMatch(source, /· Overall:/);
   assert.doesNotMatch(source, /raidRewardLimits/);
 }
@@ -314,9 +407,11 @@ async function main() {
   testBaseRewards();
   await testMilestoneTable();
   await testNewStreakValueDeterminesMilestone();
+  await testCycleAndStreakStaySeparate();
   await testFortyFiveClaimsAndDuplicateGuard();
   await testBrokenStreakAndReearnedMilestones();
   await testPhtBoundaryAndRestartPersistence();
+  await testSafePersistedStreakRestoration();
   testDisplayAndScope();
   console.log('Daily attendance self-test passed (rewards, milestones, PHT reset, duplicate guard, 45-day cycle).');
 }

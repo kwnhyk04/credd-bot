@@ -6,8 +6,9 @@
  * Two counters: users.monthly_streak is the rolling 1–30 reward cycle, while
  * users.overall_streak is the current consecutive attendance streak. A consecutive PHT
  * day advances both; a missed day (or first claim) resets both to Day 1, preserving the
- * existing cycle behavior. Base rewards use the monthly day; milestone rewards use only
- * the consecutive streak, which continues across the monthly wrap.
+ * existing cycle behavior. Base rewards use the monthly day; milestone rewards and the
+ * player-facing Day title use only the consecutive streak, which continues across the
+ * monthly wrap.
  *
  * Lock order: users_bag → users (Phase-5 convention; same as bestow). game_logs rows use
  * action 'Daily' (credux / shards / chest).
@@ -175,7 +176,7 @@ async function claimDaily(client, discordId, { bypass = false } = {}) {
   }
 
   return {
-    status: 'ok', day: monthly, monthly, overall,
+    status: 'ok', day: overall, monthly, overall,
     credux: rw.credux, shards: rw.shards, chestLabel: rw.chestLabel,
     milestoneChestLabel: milestone?.chestLabel || null,
   };
@@ -253,7 +254,7 @@ async function execute(message) {
   }
   if (result.status === 'already') {
     return reply(message, {
-      content: `⏳ You already claimed today (Day ${result.monthly}). Come back after midnight PHT.`,
+      content: `⏳ You already claimed today (Day ${result.overall}). Come back after midnight PHT.`,
     });
   }
   return reply(message, await buildDailyPayload(result, {
