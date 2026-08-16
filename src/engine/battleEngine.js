@@ -53,7 +53,7 @@
  *     duel/raid → rounds 1,4,16,…   boss → every 3rd round
  *
  * MAGE OVERCHARGE (§11/§13.1): on every 3rd round (rounds 3,6,9,…) the Mage's PRIMARY
- *   attack is ×(2.75 + damage%/100) and cannot crit. The pre-roll latch and
+ *   attack is ×(4.0 + damage%/100) and cannot crit. The pre-roll latch and
  *   nextAttackAutoCrit are ignored for that attack. Additional attacks in the same
  *   action never inherit Overcharge; they keep fresh crit rolls and normal multipliers.
  *   Skip-CC on a multiple of 3 → the action never runs → that overcharge is simply lost
@@ -62,7 +62,7 @@
  * DAMAGE PIPELINE (per hit) — ONE unified rule (§35.2 / config/combat):
  *   base = effATK × (1 − effDEF/(effDEF+200)) × variance(0.90–1.10)
  *   then exactly one multiplier:
- *     overcharge (Mage 3rd-round primary): ×(2.75 + damage%/100), no crit
+ *     overcharge (Mage 3rd-round primary): ×(4.0 + damage%/100), no crit
  *     otherwise:                   ×((critLevel ? 2.0 : 1) + damage%/100)
  *   critLevel = a rolled crit OR a Double (Idiyanale, a guaranteed crit-level hit that DOES
  *   take the rider). damage% = weapon bonusDmgPct + procced sources (Katana +30, future
@@ -1423,7 +1423,7 @@ function resolveBattle(a, b, opts = {}) {
       // Double (Idiyanale) is a GUARANTEED crit-level hit — same 2.0 base + damage%, so it
       // stacks with the rider (Supreme + double → ×2.5; Supreme + deity 50% + double → ×3.0).
       // Overcharge (Mage 3rd-round primary attack) is its own lane:
-      // ×(2.75 + damage%/100), no crit.
+      // ×(4.0 + damage%/100), no crit.
       const overchargeFired = mainHit && overchargeRound;
       const doubled = mainHit && S.scratch.nextAttackDouble && !overchargeFired;
       const critApplied = crit && !overchargeFired && !doubled;
@@ -1442,7 +1442,7 @@ function resolveBattle(a, b, opts = {}) {
       const rolledDamage = (extraAtkMult) => {
         let amount = mitigated(effAtk(S, extraAtkMult) * atkScale, def) * variance;
         if (overchargeFired) {
-          // Overcharge stacks the damage-% lane ADDITIVELY onto the ×2.75 base,
+          // Overcharge stacks the damage-% lane ADDITIVELY onto the ×4.0 base,
           // still with NO crit. ATK-mult procs already fold in through effAtk.
           amount *= OVERCHARGE_MULT + damagePct / 100;
         } else {

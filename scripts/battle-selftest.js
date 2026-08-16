@@ -1368,9 +1368,9 @@ check('class base and per-level scaling match the balance table',
   );
   for (const round of [3, 6]) {
     const attacks = attackLines(mageLabrys, round);
-    check(`Mage + Labrys round ${round}: primary is ×2.75 and Labrys stays normal`,
+    check(`Mage + Labrys round ${round}: primary is ×4.0 and Labrys stays normal`,
       attacks.length === 2
-        && dmgOf([attacks[0]], 'attacks') === 275
+        && dmgOf([attacks[0]], 'attacks') === 400
         && attacks[0].includes('(Overcharge!)')
         && dmgOf([attacks[1]], 'attacks') === 70
         && !attacks[1].includes('(Overcharge!)'));
@@ -1411,7 +1411,7 @@ check('class base and per-level scaling match the balance table',
     .filter((event) => event.includes('Vampiric Rune — healed'));
   check('Mage primary and Labrys attacks calculate Lifesteal independently',
     mageLifeR3.length === 2
-      && mageLifeR3.some((event) => event.includes('healed 27 HP'))
+      && mageLifeR3.some((event) => event.includes('healed 40 HP'))
       && mageLifeR3.some((event) => event.includes('healed 7 HP')),
     mageLifeR3.join(' | '));
 
@@ -1561,7 +1561,7 @@ check('class base and per-level scaling match the balance table',
     `max=${Math.max(...multiHitTicks)}`);
 }
 
-// — Mage Overcharge: fires rounds 3/6/9, fixed ×2.75, crit suppressed —
+// — Mage Overcharge: fires rounds 3/6/9, fixed ×4.0, crit suppressed —
 {
   const mk = () => player({ class: 'Mage', classPassive: 'overcharge' });
   // raid draws/round: critPre, playerVar, mobCrit, mobVar. Round 3 = overcharge; its
@@ -1569,8 +1569,8 @@ check('class base and per-level scaling match the balance table',
   const script = [0.0, /* r1 */ 0.99, 0.5, 0.99, 0.5, /* r2 */ 0.99, 0.5, 0.99, 0.5,
     /* r3 */ 0.0, 0.5, 0.99, 0.5];
   const sim = resolveBattle(mk(), mob({ hp: 100000 }), { seed: 1, rng: scripted(script) });
-  // ×2.75 fixed base multiplier (no crit, no rider) → exact pipeline result 589.
-  check('Overcharge fires round 3 = 589 (×2.75)', dmgOf(roundEvents(sim, 3), 'attacks') === 589,
+  // ×4.0 fixed base multiplier (no crit, no rider) → exact pipeline result 857.
+  check('Overcharge fires round 3 = 857 (×4.0)', dmgOf(roundEvents(sim, 3), 'attacks') === 857,
     `got ${dmgOf(roundEvents(sim, 3), 'attacks')}`);
   check('Overcharge release marker on round 3', hasEvent(roundEvents(sim, 3), 'Charge 3/3 — Released!'));
   check('Overcharge charges on rounds 1/2',
@@ -1586,9 +1586,9 @@ check('class base and per-level scaling match the balance table',
   check('Overcharge round 3 never crits (pre-roll latch voided)', !hasEvent(roundEvents(sim, 3), '(CRIT!)'));
   check('round 1/2 are plain hits = 214', dmgOf(roundEvents(sim, 1), 'attacks') === 214 && dmgOf(roundEvents(sim, 2), 'attacks') === 214,
     `r1=${dmgOf(roundEvents(sim, 1), 'attacks')} r2=${dmgOf(roundEvents(sim, 2), 'attacks')}`);
-  check('Overcharge uses the exact ×2.75 base multiplier',
+  check('Overcharge uses the exact ×4.0 base multiplier',
     dmgOf(roundEvents(sim, 3), 'attacks')
-      === Math.floor(300 * (1 - 80 / (80 + 200)) * 2.75));
+      === Math.floor(300 * (1 - 80 / (80 + 200)) * 4.0));
 }
 
 // — Overcharge re-fires every 3rd round (fallback-driven; not 4/5) —

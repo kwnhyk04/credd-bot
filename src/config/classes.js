@@ -84,7 +84,7 @@ const CLASSES = {
       'The Mage does not swing a sword. They do not need to. While others close the distance, the Mage is already three moves ahead, ' +
       'building energy that no armor can absorb. When the charge is ready, there is no blocking what comes next.',
     passiveLine:
-      '**Passive: Overcharge** — Every third primary strike deals 2.75× damage (275% of normal damage before other bonuses), cannot crit, and applies one random 25% debuff: Paralyze, Burn, DEF Down, or ATK Down.',
+      '**Passive: Overcharge** — Every third primary strike deals 4.0× damage (400% of normal damage before other bonuses), cannot crit, and applies one random 25% debuff: Paralyze, Burn, DEF Down, or ATK Down.',
   },
   Knight: {
     emoji: '🛡️',

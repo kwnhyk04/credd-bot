@@ -23,7 +23,7 @@ const CRIT_MULT = 2.0;
 
 // Mage Overcharge: a fixed base multiplier on the primary attack every 3rd round
 // (cannot crit). The engine keeps the existing additive damage-% rider lane.
-const OVERCHARGE_MULT = 2.75;
+const OVERCHARGE_MULT = 4.0;
 
 // Idiyanale "double damage" is a GUARANTEED crit-level hit (base CRIT_MULT) that DOES
 // take the damage-% rider — so Supreme + double = ×2.5, Supreme + deity 50% + double =

@@ -21,7 +21,7 @@ base = effATK * (1 - effDEF / (effDEF + 200)) * variance(0.90 .. 1.10)
 
 // then exactly ONE multiplier:
 //   Mage Overcharge (every 3rd round, primary attack, cannot crit):
-damage = base * (2.75 + damagePct / 100)
+damage = base * (4.0 + damagePct / 100)
 //   otherwise:
 damage = base * ((critLevel ? 2.0 : 1) + damagePct / 100)
 
@@ -275,14 +275,14 @@ reduction plus a Petrify would strictly dominate Mail of Brokkr's flat 30%.
 ## What is Mage Overcharge and how does it interact with crits
 
 Overcharge is the Mage class passive. On every 3rd round the Mage's **primary** attack
-uses a fixed 2.75 multiplier and cannot crit.
+uses a fixed 4.0 multiplier and cannot crit.
 
 <!-- src: src/engine/battleEngine.js:56 -->
 
 | Rule | Detail |
 |---|---|
 | Fires on | Rounds 3, 6, 9, 12, … |
-| Multiplier | `2.75 + damagePct / 100` |
+| Multiplier | `4.0 + damagePct / 100` |
 | Can crit | No — the crit pre-roll is voided for that attack |
 | Additional attacks in the same action | Never inherit Overcharge; they roll crit normally |
 | Blocked by crowd control | Yes — that Overcharge is lost, there is no carry-over |
