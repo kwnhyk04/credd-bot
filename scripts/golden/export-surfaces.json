@@ -483,8 +483,8 @@
           },
           {
             "type": 1,
-            "name": "enhance",
-            "description": "Enhance a deity with essence",
+            "name": "ascend",
+            "description": "Ascend a deity with essence",
             "options": [
               {
                 "type": 3,

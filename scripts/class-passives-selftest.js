@@ -7,6 +7,7 @@ const path = require('node:path');
 const ROOT = path.resolve(__dirname, '..');
 const { CLASS_NAMES, CLASSES, CLASS_PASSIVE_VALUES } = require('../src/config/classes');
 const { buildClassPassives, execute } = require('../src/commands/rpg/classPassives');
+const { emojiForDisplay } = require('../src/utils/emojis');
 
 function textContents(value, output = []) {
   if (!value || typeof value !== 'object') return output;
@@ -30,12 +31,16 @@ async function main() {
   const rendered = JSON.stringify(json);
   for (const name of CLASS_NAMES) {
     assert(rendered.includes(name), `missing class ${name}`);
+    assert(rendered.includes(emojiForDisplay(name, CLASSES[name].emoji)), `missing registered icon for ${name}`);
     assert(rendered.includes(CLASSES[name].passiveLine), `missing current passive for ${name}`);
     assert(fs.existsSync(path.join(ROOT, 'assets', 'classes', `${name.toLowerCase()}.png`)),
       `missing dedicated ${name.toLowerCase()}.png source asset`);
   }
   assert.equal(new Set(CLASS_NAMES).size, 5);
-  assert.equal(CLASS_PASSIVE_VALUES.Knight.regeneration, 0.015);
+  assert.equal(CLASS_PASSIVE_VALUES.Knight.regeneration, 0.01);
+  assert(CLASSES.Mage.passiveLine.includes('4.0× damage (60%)'));
+  assert(CLASSES.Mage.passiveLine.includes('5.0× damage (40%)'));
+  assert(CLASSES.Mage.passiveLine.includes('50%'));
   assert.equal(CLASS_PASSIVE_VALUES.Fighter.damageBonus, 0.50);
   assert.equal(CLASS_PASSIVE_VALUES.Fighter.stunChance, 0.30);
   assert.equal(CLASS_PASSIVE_VALUES.Fighter.bashDamage, 0.50);

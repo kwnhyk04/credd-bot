@@ -43,7 +43,7 @@ const { renderPortraitCard } = require('../../engine/renderPortraitCard');
 const { assetPath, isRemoteAssetsEnabled } = require('../../utils/assets');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../../utils/imageOutput');
-const { emoji } = require('../../utils/emojis');
+const { emoji, emojiForDisplay } = require('../../utils/emojis');
 const { STYLE_COST } = require('../../engine/avatarSystem');
 const { grantTokensTx } = require('../../engine/supporterTokens');
 
@@ -67,7 +67,7 @@ function changeClassSelectPayload(userId, currentClass) {
   const classLines = CLASS_NAMES
     .map((name) => {
       const marker = name === currentClass ? ' — *current class*' : '';
-      return `${CLASSES[name].emoji} **${name}**${marker}\n-# Passive: ${CLASSES[name].passiveName}`;
+      return `${emojiForDisplay(name, CLASSES[name].emoji)} **${name}**${marker}\n-# Passive: ${CLASSES[name].passiveName}`;
     })
     .join('\n\n');
 
@@ -97,7 +97,7 @@ function changeClassSelectRow(userId, currentClass) {
       new ButtonBuilder()
         .setCustomId(`chgclass:class:${name}:${userId}`)
         .setLabel(name)
-        .setEmoji(CLASSES[name].emoji)
+        .setEmoji(emojiForDisplay(name, CLASSES[name].emoji))
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(name === currentClass) // current class is not selectable
     )

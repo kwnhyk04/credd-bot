@@ -199,6 +199,9 @@ The Avatar Shop sells character portraits for the stats card, also with supporte
 | Webtoon | 15 |
 | Genesis | 15 |
 
+The separate **Custom Avatar Token** shop product costs **30 supporter tokens** and is
+bought with `crd avatar buy at`; redeem it with `crd use at`.
+
 | Command | Syntax |
 |---|---|
 | Browse | `crd avatar shop` |

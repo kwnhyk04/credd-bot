@@ -46,7 +46,13 @@ function installModuleStub(filename, exports) {
 
 async function main() {
   assert.match(emoji('diamond_open'), /^<a:diamond_open:\d+>$/);
-  assert.match(emoji('genesis_open'), /^<a:genesis_open:\d+>$/);
+  assert.match(emoji('divine_open'), /^<a:divine_open:\d+>$/);
+  assert.match(emojiForDisplay('Kiri', 'Weapon'), /^<:kiri:\d+>$/);
+  assert.equal(
+    gearTierEmoji('Divine'),
+    emoji('eqdivine_icon'),
+    'Divine weapon displays must resolve the tier emoji through game_items.txt',
+  );
 
   const revealCalls = [];
   let editPayload = null;
@@ -70,7 +76,7 @@ async function main() {
     buildResult: () => buildWeaponResultPayload({
       gifKey: 'diamond_chest',
       title: 'Opened 1 × Diamond Chest',
-      items: [{ id: 'drop1', gearClass: 'weapon', name: 'Kiri', tier: 'Genesis', sockets: 3 }],
+      items: [{ id: 'drop1', gearClass: 'weapon', name: 'Kiri', tier: 'Divine', sockets: 3 }],
       sacredRelics: 1,
       supremeRelics: 2,
       remaining: 0,
@@ -89,7 +95,7 @@ async function main() {
 
   assert.deepEqual(
     GEAR_TIER_STRENGTH,
-    ['Genesis', 'Supreme', 'Legendary', 'Mythic', 'Rare', 'Common'],
+    ['Divine', 'Supreme', 'Legendary', 'Mythic', 'Rare', 'Common'],
   );
   const inventoryUser = { id: 'bag-user' };
   const weaponPayload = buildWeaponsPage({
@@ -97,16 +103,16 @@ async function main() {
     total: 1,
     page: 0,
     weapons: [{
-      weapon_id: 'weapon1', name: 'Kiri', tier: 'Genesis', type: 'Sword',
+      weapon_id: 'weapon1', name: 'Kiri', tier: 'Divine', type: 'Sword',
       enhancement: 11, is_locked: false, equipped: false, curr_atk: 3200,
       crit: 20, socket_count: 2,
     }],
   });
   const weaponJson = JSON.stringify(weaponPayload.components.map((component) => component.toJSON()));
   assert(weaponJson.includes(
-    `\`weapon1\` ${emojiForDisplay('Kiri', 'Weapon')} **Kiri** +10\\n-# ${gearTierEmoji('Genesis')} Genesis`
+    `\`weapon1\` ${emojiForDisplay('Kiri', 'Weapon')} **Kiri** +10\\n-# ${gearTierEmoji('Divine')} Divine`
   ));
-  assert(!weaponJson.includes(`\`weapon1\` ${gearTierEmoji('Genesis')}`));
+  assert(!weaponJson.includes(`\`weapon1\` ${gearTierEmoji('Divine')}`));
 
   const armorPayload = buildArmorsPage({
     user: inventoryUser,
@@ -212,7 +218,7 @@ async function main() {
   assert.equal(CHESTS.some((item) => item.code === 'sr' || item.code === 'supr'), false);
   assert(CHESTS.some((item) => item.code === 'dmc'));
   assert(CHESTS.some((item) => item.code === 'gnc'));
-  assert.equal(DEV_CHEST_COLUMNS.genesis, 'genesis_chest');
+  assert.equal(DEV_CHEST_COLUMNS.divine, 'genesis_chest');
   assert.equal(DEV_CHEST_COLUMNS.gnc, 'genesis_chest');
   assert.equal(resolveBagItem(' SR ').id, 'sr');
   assert.equal(resolveBagItem('1'), null);

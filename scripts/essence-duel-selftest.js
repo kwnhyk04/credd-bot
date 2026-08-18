@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const exchange = require('../src/commands/rpg/exchangeEssence');
 const duel = require('../src/commands/rpg/duel');
 const {
-  QUEST_DEFS, QUEST_TYPES, WEEKLY_QUEST_DEFS, WEEKLY_QUEST_TYPES,
+  QUEST_DEFS, QUEST_TYPES, DAILY_DIFFICULTY_REWARDS,
+  WEEKLY_QUEST_DEFS, WEEKLY_QUEST_TYPES, WEEKLY_QUEST_CREDUX,
 } = require('../src/utils/questProgress');
 const { ESSENCE_COLUMN, ESSENCE_CONVERT } = require('../src/config/runes');
 
@@ -128,13 +129,25 @@ async function run() {
     && !QUEST_TYPES.includes('duel_wins') && !QUEST_TYPES.includes('duel_challenges'));
   check('future weekly quest pool contains only the unified duel quest', WEEKLY_QUEST_TYPES.includes('duel_participations')
     && !WEEKLY_QUEST_TYPES.includes('duel_wins') && WEEKLY_QUEST_TYPES.length === 5);
-  check('daily unified duel target and reward are retained', QUEST_DEFS.duel_participations.roll(() => 0) === 2
+  check('daily unified duel target is retained and its Mid reward is fixed', QUEST_DEFS.duel_participations.roll(() => 0) === 2
     && QUEST_DEFS.duel_participations.roll(() => 0.999) === 5
-    && QUEST_DEFS.duel_participations.reward(2).join(',') === '3000,5'
-    && QUEST_DEFS.duel_participations.reward(5).join(',') === '6000,10');
+    && QUEST_DEFS.duel_participations.difficulty === 'Mid'
+    && QUEST_DEFS.duel_participations.reward(2).join(',') === '50000,750'
+    && QUEST_DEFS.duel_participations.reward(5).join(',') === '50000,750');
+  check('daily difficulty reward map is exact', JSON.stringify(DAILY_DIFFICULTY_REWARDS) === JSON.stringify({
+    Easy: [30000, 500], Mid: [50000, 750], Hard: [100000, 1000],
+  }));
+  check('daily quest types use the requested classifications', QUEST_DEFS.raid_wins.difficulty === 'Easy'
+    && QUEST_DEFS.elite_defeats.difficulty === 'Hard'
+    && QUEST_DEFS.credux_spent.difficulty === 'Hard'
+    && QUEST_DEFS.weapon_enhancements.difficulty === 'Hard'
+    && QUEST_DEFS.duel_wins.difficulty === 'Mid'
+    && QUEST_DEFS.duel_challenges.difficulty === 'Mid'
+    && QUEST_DEFS.duel_participations.difficulty === 'Mid');
   check('weekly unified duel target and reward are retained', WEEKLY_QUEST_DEFS.duel_participations.roll(() => 0) === 5
     && WEEKLY_QUEST_DEFS.duel_participations.roll(() => 0.999) === 12
-    && WEEKLY_QUEST_DEFS.duel_participations.reward(12).join(',') === '25000,50');
+    && WEEKLY_QUEST_DEFS.duel_participations.reward(12).join(',') === '100000,50'
+    && WEEKLY_QUEST_CREDUX === 100000);
   check('legacy quest definitions remain available for assigned rows', Boolean(QUEST_DEFS.duel_wins)
     && Boolean(QUEST_DEFS.duel_challenges) && Boolean(WEEKLY_QUEST_DEFS.duel_wins));
 

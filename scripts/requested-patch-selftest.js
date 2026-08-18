@@ -570,7 +570,7 @@ async function main() {
 
   validateDefinitions();
   assert.equal(DEITY_UPDATES.length, 38);
-  assert.equal(WEAPON_UPDATES.length, 10);
+  assert.equal(WEAPON_UPDATES.length, 11);
   assert.equal(MOB_UPDATES.length, 4);
   assert.equal(WEAPON_UPDATES.find((entry) => entry.requestedName === 'Laevateinn').name, 'Laevateinn Staff');
   const passiveData = fs.readFileSync(path.join(__dirname, '..', 'assets', 'data', 'passive_registry_keys.md'), 'utf8');
@@ -620,7 +620,7 @@ async function main() {
   assert(supremeSql.includes('weapon_count <> 4 OR deity_count <> 2'));
   assert(!supremeSql.includes('ALTER TABLE'));
   assert.equal((passiveSql.match(/^\s+\('deity',/gm) || []).length, 38);
-  assert.equal((passiveSql.match(/^\s+\('weapon',/gm) || []).length, 10);
+  assert.equal((passiveSql.match(/^\s+\('weapon',/gm) || []).length, 11);
   assert.equal((passiveSql.match(/^\s+\('mob',/gm) || []).length, 4);
   const sqlLiteral = (value) => String(value).replace(/'/g, "''");
   for (const [rosterType, updates] of [
@@ -629,10 +629,12 @@ async function main() {
     ['mob', MOB_UPDATES],
   ]) {
     for (const entry of updates) {
-      assert.equal(typeof PASSIVES[entry.key], 'function', `passiveRegistry.js missing ${entry.key} for ${entry.name}`);
+      const runtimeKey = entry.runtimeKey || entry.key;
+      assert.equal(typeof PASSIVES[runtimeKey], 'function', `passiveRegistry.js missing ${runtimeKey} for ${entry.name}`);
+      const runtimeDescription = entry.runtimeDescription || entry.description;
       assert(
-        passiveLineByKey.get(entry.key)?.endsWith(entry.description),
-        `passive_registry_keys.md key ${entry.key} does not carry the final text for ${entry.name}`,
+        passiveLineByKey.get(runtimeKey)?.endsWith(runtimeDescription),
+        `passive_registry_keys.md key ${runtimeKey} does not carry the final text for ${entry.name}`,
       );
       const sqlTuple = `('${rosterType}', '${sqlLiteral(entry.name)}', '${sqlLiteral(entry.key)}', '${sqlLiteral(entry.description)}')`;
       assert(

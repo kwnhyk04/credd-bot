@@ -34,6 +34,8 @@ const { SUPPORTER_BADGE_HEIGHT } = require('../config/cosmetics');
 const { containRect, badgeRect } = require('./identityLayout');
 const { reportGlyphCoverage } = require('../utils/fontRegistry');
 const { drawRecordRow } = require('./recordText');
+const { CLASSES, classTextLine, classDisplayLine } = require('../config/classes');
+const { formatDeityAscensionLabel } = require('../utils/deityDisplay');
 
 /* ── Background template ([v4.6]) ───────────────────────────────────────────
  * The profile card is drawn on top of a template image. TEMPLATE_FILE is a single
@@ -154,12 +156,17 @@ function drawCover(ctx, img, x, y, w, h) {
  *   displayName, discordId, avatarUrl, fallbackAvatarUrl
  *   believerLevel, believerTitle, believerExp, believerExpMax
  *   className, combatLevel, combatExp, combatExpMax  (combatExpMax null at cap)
- *   weaponName|null, weaponEnh (0 = +0), deityName|null, deityEnh, blessingName|null
+ *   weaponName|null, weaponEnh (0 = +0), deityName|null, deityAscension, blessingName|null
  *   atk, hp, def, crit
   *   records: six values from characterRecords.js
  * @returns {Promise<Buffer>} PNG
  */
 async function renderStatsImage(d) {
+  d = {
+    ...d,
+    classLine: d.classLine || classDisplayLine(d.className, d.combatLevel),
+    classTextLine: d.classTextLine || classTextLine(d.className, d.combatLevel),
+  };
   reportGlyphCoverage('renderStats', [
     d.displayName,
     d.equippedTitle,
@@ -186,10 +193,10 @@ async function renderStatsImage(d) {
     }
   }
 
-  // Pre-fetch images (frame + avatar + weapon/deity/combat-exp icons) before laying out.
+  // Pre-fetch images (frame + avatar + class/weapon/deity/combat-exp icons) before laying out.
   // [Supporter-stage §6] When a profile skin resolves (d.skinPath), it replaces the default
   // template as the bottom layer; otherwise fall back to the shared default template.
-  const [template, avatar, weaponIcon, armorIcon, deityIcon, deity2Icon, deity3Icon, expIcon, supporterBadge] = await Promise.all([
+  const [template, avatar, classIcon, weaponIcon, armorIcon, deityIcon, deity2Icon, deity3Icon, expIcon, supporterBadge] = await Promise.all([
     d.skinPath ? loadAssetImage(d.skinPath).catch(() => null).then((img) => img || loadTemplate()) : loadTemplate(),
     loadAvatar(d.avatarPath, d.avatarFallbackPath, {
       system: 'stats',
@@ -197,6 +204,7 @@ async function renderStatsImage(d) {
       imageType: 'stats_avatar',
       userId: d.discordId,
     }),
+    d.className ? getEmojiIcon(resolveName(d.className) || '') : Promise.resolve(null),
     d.weaponName ? getEmojiIcon(resolveName(d.weaponName) || '') : Promise.resolve(null),
     d.armorName ? getEmojiIcon(resolveName(d.armorName) || '') : Promise.resolve(null),
     d.deityName ? getEmojiIcon(resolveName(d.deityName) || '') : Promise.resolve(null),
@@ -312,14 +320,34 @@ async function renderStatsImage(d) {
   let by = y + 18;
   const LH = 22;
 
-  // Class + combat level.
-  ctx.font = F(16, true);
+  // Class + combat level. The class icon is loaded from game_items.txt and drawn as
+  // an image; a custom Discord tag cannot be rasterized by Canvas text. Keep the old
+  // Unicode symbol only as an offline/missing-asset fallback.
+  const classPrefix = 'Character Class: ';
+  const classSuffix = `${d.className}, Lvl ${d.combatLevel}`;
+  const fallbackClassIcon = classIcon ? '' : (CLASSES[d.className]?.emoji || '');
+  let classSize = 16;
+  while (classSize > 9) {
+    ctx.font = F(classSize, true);
+    const fallbackWidth = fallbackClassIcon ? ctx.measureText(fallbackClassIcon).width + 5 : 0;
+    const iconWidth = classIcon ? Math.max(14, Math.round(18 * (classSize / 16))) + 5 : fallbackWidth;
+    if (ctx.measureText(classPrefix).width + iconWidth + ctx.measureText(classSuffix).width <= bodyW) break;
+    classSize -= 1;
+  }
+  ctx.font = F(classSize, true);
   ctx.fillStyle = NAME_COLOR;
-  ctx.fillText(
-    fitText(ctx, `Character Class: ${d.className}, Lvl ${d.combatLevel}`, bodyW),
-    PAD,
-    by
-  );
+  let classX = PAD;
+  ctx.fillText(classPrefix, classX, by);
+  classX += ctx.measureText(classPrefix).width;
+  if (classIcon) {
+    const iconSize = Math.max(14, Math.round(18 * (classSize / 16)));
+    ctx.drawImage(classIcon, classX, by - iconSize + 3, iconSize, iconSize);
+    classX += iconSize + 5;
+  } else if (fallbackClassIcon) {
+    ctx.fillText(fallbackClassIcon, classX, by);
+    classX += ctx.measureText(fallbackClassIcon).width + 5;
+  }
+  ctx.fillText(fitText(ctx, classSuffix, Math.max(20, bodyRight - classX)), classX, by);
   by += LH;
 
   // Combat EXP — single text line with the combat-exp icon, no bar.
@@ -374,11 +402,16 @@ async function renderStatsImage(d) {
   ctx.font = F(13, true);
   ctx.fillStyle = DIM_COLOR;
   ctx.fillText('Deities:', PAD, by);
-  by += LH;
+  // Keep the section label close to the equipped deity row; the label is a heading,
+  // not a separate blank line.
+  by += 16;
   ctx.font = F(15, true);
   if (d.deityName) {
     ctx.fillStyle = NAME_COLOR;
-    const deitySegments = [{ icon: deityIcon, text: `${d.deityName}${d.deityEnh > 0 ? ` +${d.deityEnh}` : ''}` }];
+    const deitySegments = [{
+      icon: deityIcon,
+      text: formatDeityAscensionLabel(d.deityName),
+    }];
     if (d.deity2Name) deitySegments.push({ icon: null, text: ',  ' }, { icon: deity2Icon, text: d.deity2Name });
     if (d.deity3Name) deitySegments.push({ icon: null, text: ',  ' }, { icon: deity3Icon, text: d.deity3Name });
     drawSegments(deitySegments, PAD, by, bodyW);

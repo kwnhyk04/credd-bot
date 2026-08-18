@@ -6,10 +6,11 @@ const { emoji } = require('./emojis');
 /**
  * Daily quests — roll, progress, auto-grant (Master §20, Phase 8).
  *
- * Pool (matches daily_quests.quest_type): raid_wins / elite_defeats / credux_spent /
- * weapon_enhancements / duel_wins / duel_challenges. 3 distinct types per player per
- * day, target randomized within the §20 ranges, reward fixed by the §20 count-scaled
- * tables at roll time.
+ * Future-roll pool (matches daily_quests.quest_type): raid_wins / elite_defeats /
+ * credux_spent / weapon_enhancements / duel_participations. Legacy duel_wins and
+ * duel_challenges rows remain claimable and renderable. Each player gets 3 distinct
+ * types per day, with the target randomized within the §20 ranges and reward fixed by
+ * difficulty at roll time.
  *
  * SCHEMA NOTE (frozen): daily_quests.target_count / current_count are SMALLINT
  * (max 32,767), but the §20 `credux_spent` quest ranges to 50,000. We therefore store
@@ -38,6 +39,18 @@ const REFRESH_ALLOWANCE = 2;
 const DAILY_COMPLETION_RELICS = 1;
 const WEEKLY_QUEST_RELICS = 1;
 
+const DAILY_DIFFICULTY_REWARDS = Object.freeze({
+  Easy: Object.freeze([30000, 500]),
+  Mid: Object.freeze([50000, 750]),
+  Hard: Object.freeze([100000, 1000]),
+});
+
+const dailyDifficultyReward = (difficulty) => {
+  const reward = DAILY_DIFFICULTY_REWARDS[difficulty];
+  if (!reward) throw new Error(`Unknown daily quest difficulty: ${difficulty}`);
+  return [...reward];
+};
+
 const randInt = (rng, min, max) => typeof rng === 'function'
   ? min + Math.floor(rng() * (max - min + 1))
   : secureRange(min, max);
@@ -46,49 +59,56 @@ const randomIndex = (length, rng) => typeof rng === 'function'
   : int(length);
 const creduxSpentEnhancementLabel = (n) => `Spend ${(n * 1000).toLocaleString()} Credux on enhancement`;
 
-// Each def: target range (rolled units), reward(rolledUnits) → [credux, shards],
+// Each def: target range (rolled units), fixed difficulty reward → [credux, shards],
 // label(rolledUnits) → string, progressUnit (display multiplier; 1000 for credux_spent).
 const QUEST_DEFS = {
   raid_wins: {
+    difficulty: 'Easy',
     progressUnit: 1,
     roll: (rng) => randInt(rng, 3, 10),
-    reward: (n) => (n <= 5 ? [3000, 5] : n <= 8 ? [6000, 10] : [10000, 15]),
+    reward: () => dailyDifficultyReward('Easy'),
     label: (n) => `Win ${n} raids`,
   },
   elite_defeats: {
+    difficulty: 'Hard',
     progressUnit: 1,
     roll: (rng) => randInt(rng, 2, 5),
-    reward: (n) => (n <= 3 ? [5000, 8] : [10000, 15]),
+    reward: () => dailyDifficultyReward('Hard'),
     label: (n) => `Defeat ${n} elite mobs`,
   },
   credux_spent: {
+    difficulty: 'Hard',
     progressUnit: 1000, // stored in thousands; actual target = n × 1,000
     roll: (rng) => randInt(rng, 5, 50), // 5,000 .. 50,000 (multiples of 1,000)
-    reward: (n) => (n <= 20 ? [4000, 5] : [9000, 12]),
+    reward: () => dailyDifficultyReward('Hard'),
     label: creduxSpentEnhancementLabel,
   },
   weapon_enhancements: {
+    difficulty: 'Hard',
     progressUnit: 1,
     roll: (rng) => randInt(rng, 2, 5),
-    reward: (n) => (n <= 3 ? [4000, 5] : [8000, 10]),
+    reward: () => dailyDifficultyReward('Hard'),
     label: (n) => `Enhance a weapon ${n} times`,
   },
   duel_wins: {
+    difficulty: 'Mid',
     progressUnit: 1,
     roll: (rng) => randInt(rng, 1, 3),
-    reward: (n) => (n <= 1 ? [5000, 8] : [12000, 18]),
+    reward: () => dailyDifficultyReward('Mid'),
     label: (n) => `Win ${n} duel${n > 1 ? 's' : ''}`,
   },
   duel_challenges: {
+    difficulty: 'Mid',
     progressUnit: 1,
     roll: (rng) => randInt(rng, 2, 5),
-    reward: (n) => (n <= 3 ? [3000, 5] : [6000, 10]),
+    reward: () => dailyDifficultyReward('Mid'),
     label: (n) => `Challenge ${n} players to a duel`,
   },
   duel_participations: {
+    difficulty: 'Mid',
     progressUnit: 1,
     roll: (rng) => randInt(rng, 2, 5),
-    reward: (n) => (n <= 3 ? [3000, 5] : [6000, 10]),
+    reward: () => dailyDifficultyReward('Mid'),
     label: (n) => `Have a duel with ${n} user${n === 1 ? '' : 's'}`,
   },
 };
@@ -334,6 +354,7 @@ function describeQuest(row) {
   const unit = def.progressUnit;
   return {
     type: row.quest_type,
+    difficulty: def.difficulty || 'Easy',
     name: def.label(row.target_count),
     current: Number(row.current_count) * unit,
     target: Number(row.target_count) * unit,
@@ -352,20 +373,21 @@ const { phtWeek } = require('../config/ranked');
 
 // reward is fixed per line: [credux, valor]. Targets are weekly-scale (a week of play).
 // credux_spent stores its target in thousands (same lossless trick as daily).
+const WEEKLY_QUEST_CREDUX = 100000;
 const WEEKLY_QUEST_DEFS = {
-  raid_wins:           { progressUnit: 1,    roll: (rng) => randInt(rng, 20, 40), reward: () => [20000, 40], label: (n) => `Win ${n} raids this week` },
-  elite_defeats:       { progressUnit: 1,    roll: (rng) => randInt(rng, 15, 30), reward: () => [20000, 40], label: (n) => `Defeat ${n} elite mobs this week` },
-  credux_spent:        { progressUnit: 1000, roll: (rng) => randInt(rng, 100, 300), reward: () => [25000, 50], label: creduxSpentEnhancementLabel },
-  weapon_enhancements: { progressUnit: 1,    roll: (rng) => randInt(rng, 10, 20), reward: () => [20000, 40], label: (n) => `Enhance gear ${n} times this week` },
-  duel_wins:           { progressUnit: 1,    roll: (rng) => randInt(rng, 5, 12),  reward: () => [25000, 50], label: (n) => `Win ${n} duels this week` },
-  duel_participations: { progressUnit: 1,    roll: (rng) => randInt(rng, 5, 12),  reward: () => [25000, 50], label: (n) => `Have a duel with ${n} user${n === 1 ? '' : 's'} this week` },
+  raid_wins:           { progressUnit: 1,    roll: (rng) => randInt(rng, 20, 40), reward: () => [WEEKLY_QUEST_CREDUX, 40], label: (n) => `Win ${n} raids this week` },
+  elite_defeats:       { progressUnit: 1,    roll: (rng) => randInt(rng, 15, 30), reward: () => [WEEKLY_QUEST_CREDUX, 40], label: (n) => `Defeat ${n} elite mobs this week` },
+  credux_spent:        { progressUnit: 1000, roll: (rng) => randInt(rng, 100, 300), reward: () => [WEEKLY_QUEST_CREDUX, 50], label: creduxSpentEnhancementLabel },
+  weapon_enhancements: { progressUnit: 1,    roll: (rng) => randInt(rng, 10, 20), reward: () => [WEEKLY_QUEST_CREDUX, 40], label: (n) => `Enhance gear ${n} times this week` },
+  duel_wins:           { progressUnit: 1,    roll: (rng) => randInt(rng, 5, 12),  reward: () => [WEEKLY_QUEST_CREDUX, 50], label: (n) => `Win ${n} duels this week` },
+  duel_participations: { progressUnit: 1,    roll: (rng) => randInt(rng, 5, 12),  reward: () => [WEEKLY_QUEST_CREDUX, 50], label: (n) => `Have a duel with ${n} user${n === 1 ? '' : 's'} this week` },
 };
 // Keep duel_wins available for existing weekly rows, but never generate it again.
 const WEEKLY_QUEST_TYPES = [
   'raid_wins', 'elite_defeats', 'credux_spent', 'weapon_enhancements', 'duel_participations',
 ];
-const WEEKLY_GRAND_CREDUX = 50000;
-const WEEKLY_GRAND_VALOR = 150;
+const WEEKLY_GRAND_CREDUX = 500000;
+const WEEKLY_GRAND_VALOR = 200;
 
 /** Roll the 5 weekly quests for (discordId, this PHT week) if none exist yet. */
 async function rollWeeklyIfMissing(client, discordId, rng = null) {
@@ -531,6 +553,7 @@ function hoursUntilMidnightPHT(now = new Date()) {
 module.exports = {
   QUEST_DEFS,
   QUEST_TYPES,
+  DAILY_DIFFICULTY_REWARDS,
   REFRESH_ALLOWANCE,
   DAILY_COMPLETION_RELICS,
   WEEKLY_QUEST_RELICS,
@@ -545,6 +568,9 @@ module.exports = {
   // Phase 6 weekly
   WEEKLY_QUEST_DEFS,
   WEEKLY_QUEST_TYPES,
+  WEEKLY_QUEST_CREDUX,
+  WEEKLY_GRAND_CREDUX,
+  WEEKLY_GRAND_VALOR,
   rollWeeklyIfMissing,
   progressWeekly,
   describeWeekly,

@@ -15,6 +15,8 @@
  * 5% (0 CRIT growth). Higher future levels continue scaling without a clamp.
  */
 
+const { emojiForDisplay } = require('../utils/emojis');
+
 // Valid class names (must match user_character.class CHECK constraint exactly).
 const CLASS_NAMES = ['Swordsman', 'Fighter', 'Mage', 'Knight', 'Archer'];
 
@@ -39,7 +41,7 @@ const CLASS_PASSIVE_VALUES = Object.freeze({
   Knight: Object.freeze({
     damageReduction: 0.25,
     outgoingDamageBonus: 0.30,
-    regeneration: 0.015,
+    regeneration: 0.01,
   }),
 });
 
@@ -84,7 +86,7 @@ const CLASSES = {
       'The Mage does not swing a sword. They do not need to. While others close the distance, the Mage is already three moves ahead, ' +
       'building energy that no armor can absorb. When the charge is ready, there is no blocking what comes next.',
     passiveLine:
-      '**Passive: Overcharge** — Every third primary strike deals 4.0× damage (400% of normal damage before other bonuses), cannot crit, and applies one random 25% debuff: Paralyze, Burn, DEF Down, or ATK Down.',
+      '**Passive: Overcharge** — Every third battle turn\'s primary attack rolls 4.0× damage (60%) or 5.0× damage (40%), cannot crit, and applies one random 25% debuff: Paralyze, Burn, DEF Down, or ATK Down. DEF Down and ATK Down reduce the affected stat by 50%.',
   },
   Knight: {
     emoji: '🛡️',
@@ -130,9 +132,24 @@ function computeClassStats(className, level) {
   };
 }
 
+/** Text-only class/level label used when a Canvas renderer draws the icon separately. */
+function classTextLine(className, combatLevel) {
+  return `Character Class: ${className}, Lvl ${combatLevel}`;
+}
+
+/** Canonical Discord-text class/level label shared by command displays. */
+function classDisplayLine(className, combatLevel) {
+  const icon = CLASSES[className]
+    ? emojiForDisplay(className, CLASSES[className].emoji)
+    : '';
+  return `Character Class: ${icon ? `${icon} ` : ''}${className}, Lvl ${combatLevel}`;
+}
+
 module.exports = {
   CLASS_NAMES,
   CLASS_PASSIVE_VALUES,
   CLASSES,
+  classTextLine,
+  classDisplayLine,
   computeClassStats,
 };

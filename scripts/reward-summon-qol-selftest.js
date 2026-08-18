@@ -44,6 +44,7 @@ const {
   TIER_ESSENCE_COLUMN,
 } = require(path.join(ROOT, 'src', 'config', 'gachaRates'));
 const { CHEST_ALIASES } = require(path.join(ROOT, 'src', 'config', 'dropRates'));
+const { RELICS } = require(path.join(ROOT, 'src', 'commands', 'rpg', 'open'));
 const { emoji } = require(path.join(ROOT, 'src', 'utils', 'emojis'));
 const {
   calamityBonusRewardBlock,
@@ -238,6 +239,7 @@ const summonEngineSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'sum
 const summonRendererSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'renderSummon.js'), 'utf8');
 const summonCommandSource = fs.readFileSync(path.join(ROOT, 'src', 'commands', 'rpg', 'summon.js'), 'utf8');
 const questSource = fs.readFileSync(path.join(ROOT, 'src', 'commands', 'economy', 'quests.js'), 'utf8');
+const openSource = fs.readFileSync(path.join(ROOT, 'src', 'commands', 'rpg', 'open.js'), 'utf8');
 check('summon engine checks ownership for every sequential roll', /const isDupe = ownedSet\.has\(d\.deity_id\)/.test(summonEngineSource));
 check('summon engine marks a rolled deity owned before the next roll', /ownedSet\.add\(d\.deity_id\)/.test(summonEngineSource));
 check('summon result keeps the remaining balance footer', summonRendererSource.includes("emoji('belief_shards')") && summonRendererSource.includes("emoji('sacred_relic')"));
@@ -245,6 +247,10 @@ check('normal summon edits strip immutable Components V2 flags', summonCommandSo
 check('daily quest completion line includes the sacred relic icon', questSource.includes("emoji('sacred_relic')} Sacred Relic"));
 check('daily quest quote footer remains intact', questSource.includes('The gods reward those who prove their worth'));
 check('weekly quest full-completion footer is removed', !questSource.includes('Weekly full-completion bonus: no additional Sacred Relic'));
+check('Sacred Relic is configured for exactly 30 ordinary summon rolls', RELICS.sr.count === 30 && RELICS.sr.forceTier === null);
+check('Sacred Relic path still deducts exactly one relic and passes its configured count to the shared engine',
+  openSource.includes('SET ${col} = ${col} - 1')
+    && openSource.includes('runSummon(client, discordId, { count: relic.count, forceTier: relic.forceTier })'));
 
 const bossSource = readBossSource();
 const calamityPreview = calamityBonusRewardBlock('active');
@@ -362,6 +368,15 @@ async function integrationChecks() {
     check('previously owned deities remain duplicates for every roll',
       existingResult.pulls.every((pull) => pull.isDupe) && existing.state.inserted.length === 0);
     check('existing-deity duplicate Essence is credited exactly', existing.state.bag.epic_essence === 2);
+
+    const sacred = makeSummonClient({ alreadyOwned: true });
+    const sacredResult = await runSummon(sacred.client, 'sacred-user', {
+      count: RELICS.sr.count,
+      forceTier: 'Epic',
+    });
+    check('Sacred Relic processes all 30 summon results', sacredResult.pulls.length === 30);
+    check('Sacred Relic duplicate conversion processes all 30 pulls', sacredResult.pulls.every((pull) => pull.isDupe)
+      && sacred.state.bag.epic_essence === 30);
 
     for (const [tier, perDuplicate] of Object.entries(ESSENCE_PER_DUPLICATE)) {
       const count = tier === 'Supreme' ? 2 : 3;

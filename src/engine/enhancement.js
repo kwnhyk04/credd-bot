@@ -6,20 +6,21 @@
  * Source of truth:
  *   - Boost table (§35.6 / Blueprint §2.2): curr = floor(base × BOOST[enhancement]).
  *     The old linear `base × (1 + (e-1)×0.05)` is REMOVED.
- *   - Genesis +11..+20: each level adds 10% of the weapon's +10 ATK.
- *     This is additive from the +10 baseline, not 10% of the +0/base ATK.
+ *   - Divine +1..+10: each level adds 10% of base ATK. +11..+20 adds
+ *     20% of base ATK per level, progressively from the +10 baseline.
  *   - Credux cost + success rate (§7): keyed by the TARGET display level.
- *     Genesis can reach +20; +11 through +20 reuse Supreme +10 cost/chance.
+ *     Divine can reach +20; +11 through +20 reuse Supreme +10 cost/chance.
  *
  * Stored↔display: `enhancement` is one-based, so display level is stored-1.
- * Standard gear caps at stored 11 (+10); Genesis caps at stored 21 (+20).
+ * Standard gear caps at stored 11 (+10); Divine caps at stored 21 (+20).
  * Common has NO cost column in §7 → Common weapons are not enhanceable.
  */
 
 const MAX_ENHANCEMENT = 11; // stored; display +10
-const GENESIS_MAX_ENHANCEMENT = 21; // stored; display +20
-const GENESIS_POST_10_STEP = 0.10; // each level adds 10% of the +10 ATK
-const ENHANCEABLE_TIERS = ['Rare', 'Mythic', 'Legendary', 'Supreme', 'Genesis'];
+const DIVINE_MAX_ENHANCEMENT = 21; // stored; display +20
+const DIVINE_PRE_10_STEP = 0.10; // +1..+10: 10% of base ATK per level
+const DIVINE_POST_10_STEP = 0.20; // +11..+20: 20% of base ATK per level
+const ENHANCEABLE_TIERS = ['Rare', 'Mythic', 'Legendary', 'Supreme', 'Divine'];
 
 // ── Boost table (§35.6) — stored enhancement (1..11) → stat multiplier ──────
 const WEAPON_BOOST_TABLE = {
@@ -37,7 +38,7 @@ const WEAPON_BOOST_TABLE = {
 };
 
 // ── Success rates (§7) — target display level (1..10) → probability ─────────
-// Genesis +11 through +20 reuse the +10 rate.
+// Divine +11 through +20 reuse the +10 rate.
 const SUCCESS_RATE = {
   1: 1.0,
   2: 0.95,
@@ -101,7 +102,7 @@ const ENHANCE_COST = {
     9: 3000000,
     10: 3000000,
   },
-  Genesis: {
+  Divine: {
     1: 50000,
     2: 100000,
     3: 200000,
@@ -131,8 +132,8 @@ const ENHANCE_COST = {
  * @returns {{curr_atk:number}}
  */
 function maxStoredEnhancement(tier, kind = 'weapon') {
-  return kind === 'weapon' && tier === 'Genesis'
-    ? GENESIS_MAX_ENHANCEMENT
+  return kind === 'weapon' && tier === 'Divine'
+    ? DIVINE_MAX_ENHANCEMENT
     : MAX_ENHANCEMENT;
 }
 
@@ -145,11 +146,13 @@ function computeWeaponStats({ base_atk, tier }, enhancement) {
   const maxStored = maxStoredEnhancement(tier);
   if (!Number.isInteger(stored) || stored < 1 || stored > maxStored)
     throw new Error(`computeWeaponStats: invalid enhancement ${enhancement}`);
-  if (tier === 'Genesis' && stored > MAX_ENHANCEMENT) {
-    const plusTenAtk = Math.floor(base_atk * WEAPON_BOOST_TABLE[MAX_ENHANCEMENT]);
-    const perLevelAtk = Math.floor(plusTenAtk * GENESIS_POST_10_STEP);
+  if (tier === 'Divine') {
+    const displayLevel = stored - 1;
+    const multiplier = displayLevel <= 10
+      ? 1 + displayLevel * DIVINE_PRE_10_STEP
+      : 2 + (displayLevel - 10) * DIVINE_POST_10_STEP;
     return {
-      curr_atk: plusTenAtk + perLevelAtk * (stored - MAX_ENHANCEMENT),
+      curr_atk: Math.floor(base_atk * multiplier),
     };
   }
   const m = WEAPON_BOOST_TABLE[stored];
@@ -221,8 +224,9 @@ function successfulEnhancementCost(tier, enhancement) {
 
 module.exports = {
   MAX_ENHANCEMENT,
-  GENESIS_MAX_ENHANCEMENT,
-  GENESIS_POST_10_STEP,
+  DIVINE_MAX_ENHANCEMENT,
+  DIVINE_PRE_10_STEP,
+  DIVINE_POST_10_STEP,
   ENHANCEABLE_TIERS,
   WEAPON_BOOST_TABLE,
   SUCCESS_RATE,

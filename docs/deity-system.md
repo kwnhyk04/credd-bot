@@ -3,7 +3,7 @@
 Deities are the forgotten gods you summon in Credd. Each deity adds flat HP, ATK and DEF
 to your character and, once Ascended, activates a combat blessing. You can equip up to
 three deities plus one Echo, and matching sets grant resonance bonuses. This document
-covers Sigils, Ascension, enhancement, blessing channels, resonance, and every blessing
+covers Sigils, Ascension, blessing channels, resonance, and every blessing
 in the game.
 
 How you obtain deities is covered in the Gacha System document. Deities never grant CRIT.
@@ -89,14 +89,14 @@ is the **only** thing that activates a deity's blessing.
 |---|---|---|
 | Unlocked, 0 Sigils | 50% of base | Dormant |
 | 10/10 Sigils, not Ascended | 100% of base | Dormant |
-| Ascended | 100% of base, then enhanceable | **Active** |
+| Ascended | 100% of base, then ascendable | **Active** |
 
 An unascended deity still contributes its stats — only the blessing is dormant.
 
-## How does deity enhancement work after Ascension
+## How does deity Ascension progression work after Ascension
 
-Once Ascended, a deity can be enhanced from +0 to +10. Every level adds a uniform +10% of
-base to all three stats — there is no dominant stat.
+Once Ascended, a deity can continue ascending from +0 to +10. Every level adds a uniform +10%
+of base to all three stats — there is no dominant stat.
 
 <!-- src: src/engine/deityEnhancement.js:16 -->
 
@@ -120,7 +120,7 @@ curr_def = floor(base_def * DEITY_BOOST_TABLE[enhancement])
 | +9 | 10 | ×1.90 |
 | +10 | 11 | ×2.00 |
 
-Deity enhancement is **deterministic** — there is no failure chance. Whenever you can pay
+Deity Ascension is **deterministic** — there is no failure chance. Whenever you can pay
 the essence, the level succeeds.
 
 <!-- src: src/engine/deityEnhancement.js:25 -->
@@ -139,7 +139,7 @@ the essence, the level succeeds.
 | +10 | 51 | 42 | 28 | 18 |
 | **Total to +10** | **330** | **285** | **190** | **100** |
 
-Costs are paid in the deity's own tier essence. Deity enhancement never affects CRIT.
+Costs are paid in the deity's own tier essence. Deity Ascension never affects CRIT.
 
 ## What are the deity commands
 
@@ -150,7 +150,7 @@ Costs are paid in the deity's own tier essence. Deity enhancement never affects 
 | `crd deity collection` | `crd dc` | `/deity collection` | Browse the roster, one page per mythology |
 | `crd deity info <name>` | `crd di <name>` | `/deity info name:` | Info card for an owned deity |
 | `crd deity equip <name> [1\|2\|3]` | `crd de <name>` | `/deity equip name:` | Equip to a slot (default slot 1) |
-| `crd deity enhance <name>` | `crd deh <name>` | `/deity enhance name:` | Sigil / Ascension / enhancement forge |
+| `crd deity ascend <name>` | `crd deh <name>` | `/deity ascend name:` | Sigil / Ascension progression |
 | `crd deity echo <name>` | `crd dec <name>` | Not available | Choose the Echo blessing from slot 2 or 3 |
 | `crd deity unequip <1\|2\|3>` | `crd du <slot>` | Not available | Clear a slot |
 | `crd deities` | `crd dp` | Not available | Your equipped pantheon and resonance |
@@ -167,7 +167,7 @@ Examples:
 crd deity collection
 crd deity info Bathala
 crd deity equip Thor 2
-crd deity enhance Zeus
+crd deity ascend Zeus
 crd deity echo Freya
 crd deity unequip 3
 crd deities
@@ -277,17 +277,20 @@ in slot 1, where they supply the Primary channel.
 
 <!-- src: assets/data/passive_registry_keys.md:105 -->
 
+The roster blessing text below is the player-facing description shown in the glossary.
+Echo-type deities retain their separate mapped `echo_*` runtime entries documented below.
+
 | Deity | Blessing | Effect |
 |---|---|---|
-| Bathala | Divine Vessel | +10% ATK and +4% DEF at the start of each turn, stacking to +100% ATK / +40% DEF |
-| Sidapa | Death's Reprieve | Once per battle the first lethal hit leaves you at 1 HP; then heal 30% max HP and gain +50% ATK for the battle |
+| Bathala | Divine Vessel | At the start of each turn before attacking, gains 10% of base battle ATK and 4% of base battle DEF, stacking additively up to 10 times (+100% ATK and +40% DEF). Resets after battle |
+| Sidapa | Death's Reprieve | Once per battle, the first lethal hit leaves the user at 1 HP. The user then heals 30% max HP and gains +50% ATK for the rest of the battle |
 | Magwayen | Soul Drain | Heals 30% of all damage actually dealt after mitigation, up to max HP |
-| Mandarangan | War Frenzy | End of each turn: +10% ATK, stacking to +50% (reached turn 5), persisting all battle |
-| Apolaki | Solar Burn | Each attack burns the enemy for 10% of your base ATK for 1 turn |
+| Mandarangan | War Frenzy | End of each turn: +10% ATK, stacking up to +50% (reached turn 5). Stacks persist all battle |
+| Apolaki | Solar Burn | Each attack burns the enemy for 10% of the user's base ATK for 1 turn |
 | Mayari | Lunar Veil | While below 50% HP, DEF +30% and reflect 15% of damage taken |
 | Dian Masalanta | Devotion | While below 50% HP, ATK +30% and heal 4% max HP each turn |
-| Amihan | Tailwind | 20% chance to evade any incoming attack; each evade grants +20% ATK to her next attack |
-| Habagat | Monsoon Fury | 25% chance at the start of each turn to make that turn's attack deal +50% bonus damage |
+| Amihan | Tailwind | 20% chance to evade any incoming attack. Each successful evade grants +20% ATK to her next attack |
+| Habagat | Monsoon Fury | At the start of each turn, 25% chance to empower this turn's attack, causing it to deal +50% bonus damage |
 | Lakapati | Abundance | Regenerates 3% max HP at the start of each turn |
 | Idiyanale | Persistence | Every 3rd turn, the next attack deals +75% more damage |
 
@@ -297,22 +300,22 @@ in slot 1, where they supply the Primary channel.
 
 | Deity | Blessing | Effect |
 |---|---|---|
-| Odin | All-Father's Foresight | ATK +50% for the battle. On even turns take 25% less damage and store the prevented damage; add it to the next odd-turn attack, then clear it |
-| Thor | Mjolnir's Wrath | 30% chance per attack to Stun and Paralyze for 3 turns; while Paralyzed the enemy takes 20% of your base ATK per turn and has a 10% chance to skip its turn |
-| Freya | Valkyrie's Embrace | ATK +30% all battle; once per battle at 40% HP or below, restore 20% max HP |
+| Odin | All-Father's Foresight | Increase ATK by +50%. On even-numbered battle turns, takes 25% less damage and stores the damage prevented. On the immediately following odd-numbered turn, adds the stored amount to the next attack, then clears it. Resets after battle |
+| Thor | Mjolnir's Wrath | Each attack has a 30% chance to Stun the enemy and Paralyze it for 3 turns. While Paralyzed, the enemy takes damage equal to 20% of the user's base ATK each turn and has a 10% chance to skip its turn |
+| Freya | Valkyrie's Embrace | ATK +30% for the whole battle. Once per battle, at 40% HP or below, restore 20% max HP |
 | Loki | Illusory Double | 25% chance each turn to evade an attack and counter for 100% ATK |
-| Tyr | Oathkeeper | DEF +30% all battle; while below 50% HP, reflect 20% of incoming damage |
-| Skadi | Winter's Hunt | 30% chance per attack to Freeze (enemy skips its next turn); after Freeze ends the enemy suffers Frostbite, taking 50% more damage for 1 turn |
-| Surt | Muspell's Flame | Each attack adds Burn equal to 3% of base ATK per turn for 2 turns, stacking to 15%; attacks deal 50% more damage to already-burning enemies |
-| Heimdall | Eternal Vigilance | The first hit taken each battle is reduced by 50%; afterwards incoming critical damage is reduced by 30% |
-| Baldur | Invulnerability | Once per battle, the first time you are debuffed or drop below 50% HP, remove all debuffs, restore 15% max HP, and take 50% less damage for 1 turn |
+| Tyr | Oathkeeper | DEF +30% for the whole battle; while below 50% HP, reflects 20% of incoming damage |
+| Skadi | Winter's Hunt | Each attack has a 30% chance to Freeze the enemy, causing it to skip its next turn. After Freeze ends, the enemy suffers Frostbite, taking 50% more damage for 1 turn |
+| Surt | Muspell's Flame | Each attack adds Burn equal to 3% of the user's base ATK per turn for 2 turns, stacking up to 15%. Attacks deal 50% more damage to enemies that are already burning |
+| Heimdall | Eternal Vigilance | The first hit taken each battle is reduced by 50%. For the rest of the battle, damage from incoming critical hits is reduced by 30% |
+| Baldur | Invulnerability | Once per battle, the first time the user is debuffed or drops below 50% HP, remove all debuffs, restore 15% max HP, and reduce damage taken by 50% for 1 turn |
 | Hel | Half-Dead | While below 50% HP, ATK +30% and DEF +30% |
 | Mimir | Runic Knowledge | Every 3rd turn, the next attack deals +90% more damage |
 | Freyr | Harvest Bounty | Restores 6% max HP every 2 turns |
 | Njord | Sea's Favor | 15% chance each turn to reduce incoming damage by 30% |
 | Bragi | Battle Hymn | ATK +15% for the whole battle |
 | Idunn | Golden Apple | Once per battle, at 50% HP or below, restore 15% max HP |
-| Vidar | Silent Vengeance | When hit by a critical, the next attack is a guaranteed critical; the first drop below 50% HP also crits the next attack |
+| Vidar | Silent Vengeance | When hit by a critical, Vidar's next attack is a guaranteed critical. The first time he drops below 50% HP, his next attack also crits |
 | Magni | Might of Magni | +5% ATK for every 10% max HP missing, up to +25% |
 
 ## What does every Greek deity blessing do
@@ -321,15 +324,15 @@ in slot 1, where they supply the Primary channel.
 
 | Deity | Blessing | Effect |
 |---|---|---|
-| Zeus | Chain Lightning | ATK +50% for the battle. 50% chance per attack to deal 50% additional damage and add a 5% DEF shred, stacking up to 6 times (30%), resetting after battle |
-| Ares | Blood Frenzy | End of each turn, +10% ATK, stacking to +50% |
-| Poseidon | Tidal Force | 30% chance per attack to Stun and shred DEF by 30% for 2 turns; the shred refreshes but does not stack |
+| Zeus | Chain Lightning | Increase ATK by +50%. Each attack has a 50% chance to deal 50% additional damage and add a 5% DEF shred. The DEF shred stacks up to 6 times (30%) and resets after battle |
+| Ares | Blood Frenzy | At the end of each turn, gain +10% ATK, stacking up to +50% |
+| Poseidon | Tidal Force | Each attack has a 30% chance to Stun the enemy (skips its next turn) and shred its DEF by 30% for 2 turns. The shred refreshes on each proc but does not stack |
 | Hades | Soul Harvest | While the enemy is below 30% HP, ATK +50% for the rest of the battle |
-| Hera | Divine Wrath | DEF +30% all battle; when hit by a critical, gain +10% ATK, stacking 3 times |
-| Athena | Aegis Shield | The first 2 hits taken each battle are reduced by 40%; afterwards incoming damage is reduced by 10% |
+| Hera | Divine Wrath | DEF +30% for the whole battle. When hit by a critical, gain +10% ATK, stacking up to 3 times |
+| Athena | Aegis Shield | The first 2 hits taken each battle are reduced by 40%. Afterward, incoming damage is reduced by 10% for the rest of the battle |
 | Apollo | Solar Radiance | ATK +25% for the whole battle |
-| Artemis | Huntress Precision | The first attack each battle always crits; afterwards every 3rd turn the next attack auto-crits |
-| Hephaestus | Forged Armor | DEF +25% all battle; while below 50% HP, ATK +20% |
+| Artemis | Huntress Precision | The first attack each battle always crits; afterward, every 3rd turn the next attack automatically crits |
+| Hephaestus | Forged Armor | DEF +25% for the whole battle; while below 50% HP, ATK +20% |
 | Aphrodite | Enchanting Aura | 25% chance each turn to Charm the enemy, making it skip its attack |
 | Persephone | Cycle of Renewal | Once per battle, when HP drops below 50%, restore 15% max HP |
 | Dionysus | Drunken Haze | 30% chance each turn to make the enemy attack itself for 30% of its own ATK |
@@ -337,7 +340,8 @@ in slot 1, where they supply the Primary channel.
 
 ## What does every Echo blessing do
 
-Echo blessings are weaker versions of the parent blessing, used in the Secondary channel.
+These are the live mapped effects for every Echo-type deity. They are used in the
+Secondary channel and also in the Primary channel when an Echo-type deity occupies slot 1.
 
 <!-- src: assets/data/passive_registry_keys.md:147 -->
 
@@ -347,10 +351,10 @@ Echo blessings are weaker versions of the parent blessing, used in the Secondary
 | Echo · Persephone | Regenerates 3% max HP every 3 turns |
 | Echo · Hades | While the enemy is below 30% HP, ATK +15% |
 | Echo · Hera | When hit by a critical, DEF +15% for 2 turns |
-| Echo · Ares | ATK +4% every 2 turns, stacking to 16% |
+| Echo · Ares | Blood Frenzy — at the end of each turn, gain +10% ATK, stacking to +50% |
 | Echo · Hephaestus | DEF +15% for the whole battle |
 | Echo · Apollo | ATK +10% for the whole battle |
-| Echo · Bragi | Every 4 turns, ATK +10% for that turn |
+| Echo · Bragi | Every 4 turns, gain +10% ATK for that turn |
 | Echo · Idunn | Regenerates 2% max HP every 2 turns |
 | Echo · Freyr | Regenerates 3% max HP every 3 turns |
 | Echo · Vidar | When hit by a critical, the next attack gains +30% ATK |
@@ -358,17 +362,17 @@ Echo blessings are weaker versions of the parent blessing, used in the Secondary
 | Echo · Njord | 10% chance each turn to reduce incoming damage by 20% |
 | Echo · Freya | While HP is below 40%, DEF +20% |
 | Echo · Tyr | DEF +10% for the whole battle |
-| Echo · Surt | Inherits Muspell's Flame exactly — every landed hit adds 3% base ATK Burn for 2 turns, stacking to 15% |
+| Echo · Surt | Each attack adds Burn equal to 3% of the user's base ATK per turn for 2 turns, stacking up to 15%. Attacks deal 50% more damage to enemies that are already burning. |
 | Echo · Hel | While HP is below 50%, ATK +8% and DEF +8% |
-| Echo · Mimir | Every 5 turns, +30% ATK for that turn |
+| Echo · Mimir | Every 5 turns, gain +30% ATK for that turn |
 | Echo · Idiyanale | Every 6 turns, the next attack deals double damage |
 | Echo · Lakapati | Regenerates 2% max HP every turn |
-| Echo · Habagat | 15% chance to deal +30% bonus ATK |
+| Echo · Habagat | Each attack has a 15% chance to deal +30% bonus ATK |
 | Echo · Mandarangan | ATK +5% per turn, stacking to 15% |
-| Echo · Magwayen | Soul Drain — heals 30% of all damage dealt after mitigation, up to max HP |
+| Echo · Magwayen | Soul Drain — heals 30% of all damage actually dealt after mitigation, up to max HP |
 | Echo · Dian Masalanta | While HP is below 30%, ATK +12% |
 | Echo · Mayari | While HP is below 50%, DEF +15% |
-| Echo · Apolaki | Inherits Solar Burn exactly — every landed hit applies 10% base ATK Burn for 1 tick |
+| Echo · Apolaki | Each attack burns the enemy for 10% of the user's base ATK for 1 turn |
 
 Echo Idiyanale's double damage and Echo Vidar's revenge crit are durable next-attack
 queues: they survive a turn lost to crowd control and are consumed when a real attack
@@ -377,7 +381,7 @@ begins.
 ## Do deity blessings persist after a battle
 
 No. All blessing effects, stacks and buffs are battle-duration only and reset when the
-battle ends. Sigils, Ascension and enhancement are permanent; the blessing effects they
+battle ends. Sigils and Ascension are permanent; the blessing effects they
 enable are not.
 
 ## Where can I look up deities I do not own

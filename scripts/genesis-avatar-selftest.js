@@ -4,15 +4,19 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const {
+  CUSTOM_AVATAR_TOKEN_PRICE,
   STYLE_COST,
   STYLE_LABEL,
   avatarShortId,
   buildAvatarPage,
   buildAvatarPreview,
   canonicalAvatarAssetPath,
+  customAvatarTokenPurchaseMessage,
   genesisAvatarAssetPath,
+  purchaseCustomAvatarToken,
   resolveStatsAvatar,
 } = require('../src/engine/avatarSystem');
+const avatarPool = require('../src/db/pool');
 const { loadAvatarAsset } = require('../src/engine/avatarImageLoader');
 const { relativeAssetPath } = require('../src/utils/assets');
 const {
@@ -35,8 +39,19 @@ async function main() {
     }
   }
   assert.equal(new Set(registered).size, 10);
+  assert.equal(
+    registered.some((assetPath) => /divine/i.test(assetPath)),
+    false,
+    'Genesis avatar assets must never be routed through the Divine weapon namespace',
+  );
+  assert.equal(CUSTOM_AVATAR_TOKEN_PRICE, 30);
   assert.equal(STYLE_COST.genesis, 15);
   assert.equal(STYLE_LABEL.genesis, 'Genesis');
+  const avatarSystemSource = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'engine', 'avatarSystem.js'),
+    'utf8',
+  );
+  assert.doesNotMatch(avatarSystemSource, /skins\/avatars\/divine/i);
   assert.equal(avatarShortId({ avatar_key: 'tester_ta', style: 'tester', gender: 'male' }), 'ta');
   assert.equal(avatarShortId({ avatar_key: 'tester_712', style: 'tester', gender: 'male' }), '712');
   assert.equal(avatarShortId({ avatar_key: 'fighter_cm', style: 'cyber', gender: 'male' }), 'cm');
@@ -132,8 +147,8 @@ async function main() {
   );
   assert.match(
     statsCommandSource,
-    /const STATS_RENDER_REV = 25;/,
-    'stats cache must be busted after equipped-avatar fallback behavior changes',
+    /const STATS_RENDER_REV = 29;/,
+    'stats cache must be busted after equipped-avatar, class-icon, and deity display changes',
   );
 
   const equippedGenesisDb = {
@@ -242,6 +257,8 @@ async function main() {
   assert(singleButtons[0].disabled && singleButtons[1].disabled);
   assert.match(singleButtons[0].custom_id, /:0$/);
   assert.match(singleButtons[1].custom_id, /:0$/);
+  assert.equal(singleButtons[4].label, 'Buy Token · 30');
+  assert.equal(singleButtons[4].disabled, false);
 
   const pairFirst = await buildAvatarPreview(shopDb(2), 'shop-user', { page: 0 });
   const pairFirstButtons = pairFirst.components[0].toJSON().components
@@ -266,6 +283,95 @@ async function main() {
   assert.equal(unaffordableButtons[3].label, '9 tokens');
   assert.equal(unaffordableButtons[3].disabled, true);
   assert.equal(unaffordableButtons[4].disabled, true);
+
+  const exactTokenBalance = await buildAvatarPreview(shopDb(1, 30), 'shop-user');
+  const exactTokenButtons = exactTokenBalance.components[0].toJSON().components
+    .find((component) => component.type === 1).components;
+  assert.equal(exactTokenButtons[4].label, 'Buy Token · 30');
+  assert.equal(exactTokenButtons[4].disabled, false);
+
+  const shortTokenBalance = await buildAvatarPreview(shopDb(1, 29), 'shop-user');
+  const shortTokenButtons = shortTokenBalance.components[0].toJSON().components
+    .find((component) => component.type === 1).components;
+  assert.equal(shortTokenButtons[4].label, 'Buy Token · 30');
+  assert.equal(shortTokenButtons[4].disabled, true);
+  assert.match(customAvatarTokenPurchaseMessage(0), /for 30 supporter tokens\. Balance: \*\*0\*\*/);
+
+  function customTokenPurchaseClient(startingBalance) {
+    const state = {
+      balance: startingBalance,
+      itemBalance: 0,
+      ledger: [],
+      charged: 0,
+      committed: false,
+      rolledBack: false,
+      released: false,
+    };
+    return {
+      state,
+      client: {
+        async query(sql, params = []) {
+          const statement = String(sql).trim();
+          if (statement === 'BEGIN') return { rows: [], rowCount: 0 };
+          if (statement === 'COMMIT') {
+            state.committed = true;
+            return { rows: [], rowCount: 0 };
+          }
+          if (statement === 'ROLLBACK') {
+            state.rolledBack = true;
+            return { rows: [], rowCount: 0 };
+          }
+          if (statement.startsWith('SELECT token_balance FROM supporters')) {
+            return { rows: [{ token_balance: state.balance }], rowCount: 1 };
+          }
+          if (statement.startsWith('INSERT INTO supporter_token_ledger')) {
+            state.ledger.push(params);
+            return { rows: [], rowCount: 1 };
+          }
+          if (statement.startsWith('UPDATE supporters SET token_balance = token_balance -')) {
+            state.charged = Number(params[1]);
+            state.balance -= state.charged;
+            return { rows: [{ token_balance: state.balance }], rowCount: 1 };
+          }
+          if (statement.startsWith('INSERT INTO users_bag AS bag')) {
+            state.itemBalance += Number(params[1]);
+            return { rows: [{ custom_avatar_token: state.itemBalance }], rowCount: 1 };
+          }
+          throw new Error(`Unexpected custom-token purchase query: ${statement}`);
+        },
+        release() {
+          state.released = true;
+        },
+      },
+    };
+  }
+
+  const exactPurchase = customTokenPurchaseClient(30);
+  const shortPurchase = customTokenPurchaseClient(29);
+  const purchaseClients = [exactPurchase.client, shortPurchase.client];
+  const originalPoolConnect = avatarPool.connect;
+  avatarPool.connect = async () => purchaseClients.shift();
+  try {
+    const bought = await purchaseCustomAvatarToken('custom-avatar-buyer');
+    assert.deepEqual(bought, { status: 'bought', balance: 0, itemBalance: 1 });
+    assert.equal(exactPurchase.state.charged, 30);
+    assert.deepEqual(
+      exactPurchase.state.ledger[0],
+      ['custom-avatar-buyer', -30, 'custom_avatar_token_shop', 'custom_avatar_token'],
+    );
+    assert.equal(exactPurchase.state.committed, true);
+    assert.equal(exactPurchase.state.itemBalance, 1);
+    assert.equal(exactPurchase.state.released, true);
+
+    const insufficient = await purchaseCustomAvatarToken('short-custom-avatar-buyer');
+    assert.deepEqual(insufficient, { status: 'insufficient', balance: 29 });
+    assert.equal(shortPurchase.state.ledger.length, 0);
+    assert.equal(shortPurchase.state.itemBalance, 0);
+    assert.equal(shortPurchase.state.rolledBack, true);
+    assert.equal(shortPurchase.state.released, true);
+  } finally {
+    avatarPool.connect = originalPoolConnect;
+  }
 
   console.log('GENESIS AVATAR SELFTEST: passed');
 }

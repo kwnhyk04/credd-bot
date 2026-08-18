@@ -135,13 +135,13 @@ constants used by both the class card and the battle engine.
 |---|---|---|
 | Swordsman | Bleed + Battle Rhythm | Each attack inflicts 4% Bleed, stacking up to 20% (5 stacks), and effective ATK increases by 5% each turn up to 30% for the battle. |
 | Fighter | Stun | Every attack gains +50% damage. Each primary attack has a 30% chance to become a Bash with another additive +50% damage relative to the normal attack. A landed Bash stuns the target for 1 turn and leaves a 15% next-real-attack miss chance from Dizzy; Dizzy is consumed by that attack attempt. |
-| Mage | Overcharge | On every 3rd round the primary attack deals 4.0× damage (400% of normal damage before other bonuses), cannot crit, and applies exactly one random 25% debuff: Paralyze, Burn, DEF Down, or ATK Down. |
-| Knight | Damage Reduction | Incoming damage reduced by 25%; outgoing damage increased by 30%; restores 1.5% of maximum HP each turn. |
+| Mage | Overcharge | On every third battle turn the primary attack rolls 4.0× damage (60%) or 5.0× damage (40%), cannot crit, and applies exactly one random 25% debuff: Paralyze, Burn, DEF Down, or ATK Down. ATK Down and DEF Down reduce the affected stat by 50%. |
+| Knight | Damage Reduction | Incoming damage reduced by 25%; outgoing damage increased by 30%; restores 1% of maximum HP each turn. |
 | Archer | Armor Pierce & Double Attack | Attacks ignore 25% of target DEF and have a 35% chance to immediately perform one extra attack through the normal same-turn attack pipeline. That is at most two attacks per turn; the extra attack cannot recursively trigger another Archer attack. Attack-scoped effects apply to both attacks (including Apollo Bow's 25% DEF ignore), while turn-scoped buffs are applied once for the turn. |
 
 <!-- src: src/engine/battleEngine.js:128 -->
 Knight's damage reduction is 25% and its outgoing bonus is 30%. Mage's Overcharge
-multiplier is 4.0 and fires on rounds 3, 6, 9 and so on.
+rolls 4.0×/5.0× at 60%/40% and fires on battle turns 3, 6, 9 and so on.
 
 ## How do I view current class passives
 
@@ -181,7 +181,7 @@ Weapons carry ATK and CRIT only. Armor carries HP and DEF only. Deities never gr
 CRIT. Deity slot 1 contributes 100% of its stats; slots 2 and 3 contribute 50% each,
 floored.
 
-Weapon and deity enhancement never scale CRIT. An empty slot contributes zero, never an
+Weapon and deity Ascension never scale CRIT. An empty slot contributes zero, never an
 error.
 
 ## How do I change my class after creation
@@ -322,7 +322,7 @@ Token** purchase option:
 
 | Item | Price | Buy | Redeem |
 |---|---|---|---|
-| Custom Avatar Token | 20 supporter tokens | `crd avatar buy at` | `crd use at` |
+| Custom Avatar Token | 30 supporter tokens | `crd avatar buy at` | `crd use at` |
 
 Redeeming the token creates a work-order ticket for a custom-commissioned avatar; the
 reply includes the ticket id and the item is consumed on redemption regardless of queue

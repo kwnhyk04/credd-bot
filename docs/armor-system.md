@@ -46,7 +46,7 @@ Band windows:
 | Legendary | Gold, Boss Treasure, Boss Golden, Supreme, Diamond chests |
 | Supreme | Boss Golden, Supreme chests |
 
-There is **no Genesis armor tier** — Genesis is weapon-only.
+There is **no Divine armor tier** — Divine is weapon-only.
 
 ## What are the armor stat ranges by tier
 
@@ -82,7 +82,7 @@ the tier is decided.
 | The drop is a weapon | 50% |
 | The drop is an armor | 50% |
 
-There is no armor-only chest. The one exception is the Genesis Chest, which is
+There is no armor-only chest. The one exception is the Divine Chest, which is
 weapon-only and skips the split entirely.
 
 Starter armor is granted at character creation: **Initiate's Garb**, Common, 40 HP,
@@ -143,7 +143,7 @@ Heavy) +6.`
 ## How does armor enhancement work
 
 Armor uses the same boost table as weapons and caps at +10. Armor never reaches the
-Genesis +20 cap, which is weapon-only.
+Divine +20 cap, which is weapon-only.
 
 <!-- src: src/engine/enhancement.js:168 -->
 

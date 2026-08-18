@@ -365,7 +365,7 @@ Do not combine this migration with table creation, backfill, or the first code d
 - Add custom IDs containing `shop:av:<action>:<invokerId>:<page>` (or the existing namespace format after inspection) and use the existing owner-gate behavior. An interaction from another user must be rejected ephemerally.
 - Prev/next wrap with `(page + 1) % total` and `(page - 1 + total) % total`; disable both whenever `total <= 1`; render no buttons for an empty catalog.
 - Preview must be ephemeral. The Buy action must re-render the same page after success so its state changes to `Owned` immediately.
-- Add the Custom Avatar Token as an explicit non-avatar shop product priced at 20 supporter tokens and describe it as a consumable ticket item. It must grant `users_bag.custom_avatar_token`, not an avatar ownership row.
+- Add the Custom Avatar Token as an explicit non-avatar shop product priced at 30 supporter tokens and describe it as a consumable ticket item. It must grant `users_bag.custom_avatar_token`, not an avatar ownership row.
 - The existing avatar query's ordering must be made deterministic with an explicit style order, gender order, display name, avatar key, and final `avatar_id` tie-breaker. The existing class filter must remain.
 - Move ownership lookup inside the Buy transaction. Lock the supporter row through `spendTokensTx`, re-read ownership inside the same transaction, insert into `user_avatars`, and use the existing unique constraint plus `RETURNING`/conflict handling. If ownership is found after the lock, roll the transaction back and return an already-owned response. Never trust the prior button state.
 - Add a 150-second collector for the avatar preview interaction. On collector end, edit the message to disable every button. This is a new timeout for the avatar preview; the existing supporter shop has no current timeout to mirror, so the exact timeout is an implementation addition, not an existing value.
@@ -632,7 +632,7 @@ If and only if this returns a row, upsert/increment `users_bag.custom_deity_toke
 - `src/engine/bagViews.js` and `src/commands/rpg/bag.js`: include the two items in the registry/query and filter all item rows to `quantity > 0` before rendering. Preserve the existing bag layout.
 - `src/commands/rpg/use.js`: add redemption dispatch for `at` and `dt`; do not call these “equip” operations in user-facing text. Reply with the generated ticket id.
 - `src/utils/weaponId.js`: add ticket-table collision checking and a retry-safe ticket id helper.
-- `src/commands/rpg/avatar.js`/`src/engine/avatarSystem.js`: connect the Custom Avatar Token shop product to the same bag-grant helper and 20-token supporter spend transaction.
+- `src/commands/rpg/avatar.js`/`src/engine/avatarSystem.js`: connect the Custom Avatar Token shop product to the same bag-grant helper and 30-token supporter spend transaction.
 - `src/engine/supporterEntitlements.js`: grant one Custom Deity Token inside the Eternal grant transaction as described in D.
 - `src/handlers/commandHandler.js` and command modules: add dev-only `crd supporter tickets` and `crd update ticket <ticket_id> <in_progress|done>`. The brief's command shape is not currently present; reuse the existing command router and `DEV_IDS` guard. If the existing supporter namespace is not dev-gated, add the explicit guard at the command entry rather than changing all supporter commands.
 - New module recommended: `src/commands/rpg/tickets.js` for query/filter/render/update logic, with custom-ID pagination routed through `interactionHandler.js`.

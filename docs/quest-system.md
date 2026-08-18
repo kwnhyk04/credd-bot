@@ -34,16 +34,15 @@ crd quest claim
 
 ## How many daily quests do I get
 
-Three distinct quest types per player per day, drawn from a pool of six. Targets are
-randomized inside each type's range, and the reward is fixed at roll time based on the
-rolled target.
+Three distinct quest types per player per day, drawn from a pool of five. Targets are
+randomized inside each type's range, and each reward is fixed by that quest's difficulty.
 
 <!-- src: src/utils/questProgress.js:48 -->
 
 | Property | Value |
 |---|---|
 | Quests per day | 3 |
-| Pool size | 6 types |
+| Pool size | 5 types |
 | Duplicate types in one day | Never |
 | Reset | Midnight PHT |
 | Rerolls allowed | 2 per day |
@@ -52,20 +51,22 @@ rolled target.
 
 <!-- src: src/utils/questProgress.js:48 -->
 
-| Quest | Target range | Reward tiers |
-|---|---|---|
-| Win N raids | 3 – 10 | 3–5 → 3,000 Credux + 5 Shards · 6–8 → 6,000 + 10 · 9–10 → 10,000 + 15 |
-| Defeat N elite mobs | 2 – 5 | 2–3 → 5,000 Credux + 8 Shards · 4–5 → 10,000 + 15 |
-| Spend N Credux on enhancement | 5,000 – 50,000 | ≤20,000 → 4,000 Credux + 5 Shards · >20,000 → 9,000 + 12 |
-| Enhance a weapon N times | 2 – 5 | 2–3 → 4,000 Credux + 5 Shards · 4–5 → 8,000 + 10 |
-| Win N duels | 1 – 3 | 1 → 5,000 Credux + 8 Shards · 2–3 → 12,000 + 18 |
-| Challenge N players to a duel | 2 – 5 | 2–3 → 3,000 Credux + 5 Shards · 4–5 → 6,000 + 10 |
+| Quest | Target range | Difficulty | Fixed reward |
+|---|---|---|---|
+| Win N raids | 3 – 10 | Easy | 30,000 Credux + 500 Shards |
+| Defeat N elite mobs | 2 – 5 | Hard | 100,000 Credux + 1,000 Shards |
+| Spend N Credux on enhancement | 5,000 – 50,000 | Hard | 100,000 Credux + 1,000 Shards |
+| Enhance a weapon N times | 2 – 5 | Hard | 100,000 Credux + 1,000 Shards |
+| Have a duel with N users | 2 – 5 | Mid | 50,000 Credux + 750 Shards |
+
+Legacy assigned duel-win and duel-challenge rows remain claimable and use the same Mid
+reward, but new boards roll only the unified duel-participation objective.
 
 Rewards are granted automatically the moment a quest reaches its target, with a
 completion notice:
 
 ```text
-📋 Quest complete: Win 7 raids — +6,000 Credux, +10 Shards
+📋 Quest complete: Win 7 raids — +30,000 Credux, +500 Shards
 ```
 
 When the third daily quest completes, the board also reports:
@@ -85,7 +86,9 @@ Daily Quest Completion Bonus: +1 Sacred Relic
 | Syntax | `crd quest refresh <Q1\|Q2\|Q3>` |
 
 A reroll replaces that line with a quest type not currently in use and resets its progress
-to zero. Since there are six types and only three in use, a replacement always exists.
+to zero. Since there are five types and only three in use, a replacement always exists.
+The replacement's difficulty reward is recalculated immediately rather than retaining
+the previous line's reward.
 
 Failure messages:
 
@@ -114,15 +117,15 @@ their targets are rolled.
 
 | Quest | Target range | Credux | Valor | Sacred Relic |
 |---|---|---|---|---|
-| Win N raids this week | 20 – 40 | 20,000 | 40 | 1 |
-| Defeat N elite mobs this week | 15 – 30 | 20,000 | 40 | 1 |
-| Spend N Credux on enhancement | 100,000 – 300,000 | 25,000 | 50 | 1 |
-| Enhance gear N times this week | 10 – 20 | 20,000 | 40 | 1 |
-| Win N duels this week | 5 – 12 | 25,000 | 50 | 1 |
+| Win N raids this week | 20 – 40 | 100,000 | 40 | 1 |
+| Defeat N elite mobs this week | 15 – 30 | 100,000 | 40 | 1 |
+| Spend N Credux on enhancement | 100,000 – 300,000 | 100,000 | 50 | 1 |
+| Enhance gear N times this week | 10 – 20 | 100,000 | 40 | 1 |
+| Have a duel with N users this week | 5 – 12 | 100,000 | 50 | 1 |
 
 Weekly rewards are fixed per line and do not scale with the rolled target.
 
-Completing all five lines pays a total of 110,000 Credux, 220 Valor, and 5 Sacred Relics,
+Completing all five lines pays a total of 500,000 Credux, 220 Valor, and 5 Sacred Relics,
 before the non-relic grand reward.
 
 ## What is the weekly grand reward
@@ -134,8 +137,8 @@ Clearing all five weekly quests unlocks a one-time bundle for that week.
 | Reward | Amount |
 |---|---|
 | Sacred Relic | 0 (the five individual quests grant 5 total) |
-| Valor Medals | 150 |
-| Credux | 50,000 |
+| Valor Medals | 200 |
+| Credux | 500,000 |
 
 Claim it with the **🏆 Claim Grand Reward** button on the weekly board, or with:
 
@@ -147,7 +150,7 @@ crd quest claim
 |---|---|
 | Not all five complete | *"⚔️ Finish all 5 weekly quests first — N/5 done."* |
 | Already claimed this week | *"✅ You already claimed this week's grand reward."* |
-| Success | *"🏆 Weekly full-completion reward claimed: 150 Valor + 50,000 Credux. No additional Sacred Relic was granted."* |
+| Success | *"🏆 Weekly full-completion reward claimed: 200 Valor + 500,000 Credux. No additional Sacred Relic was granted."* |
 
 The claim is guarded so it can only ever pay once per player per week.
 
@@ -163,8 +166,7 @@ lines together.
 | Raid win | `raid_wins` | `raid_wins` |
 | Raid win against an elite mob | `raid_wins` and `elite_defeats` | `raid_wins` and `elite_defeats` |
 | Enhancement attempt (success or failure) | `credux_spent` and `weapon_enhancements` | `credux_spent` and `weapon_enhancements` |
-| Duel win | `duel_wins` | `duel_wins` |
-| Issuing a duel challenge | `duel_challenges` | — (no weekly line) |
+| Completed duel | `duel_participations` | `duel_participations` |
 
 Auto raid, ranked matches, boss attacks and casino games do **not** progress quests.
 

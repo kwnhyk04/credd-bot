@@ -16,7 +16,7 @@ BEGIN
               ('weapon', 'cutlass', 'Each attack has a 10% chance to make the enemy Bleed for 5% of the user''s base ATK per turn for 2 turns.'),
               ('weapon', 'pata', 'Each attack makes the enemy Bleed for 5% of the user''s base ATK per turn for 2 turns.'),
               ('weapon', 'thyrsus', 'Each turn has a 20% chance to make the enemy Bleed for 5% of the user''s base ATK per turn for 2 turns.'),
-              ('weapon', 'alans_reversed_hands', 'Immune to all status effects. Does not prevent damage-over-time effects.'),
+              ('weapon', 'alans_reversed_hands', 'Increases outgoing damage by 20% and grants immunity to status effects; damage-over-time effects still apply.'),
               ('weapon', 'babaylans_ritual_staff', 'Each turn has a 50% chance to remove all active debuffs, including status and damage-over-time effects. If at least one debuff is removed, gain +100% ATK for 1 turn. Positive buffs are not removed.'),
               ('deity', 'apolaki_solar_burn', 'Each attack burns the enemy for 10% of the user''s base ATK for 1 turn.'),
               ('deity', 'surt_muspells_flame', 'Each attack adds Burn equal to 3% of the user''s base ATK per turn for 2 turns, stacking up to 15%. Attacks deal 50% more damage to enemies that are already burning.')

@@ -104,6 +104,9 @@ async function loadRenderImages(d, skinPath, options) {
   const weaponPromise = localIcons.weapon
     ? loadOptionalImage(localIcons.weapon)
     : (d.weaponName ? getEmojiIcon(resolveName(d.weaponName) || '') : Promise.resolve(null));
+  const classPromise = localIcons.class
+    ? loadOptionalImage(localIcons.class)
+    : (d.className ? getEmojiIcon(resolveName(d.className) || '') : Promise.resolve(null));
   const deityPromise = localIcons.deity
     ? loadOptionalImage(localIcons.deity)
     : (d.deityName ? getEmojiIcon(resolveName(d.deityName) || '') : Promise.resolve(null));
@@ -111,17 +114,18 @@ async function loadRenderImages(d, skinPath, options) {
     ? loadOptionalImage(localIcons.combatExp)
     : getEmojiIcon('combat_exp');
 
-  const [skin, avatar, weapon, deity, combatExp, supporterBadge] = await Promise.all([
-    loadOptionalImage(skinPath), avatarPromise, weaponPromise, deityPromise, combatExpPromise,
+  const [skin, avatar, classIcon, weapon, deity, combatExp, supporterBadge] = await Promise.all([
+    loadOptionalImage(skinPath), avatarPromise, classPromise, weaponPromise, deityPromise, combatExpPromise,
     // [§2.5] supporter badge — path only set when tier active AND art exists.
     loadOptionalImage(options.supporterBadgePath || d.supporterBadgePath),
   ]);
-  return { skin, avatar, weapon, deity, combatExp, supporterBadge };
+  return { skin, avatar, classIcon, weapon, deity, combatExp, supporterBadge };
 }
 
 function iconFor(style, layout, images) {
   if (!style.icon) return null;
   if (style.icon === '$weapon') return images.weapon;
+  if (style.icon === '$class') return images.classIcon;
   if (style.icon === '$deity') return images.deity;
   if (style.icon === 'combat_exp.png' && images.combatExp) return images.combatExp;
   return loadOptionalImage(`${layout.icons_dir}/${style.icon}`);
@@ -148,9 +152,9 @@ async function drawText(ctx, key, content, layout, view, images) {
   // title, deity name or label needs the fallback chain, which is the signal that
   // used to surface silently as empty boxes.
   reportGlyphCoverage(`profileLayoutRenderer:${key}`, text, { family: drawStyle.font });
-  const icon = await iconFor(drawStyle, layout, images);
+  const icon = key === 'class' ? images.classIcon : await iconFor(drawStyle, layout, images);
   const iconSize = icon ? (drawStyle.icon_size || drawStyle.size) : 0;
-  const iconGap = icon ? (drawStyle.icon_gap || 0) : 0;
+  const iconGap = icon ? (drawStyle.icon_gap ?? (key === 'class' ? 5 : 0)) : 0;
   const reserved = iconSize + iconGap;
   const size = fitSize(ctx, text, drawStyle, reserved);
 

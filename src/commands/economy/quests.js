@@ -19,6 +19,7 @@ const {
   rollQuestsIfMissing, refreshQuestLine, describeQuest,
   hoursUntilMidnightPHT, REFRESH_ALLOWANCE,
   rollWeeklyIfMissing, describeWeekly, claimWeeklyGrand,
+  WEEKLY_GRAND_CREDUX, WEEKLY_GRAND_VALOR,
 } = require('../../utils/questProgress');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { phtWeek } = require('../../config/ranked');
@@ -178,6 +179,11 @@ async function weeklyPayload(ownerId, note) {
   container.addActionRowComponents(() => scopeRow('weekly', ownerId));
   if (note) container.addTextDisplayComponents((td) => td.setContent(`-# ${note}`));
   container
+    .addSeparatorComponents(sep)
+    .addTextDisplayComponents((td) => td.setContent(
+      `Weekly Quest Completion Bonus: +${emoji('credux_coin')} ${WEEKLY_GRAND_CREDUX.toLocaleString()} Credux ` +
+      `+${emoji('valor_medal')} ${WEEKLY_GRAND_VALOR.toLocaleString()} Valor Medals`,
+    ))
     .addSeparatorComponents(sep)
     .addTextDisplayComponents((td) => td.setContent('-# Resets weekly (Mon, PHT). Each completed quest grants +1 Sacred Relic, plus its Credux + Valor reward.'))
     .addMediaGalleryComponents((g) => g.addItems((item) => item.setURL(image.url)));

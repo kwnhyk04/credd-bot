@@ -15,7 +15,7 @@ const PASSIVES = require('../src/engine/passiveRegistry');
 const { resolveBattle } = require('../src/engine/battleEngine');
 const { weaponEntry } = require('../src/commands/rpg/compare');
 const {
-  GENESIS_STATS,
+  DIVINE_STATS,
   SUPREME_STATS,
   rollWeaponStats,
   effectiveWeaponBonusDmgPct,
@@ -200,9 +200,8 @@ for (const [key, [chance, bonus]] of Object.entries(ATTACK_RIDERS)) {
 const LANDED_DEBUFFS = {
   cutlass: [0.10, 'bleed', 2, 5],
   war_club: [0.10, 'stun', 1, 0],
-  // On-hit stat shreds use two internal ticks so one effective turn remains after
-  // the engine's end-of-proc-round decrement.
-  pilgrims_bordone: [0.50, 'def_down', 2, 0.15],
+  // Round-aware stat shreds use their authored one-turn duration directly.
+  pilgrims_bordone: [0.50, 'def_down', 1, 0.15],
 };
 for (const [key, [chance, tag, turns, value]] of Object.entries(LANDED_DEBUFFS)) {
   audit(key, () => {
@@ -287,7 +286,7 @@ audit('galdrastafir', () => {
   const bs = makeBs({ rng: () => 0.99 });
   invoke('galdrastafir', bs);
   land(bs);
-  assert.deepEqual(bs.enemyDebuffs[0], { tag: 'def_down', turns: 2, value: 0.20 });
+  assert.deepEqual(bs.enemyDebuffs[0], { tag: 'def_down', turns: 1, value: 0.20 });
 });
 
 audit('spear_of_ares', () => {
@@ -544,7 +543,7 @@ audit('badiang_stalk', () => {
   assert.equal(bs.flags.rupture_check, true);
   close(bs.flags.rupture_pct, 0.10, 'Badiang rupture amount');
   assert.deepEqual(bs.enemyDebuffs, [
-    { tag: 'rupture', turns: 2, value: 0 },
+    { tag: 'rupture', turns: 1, value: 0 },
     { tag: 'venom', turns: 2, value: 10 },
   ]);
   const boundary = makeBs({ rng: () => 0.30 });
@@ -578,8 +577,8 @@ audit('gusisnautar', () => {
   assert.equal(bs.flags.hemorrhage_check, true);
   close(bs.flags.hemorrhage_pct, 0.05, 'Gusisnautar hemorrhage amount');
   assert.deepEqual(bs.enemyDebuffs, [
-    { tag: 'hemorrhage', turns: 2, value: 0 },
-    { tag: 'def_down', turns: 2, value: 0.15 },
+    { tag: 'hemorrhage', turns: 1, value: 0 },
+    { tag: 'def_down', turns: 1, value: 0.15 },
   ]);
   const boundary = makeBs({ rng: () => 0.50 });
   invoke('gusisnautar', boundary);
@@ -754,7 +753,7 @@ audit('trident_of_poseidon', () => {
   assert.equal(bs.enemyDebuffs.length, 0);
   land(bs);
   assert(bs.enemyDebuffs.some((d) => d.tag === 'stun'));
-  assert(bs.enemyDebuffs.some((d) => d.tag === 'def_down' && d.turns === 2 && d.value === 0.20));
+  assert(bs.enemyDebuffs.some((d) => d.tag === 'def_down' && d.turns === 1 && d.value === 0.20));
   const boundary = makeBs({ currentTurn: 2, rng: () => 0.30 });
   invoke('trident_of_poseidon', boundary);
   attack(boundary);
@@ -769,29 +768,29 @@ audit('trident_of_poseidon', () => {
   assert.equal(additional.enemyDebuffs.length, 0);
 });
 
-// ── Genesis tier — the five First Arms (specs/genesis_tier_weapons.md) ──────
+// ── Divine tier — the five First Arms ───────────────────────────────────────
 
-assert.equal(GENESIS_STATS.bonus_dmg_pct, 100, 'Genesis fixed damage rider is +100%');
-assert.equal(rollWeaponStats('Genesis', 'Sword').bonus_dmg_pct, 100,
-  'new Genesis drops store the fixed +100% rider');
-assert.equal(effectiveWeaponBonusDmgPct('Genesis', 50), 100,
-  'legacy Genesis rows use the replacement +100% value, not 50% + 100%');
+assert.equal(DIVINE_STATS.bonus_dmg_pct, 100, 'Divine fixed damage rider is +100%');
+assert.equal(rollWeaponStats('Divine', 'Sword').bonus_dmg_pct, 100,
+  'new Divine drops store the fixed +100% rider');
+assert.equal(effectiveWeaponBonusDmgPct('Divine', 50), 100,
+  'migrated Divine rows use the replacement +100% value, not 50% + 100%');
 assert.equal(effectiveWeaponBonusDmgPct('Supreme', SUPREME_STATS.bonus_dmg_pct), 50,
   'Supreme damage rider remains unchanged');
-const genesisDisplay = weaponEntry({
-  name: 'Kiri', tier: 'Genesis', enhancement: 1,
+const divineDisplay = weaponEntry({
+  name: 'Kiri', tier: 'Divine', enhancement: 1,
   curr_atk: 1_600, crit: 20, bonus_dmg_pct: 50,
   passive_name: 'Thousand Partings', passive_description: 'Unchanged.',
 }, 'test-id');
-assert(genesisDisplay.includes('+100% DMG') && !genesisDisplay.includes('+50% DMG'),
-  'owned Genesis comparison display normalizes legacy rows to +100%');
+assert(divineDisplay.includes('+100% DMG') && !divineDisplay.includes('+50% DMG'),
+  'owned Divine comparison display normalizes migrated rows to +100%');
 for (const relative of [
   'src/commands/rpg/equipment.js',
   'src/commands/rpg/open.js',
 ]) {
   const displaySource = fs.readFileSync(path.join(ROOT, relative), 'utf8');
   assert(displaySource.includes('effectiveWeaponBonusDmgPct'),
-    `${relative} must render Genesis damage from the centralized fixed-tier helper`);
+    `${relative} must render Divine damage from the centralized fixed-tier helper`);
 }
 
 audit('kiri', () => {
@@ -947,8 +946,8 @@ assert.deepEqual(
   close(bathala.flags.mantle_bathala_heal_pct, 0, 'Mantle heal waits for max stacks');
 }
 
-// Migration 08 must persist the registry key, not only the display name. The
-// upsert contract also repairs rows created by an older/incomplete copy.
+// Historical seed migration 08 must persist the registry key, not only the
+// display name. The later Divine migration renames those seeded tier rows.
 {
   const migrationPath = path.join(
     ROOT,
@@ -958,7 +957,7 @@ assert.deepEqual(
   );
   const migration = fs.readFileSync(migrationPath, 'utf8');
   const compactMigration = migration.replace(/\s+/g, ' ');
-  const genesisWeapons = [
+  const seededFirstArms = [
     [78, 'Kiri', 'Sword', 'Japanese', 'kiri'],
     [79, 'Moira', 'Bow', 'Greek', 'moira'],
     [80, 'Sophia', 'Staff', 'Greek', 'sophia'],
@@ -971,7 +970,7 @@ assert.deepEqual(
     /INSERT INTO public\.weapon_roster\s*\([\s\S]*?passive_key[\s\S]*?passive_name[\s\S]*?\)\s*VALUES/,
     'Genesis weapon insert must explicitly include passive_key',
   );
-  for (const [id, name, type, mythology, key] of genesisWeapons) {
+  for (const [id, name, type, mythology, key] of seededFirstArms) {
     assert(
       compactMigration.includes(
         `(${id}, '${name}', '${type}', 'Genesis', '${mythology}', '${key}',`,
@@ -1011,25 +1010,34 @@ assert.deepEqual(
   assert.match(migration, /weapon_roster_tier_check[\s\S]*?'Genesis'/);
   assert.match(migration, /weapon_roster_type_check[\s\S]*?'Greatsword'/);
 
+  const divineMigration = fs.readFileSync(
+    path.join(ROOT, 'scripts', 'migrations', '20260818_02_divine_weapon_tier.sql'),
+    'utf8',
+  );
+  assert.match(divineMigration, /SET tier = 'Divine'/);
+  assert.match(divineMigration, /WHERE tier = 'Genesis'/);
+  assert.match(divineMigration, /weapon_roster_tier_check[\s\S]*?'Divine'/);
+
   const glossary = fs.readFileSync(
     path.join(ROOT, 'src', 'commands', 'rpg', 'glossary.js'),
     'utf8',
   );
   assert.match(
     glossary,
-    /SUPREME_STATS, GENESIS_STATS/,
-    'weapon glossary must use the fixed Genesis stat source',
+    /SUPREME_STATS, DIVINE_STATS/,
+    'weapon glossary must use the fixed Divine stat source',
   );
   assert.match(
     glossary,
-    /WHEN 'Genesis' THEN 6 WHEN 'Supreme' THEN 5/,
-    'Genesis weapons must sort above Supreme in the glossary',
+    /WHEN 'Divine' THEN 6 WHEN 'Supreme' THEN 5/,
+    'Divine weapons must sort above Supreme in the glossary',
   );
   assert.match(
     glossary,
-    /g\.tier === 'Genesis'[\s\S]*?GENESIS_STATS\.atk[\s\S]*?GENESIS_STATS\.crit[\s\S]*?GENESIS_STATS\.bonus_dmg_pct/,
-    'Genesis glossary rows must render their fixed ATK, CRIT, and damage stats',
+    /g\.tier === 'Divine'[\s\S]*?DIVINE_STATS\.atk[\s\S]*?DIVINE_STATS\.crit[\s\S]*?DIVINE_STATS\.bonus_dmg_pct/,
+    'Divine glossary rows must render their fixed ATK, CRIT, and damage stats',
   );
+
 }
 
 function player(over = {}) {

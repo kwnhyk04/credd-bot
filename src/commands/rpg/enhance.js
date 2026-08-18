@@ -18,7 +18,12 @@ const { progressQuests } = require('../../utils/questProgress');
 const { chance } = require('../../utils/secureRng');
 
 const TIER_COLOR = {
-  Common: 0x95a5a6, Rare: 0x3498db, Mythic: 0x9b59b6, Legendary: 0xFFD700, Supreme: 0xe74c3c,
+  Common: 0x95a5a6,
+  Rare: 0x3498db,
+  Mythic: 0x9b59b6,
+  Legendary: 0xFFD700,
+  Supreme: 0xe74c3c,
+  Divine: 0xffffff,
 };
 const TYPE_EMOJI = { Sword: '⚔️', Staff: '🪄', Gloves: '🥊', Bow: '🏹' };
 const ARMOR_TYPE_EMOJI = { Heavy: '🛡️', Medium: '🥋', Light: '🧥' };

@@ -106,10 +106,11 @@ function fmtDurationWords(sec) {
 }
 
 function rewardLines(rw) {
+  const exp = emojiForDisplay('Combat Exp', '✨');
   const credux = emojiForDisplay('Credux Coin', '💰');
   const shard = emojiForDisplay('Belief Shards', '🔮');
   return (
-    `✨ **+${rw.exp.toLocaleString()}** Combat EXP\n` +
+    `${exp} **+${rw.exp.toLocaleString()}** Combat EXP\n` +
     `${credux} **+${rw.credux.toLocaleString()}** Credux\n` +
     `${shard} **+${rw.shards.toLocaleString()}** Belief Shards`
   );
@@ -401,4 +402,4 @@ async function handleClaim(interaction, ownerId) {
   }
 }
 
-module.exports = { execute, handleStart, handleClaim, computeRewards };
+module.exports = { execute, handleStart, handleClaim, computeRewards, rewardLines };

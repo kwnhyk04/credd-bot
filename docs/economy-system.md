@@ -14,8 +14,8 @@ no daylight saving).
 | **Credux** | Earned currency | Enhancement, shops, unsocketing, wagers, casino |
 | **Belief Shards** | Earned currency | The deity gacha — 100 shards per pull |
 | **Valor Medals** | PvP currency | The PvP Shop only |
-| **Essence** (Epic / Mythic / Legendary / Supreme) | Item currency | Sigils, Ascension, deity enhancement, rune bags |
-| **Sacred Relic** | Ticket item | 10 deity pulls |
+| **Essence** (Epic / Mythic / Legendary / Supreme) | Item currency | Sigils, Ascension progression, rune bags |
+| **Sacred Relic** | Ticket item | 30 deity pulls |
 | **Supreme Relic** | Ticket item | 1 forced Supreme deity pull |
 | **Supporter tokens** | Cosmetic currency | Skins and avatars only — never gameplay |
 
@@ -46,9 +46,9 @@ crd cred
 | Greater Boss — Twin Chest | 150,000 |
 | Greater Boss — Golden Chest | 200,000 |
 | Daily attendance | 50,000 – 1,500,000 by 30-day reward-cycle day |
-| Daily quest completion | 3,000 – 12,000 per quest |
-| Weekly quest completion | 20,000 – 25,000 per quest |
-| Weekly quest grand reward | 50,000 |
+| Daily quest completion | 30,000 / 50,000 / 100,000 by difficulty |
+| Weekly quest completion | 100,000 per quest |
+| Weekly quest grand reward | 500,000 |
 | Combat level-up | 100,000 – 5,000,000 by bracket |
 | Believer level-up | 250,000 – 1,000,000 by bracket |
 | Ranked weekly claim | By bracket |
@@ -224,7 +224,7 @@ Essence comes only from duplicate deity pulls and from converting a lower tier u
 | Duplicate Supreme deity | +10 Supreme Essence |
 | `crd exchange essence` | 10 of the lower tier + Credux → 1 of the target tier |
 
-Essence sinks are Sigils, Ascension, deity enhancement and essence-shop rune bags.
+Essence sinks are Sigils, Ascension progression and essence-shop rune bags.
 
 ## Where do Valor Medals come from
 
@@ -233,7 +233,7 @@ Essence sinks are Sigils, Ascension, deity enhancement and essence-shop rune bag
 | Ranked win | 10 – 20 in season |
 | Ranked loss | 3 – 8 in season |
 | Weekly quest completion | 40 – 50 per quest |
-| Weekly quest grand reward | 150 |
+| Weekly quest grand reward | 200 |
 | Ranked weekly claim | By bracket |
 | Season-end payout | By peak bracket |
 

@@ -40,7 +40,7 @@
  *   attack-bound work is queued for the action/landed-hit hooks; death
  *   check after every registry call) → consume hydra local regen / bathala HP flag →
  *   clear consumed latches → actions in actor order; after each side acts, its DOT
- *   ticks before the next side can act → stat-debuff expiry, sudden-death drain (round ≥ 30),
+ *   ticks before the next side can act → armed round-debuff expiry, sudden-death drain (round ≥ 30),
  *   snapshot per mode cadence. Hard cap round 50 (§35.3).
  *
  * LOG DISPLAY ORDER ([Jun-2026]): round passives resolve before attacks; queued weapon
@@ -53,7 +53,8 @@
  *     duel/raid → rounds 1,4,16,…   boss → every 3rd round
  *
  * MAGE OVERCHARGE (§11/§13.1): on every 3rd round (rounds 3,6,9,…) the Mage's PRIMARY
- *   attack is ×(4.0 + damage%/100) and cannot crit. The pre-roll latch and
+ *   attack rolls ×4.0 60% of the time or ×5.0 40% of the time against the same
+ *   non-crit damage lane as a normal hit, and cannot crit. The pre-roll latch and
  *   nextAttackAutoCrit are ignored for that attack. Additional attacks in the same
  *   action never inherit Overcharge; they keep fresh crit rolls and normal multipliers.
  *   Skip-CC on a multiple of 3 → the action never runs → that overcharge is simply lost
@@ -62,12 +63,13 @@
  * DAMAGE PIPELINE (per hit) — ONE unified rule (§35.2 / config/combat):
  *   base = effATK × (1 − effDEF/(effDEF+200)) × variance(0.90–1.10)
  *   then exactly one multiplier:
- *     overcharge (Mage 3rd-round primary): ×(4.0 + damage%/100), no crit
+ *     overcharge (Mage 3rd-round primary): 60% ×4.0 ×(1 + damage%/100),
+ *                                           40% ×5.0 ×(1 + damage%/100), no crit
  *     otherwise:                   ×((critLevel ? 2.0 : 1) + damage%/100)
  *   critLevel = a rolled crit OR a Double (Idiyanale, a guaranteed crit-level hit that DOES
  *   take the rider). damage% = weapon bonusDmgPct + procced sources (Katana +30, future
  *   deity blessings via scratch.damageBonusPct), summed additively, applied to crit AND
- *   non-crit. Supreme 50% → ×1.5 / ×2.5; Genesis 100% → ×2.0 / ×3.0;
+ *   non-crit. Supreme 50% → ×1.5 / ×2.5; Divine 100% → ×2.0 / ×3.0;
  *   Supreme + double → ×2.5; Supreme + deity 50% (proc) → ×2.0 / ×3.0. Mob "X% ATK" nukes are a clean ×(pct) and do
  *   not also crit. (+X% ATK riders scale effATK pre-mitigation — see playerAtkMult.)
  *   → floor → defender stack (R3) → apply → death check (§35.3 first-to-0, R5)
@@ -101,13 +103,15 @@ const {
   dotOrderIndex,
 } = require('./combatLog');
 const {
-  CRIT_MULT, OVERCHARGE_MULT, hitMultiplier,
+  CRIT_MULT, OVERCHARGE_MULT, OVERCHARGE_HIGH_MULT, OVERCHARGE_BASE_CHANCE,
+  hitMultiplier,
   SUPREME_WEAPON_ATK_PER_TURN, SUPREME_WEAPON_ATK_MAX,
   AEGIS_DR_PER_STACK, AEGIS_STACKS_TO_PETRIFY, AEGIS_PETRIFY_DAMAGE_AMP,
   PETRIFY_DEFAULT_DAMAGE_AMP,
 } = require('../config/combat');
-const { CLASS_PASSIVE_VALUES } = require('../config/classes');
+const { CLASS_PASSIVE_VALUES, CLASSES } = require('../config/classes');
 const { effectiveWeaponBonusDmgPct } = require('../config/dropRates');
+const { emojiForDisplay } = require('../utils/emojis');
 const {
   EFFECT_CATEGORY,
   EFFECT_DEFINITIONS,
@@ -125,9 +129,7 @@ const MAX_ROUNDS = 50;
 const SUDDEN_DEATH_FROM = 30;     // player sides lose 10% max HP at end of every round ≥ 30 (mobs/bosses exempt)
 const SUDDEN_DEATH_PCT = 0.10;
 const SNAPSHOT_EVERY = 3;
-// A debuff applied after a landed hit is armed for the next action window. The
-// end-of-round decrement makes turnsLeft=2 equivalent to one affected turn.
-const LANDED_STAT_DEBUFF_TURNS = 2;
+const LANDED_STAT_DEBUFF_TURNS = 1;
 const MITIGATION_K = 200;         // §12: 1 − DEF/(DEF+200)
 const ARCHER_PIERCE = CLASS_PASSIVE_VALUES.Archer.defenseIgnore;
 const ARCHER_DOUBLE_ATTACK_CHANCE = CLASS_PASSIVE_VALUES.Archer.doubleAttackChance;
@@ -162,6 +164,16 @@ const BLEED_MAX_PCT = CLASS_PASSIVE_VALUES.Swordsman.bleedMax;
 const BLEED_MAX_STACKS = Math.ceil(BLEED_MAX_PCT / BLEED_PCT_PER_STACK);
 const KNIGHT_OUTGOING_BONUS = CLASS_PASSIVE_VALUES.Knight.outgoingDamageBonus;
 
+/**
+ * Battle text should use the same class emoji registry as the class-passives and
+ * character displays. Unknown test/fallback classes retain the old generic icon.
+ */
+function classEmojiFor(side) {
+  const className = side?.in?.class || side?.in?.className || side?.className;
+  const fallback = CLASSES[className]?.emoji || '⚔️';
+  return CLASSES[className] ? emojiForDisplay(className, fallback) : fallback;
+}
+
 const SKIP_TAGS = ['stun', 'paralyze', 'freeze', 'petrify', 'charm', 'confuse', 'miss'];
 // Thor uses separate linked status and DOT IDs so status immunity never blocks damage.
 const DOT_TAGS = Object.keys(EFFECT_DEFINITIONS).filter(isRecurringDamageEffect);
@@ -195,6 +207,14 @@ const OVERCHARGE_DEBUFFS = Object.freeze([
   Object.freeze({ tag: 'def_down', label: 'DEF Down' }),
   Object.freeze({ tag: 'atk_down', label: 'ATK Down' }),
 ]);
+
+/** Map one injected RNG draw onto the 60% base / 40% high Overcharge roll. */
+function selectOverchargeMultiplier(roll) {
+  const normalized = Number.isFinite(Number(roll))
+    ? Math.max(0, Math.min(0.9999999999999999, Number(roll)))
+    : 0;
+  return normalized < OVERCHARGE_BASE_CHANCE ? OVERCHARGE_MULT : OVERCHARGE_HIGH_MULT;
+}
 
 /** Map one injected RNG draw onto exactly one equal-probability Overcharge effect. */
 function selectOverchargeDebuff(roll) {
@@ -523,6 +543,10 @@ const applyHitToDefender = (bt, fx, S, O, dmg, info = {}) => {
     const revive = Math.floor(O.maxHp * 0.30);
     fx.setHp(O, Math.min(1 + revive, O.maxHp));
     F.sidapa_atk_bonus = 0.50;
+    // The reprieve can trigger before this fighter's action in a duel. Its
+    // battle-long bonus must therefore affect that still-pending action now,
+    // not wait for the next round's passive phase.
+    O.scratch.playerAtkMult += 0.50;
     if (info.crit) fx.recordReceivedCrit(O);
     bt.shared.events.push(`🌙 Sidapa's Death's Reprieve! ${O.name} survives, heals ${revive} HP, ATK +50%!`);
     fx.grantValkyrieResolve(O);
@@ -536,6 +560,9 @@ const applyHitToDefender = (bt, fx, S, O, dmg, info = {}) => {
     const applied = O.hp - 1;
     fx.setHp(O, 1);
     F.titan_atk_bonus = 1.00;
+    // As with Sidapa, a first-strike opponent can trigger this before Titan's
+    // action. Fold the new persistent bonus into the current round as well.
+    O.scratch.playerAtkMult += 1.00;
     if (info.crit) fx.recordReceivedCrit(O);
     bt.shared.events.push(`🔥 Titan: Forgefire Veins — ${O.name} survives at 1 HP, damage +100%!`);
     fx.grantValkyrieResolve(O);
@@ -573,7 +600,7 @@ const applyHitToDefender = (bt, fx, S, O, dmg, info = {}) => {
   fx.grantAegisStone(O, S);
   if (info.crit) fx.recordReceivedCrit(O);
   if (info.crit && S.flags.atlas_crit_atk_down) {
-    if (fx.tryApplyDebuff(O, 'atk_down', 2, 0.30, S)) {
+    if (fx.tryApplyDebuff(O, 'atk_down', LANDED_STAT_DEBUFF_TURNS, 0.30, S)) {
       bt.shared.events.push(`🥊 Atlas: Worldbreaker's Grip — ${O.name}'s ATK reduced 30%!`);
     }
   }
@@ -702,6 +729,10 @@ function resolveBattle(a, b, opts = {}) {
   };
 
   // ── debuff helpers (§13.1: refresh don't stack/extend; highest value wins) ─
+  // Pre-action effects already cover a complete round and may expire at that
+  // round's end. Effects applied once actions have begun arm on the next round,
+  // ensuring actor order can never remove them before the source's next action.
+  let roundActionsStarted = false;
   const effectDamage = (side, amount) => {
     let adjusted = amount;
     if (findDebuff(side, 'frostbite')) adjusted *= 1.5;
@@ -771,10 +802,22 @@ function resolveBattle(a, b, opts = {}) {
       ex.turnsLeft = Math.max(ex.turnsLeft, turns);
       ex.value = Math.max(ex.value, value);
       ex.category = category;
+      // A refreshed round-timed status must receive a fresh complete-round window.
+      // DOT and skip-control effects retain their existing action-based lifecycles.
+      if (!DOT_TAGS.includes(tag) && !SKIP_TAGS.includes(tag)) {
+        ex.armed = !roundActionsStarted;
+      }
     } else {
       // Skip-CC applied this round is directional and gates the recipient's next
       // turn. It arms at round start, so it never cancels an action already due.
-      side.debuffs.push({ tag, category, turnsLeft: turns, value, armed: false });
+      const roundTimed = !DOT_TAGS.includes(tag) && !SKIP_TAGS.includes(tag);
+      side.debuffs.push({
+        tag,
+        category,
+        turnsLeft: turns,
+        value,
+        armed: roundTimed && !roundActionsStarted,
+      });
     }
     return true;
   };
@@ -949,6 +992,7 @@ function resolveBattle(a, b, opts = {}) {
       const shred = Math.max(
         debuffValue(O, 'def_down'),
         S.flags.laevateinn_sword_def_stack || 0,
+        S.flags.moira_def_stack || 0,
         (S.flags.zeus_def_shred_stacks || 0) * 0.05
       );
       def *= Math.max(0, 1 + O.scratch.playerDefMult - shred);
@@ -957,6 +1001,7 @@ function resolveBattle(a, b, opts = {}) {
       const shred = Math.max(
         debuffValue(O, 'def_down'),
         S.flags.laevateinn_sword_def_stack || 0,
+        S.flags.moira_def_stack || 0,
         (S.flags.zeus_def_shred_stacks || 0) * 0.05
       );
       def *= Math.max(0, 1 - shred);
@@ -968,7 +1013,7 @@ function resolveBattle(a, b, opts = {}) {
         let pierce = S.scratch.ignoreDefPct;
         if (S.classPassive === 'pierce') pierce = Math.max(pierce, ARCHER_PIERCE);
         if (mainHit && S.flags.crossbow_pierce) pierce = Math.max(pierce, 0.25);
-        // [Genesis] Moira ignores 50% DEF while the target's DEF is buffed —
+        // [Divine] Moira ignores 50% DEF while the target's DEF is buffed —
         // the defender's own per-round DEF multiplier is the buff signal.
         if (S.flags.moira_pierce_vs_def_buff && (O.scratch?.playerDefMult || 0) > 0) {
           pierce = Math.max(pierce, 0.50);
@@ -1001,6 +1046,13 @@ function resolveBattle(a, b, opts = {}) {
         bt.shared.events.push('⚔️ Vidar: Silent Vengeance — Auto-CRIT next attack!');
       }
       side.flags.vidar_crit_latch_handled = true;
+    }
+    if (side.deityBlessingKey === 'echo_vidar' || side.echoBlessingKey === 'echo_vidar') {
+      if (!side.flags.echo_vidar_revenge_pending) {
+        side.flags.echo_vidar_revenge_pending = true;
+        bt.shared.events.push('⚔️ Echo · Vidar: Silent Vengeance — Next attack +30% ATK!');
+      }
+      side.flags.echo_vidar_crit_latch_handled = true;
     }
   };
   const grantValkyrieResolve = (side) => {
@@ -1206,7 +1258,8 @@ function resolveBattle(a, b, opts = {}) {
     F.njord_block_check =
       O.deityBlessingKey === 'njord_seas_favor' && bt.rng() < 0.15;
     F.echo_njord_block_check =
-      O.echoBlessingKey === 'echo_njord' && bt.rng() < 0.10;
+      (O.deityBlessingKey === 'echo_njord' || O.echoBlessingKey === 'echo_njord')
+      && bt.rng() < 0.10;
 
   };
 
@@ -1240,7 +1293,7 @@ function resolveBattle(a, b, opts = {}) {
         additionalAttacks.push({
           source: 'archer',
           atkScale: 1,
-          log: `🏹 ${S.name}'s Double Attack activated!`,
+          log: `${classEmojiFor(S)} ${S.name}'s Double Attack activated!`,
           logPriority: LOG.CLASS,
         });
       }
@@ -1311,32 +1364,33 @@ function resolveBattle(a, b, opts = {}) {
     }
     const pct = Math.round(Math.min(BLEED_MAX_PCT, stacks * BLEED_PCT_PER_STACK) * 100);
     logAt(LOG.CLASS,
-      `🩸 Swordsman Passive — applied Bleed. Current stack: ${stacks}/${BLEED_MAX_STACKS} (${pct}% ATK/turn).`);
+      `${classEmojiFor(S)} Swordsman Passive — applied Bleed. Current stack: ${stacks}/${BLEED_MAX_STACKS} (${pct}% ATK/turn).`);
   };
 
   /** Overcharge's single post-hit effect: select one debuff, apply it, log the outcome. */
   const applyOverchargeDebuff = (S, O) => {
+    const icon = classEmojiFor(S);
     const selected = selectOverchargeDebuff(bt.rng());
     let applied = false;
     if (selected.tag === 'paralyze') {
       applied = tryApplyDebuff(O, selected.tag, 1, 0, S);
-      if (applied) logAt(LOG.STATUS, '⚡ Overcharge: Paralyze applied!');
+      if (applied) logAt(LOG.STATUS, `${icon} Overcharge: Paralyze applied!`);
     } else if (selected.tag === 'burn') {
       const burnDamage = Math.max(0, effAtk(S) * 0.10);
       applied = tryApplyDebuff(O, selected.tag, 1, burnDamage, S);
       if (applied) {
         const burn = findDebuff(O, 'burn');
         if (burn) burn.overcharge = true;
-        logAt(LOG.STATUS, '🔥 Overcharge: Burn applied for 1 turn.');
+        logAt(LOG.STATUS, `${icon} Overcharge: Burn applied for 1 turn.`);
       }
     } else if (selected.tag === 'def_down') {
-      applied = tryApplyDebuff(O, selected.tag, LANDED_STAT_DEBUFF_TURNS, 0.25, S);
-      if (applied) logAt(LOG.STATUS, '🛡️ Overcharge: Opponent DEF reduced by 25% for 1 turn.');
+      applied = tryApplyDebuff(O, selected.tag, LANDED_STAT_DEBUFF_TURNS, 0.50, S);
+      if (applied) logAt(LOG.STATUS, `${icon} Overcharge: Opponent DEF reduced by 50% for 1 turn.`);
     } else {
-      applied = tryApplyDebuff(O, selected.tag, LANDED_STAT_DEBUFF_TURNS, 0.25, S);
-      if (applied) logAt(LOG.STATUS, '⚔️ Overcharge: Opponent ATK reduced by 25% for 1 turn.');
+      applied = tryApplyDebuff(O, selected.tag, LANDED_STAT_DEBUFF_TURNS, 0.50, S);
+      if (applied) logAt(LOG.STATUS, `${icon} Overcharge: Opponent ATK reduced by 50% for 1 turn.`);
     }
-    if (!applied) logAt(LOG.STATUS, `🔮 Overcharge: ${selected.label} was resisted.`);
+    if (!applied) logAt(LOG.STATUS, `${icon} Overcharge: ${selected.label} was resisted.`);
   };
 
   const playerAttack = (S, O, context = {}) => {
@@ -1422,9 +1476,13 @@ function resolveBattle(a, b, opts = {}) {
       //   hit = base × ((critLevel ? 2.0 : 1.0) + damage%/100)
       // Double (Idiyanale) is a GUARANTEED crit-level hit — same 2.0 base + damage%, so it
       // stacks with the rider (Supreme + double → ×2.5; Supreme + deity 50% + double → ×3.0).
-      // Overcharge (Mage 3rd-round primary attack) is its own lane:
-      // ×(4.0 + damage%/100), no crit.
+      // Overcharge (Mage 3rd-round primary attack) multiplies the normal non-crit
+      // damage lane by 4.0× or 5.0×, so weapon/proc damage bonuses are preserved
+      // proportionally and the attack still cannot crit.
       const overchargeFired = mainHit && overchargeRound;
+      const overchargeMultiplier = overchargeFired
+        ? selectOverchargeMultiplier(bt.rng())
+        : null;
       const doubled = mainHit && S.scratch.nextAttackDouble && !overchargeFired;
       const critApplied = crit && !overchargeFired && !doubled;
       const critLevel = critApplied || doubled; // double = guaranteed crit-level multiplier
@@ -1442,9 +1500,7 @@ function resolveBattle(a, b, opts = {}) {
       const rolledDamage = (extraAtkMult) => {
         let amount = mitigated(effAtk(S, extraAtkMult) * atkScale, def) * variance;
         if (overchargeFired) {
-          // Overcharge stacks the damage-% lane ADDITIVELY onto the ×4.0 base,
-          // still with NO crit. ATK-mult procs already fold in through effAtk.
-          amount *= OVERCHARGE_MULT + damagePct / 100;
+          amount *= overchargeMultiplier * hitMultiplier(false, damagePct);
         } else {
           amount *= hitMultiplier(critLevel, damagePct);
         }
@@ -1498,9 +1554,10 @@ function resolveBattle(a, b, opts = {}) {
       );
       if (fighterStunned) tag += ' *(Bash!)*';
       const actualDamageDealt = Math.min(res.applied, targetHpBeforeHit);
+      const icon = classEmojiFor(S);
       const attackLabel = attackSource === 'auto_fire'
-        ? `🏹 ${S.name}'s Auto-Fire triggered — additional shot`
-        : `⚔️ ${S.name} ${mainHit ? 'attacks' : 'strikes again'}`;
+        ? `${icon} ${S.name}'s Auto-Fire triggered — additional shot`
+        : `${icon} ${S.name} ${mainHit ? 'attacks' : 'strikes again'}`;
       // ATTACK priority also opens a new ordering block, so this attack's modifiers
       // can never be sorted under the previous attack's line.
       logAt(LOG.ATTACK, res.evaded
@@ -1531,9 +1588,20 @@ function resolveBattle(a, b, opts = {}) {
         if (S.flags.rune_lifesteal_pct > 0) {
           applyLifesteal(S, res.applied, S.flags.rune_lifesteal_pct, 'Vampiric Rune');
         }
-        // [Genesis] Titan: Forgefire Veins — 30% of damage dealt (50% below 50% HP).
+        // [Divine] Titan: Forgefire Veins — evaluate the threshold on each
+        // landed hit. HP can cross 50% after the passive phase (or between
+        // multi-hits), so the cached round-start rate alone is insufficient.
         if (S.flags.titan_lifesteal_pct > 0) {
-          applyLifesteal(S, res.applied, S.flags.titan_lifesteal_pct, 'Forgefire Veins');
+          const lifestealPct = S.hp < S.maxHp * 0.50 ? 0.50 : 0.30;
+          if (S.flags.titan_lifesteal_pct !== lifestealPct) {
+            S.flags.titan_lifesteal_pct = lifestealPct;
+            logAt(
+              LOG.WEAPON,
+              `🔥 Titan: Forgefire Veins — Lifesteal ${Math.round(lifestealPct * 100)}%` +
+              `${lifestealPct > 0.30 ? ' while below half HP' : ''}.`,
+            );
+          }
+          applyLifesteal(S, res.applied, lifestealPct, 'Forgefire Veins');
         }
       }
       if (result) {
@@ -1557,7 +1625,7 @@ function resolveBattle(a, b, opts = {}) {
             ? fighterStunned
             : addDebuff(O, 'stun', fighterStunTurns);
           if (stunned) {
-            logAt(LOG.CLASS, `👊 ${S.name}'s Bash stuns ${O.name} for ${fighterStunTurns} turn!`);
+            logAt(LOG.CLASS, `${classEmojiFor(S)} ${S.name}'s Bash stuns ${O.name} for ${fighterStunTurns} turn!`);
             if (jarngreiprTriggered) {
               logAt(LOG.WEAPON, '⚡ Thunder Grip — enemy Stunned, Bash deals +50% bonus damage!');
             }
@@ -1765,9 +1833,9 @@ function resolveBattle(a, b, opts = {}) {
         S.flags.stun_immune_until = bt.shared.round + 1;
       }
       // Skadi: when a Freeze wears off the victim is left Frostbitten (+50% damage taken).
-      // turnsLeft 2 so it reliably covers the next round's incoming attack ("1 turn").
+      // Round-aware expiry keeps this action-applied status through the next full round.
       if (hadFreeze && !S.debuffs.some((d) => d.tag === 'freeze')) {
-        addDebuff(S, 'frostbite', 2);
+        addDebuff(S, 'frostbite', LANDED_STAT_DEBUFF_TURNS);
         bt.shared.events.push(`🧊 ${S.name} is Frostbitten — takes +50% damage!`);
       }
       bt.shared.events.push(`⏸️ ${S.name} is unable to act (${skipTags.map((d) => d.tag).join(', ')})!`);
@@ -1797,7 +1865,7 @@ function resolveBattle(a, b, opts = {}) {
       if (S.classPassive === 'overcharge') {
         const charge = ((bt.shared.round - 1) % OVERCHARGE_EVERY) + 1;
         bt.shared.events.push(
-          `🔮 Mage Passive: Overcharge — Charge ${charge}/${OVERCHARGE_EVERY}` +
+          `${classEmojiFor(S)} Mage Passive: Overcharge — Charge ${charge}/${OVERCHARGE_EVERY}` +
           `${charge === OVERCHARGE_EVERY ? ' — Released!' : ''}`
         );
       }
@@ -1880,7 +1948,7 @@ function resolveBattle(a, b, opts = {}) {
       const restored = side.hp - before;
       if (restored > 0) {
         logAt(LOG.CLASS,
-          `🛡️ Knight Passive: Restored ${KNIGHT_HEAL_PCT * 100}% max HP (+${restored.toLocaleString()} HP).`);
+          `${classEmojiFor(side)} Knight Passive: Restored ${KNIGHT_HEAL_PCT * 100}% max HP (+${restored.toLocaleString()} HP).`);
       }
     }
 
@@ -1891,7 +1959,7 @@ function resolveBattle(a, b, opts = {}) {
       side.scratch.playerAtkMult += next;
       if (next > previous) {
         logAt(LOG.CLASS,
-          `⚔️ Swordsman Passive: ATK increased by ${Math.round((next - previous) * 100)}%. ` +
+          `${classEmojiFor(side)} Swordsman Passive: ATK increased by ${Math.round((next - previous) * 100)}%. ` +
           `Current bonus: ${Math.round(next * 100)}%.`);
       }
     }
@@ -2006,6 +2074,7 @@ function resolveBattle(a, b, opts = {}) {
   for (let round = 1; round <= MAX_ROUNDS && !result; round++) {
     bt.shared.round = round;
     bt.shared.events = new CombatLog();
+    roundActionsStarted = false;
     const actionStartA = actionState(bt.A);
     const actionStartB = actionState(bt.B);
 
@@ -2088,14 +2157,20 @@ function resolveBattle(a, b, opts = {}) {
     // 1. round start: scratch + latches
     for (const side of order) resetScratch(side);
     for (const side of order) setInputFlags(side);
-    // [Jun-2026 §2] ARM the skip-CC carried in from PREVIOUS rounds. Only an armed CC gates
-    // an action this round; CC procced later this round (passive phase / the opponent's
-    // attack) stays unarmed → it can't cancel an action already due, and can't deadlock two
-    // opposing CC passives. side.skipped (armed CC present) voids this side's pre-rolls.
+    // ARM effects carried in from PREVIOUS rounds. Skip-CC uses this to gate the
+    // recipient's next action. Standard stat/status debuffs use it only for end-of-round
+    // expiry. An action-applied debuff cannot disappear before it has covered the next
+    // complete round; a pre-action debuff already covers this one. DOT counters remain
+    // action-ticked and are never armed here.
     for (const side of order) {
       let armedCC = false;
       for (const d of side.debuffs) {
-        if (SKIP_TAGS.includes(d.tag)) { d.armed = true; armedCC = true; }
+        if (SKIP_TAGS.includes(d.tag)) {
+          d.armed = true;
+          armedCC = true;
+        } else if (!DOT_TAGS.includes(d.tag)) {
+          d.armed = true;
+        }
       }
       side.skipped = armedCC;
     }
@@ -2174,6 +2249,7 @@ function resolveBattle(a, b, opts = {}) {
     }
 
     // 4. actions
+    roundActionsStarted = true;
     const procEnd = bt.shared.events.length; // events so far = this round's passive procs
     let act1DotStart = -1;                 // index where actor 1's post-action DOT begins
     let act2Start = -1;                    // index where the SECOND actor's segment begins
@@ -2192,16 +2268,26 @@ function resolveBattle(a, b, opts = {}) {
 
     // 5. end of round
     if (!result) {
-      // 1-turn stat debuffs expire at end of round (§35.1)
+      // Standard temporary stat/status debuffs expire only after the complete round
+      // for which they were armed. Effects applied after actions begin stay unarmed until
+      // the next round; DOT and skip-control effects retain their dedicated action timing.
       for (const side of order) {
         for (const d of side.debuffs) {
-          if (!DOT_TAGS.includes(d.tag) && !SKIP_TAGS.includes(d.tag)) d.turnsLeft -= 1;
+          if (!DOT_TAGS.includes(d.tag) && !SKIP_TAGS.includes(d.tag) && d.armed) {
+            d.turnsLeft -= 1;
+          }
         }
         const expired = side.debuffs.filter(
           (d) => !DOT_TAGS.includes(d.tag) && !SKIP_TAGS.includes(d.tag) && d.turnsLeft <= 0
-        ).length;
+        );
+        for (const d of expired) {
+          logAt(
+            LOG.ROUND_END,
+            `⌛ ${combatantName(side)}'s ${ACTION_TAG_LABELS[d.tag] || d.tag} expired.`,
+          );
+        }
         side.debuffs = side.debuffs.filter((d) => d.turnsLeft > 0);
-        healTribalWard(side, expired, 'expired');
+        healTribalWard(side, expired.length, 'expired');
       }
       // sudden death (§35.3): drain only hits player (user) sides — mobs and bosses are
       // exempt, so in PvE the user bleeds out while the enemy does not; a PvP duel has two
@@ -2314,6 +2400,7 @@ function resolveBattle(a, b, opts = {}) {
 module.exports = {
   resolveBattle,
   rngOf,
+  selectOverchargeMultiplier,
   selectOverchargeDebuff,
   MAX_ROUNDS,
   SUDDEN_DEATH_FROM,

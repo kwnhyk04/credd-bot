@@ -241,3 +241,78 @@ Phase 10, Deliverables: Produce everything listed in Section 13, including the m
 Hard rules for the entire task: reuse existing patterns instead of inventing new ones; do not change unrelated behavior, progression logic, balances, inventories, or other skin tiers; avoid unbounded in-memory structures and do not load all users into memory; keep everything concurrency-safe and idempotent; and do not only produce a plan, actually implement the changes.
 
 ---
+
+## 12. Convert Genesis Assets to Divine for Weapons Only
+
+The **Genesis → Divine** change applies to **all weapon-related Genesis assets and references only**.
+
+This includes weapon-specific:
+
+- Tier names
+- Display labels
+- Item metadata
+- Weapon image paths
+- Weapon asset paths
+- Cloudflare R2 paths
+- Weapon shop/inventory references
+- Enhancement displays
+- Combat stat calculations
+- Weapon-related emoji references
+- Any other Genesis reference that specifically belongs to a weapon
+
+Do **not** apply this conversion to avatars or any other non-weapon Genesis content.
+
+### Important Scope
+
+Correct:
+
+```text
+Genesis Weapon → Divine Weapon
+Genesis weapon asset path → Divine weapon asset path
+Genesis weapon emoji → Divine weapon emoji
+```
+
+Incorrect:
+
+```text
+Genesis Avatar → Divine Avatar
+```
+
+**Genesis avatars must remain Genesis.**
+
+Do not globally replace every occurrence of `Genesis` in the project. Inspect the context of each reference and only update it when it belongs to the **weapon system**.
+
+### Cloudflare R2 Asset Folder
+
+The weapon asset folder in Cloudflare R2 has already been manually renamed from:
+
+```text
+Genesis
+```
+
+to:
+
+```text
+Divine
+```
+
+Update the existing weapon asset/path logic accordingly so Divine weapons load from the **Divine** folder. Any existing weapon path conceptually pointing to `.../Genesis/...` should point to `.../Divine/...`, but only when that path is for **weapon assets**.
+
+Do not modify Genesis avatar paths. Avatar assets must continue using their existing Genesis folder/path where applicable.
+
+### Emoji Configuration
+
+The relevant weapon-tier emojis have already been manually changed to **Divine** in `assets/data/game_items.txt`.
+
+Do not recreate, override, or duplicate those emoji definitions in code. Ensure the existing weapon display logic continues reading the appropriate values from `game_items.txt`.
+
+The intended final behavior is:
+
+- **Genesis Weapons → Divine Weapons**
+- **Genesis weapon R2 folder → Divine**
+- **Genesis weapon emojis → Divine emojis from the manually updated `game_items.txt`**
+- **Genesis Avatars → remain Genesis**
+- **Genesis avatar assets → remain unchanged**
+- **All other non-weapon Genesis content → remain unchanged**
+
+Before finishing, search all changed Genesis references and confirm that every conversion to Divine is specifically weapon-related. Avoid any broad/global replacement that could unintentionally rename or break Genesis avatars.

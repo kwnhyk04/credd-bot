@@ -23,10 +23,10 @@ const { getSelectionPool, pickRandomRow } = require('../../utils/selectionPools'
 const { weightedIndex } = require('../../utils/secureRng');
 
 // Relic gacha config (Master §6): which relic feeds how many deity rolls.
-//   sr   → 1 Sacred Relic  → 10 deity rolls (pity applies)
+//   sr   → 1 Sacred Relic  → 30 deity rolls (pity applies)
 //   supr → 1 Supreme Relic → 1 forced Supreme pull (does NOT touch pity)
 const RELICS = {
-  sr:   { column: 'sacred_relics',  action: 'Sacred Relic',  emojiName: 'sacred_relic',  count: 10, forceTier: null },
+  sr:   { column: 'sacred_relics',  action: 'Sacred Relic',  emojiName: 'sacred_relic',  count: 30, forceTier: null },
   supr: { column: 'supreme_relics', action: 'Supreme Relic', emojiName: 'supreme_relic', count: 1,  forceTier: 'Supreme' },
 };
 
@@ -123,8 +123,8 @@ async function openChestsTxn(discordId, alias, amount) {
     for (let i = 0; i < amount; i++) {
       const tier = rollTier(alias);
       // [v5] each drop is a weapon OR an armor (GEAR_SPLIT). Same chest, same tier odds.
-      // [Genesis update] Genesis tier is weapon-only (the five First Arms) — no split.
-      const gearClass = tier === 'Genesis' ? 'weapon' : rollGearClass();
+      // Divine tier is weapon-only (the five First Arms) — no split.
+      const gearClass = tier === 'Divine' ? 'weapon' : rollGearClass();
 
       if (gearClass === 'weapon') {
         const selectStarted = Date.now();
@@ -315,7 +315,7 @@ async function execute(message, { args }) {
       supremeRelics,
       remaining,
       chestLabel: chest.action,
-      chestEmojiName: chest.column,
+      chestEmojiName: chest.emojiName || chest.column,
     }),
   });
 }
@@ -325,7 +325,7 @@ async function execute(message, { args }) {
  * shared summon engine. One atomic transaction: the relic only leaves on COMMIT
  * alongside the deity/essence/pity writes; any failure rolls back fully.
  * Display reuses the EXISTING deity summon render (renderSummon): sr = the
- * 10-roll card grid, supr = the single centered card.
+ * 30-roll result, supr = the single centered card.
  */
 async function openRelic(message, alias) {
   const relic = RELICS[alias];
@@ -546,4 +546,4 @@ async function openRuneBags(message, alias, rawAmount) {
 
 // openRelic exported for `crd use sr|supr` (Genesis update S8) — same
 // effect-before-consume transaction as `crd open sr|supr`.
-module.exports = { execute, openChestsTxn, openRuneBagsTxn, openRelic };
+module.exports = { execute, openChestsTxn, openRuneBagsTxn, openRelic, RELICS };

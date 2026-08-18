@@ -19,6 +19,8 @@ const { encodeCanvas } = require('../utils/canvasEncode');
 const { drawRecordRow } = require('./recordText');
 const { SUPPORTER_BADGE_HEIGHT } = require('../config/cosmetics');
 const { containRect, badgeRect } = require('./identityLayout');
+const { classTextLine } = require('../config/classes');
+const { formatDeityAscensionLabel } = require('../utils/deityDisplay');
 const { profileSkinLayoutPath, profileSkinLayoutOverrides } = require('./profileLayoutAliases');
 const {
   assetSource,
@@ -112,6 +114,9 @@ async function loadRenderImages(d, skinPath, options) {
     }
     return img;
   });
+  const classPromise = localIcons.class
+    ? loadOptionalImage(localIcons.class)
+    : (d.className ? getEmojiIcon(resolveName(d.className) || '') : Promise.resolve(null));
   const weaponPromise = localIcons.weapon
     ? loadOptionalImage(localIcons.weapon)
     : (d.weaponName ? getEmojiIcon(resolveName(d.weaponName) || '') : Promise.resolve(null));
@@ -127,17 +132,18 @@ async function loadRenderImages(d, skinPath, options) {
     ? loadOptionalImage(localIcons.combatExp)
     : getEmojiIcon('combat_exp');
 
-  const [skin, avatar, weapon, armor, deity, deity2, deity3, combatExp, supporterBadge] = await Promise.all([
-    loadOptionalImage(skinPath), avatarPromise, weaponPromise, armorPromise, deityPromise, deity2Promise, deity3Promise, combatExpPromise,
+  const [skin, avatar, classIcon, weapon, armor, deity, deity2, deity3, combatExp, supporterBadge] = await Promise.all([
+    loadOptionalImage(skinPath), avatarPromise, classPromise, weaponPromise, armorPromise, deityPromise, deity2Promise, deity3Promise, combatExpPromise,
     // [§2.5] supporter badge — path only set when tier active AND art exists.
     loadOptionalImage(options.supporterBadgePath || d.supporterBadgePath),
   ]);
-  return { skin, avatar, weapon, armor, deity, deity2, deity3, combatExp, supporterBadge };
+  return { skin, avatar, classIcon, weapon, armor, deity, deity2, deity3, combatExp, supporterBadge };
 }
 
 function iconFor(style, layout, images) {
   if (!style.icon) return null;
   if (style.icon === '$weapon') return images.weapon;
+  if (style.icon === '$class') return images.classIcon;
   if (style.icon === '$deity') return images.deity;
   if (style.icon === 'combat_exp.png' && images.combatExp) return images.combatExp;
   return loadOptionalImage(`${layout.icons_dir}/${style.icon}`);
@@ -164,9 +170,9 @@ async function drawText(ctx, key, content, layout, view, images) {
   // title, deity name or label needs the fallback chain, which is the signal that
   // used to surface silently as empty boxes.
   reportGlyphCoverage(`statsLayoutRenderer:${key}`, text, { family: drawStyle.font });
-  const icon = await iconFor(drawStyle, layout, images);
+  const icon = key === 'class' ? images.classIcon : await iconFor(drawStyle, layout, images);
   const iconSize = icon ? (drawStyle.icon_size || drawStyle.size) : 0;
-  const iconGap = icon ? (drawStyle.icon_gap || 0) : 0;
+  const iconGap = icon ? (drawStyle.icon_gap ?? (key === 'class' ? 5 : 0)) : 0;
   const reserved = iconSize + iconGap;
   const size = fitSize(ctx, text, drawStyle, reserved);
 
@@ -178,9 +184,24 @@ async function drawText(ctx, key, content, layout, view, images) {
   ctx.shadowColor = drawStyle.shadow_color || 'rgba(0,0,0,0.88)';
   ctx.shadowBlur = drawStyle.shadow_blur ?? 7;
   const startX = textStartX(ctx, text, drawStyle, reserved);
-  if (icon) ctx.drawImage(icon, startX, drawStyle.y - iconSize / 2, iconSize, iconSize);
-  ctx.fillText(text, startX + reserved, drawStyle.y);
+  const classParts = key === 'class' ? splitClassLine(text) : null;
+  if (icon && classParts) {
+    // Class icon belongs to the class name, not to the "Character Class:" label.
+    ctx.fillText(classParts.prefix, startX, drawStyle.y);
+    const prefixWidth = ctx.measureText(classParts.prefix).width;
+    const iconX = startX + prefixWidth;
+    ctx.drawImage(icon, iconX, drawStyle.y - iconSize / 2, iconSize, iconSize);
+    ctx.fillText(classParts.suffix, iconX + reserved, drawStyle.y);
+  } else {
+    if (icon) ctx.drawImage(icon, startX, drawStyle.y - iconSize / 2, iconSize, iconSize);
+    ctx.fillText(text, startX + reserved, drawStyle.y);
+  }
   ctx.restore();
+}
+
+function splitClassLine(text) {
+  const match = /^(Character Class:\s*)(.+)$/i.exec(String(text));
+  return match ? { prefix: match[1], suffix: match[2] } : null;
 }
 
 function drawProgress(ctx, style, ratio) {
@@ -287,7 +308,6 @@ function buildView(d) {
   const combatMax = d.combatExpMax == null ? 'MAX' : fmt(d.combatExpMax);
   const weaponEnh = d.weaponEnh > 0 ? ` +${d.weaponEnh}` : '';
   const armorEnh = d.armorEnh > 0 ? ` +${d.armorEnh}` : '';
-  const deityEnh = d.deityEnh > 0 ? ` +${d.deityEnh}` : '';
   // [v5 tweak] One "Equipments" value carries BOTH weapon and armor so long names
   // can't overlap by position (armor has no separate layout element). Armor type
   // ("(Medium)") is no longer shown.
@@ -297,7 +317,7 @@ function buildView(d) {
   // deity row shows ALL THREE slots, auto-centered. Empty slots render as a blank dash so the
   // 1/2/3 layout is always visible ("Deity slot 2 and 3 blank if no deities equipped").
   const deities = [
-    d.deityName ? `${d.deityName}${deityEnh}` : '—',
+    d.deityName ? formatDeityAscensionLabel(d.deityName) : '—',
     d.deity2Name || '—',
     d.deity3Name || '—',
   ];
@@ -307,7 +327,7 @@ function buildView(d) {
     top_label: d.topLabel?.hasTopLabel ? d.topLabel.word : null,
     name: d.displayName,
     title: d.equippedTitle || '',
-    class: `${d.className}  |  Combat Lv ${fmt(d.combatLevel)}`,
+    class: d.classTextLine || classTextLine(d.className, d.combatLevel),
     combat_exp: `Combat EXP  ${fmt(d.combatExp)} / ${combatMax}`,
     weapon_label: 'EQUIPMENTS',
     weapon_value: `${weaponTxt}, ${armorTxt}`,
@@ -493,12 +513,14 @@ function repositionStats(layout, skinPath) {
     deity_value: {
       ...layout.deity_value,
       x: rx,
-      y: layout.deity_value?.stats_y ?? ry + 188,
+      // Keep the deity row directly under its label. Older layouts may carry
+      // a stale stats_y override from the previous multi-line presentation.
+      y: ry + 172,
       anchor: 'left',
       max_width: rcw,
       size: ((layout.deity_value && layout.deity_value.size) || 16) + 5,
     },
-    blessing: R(layout.blessing, layout.blessing?.stats_y ?? ry + 222, 0),
+    blessing: R(layout.blessing, ry + 204, 0),
   };
 }
 
@@ -571,11 +593,13 @@ function reflowStatsText(layout) {
     deity_value: {
       ...layout.deity_value,
       x: rx,
-      y: layout.deity_value?.stats_y ?? ry + 162,
+      // `stats_y` was used by an older founder layout and leaves a large
+      // blank gap after DEITIES. The compact row is shared by every skin.
+      y: ry + 150,
       anchor: 'left',
       max_width: rcw,
     },
-    blessing: R(layout.blessing, layout.blessing?.stats_y ?? ry + 192),
+    blessing: R(layout.blessing, ry + 180),
   };
 }
 
@@ -663,4 +687,12 @@ function getStatsLayoutCacheStats() {
 
 registerMemorySource('layouts.stats', getStatsLayoutCacheStats);
 
-module.exports = { hasStatsLayout, layoutPathFor, renderStatsLayoutImage, getStatsLayoutCacheStats };
+module.exports = {
+  hasStatsLayout,
+  layoutPathFor,
+  renderStatsLayoutImage,
+  getStatsLayoutCacheStats,
+  // Pure layout/view helpers exposed for renderer regression tests. Production
+  // callers should continue using renderStatsLayoutImage.
+  _test: { buildView, reflowStatsText },
+};

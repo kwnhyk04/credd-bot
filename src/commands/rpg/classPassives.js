@@ -5,8 +5,8 @@
  *
  * Passive copy comes from config/classes, the same source used by character
  * creation/change previews and battle constants. Class icons resolve through
- * game_items.txt and fall back to the existing Unicode class symbols until a
- * dedicated uploaded icon is registered.
+ * game_items.txt and fall back to the existing Unicode class symbols if a
+ * registry entry is unavailable.
  */
 
 const { ContainerBuilder, MessageFlags } = require('discord.js');

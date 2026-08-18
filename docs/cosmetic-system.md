@@ -49,7 +49,7 @@ the supporter shop's owned-item list.
 
 | Token | How to get it | Price | Redeem |
 |---|---|---|---|
-| Custom Avatar Token (`at`) | Bought with supporter tokens | 20 supporter tokens (`crd avatar buy at`) | `crd use at` |
+| Custom Avatar Token (`at`) | Bought with supporter tokens | 30 supporter tokens (`crd avatar buy at`) | `crd use at` |
 | Custom Deity Token (`dt`) | Granted once per Eternal subscription | Not purchasable | `crd use dt` |
 
 Redeeming either token creates a ticket and replies with its ticket id; the team

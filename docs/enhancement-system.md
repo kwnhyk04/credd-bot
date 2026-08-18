@@ -1,9 +1,9 @@
-# Enhancement System (Forge)
+# Enhancement and Ascension System
 
-Enhancement is how you upgrade gear and deities in Credd. Weapons and armor are enhanced
-with Credux and can fail; deities are enhanced with essence and never fail. This document
-gives the full cost tables, success rates, stat multipliers, and the exact behaviour of
-the forge interface.
+Enhancement is how you upgrade gear in Credd. Weapons and armor are enhanced with Credux
+and can fail; deities use Ascension with essence and never fail. This document gives the
+full cost tables, success rates, stat multipliers, and the exact behaviour of the gear
+enhancement and deity Ascension interfaces.
 
 Enhancement is the single largest Credux sink in the game.
 
@@ -25,7 +25,8 @@ attempt; the message re-renders in place so you can keep attempting or press Can
 
 ## What is the enhancement stat multiplier
 
-Both weapons and armor use the same boost table. Enhancement is stored one-based, so the
+Non-Divine weapons and all armor use the shared boost table below. Divine weapons use
+their tier-specific curve described later. Enhancement is stored one-based, so the
 displayed level is the stored value minus 1.
 
 <!-- src: src/engine/enhancement.js:25 -->
@@ -71,7 +72,7 @@ Success chance depends only on the target display level, not on tier.
 | +8 | 30% |
 | +9 | 20% |
 | +10 | 10% |
-| +11 to +20 (Genesis only) | 10% |
+| +11 to +20 (Divine only) | 10% |
 
 **Credux is deducted on both success and failure.** A failure does not reduce the item's
 level — it simply does not advance it. Gear is never destroyed by a failed enhancement.
@@ -82,7 +83,7 @@ Cost is by tier and target display level, in Credux.
 
 <!-- src: src/engine/enhancement.js:55 -->
 
-| Target | Rare | Mythic | Legendary | Supreme | Genesis |
+| Target | Rare | Mythic | Legendary | Supreme | Divine |
 |---|---|---|---|---|---|
 | +1 | 1,000 | 5,000 | 15,000 | 50,000 | 50,000 |
 | +2 | 3,000 | 12,000 | 35,000 | 100,000 | 100,000 |
@@ -111,25 +112,28 @@ progress in thousands losslessly.
 | Mythic | Yes | +10 |
 | Legendary | Yes | +10 |
 | Supreme | Yes | +10 |
-| Genesis (weapons only) | Yes | **+20** |
+| Divine (weapons only) | Yes | **+20** |
 
-Attempting to enhance Common gear replies *"Common gear cannot be enhanced."* Attempting
-to enhance a maxed item replies *"This equipment is already maxed (+10)."*
+Attempting to enhance Common gear replies *"Common gear cannot be enhanced."* A maxed
+item reports its tier-specific cap: +10 normally, or +20 for a Divine weapon.
 
-## How does Genesis enhancement past +10 work
+## How does Divine enhancement work
 
-Genesis weapons continue from +11 to +20. Each of those levels adds 10% of the weapon's
-**+10 ATK**, not 10% of its base ATK.
+Divine weapons add 10% of base ATK per level from +1 through +10, then 20% of base ATK
+per level from +11 through +20. This makes +10 equal +100%, +11 equal +120%, and +20
+equal +300% over base ATK.
 
 <!-- src: src/engine/enhancement.js:148 -->
 
 ```js
-plusTenAtk  = floor(base_atk * 2.00)            // the +10 value
-perLevelAtk = floor(plusTenAtk * 0.10)
-curr_atk    = plusTenAtk + perLevelAtk * (stored - 11)
+displayLevel = stored - 1
+multiplier = displayLevel <= 10
+  ? 1 + displayLevel * 0.10
+  : 2 + (displayLevel - 10) * 0.20
+curr_atk = floor(base_atk * multiplier)
 ```
 
-For a Genesis weapon at 1,600 base ATK:
+For a Divine weapon at 1,600 base ATK:
 
 | Display level | ATK |
 |---|---|
@@ -156,19 +160,19 @@ attempts at a level is `1 / successRate`.
 | +9 | 20% | 5.0 |
 | +10 | 10% | 10.0 |
 
-## How do I enhance a deity
+## How do I ascend a deity
 
-Deity enhancement is a separate system with no failure chance. It requires the deity to
-be Ascended first.
+Deity Ascension is a separate system with no failure chance. It requires the deity to be
+Ascended first.
 
 | Command | Alias | Slash |
 |---|---|---|
-| `crd deity enhance <name>` | `crd deh <name>` | `/deity enhance name:` |
+| `crd deity ascend <name>` | `crd deh <name>` | `/deity ascend name:` |
 
 Example:
 
 ```text
-crd deity enhance Zeus
+crd deity ascend Zeus
 ```
 
 <!-- src: src/engine/deityEnhancement.js:16 -->
@@ -214,7 +218,7 @@ Every gear enhancement attempt, successful or not, progresses quests:
 | `credux_spent` | The full Credux cost of the attempt |
 | `weapon_enhancements` | +1 |
 
-Both daily and weekly quest boards receive the same deltas. Deity enhancement does not
+Both daily and weekly quest boards receive the same deltas. Deity Ascension does not
 progress these quests.
 
 ## Does enhancement affect resale value

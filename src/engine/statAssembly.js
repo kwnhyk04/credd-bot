@@ -6,9 +6,9 @@
  * Builds battle-ready fighter structs for battleEngine.resolveBattle:
  *   - buildPlayerFighter: user_character + equipped weapon/armor + ACTIVE deity
  *     curr_* (additive), with uncapped class + weapon CRIT under v5.
- *     CRIT is NEVER scaled by weapon or deity enhancement. The weapon's unified
+ *     CRIT is NEVER scaled by weapon or deity Ascension. The weapon's unified
  *     damage % (bonus_dmg_pct) is read through the fixed-tier config so legacy
- *     Genesis rows use the current rider without any database mutation.
+ *     Divine rows use the current rider without any database mutation.
  *   - buildMobFighter: base + per_level × level (C1 — Master §16 formula, NOT
  *     level − 1), level clamped to the configured mob range. Carries skill_key /
  *     immunity_tags / special_flags for the engine.

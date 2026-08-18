@@ -99,8 +99,8 @@ function calamityBonusRewardBlock(status, bonusRewardResults = null) {
   if (granted.length === 0) return '';
   const lines = granted.map((item) => {
     const icon = emojiForDisplay(item.label, '🎁');
-    return `${icon} ${item.label} ×${item.qty} each · **${item.winnerCount}** ` +
-      `winner${item.winnerCount === 1 ? '' : 's'}`;
+    return `${icon} ${item.label} ×${item.qty} each · ${item.winnerCount} ` +
+      `User${item.winnerCount === 1 ? '' : 's'}`;
   });
   return `\n\n**Bonus Rewards**\n${lines.join('\n')}`;
 }
@@ -304,7 +304,7 @@ async function buildBossMessage(view, {
   const shardIcon = emojiForDisplay('Belief Shards', '🔮');
   // [v4.6] Greater chest is rolled ONCE at spawn — show the ACTUAL chest this fight awards
   // (not the 75/25 rule), keyed off the same source the payout uses so they never disagree.
-  const spawnChestIcon = spawnChest.column === 'supreme_chest'
+  const spawnChestIcon = spawnChest.column === SUPREME_CHEST_REWARD.column
     ? supremeChestIcon : spawnChest.column === 'boss_golden_chest' ? goldChestIcon : chestIcon;
   // [v4.8] drop the "(this fight)" qualifier — redundant; rewards are understood to be this boss's.
   const chestLine = `${spawnChestIcon} ${spawnChest.label} ×${spawnChest.qty}`;

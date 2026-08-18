@@ -20,8 +20,9 @@ multiplier.
 base = effATK * (1 - effDEF / (effDEF + 200)) * variance(0.90 .. 1.10)
 
 // then exactly ONE multiplier:
-//   Mage Overcharge (every 3rd round, primary attack, cannot crit):
-damage = base * (4.0 + damagePct / 100)
+//   Mage Overcharge (every third battle turn, primary attack, cannot crit):
+overcharge = random() < 0.60 ? 4.0 : 5.0
+damage = base * overcharge * (1 + damagePct / 100)
 //   otherwise:
 damage = base * ((critLevel ? 2.0 : 1) + damagePct / 100)
 
@@ -87,7 +88,7 @@ hitMultiplier = (crit ? 2.0 : 1) + damagePct / 100
 |---|---|---|
 | No damage bonus | ×1.0 | ×2.0 |
 | Supreme weapon (+50%) | ×1.5 | ×2.5 |
-| Genesis weapon (+100%) | ×2.0 | ×3.0 |
+| Divine weapon (+100%) | ×2.0 | ×3.0 |
 | Supreme weapon + a 50% deity proc | ×2.0 | ×3.0 |
 | Katana passive (+30%) | ×1.3 | ×2.3 |
 | Legendary weapon rider (+25%) | ×1.25 | ×2.25 |
@@ -102,7 +103,7 @@ Damage % stacks additively from every active source.
 |---|---|
 | Legendary weapon bonus rider (25% of Legendary drops roll it) | +25% |
 | Supreme weapon (fixed on every Supreme weapon) | +50% |
-| Genesis weapon (fixed on every Genesis weapon) | +100% |
+| Divine weapon (fixed on every Divine weapon) | +100% |
 | Katana — Lethal Edge passive | +30% |
 | Deity blessing procs | varies per blessing |
 
@@ -121,7 +122,7 @@ capped at 50 rounds.
    queued for the action and landed-hit hooks. Death is checked after every passive.
 6. Actions in actor order. After each side acts, its damage-over-time ticks before the
    other side can act.
-7. Stat-debuff expiry, then sudden-death drain on rounds 30 and later.
+7. Full-round stat/status-debuff expiry, then sudden-death drain on rounds 30 and later.
 8. Snapshot for the renderer, on the mode's cadence.
 
 | Constant | Value |
@@ -274,24 +275,27 @@ reduction plus a Petrify would strictly dominate Mail of Brokkr's flat 30%.
 
 ## What is Mage Overcharge and how does it interact with crits
 
-Overcharge is the Mage class passive. On every 3rd round the Mage's **primary** attack
-uses a fixed 4.0 multiplier and cannot crit.
+Overcharge is the Mage class passive. On every third battle turn the Mage's **primary** attack
+rolls a 4.0 multiplier 60% of the time or a 5.0 multiplier 40% of the time, and cannot
+crit.
 
 <!-- src: src/engine/battleEngine.js:56 -->
 
 | Rule | Detail |
 |---|---|
-| Fires on | Rounds 3, 6, 9, 12, … |
-| Multiplier | `4.0 + damagePct / 100` |
+| Fires on | Battle turns 3, 6, 9, 12, … |
+| Multiplier | 60%: `4.0 × (1 + damagePct / 100)` · 40%: `5.0 × (1 + damagePct / 100)` |
 | Can crit | No — the crit pre-roll is voided for that attack |
 | Additional attacks in the same action | Never inherit Overcharge; they roll crit normally |
 | Blocked by crowd control | Yes — that Overcharge is lost, there is no carry-over |
 
-After a successful Overcharge hit, one injected RNG draw selects exactly one equally
-likely debuff: Paralyze, Burn, DEF Down, or ATK Down. The selected effect lasts for one
-affected turn, refreshes without stacking when reapplied, and is never selected for a
-missed or fully avoided attack. Paralyze deals 5% of the Mage's effective ATK during
-the skipped turn; Burn deals 10% of the Mage's effective ATK once.
+After a successful Overcharge hit, a separate RNG draw selects exactly one equally likely
+debuff: Paralyze, Burn, DEF Down, or ATK Down (25% each). ATK Down and DEF Down reduce the
+affected stat by 50%. A standard one-round debuff remains active until both combatants'
+applicable actions have resolved, then its expiry message is emitted at the end of the
+round. Reapplication refreshes rather than stacking. Paralyze deals 5% of the Mage's
+effective ATK during the skipped turn; Burn deals 10% of the Mage's effective ATK once,
+and both retain their action-based timing.
 
 ## How are additional attacks resolved
 

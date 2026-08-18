@@ -201,10 +201,16 @@ run('reward display uses credited quantities and hides failed Calamity bonuses',
   const both = calamityBonusRewardBlock('dead', {
     supremeWinnerIds: ['a'], divineWinnerIds: ['b'],
   });
+  const threeUsers = calamityBonusRewardBlock('dead', {
+    supremeWinnerIds: ['a', 'b', 'c'], divineWinnerIds: ['a', 'b', 'c'],
+  });
   assert.equal(neither, '');
-  assert(supremeOnly.includes('Supreme Chest ×1') && !supremeOnly.includes('Divine Bag'));
-  assert(divineOnly.includes('Divine Bag ×1') && !divineOnly.includes('Supreme Chest'));
-  assert(both.includes('Supreme Chest ×1') && both.includes('Divine Bag ×1'));
+  assert(supremeOnly.includes('Supreme Chest ×1 each · 1 User') && !supremeOnly.includes('Divine Bag'));
+  assert(divineOnly.includes('Divine Bag ×1 each · 1 User') && !divineOnly.includes('Supreme Chest'));
+  assert(both.includes('Supreme Chest ×1 each · 1 User') && both.includes('Divine Bag ×1 each · 1 User'));
+  assert(threeUsers.includes('Supreme Chest ×1 each · 3 Users'));
+  assert(threeUsers.includes('Divine Bag ×1 each · 3 Users'));
+  assert(!threeUsers.includes('winner'));
   const preview = calamityBonusRewardBlock('active');
   assert(preview.includes('Supreme Chest ×1') && preview.includes('Divine Bag ×1'));
   assert(preview.includes('Two independent chances'));
@@ -229,10 +235,16 @@ check('Calamity roll uses node crypto randomInt',
 
 check('defeat handler grants guaranteed and independent bonus separately',
   /rollCalamitySupremeRewards\(participantRows\)/.test(bossSource)
-  && /supreme_chest = supreme_chest \+ \$2/.test(bossSource)
+  && /\$\{SUPREME_CHEST_REWARD\.column\} = \$\{SUPREME_CHEST_REWARD\.column\} \+ \$2/.test(bossSource)
   && /\$\{DIVINE_BAG_REWARD\.column\} = \$\{DIVINE_BAG_REWARD\.column\} \+ \$2/.test(bossSource)
   && /\$\{chest\.column\} = \$\{chest\.column\} \+ \$4/.test(bossSource)
   && /\$\{bagReward\.column\} = \$\{bagReward\.column\} \+ \$5/.test(bossSource));
+
+check('Divine winners flow through selection, inventory, and final rendering',
+  /divineWinnerIds = rolls\.divineWinnerIds/.test(bossSource)
+  && /\$\{DIVINE_BAG_REWARD\.column\} = \$\{DIVINE_BAG_REWARD\.column\} \+ \$2/.test(bossSource)
+  && /bonusRewardResults: \{ supremeWinnerIds, divineWinnerIds \}/.test(bossSource)
+  && /grantedCalamityBonusRewards\(\{ supremeWinnerIds, divineWinnerIds \}\)/.test(bossSource));
 
 check('duplicate completion is blocked by the atomic active to dead transition',
   /status = 'dead',[\s\S]*?status = 'active' AND current_hp <= 0/.test(bossSource)

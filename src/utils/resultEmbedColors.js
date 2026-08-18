@@ -4,23 +4,23 @@ const { TIER_ALIAS, TIER_COLOR } = require('../config/gachaRates');
 
 // These ladders intentionally remain separate.  Deity and rune results use
 // the gacha tier set; chest results use the equipment tier set and include
-// Genesis above Supreme.
+// Divine above Supreme.
 const DEITY_TIER_RANK = Object.freeze({ Epic: 0, Mythic: 1, Legendary: 2, Supreme: 3 });
 const RUNE_TIER_RANK = Object.freeze({ Epic: 0, Mythic: 1, Legendary: 2, Supreme: 3 });
-const CHEST_TIER_RANK = Object.freeze({ Rare: 0, Mythic: 1, Legendary: 2, Supreme: 3, Genesis: 4 });
+const CHEST_TIER_RANK = Object.freeze({ Rare: 0, Mythic: 1, Legendary: 2, Supreme: 3, Divine: 4 });
 
 const DEITY_ALIAS_TO_TIER = Object.freeze(
   Object.fromEntries(Object.entries(TIER_ALIAS).map(([tier, alias]) => [alias, tier]))
 );
 
-// Chest Rare and Genesis do not exist in the deity gacha color table.  The
+// Chest Rare and Divine do not exist in the deity gacha color table.  The
 // shared colors below match the existing equipment-tier display colors.
 const CHEST_TIER_COLOR = Object.freeze({
   Rare: 0x3498db,
   Mythic: TIER_COLOR.Mythic,
   Legendary: TIER_COLOR.Legendary,
   Supreme: TIER_COLOR.Supreme,
-  Genesis: 0xffffff,
+  Divine: 0xffffff,
 });
 
 const RUNE_TIER_COLOR = Object.freeze({

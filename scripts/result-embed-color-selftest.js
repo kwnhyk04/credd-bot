@@ -74,7 +74,7 @@ check('chest Rare is blue', getChestResultColor([{ tier: 'Rare' }], FALLBACK) ==
 check('chest Mythic is purple', getChestResultColor([{ tier: 'Mythical' }], FALLBACK) === CHEST_TIER_COLOR.Mythic);
 check('chest Legendary is gold', getChestResultColor([{ tier: 'Legendary' }], FALLBACK) === CHEST_TIER_COLOR.Legendary);
 check('chest Supreme is red', getChestResultColor([{ tier: 'Supreme' }], FALLBACK) === CHEST_TIER_COLOR.Supreme);
-check('chest Genesis is white', getChestResultColor([{ tier: 'Genesis' }], FALLBACK) === CHEST_TIER_COLOR.Genesis);
+check('chest Divine is white', getChestResultColor([{ tier: 'Divine' }], FALLBACK) === CHEST_TIER_COLOR.Divine);
 check('chest Rare plus Mythic resolves to purple', getChestResultColor([
   { tier: 'Rare' }, { tier: 'Mythical' },
 ], FALLBACK) === CHEST_TIER_COLOR.Mythic);
@@ -84,10 +84,10 @@ check('chest Mythic plus Legendary resolves to gold', getChestResultColor([
 check('chest Legendary plus Supreme resolves to red', getChestResultColor([
   { tier: 'Legendary' }, { tier: 'Supreme' },
 ], FALLBACK) === CHEST_TIER_COLOR.Supreme);
-check('chest Genesis wins over Supreme', getChestResultColor([
+check('chest Divine wins over Supreme', getChestResultColor([
   ...Array.from({ length: 29 }, () => ({ tier: 'Supreme' })),
-  { tier: 'Genesis' },
-], FALLBACK) === CHEST_TIER_COLOR.Genesis);
+  { tier: 'Divine' },
+], FALLBACK) === CHEST_TIER_COLOR.Divine);
 check('chest Rare x29 plus Mythic x1 resolves to purple', getChestResultColor([
   ...Array.from({ length: 29 }, () => ({ tier: 'Rare' })),
   { tier: 'Mythical' },
@@ -100,10 +100,10 @@ check('chest Legendary x29 plus Supreme x1 resolves to red', getChestResultColor
   ...Array.from({ length: 29 }, () => ({ tier: 'Legendary' })),
   { tier: 'Supreme' },
 ], FALLBACK) === CHEST_TIER_COLOR.Supreme);
-check('chest Supreme x29 plus Genesis x1 resolves to white', getChestResultColor([
+check('chest Supreme x29 plus Divine x1 resolves to white', getChestResultColor([
   ...Array.from({ length: 29 }, () => ({ tier: 'Supreme' })),
-  { tier: 'Genesis' },
-], FALLBACK) === CHEST_TIER_COLOR.Genesis);
+  { tier: 'Divine' },
+], FALLBACK) === CHEST_TIER_COLOR.Divine);
 check('chest ignores deity-only Epic', getChestResultColor([{ tier: 'Epic' }], FALLBACK) === FALLBACK);
 
 check('rune Epic is blue', getRuneResultColor([{ tier: 'Epic' }], FALLBACK) === RUNE_TIER_COLOR.Epic);
@@ -135,7 +135,7 @@ check('rune Supreme wins anywhere in the result', getRuneResultColor([
   ...Array.from({ length: 29 }, () => ({ tier: 'Legendary' })),
   { tier: 'Supreme' },
 ], FALLBACK) === RUNE_TIER_COLOR.Supreme);
-check('rune ignores unsupported chest tiers', getRuneResultColor([{ tier: 'Genesis' }], FALLBACK) === FALLBACK);
+check('rune ignores unsupported chest tiers', getRuneResultColor([{ tier: 'Divine' }], FALLBACK) === FALLBACK);
 
 const rawItems = [{ tier: 'Epic', id: 'r1' }, { tier: 'Supreme', id: 'r2' }];
 const rawSnapshot = JSON.stringify(rawItems);

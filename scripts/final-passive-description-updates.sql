@@ -1,6 +1,6 @@
 -- Final passive-description synchronization for the balance patch.
 -- PostgreSQL only. The transaction aborts unless every expected roster row
--- matches exactly one name/key pair and all 52 descriptions verify exactly.
+-- matches exactly one name/key pair and all 53 descriptions verify exactly.
 -- The requested weapon name "Laevateinn" is stored as "Laevateinn Staff".
 
 BEGIN;
@@ -69,15 +69,16 @@ VALUES
     ('weapon', 'Katana', 'katana', 'Each attack deals 30% additional damage (×1.30 on a normal hit; ×2.30 on a critical hit).'),
     ('weapon', 'Kiri', 'kiri', 'Each attack increases damage by 20%, stacking up to +120%. Each attack has a 25% chance to strike twice.'),
     ('weapon', 'Juru Pakal', 'juru_pakal', 'Increases outgoing damage by 10% and deals 50% more damage to targets affected by Bleed, Hemorrhage, Rupture, or Venom.'),
+    ('weapon', 'Alan''s Reversed Hands', 'alans_reversed_hands', 'Increases outgoing damage by 20% and grants immunity to status effects; damage-over-time effects still apply.'),
     ('mob', 'Lamia', 'lamia_serpent_bite', 'Each attack has a 30% chance to add Bleed equal to 15% of Lamia''s ATK per turn for 2 turns.'),
     ('mob', 'Chimera', 'chimera_tri_form_assault', 'Each phase cycles through Lion Claw, which deals 140% ATK; Goat Ram, which reduces the player''s DEF by 20% for 1 turn; and Serpent Bite, which adds Burn equal to 20% of Chimera''s ATK per turn for 2 turns.'),
     ('mob', 'Amalanhig', 'amalanhig_infectious_bite', 'Each attack has a 30% chance to inflict Rot equal to 5% of the player''s max HP per turn for 2 turns.'),
     ('mob', 'Dark Elf', 'dark_elves_curse_of_decay', 'Each attack has a 25% chance to reduce the player''s DEF by 10% for 1 turn.');
 
     IF (SELECT COUNT(*) FROM _final_passive_updates WHERE roster_type = 'deity') <> 38
-       OR (SELECT COUNT(*) FROM _final_passive_updates WHERE roster_type = 'weapon') <> 10
+       OR (SELECT COUNT(*) FROM _final_passive_updates WHERE roster_type = 'weapon') <> 11
        OR (SELECT COUNT(*) FROM _final_passive_updates WHERE roster_type = 'mob') <> 4 THEN
-        RAISE EXCEPTION 'Expected 38 deity, 10 weapon, and 4 mob passive updates';
+        RAISE EXCEPTION 'Expected 38 deity, 11 weapon, and 4 mob passive updates';
     END IF;
 
     FOR target IN

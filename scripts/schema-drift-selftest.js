@@ -7,6 +7,7 @@ const { PermissionFlagsBits } = require('discord.js');
 const {
   buildPlayerFighter,
   computeClassBattleStats,
+  accumulateRuneStats,
 } = require('../src/engine/statAssembly');
 const { execute: executeProfile } = require('../src/commands/rpg/profile');
 const {
@@ -42,7 +43,11 @@ for (const [name, requirement] of Object.entries(REQUIRED_CHECKS)) {
   if (!HEALTHY_CONSTRAINTS[name]) HEALTHY_CONSTRAINTS[name] = `CHECK (${requirement.fragments.join(' ')})`;
 }
 
-function schemaFixture(overrides = {}, constraintDefinition = HEALTHY_CONSTRAINTS.user_weapons_enhancement_check) {
+function schemaFixture(
+  overrides = {},
+  constraintDefinition = HEALTHY_CONSTRAINTS.user_weapons_enhancement_check,
+  constraintOverrides = {},
+) {
   return {
     query: async (sql, params) => {
       if (sql.includes('pg_constraint')) {
@@ -57,9 +62,11 @@ function schemaFixture(overrides = {}, constraintDefinition = HEALTHY_CONSTRAINT
           return { rows: Object.entries(REQUIRED_NAMED_CONSTRAINTS).map(([conname, contype]) => ({ conname, contype })) };
         }
         const name = params?.[1];
-        const definition = name === 'user_weapons_enhancement_check'
-          ? constraintDefinition
-          : HEALTHY_CONSTRAINTS[name];
+        const definition = Object.prototype.hasOwnProperty.call(constraintOverrides, name)
+          ? constraintOverrides[name]
+          : name === 'user_weapons_enhancement_check'
+            ? constraintDefinition
+            : HEALTHY_CONSTRAINTS[name];
         return definition == null ? { rows: [] } : { rows: [{ definition }] };
       }
       if (sql.includes('pg_class')) {
@@ -127,6 +134,48 @@ function fakeRedirectChannel({ guildId = 'guild', sendAllowed = true } = {}) {
 async function main() {
   const classStats = computeClassBattleStats('Fighter', 1);
 
+  let runeQuery = null;
+  const nativeRunes = await accumulateRuneStats({
+    async query(sql, params) {
+      runeQuery = { sql, params };
+      return { rows: [
+        { effect_key: 'sharpness', value: 5 },
+        { effect_key: 'precision', value: 3 },
+        { effect_key: 'vitality', value: 4 },
+        { effect_key: 'bulwark', value: 2 },
+        { effect_key: 'vampiric', value: 20 },
+      ] };
+    },
+  }, {
+    discord_id: '123',
+    w_native: [{ rune_uid: 'wn' }],
+    a_native: [{ rune_uid: 'an' }],
+    // Opposite lanes are intentionally disabled; legacy entries remain only
+    // so their owners can unsocket them.
+    w_opposite: [{ rune_uid: 'wo' }],
+    a_opposite: [{ rune_uid: 'ao' }],
+  });
+  assert.deepEqual(runeQuery.params, [['wn', 'an'], '123']);
+  assert(runeQuery.sql.includes('COALESCE(ur.rolled_value, rn.value)'));
+  assert.deepEqual(nativeRunes.mods, { atkPct: 5, hpPct: 4, defPct: 2, critPts: 3 });
+  assert.deepEqual(nativeRunes.effects, [{ effect_key: 'vampiric', value: 20 }]);
+
+  let oppositeOnlyQueried = false;
+  const oppositeOnly = await accumulateRuneStats({
+    async query() {
+      oppositeOnlyQueried = true;
+      return { rows: [] };
+    },
+  }, {
+    discord_id: '123',
+    w_opposite: [{ rune_uid: 'legacy-opposite' }],
+  });
+  assert.equal(oppositeOnlyQueried, false);
+  assert.deepEqual(oppositeOnly, {
+    mods: { atkPct: 0, hpPct: 0, defPct: 0, critPts: 0 },
+    effects: [],
+  });
+
   const existing = await fighterFor(playerRow());
   assert.equal(existing.fighter.atk, classStats.atk + 75);
   assert(existing.sql.includes('COALESCE(ud.sigils, 0) AS d1_unlocked_sigils'));
@@ -140,14 +189,14 @@ async function main() {
   assert.equal(supreme.fighter.bonusDmgPct, 50);
   assert(supreme.sql.includes('active_wr.tier AS weapon_tier'));
 
-  const legacyGenesisRow = playerRow({
+  const divineRow = playerRow({
     w_atk: 1_600, w_crit: 20, bonus_dmg_pct: 50,
-    passive_key: 'kiri', weapon_name: 'Kiri', weapon_tier: 'Genesis',
+    passive_key: 'kiri', weapon_name: 'Kiri', weapon_tier: 'Divine',
   });
-  const genesis = await fighterFor(legacyGenesisRow);
-  assert.equal(genesis.fighter.weaponTier, 'Genesis');
-  assert.equal(genesis.fighter.bonusDmgPct, 100);
-  assert.equal(legacyGenesisRow.bonus_dmg_pct, 50, 'fighter assembly must not mutate stored equipment data');
+  const divine = await fighterFor(divineRow);
+  assert.equal(divine.fighter.weaponTier, 'Divine');
+  assert.equal(divine.fighter.bonusDmgPct, 100);
+  assert.equal(divineRow.bonus_dmg_pct, 50, 'fighter assembly must not mutate stored equipment data');
 
   const zero = await fighterFor(playerRow({ d1_unlocked_sigils: 0 }));
   assert.equal(zero.fighter.atk, classStats.atk + 50);
@@ -247,8 +296,21 @@ async function main() {
     verifyRequiredSchema(schemaFixture({}, null)),
     /stale or missing constraint public\.user_weapons\.user_weapons_enhancement_check/
   );
+  await assert.rejects(
+    verifyRequiredSchema(schemaFixture({}, HEALTHY_CONSTRAINTS.user_weapons_enhancement_check, {
+      weapon_roster_tier_check: "CHECK (tier = ANY (ARRAY['Common', 'Genesis']))",
+    })),
+    /stale or missing constraint public\.weapon_roster\.weapon_roster_tier_check; apply scripts\/migrations\/20260818_02_divine_weapon_tier\.sql/
+  );
   await verifyRequiredSchema(schemaFixture());
+  await verifyRequiredSchema(schemaFixture({}, HEALTHY_CONSTRAINTS.user_weapons_enhancement_check, {
+    // Exact shape emitted by PostgreSQL for a varchar column compared with a
+    // typed ARRAY; harmless casts must not make the Divine check look stale.
+    weapon_roster_tier_check: "CHECK ((((tier)::text = ANY ((ARRAY['Common'::character varying, 'Rare'::character varying, 'Mythic'::character varying, 'Legendary'::character varying, 'Supreme'::character varying, 'Divine'::character varying])::text[]))))",
+  }));
 
+  assert.equal(REQUIRED_CHECKS.weapon_roster_tier_check.table, 'public.weapon_roster');
+  assert(REQUIRED_CHECKS.weapon_roster_tier_check.fragments.includes('divine'));
   assert.equal(REQUIRED_CHECKS.user_weapons_enhancement_check.table, 'public.user_weapons');
   assert(REQUIRED_CHECKS.user_weapons_enhancement_check.fragments.includes('enhancement <= 21'));
 

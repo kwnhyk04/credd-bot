@@ -302,7 +302,7 @@ Must be a single transaction:
 
 ### B5 — Custom Avatar Token listing
 
-The shop also carries a **Custom Avatar Token**, priced at **20 supporter tokens** (not the regular shop currency).
+The shop also carries a **Custom Avatar Token**, priced at **30 supporter tokens** (not the regular shop currency).
 
 - Purchasing it grants the item into the user's **crd bag**.
 - It is a consumable item, not an equippable avatar — the shop entry should make that obvious in the description.
@@ -449,7 +449,7 @@ Two new consumable bag items, one shared redemption flow, one shared ticket queu
 
 | item | acquired by | bag id | quantity |
 |---|---|---|---|
-| Custom Avatar Token | bought in avatar shop for 20 supporter tokens | `at` (short for "avatar token") | stackable |
+| Custom Avatar Token | bought in avatar shop for 30 supporter tokens | `at` (short for "avatar token") | stackable |
 | Custom Deity Token | granted with Eternal Believer tier | `dt` (proposed — confirm) | 1 per grant |
 
 **Manual steps handled by the user, not the agent:**

@@ -85,9 +85,12 @@ const TIER_COLOR = {
   Mythic: 0x9b59b6,
   Legendary: 0xffd700,
   Supreme: 0xe74c3c,
+  Divine: 0xffffff,
 };
 
 const THUMBNAIL_EXTENSIONS = ['webp', 'png', 'jpg'];
+const DEFAULT_EQUIPMENT_ASSET_DIR = 'weapons';
+const DIVINE_WEAPON_ASSET_DIR = 'weapons/divine';
 
 function reply(message, payload) {
   return message.reply({ ...payload, allowedMentions: { repliedUser: false, parse: [] } });
@@ -113,37 +116,82 @@ function publicAssetSource(url) {
 function uniqueCandidates(candidates) {
   const seen = new Set();
   return candidates.filter((candidate) => {
-    if (!candidate?.url || seen.has(candidate.url)) return false;
-    seen.add(candidate.url);
+    const key = candidate?.url || candidate?.relativePath;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 }
 
-function thumbnailCandidatesFor(name) {
-  if (!isRemoteAssetsEnabled()) return null;
+function rosterImageFilename(value) {
+  const normalized = String(value || '').trim().replace(/\\/g, '/');
+  if (!normalized) return null;
+  const filename = normalized.split('/').filter(Boolean).pop();
+  return filename && filename !== '.' && filename !== '..' ? filename : null;
+}
+
+function relativeThumbnailCandidatesFor(gear) {
+  const name = String(gear?.name || '').trim();
+  const isDivineWeapon = gear?.kind === 'weapon' && gear?.tier === 'Divine';
+  const assetDir = isDivineWeapon ? DIVINE_WEAPON_ASSET_DIR : DEFAULT_EQUIPMENT_ASSET_DIR;
+  const explicitFilename = rosterImageFilename(gear?.image_filename);
+  const explicitStem = explicitFilename?.replace(/\.[^.]+$/, '') || null;
   const derived = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
-  const slugs = [resolveName(name), derived].filter(Boolean);
+  const slugs = [explicitStem, resolveName(name), derived].filter(Boolean);
   const candidates = [];
+
+  // The First Arms live in the tier-specific R2 namespace. Their roster
+  // metadata already carries the exact filename, so try that canonical key
+  // first and never fall back to the retired Genesis directory.
+  if (isDivineWeapon && explicitFilename) {
+    candidates.push({
+      relativePath: `${assetDir}/${explicitFilename}`,
+      thumbnailVariant: false,
+    });
+  }
+
   for (const slug of slugs) {
-    for (const ext of THUMBNAIL_EXTENSIONS) {
-      candidates.push(
-        { url: assetPath(`weapons/thumbnails/${slug}.${ext}`), thumbnailVariant: true },
-        { url: assetPath(`weapons/thumbs/${slug}.${ext}`), thumbnailVariant: true },
-        { url: assetPath(`weapons/${slug}_thumb.${ext}`), thumbnailVariant: true },
-        { url: assetPath(`weapons/${slug}_thumbnail.${ext}`), thumbnailVariant: true },
-      );
-    }
-    for (const ext of ['webp', 'png', 'jpg']) {
-      candidates.push({ url: assetPath(`weapons/${slug}.${ext}`), thumbnailVariant: false });
+    if (isDivineWeapon) {
+      // R2 currently stores the five Divine originals directly in this folder.
+      // PNG comes first so each item normally resolves with one HEAD request.
+      for (const ext of ['png', 'webp', 'jpg']) {
+        candidates.push({
+          relativePath: `${assetDir}/${slug}.${ext}`,
+          thumbnailVariant: false,
+        });
+      }
+    } else {
+      for (const ext of THUMBNAIL_EXTENSIONS) {
+        candidates.push(
+          { relativePath: `${assetDir}/thumbnails/${slug}.${ext}`, thumbnailVariant: true },
+          { relativePath: `${assetDir}/thumbs/${slug}.${ext}`, thumbnailVariant: true },
+          { relativePath: `${assetDir}/${slug}_thumb.${ext}`, thumbnailVariant: true },
+          { relativePath: `${assetDir}/${slug}_thumbnail.${ext}`, thumbnailVariant: true },
+        );
+      }
+      for (const ext of THUMBNAIL_EXTENSIONS) {
+        candidates.push({
+          relativePath: `${assetDir}/${slug}.${ext}`,
+          thumbnailVariant: false,
+        });
+      }
     }
   }
   return uniqueCandidates(candidates);
 }
 
-async function thumbnailUrlFor(name, logContext = {}) {
+function thumbnailCandidatesFor(gear) {
+  if (!isRemoteAssetsEnabled()) return null;
+  return relativeThumbnailCandidatesFor(gear).map((candidate) => ({
+    ...candidate,
+    url: assetPath(candidate.relativePath),
+  }));
+}
+
+async function thumbnailUrlFor(gear, logContext = {}) {
   if (!isRemoteAssetsEnabled()) {
     bandwidthLog('equipment thumbnail source', {
       ...logContext,
@@ -153,7 +201,7 @@ async function thumbnailUrlFor(name, logContext = {}) {
     });
     return null;
   }
-  const list = thumbnailCandidatesFor(name);
+  const list = thumbnailCandidatesFor(gear);
   for (const candidate of list) {
     if (await remoteAssetAvailable(relativeAssetPath(candidate.url))) {
       bandwidthLog('equipment thumbnail source', {
@@ -210,7 +258,7 @@ async function buildInfoPayload(g, gearId, ownerId, ownerDisplayName = null) {
     : 'No lore recorded yet.';
   const passiveName = hasPassive ? g.passive_name : 'None';
   const passiveDescription = hasPassive ? (g.passive_description || 'No passive.') : 'No passive.';
-  const thumbnailUrl = await thumbnailUrlFor(g.name, {
+  const thumbnailUrl = await thumbnailUrlFor(g, {
     system: 'equipment',
     command: 'equipment',
     imageType: 'equipment_thumbnail',
@@ -272,13 +320,14 @@ async function fetchGear(discordId, gearId) {
   const { rows } = await pool.query(
     `SELECT kind, discord_id, curr_atk, crit, enhancement, bonus_dmg_pct,
             curr_hp, curr_def, native_sockets, opposite_sockets,
-            name, type, tier, passive_name, passive_description, lore
+            name, type, tier, passive_name, passive_description, lore, image_filename
        FROM (
          SELECT 0 AS priority, 'weapon' AS kind,
                 uw.discord_id, uw.curr_atk, uw.crit, uw.enhancement, uw.bonus_dmg_pct,
                 NULL::integer AS curr_hp, NULL::integer AS curr_def,
                 uw.native_sockets, uw.opposite_sockets,
-                wr.name, wr.type, wr.tier, wr.passive_name, wr.passive_description, wr.lore
+                wr.name, wr.type, wr.tier, wr.passive_name, wr.passive_description, wr.lore,
+                wr.image_filename
            FROM user_weapons uw
            JOIN weapon_roster wr ON uw.weapon_roster_id = wr.weapon_roster_id
           WHERE uw.weapon_id = $1 AND uw.discord_id = $2
@@ -288,7 +337,8 @@ async function fetchGear(discordId, gearId) {
                 ua.enhancement, NULL::numeric AS bonus_dmg_pct,
                 ua.curr_hp, ua.curr_def,
                 ua.native_sockets, ua.opposite_sockets,
-                ar.name, ar.type, ar.tier, ar.passive_name, ar.passive_description, ar.lore
+                ar.name, ar.type, ar.tier, ar.passive_name, ar.passive_description, ar.lore,
+                ar.image_filename
            FROM user_armors ua
            JOIN armor_roster ar ON ua.armor_roster_id = ar.armor_roster_id
           WHERE ua.armor_id = $1 AND ua.discord_id = $2
@@ -328,4 +378,14 @@ async function execute(message, { args }) {
   await reply(message, { content: 'Usage: `crd equipment info <id>`' });
 }
 
-module.exports = { execute, info, buildInfoPayload, fetchGear };
+module.exports = {
+  execute,
+  info,
+  buildInfoPayload,
+  fetchGear,
+  relativeThumbnailCandidatesFor,
+  thumbnailCandidatesFor,
+  DEFAULT_EQUIPMENT_ASSET_DIR,
+  DIVINE_WEAPON_ASSET_DIR,
+  TIER_COLOR,
+};

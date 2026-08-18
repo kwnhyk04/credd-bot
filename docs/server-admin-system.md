@@ -97,7 +97,7 @@ Aliases are expanded before routing, so `crd ct 500 heads` becomes
 | `dc` | `deity collection` |
 | `di` | `deity info` |
 | `de` | `deity equip` |
-| `deh` | `deity enhance` |
+| `deh` | `deity ascend` |
 | `dec` | `deity echo` |
 | `du` | `deity unequip` |
 | `dp` | `deities` |
@@ -156,7 +156,7 @@ Cooldowns are per user **per command**, so a raid cooldown never blocks a summon
 
 Raid, ranked and duel are deliberately longer for combat pacing.
 
-Buttons are **not** cooldown-gated, so multi-step flows such as the enhancement forge,
+Buttons are **not** cooldown-gated, so multi-step flows such as weapon enhancement and deity Ascension,
 blackjack and crash are not throttled between clicks.
 
 When on cooldown the bot replies with a live countdown, and on the prefix path it deletes

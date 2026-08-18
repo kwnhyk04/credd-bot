@@ -445,9 +445,9 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
       if (calamity && supremeWinnerIds.length > 0) {
         supremeBagUpd = await dbc.query(
           `UPDATE users_bag
-              SET supreme_chest = supreme_chest + $2
+              SET ${SUPREME_CHEST_REWARD.column} = ${SUPREME_CHEST_REWARD.column} + $2
             WHERE discord_id = ANY($1)
-            RETURNING discord_id, supreme_chest AS chest_count`,
+            RETURNING discord_id, ${SUPREME_CHEST_REWARD.column} AS chest_count`,
           [supremeWinnerIds, SUPREME_CHEST_REWARD.qty]
         );
       }
@@ -590,10 +590,10 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
       const greater = isGreaterBoss(view.mobRow.name);
       const grantedBonuses = grantedCalamityBonusRewards({ supremeWinnerIds, divineWinnerIds });
       const bonusSummary = grantedBonuses.length > 0
-        ? ` Bonus Rewards: ${grantedBonuses.map((item) =>
-          `**${item.winnerCount}** challenger${item.winnerCount === 1 ? '' : 's'} received ` +
-          `${item.qty}× ${item.label}`
-        ).join(' · ')}.`
+        ? `\nBonus Rewards:\n${grantedBonuses.map((item) =>
+          `${item.label} ×${item.qty} each · ${item.winnerCount} ` +
+          `User${item.winnerCount === 1 ? '' : 's'}`
+        ).join('\n')}`
         : '';
       // Grouped level-up + level-reward summary (spec S3) from the same
       // distribution transaction — post-commit display only.

@@ -134,7 +134,7 @@ def('deity', 'deity',
       .addStringOption((o) => o.setName('name').setDescription('Deity name').setRequired(true)))
     .addSubcommand((s) => s.setName('equip').setDescription('Equip a deity as your blessing')
       .addStringOption((o) => o.setName('name').setDescription('Deity name').setRequired(true)))
-    .addSubcommand((s) => s.setName('enhance').setDescription('Enhance a deity with essence')
+    .addSubcommand((s) => s.setName('ascend').setDescription('Ascend a deity with essence')
       .addStringOption((o) => o.setName('name').setDescription('Deity name').setRequired(true))),
   (i) => {
     const sub = i.options.getSubcommand();

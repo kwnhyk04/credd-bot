@@ -27,7 +27,7 @@ module.exports = {
   dc: 'deity collection',
   di: 'deity info',
   de: 'deity equip',
-  deh: 'deity enhance',
+  deh: 'deity ascend',
   dec: 'deity echo',
   du: 'deity unequip',
   dp: 'deities',

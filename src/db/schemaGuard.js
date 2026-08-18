@@ -69,6 +69,11 @@ const MIGRATION_HINTS = Object.freeze({
 });
 
 const REQUIRED_CHECKS = Object.freeze({
+  weapon_roster_tier_check: Object.freeze({
+    table: 'public.weapon_roster',
+    fragments: Object.freeze(['tier = any', 'divine']),
+    migration: 'scripts/migrations/20260818_02_divine_weapon_tier.sql',
+  }),
   user_weapons_enhancement_check: Object.freeze({
     table: 'public.user_weapons',
     fragments: Object.freeze(['enhancement >= 1', 'enhancement <= 21']),
@@ -254,6 +259,10 @@ const PRESET_MIGRATION = 'scripts/migrations/20260803_01_user_presets.sql';
 function normalizeConstraintDefinition(definition) {
   return String(definition || '')
     .toLowerCase()
+    // pg_get_constraintdef() may include casts such as `tier)::text` and
+    // `ARRAY[...]::text[]`. They do not change the constraint semantics and
+    // should not make the textual drift check reject a valid live schema.
+    .replace(/::[a-z_][a-z0-9_]*(?:\s+[a-z_][a-z0-9_]*)?(?:\[\])?/g, ' ')
     .replace(/[()\"]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();

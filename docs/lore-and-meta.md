@@ -124,16 +124,16 @@ mark, and no armor is thick enough to stop what cannot be seen coming.*
 | Boss Golden Chest | *Gilded and cursed — the golden hoard surrenders its arms.* |
 | Supreme Chest | *Light pours from the supreme vault. Few have seen what lies within.* |
 | Diamond Chest | *The diamond facets fracture the light — brilliance made steel.* |
-| Genesis Chest | *The chest opens on the void before creation. One of the First Arms answers.* |
+| Divine Chest | *The divine chest opens on the void before creation. One of the First Arms answers.* |
 | Sacred Relic | *The sacred relic burns away, leaving its blessing behind.* |
 | Supreme Relic | *The supreme relic shatters — raw light forged into steel.* |
 | Lesser Rune Bag | *The lesser bag unravels — faint runes scatter into your hand.* |
 | Greater Rune Bag | *The greater bag splits open, humming with bound power.* |
 | Divine Rune Bag | *The divine bag erupts in light — the strongest runes answer.* |
 
-## What are the Genesis weapons called
+## What are the Divine weapons called
 
-The five Genesis-tier weapons are known collectively as the **First Arms**. They sit above
+The five Divine-tier weapons are known collectively as the **First Arms**. They sit above
 the Supreme tier and are the only weapons that can be enhanced past +10.
 
 | First Arm | Passive name |

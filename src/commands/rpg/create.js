@@ -20,7 +20,7 @@ const { renderPortraitCard } = require('../../engine/renderPortraitCard');
 const { assetPath, isRemoteAssetsEnabled } = require('../../utils/assets');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../../utils/imageOutput');
-const { emoji } = require('../../utils/emojis');
+const { emoji, emojiForDisplay } = require('../../utils/emojis');
 
 const BRAND = 0x9b59b6;
 const CLASS_CARD_RENDER_REV = 2;
@@ -41,7 +41,7 @@ function classImageFile(className) {
 // Body: one class per line (emoji + bold name + -# passive), like the bag layout.
 function classSelectPayload(userId) {
   const classLines = CLASS_NAMES
-    .map(name => `${CLASSES[name].emoji} **${name}**\n-# Passive: ${CLASSES[name].passiveName}`)
+    .map(name => `${emojiForDisplay(name, CLASSES[name].emoji)} **${name}**\n-# Passive: ${CLASSES[name].passiveName}`)
     .join('\n\n');
 
   const container = new ContainerBuilder()
@@ -68,7 +68,7 @@ function classSelectRow(userId) {
       new ButtonBuilder()
         .setCustomId(`create:class:${name}:${userId}`)
         .setLabel(name)
-        .setEmoji(CLASSES[name].emoji)
+        .setEmoji(emojiForDisplay(name, CLASSES[name].emoji))
         .setStyle(ButtonStyle.Secondary)
     )
   );

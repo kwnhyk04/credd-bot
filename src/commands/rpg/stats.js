@@ -10,6 +10,7 @@ const { computeDeityProgressionStats } = require('../../engine/deityEnhancement'
 const { getActiveLoadout } = require('../../engine/loadout');
 const { characterRecords } = require('../../engine/characterRecords');
 const { EXP_REQUIRED, MAX_COMBAT_LEVEL } = require('../../config/combatExp');
+const { classTextLine, classDisplayLine } = require('../../config/classes');
 const { BELIEVER_EXP_PER_LEVEL, believerTitle } = require('../../config/believerProgression');
 const { renderStatsImage } = require('../../engine/renderStats');
 const { resolveStatsSkin, resolveProfileLabel } = require('../../engine/skinResolver');
@@ -32,7 +33,12 @@ const { resolveSupporterBadge } = require('../../engine/supporterBadge');
 // 24: supporter badge GET is no longer gated by a remote HEAD probe.
 // 25: equipped-avatar GET can recover through authenticated R2; bust cards
 //     that were cached with the class-default fallback before that recovery.
-const STATS_RENDER_REV = 25;
+// 26: class icon and standardized class/level line on every stats skin.
+// 27: render the registered class emoji image instead of the Unicode placeholder.
+// 28: label deity progression as Ascend, tighten the deity row, and place the class icon
+//     between "Character Class:" and the class name on layout-driven skins.
+// 29: show deity names only and restore compact deity spacing across all stats skins.
+const STATS_RENDER_REV = 29;
 const STATS_IMAGE_OPTIONS = Object.freeze({
   quality: 50,
   maxWidth: Math.floor(envNumber('STATS_IMAGE_MAX_WIDTH', 0, { min: 0, max: 4096 })),
@@ -40,6 +46,8 @@ const STATS_IMAGE_OPTIONS = Object.freeze({
   preserveTransparency: false,
   allowWebp: true,
 });
+
+const statsClassLine = classDisplayLine;
 
 /**
  * `crd stats [@user]` — full Canvas stats card.
@@ -145,10 +153,12 @@ async function execute(message) {
   const { mods: runeMods } = await accumulateRuneStats(pool, r);
   const stats = assemblePlayerStats(r.class, r.combat_level, weapon, armor, deity, runeMods, pantheonMods);
 
-  // enhancement column: 1 = +0; display level is enhancement − 1.
+  // Legacy stored progression column: 1 = +0; display level is stored value − 1.
   const weaponEnh = r.weapon_name ? Math.max(0, (r.weapon_enh || 1) - 1) : 0;
   const armorEnh  = r.armor_name  ? Math.max(0, (r.armor_enh  || 1) - 1) : 0;
-  const deityEnh  = r.deity_name ? Math.max(0, (Number(r.d1_enhancement) || 1) - 1) : 0;
+  const deityAscension = r.deity_name
+    ? Math.max(0, (Number(r.d1_enhancement) || 1) - 1)
+    : 0;
 
   const combatAtCap = r.combat_level >= MAX_COMBAT_LEVEL;
 
@@ -211,6 +221,8 @@ async function execute(message) {
 
     className: r.class,
     combatLevel: r.combat_level,
+    classLine: statsClassLine(r.class, r.combat_level),
+    classTextLine: classTextLine(r.class, r.combat_level),
     combatExp: Number(r.combat_exp),
     combatExpMax: combatAtCap ? null : (EXP_REQUIRED[r.combat_level] ?? null),
 
@@ -222,7 +234,7 @@ async function execute(message) {
     deityName: r.deity_name || null,
     deity2Name: r.deity2_name || null,
     deity3Name: r.deity3_name || null,
-    deityEnh,
+    deityAscension,
     // Primary/Secondary describe the combat channel, not the Divine/Echo blessing
     // type. An Echo-type deity in slot 1 still supplies the primary channel.
     // Keys stay `blessingName`/`echoBlessing` so per-skin stats layouts resolve.
@@ -313,4 +325,4 @@ async function execute(message) {
   });
 }
 
-module.exports = { execute, believerTitle };
+module.exports = { execute, believerTitle, statsClassLine };

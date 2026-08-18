@@ -65,6 +65,7 @@ const {
 } = require(path.join(ROOT, 'src', 'engine', 'statAssembly'));
 const { applyCombatExp, EXP_REQUIRED, MAX_COMBAT_LEVEL } = require(path.join(ROOT, 'src', 'config', 'combatExp'));
 const { CLASSES, CLASS_PASSIVE_VALUES, computeClassStats } = require(path.join(ROOT, 'src', 'config', 'classes'));
+const { emojiForDisplay } = require(path.join(ROOT, 'src', 'utils', 'emojis'));
 const { runeDescription } = require(path.join(ROOT, 'src', 'config', 'runes'));
 const {
   SUPREME_WEAPON_ATK_PER_TURN,
@@ -135,7 +136,7 @@ section('1. Coverage — registry ⇄ passive_registry_keys.md');
   check('no unlisted registry keys', extra.length === 0, `extra: ${extra.join(', ')}`);
   // 176 unique keys total — 175 effect keys + the shared `none` no-op. [v5] added
   // 8 armor passives and 26 echo blessing keys; aegis & helm_of_darkness were
-  // already counted (migrated from shields). [Genesis update] +5 Genesis weapon
+  // already counted (migrated from shields). [First Arms update] +5 Divine weapon
   // passives (kiri, moira, sophia, atlas, titan).
   check('expected key count (178 incl. none)', regKeys.size === 178, `got ${regKeys.size}`);
   for (const k of regKeys) {
@@ -187,7 +188,11 @@ check('class descriptions expose every updated class-passive value',
     && CLASSES.Fighter.passiveLine.includes('1 turn')
     && CLASSES.Fighter.passiveLine.includes('15%')
     && CLASSES.Fighter.passiveLine.includes('Dizzy')
-    && CLASSES.Knight.passiveLine.includes('1.5%'));
+    && CLASSES.Knight.passiveLine.includes('1%')
+    && CLASSES.Mage.passiveLine.includes('4.0× damage (60%)')
+    && CLASSES.Mage.passiveLine.includes('5.0× damage (40%)')
+    && CLASSES.Mage.passiveLine.includes('third battle turn')
+    && CLASSES.Mage.passiveLine.includes('50%'));
 
 check('class base and per-level scaling match the balance table',
   JSON.stringify(Object.fromEntries(Object.entries(CLASSES).map(([name, config]) => [
@@ -216,9 +221,9 @@ check('class base and per-level scaling match the balance table',
     },
   }));
 
-// Genesis First Arms registry contracts.
+// Divine First Arms registry contracts.
 {
-  function genesisState(overrides = {}) {
+  function divineState(overrides = {}) {
     const attackHooks = [];
     const landedHitHooks = [];
     const enemyDebuffs = [];
@@ -258,36 +263,36 @@ check('class base and per-level scaling match the balance table',
     return state;
   }
 
-  const kiri = genesisState({ rng: () => 0.10 });
+  const kiri = divineState({ rng: () => 0.10 });
   PASSIVE_REGISTRY.kiri(kiri);
   kiri.attackHooks[0]();
-  check('Genesis Kiri ramps and can double strike',
+  check('Divine Kiri ramps and can double strike',
     kiri.playerAtkMult === 0.20 && kiri.nextAttackDouble === true);
 
-  const moira = genesisState();
+  const moira = divineState();
   PASSIVE_REGISTRY.moira(moira);
-  check('Genesis Moira waits for a landed hit before applying shred',
+  check('Divine Moira waits for a landed hit before applying shred',
     moira.enemyDebuffs.length === 0);
   moira.landedHitHooks[0]();
-  check('Genesis Moira applies landed-hit shred, no-miss, and conditional pierce',
+  check('Divine Moira applies landed-hit shred, no-miss, and conditional pierce',
     moira.enemyDebuffs.some((effect) => effect.tag === 'def_down' && effect.value === 0.10)
     && moira.flags.attacks_cannot_miss === true
     && moira.flags.moira_pierce_vs_def_buff === true);
 
-  const sophia = genesisState({ playerHP: 29 });
+  const sophia = divineState({ playerHP: 29 });
   PASSIVE_REGISTRY.sophia(sophia);
-  check('Genesis Sophia awakens below 30 percent HP',
+  check('Divine Sophia awakens below 30 percent HP',
     sophia.playerAtkMult === 1.50 && sophia.incomingDamageIncreasePct === 0.20);
 
-  const atlas = genesisState({ currentTurn: 3 });
+  const atlas = divineState({ currentTurn: 3 });
   PASSIVE_REGISTRY.atlas(atlas);
-  check('Genesis Atlas guarantees every third-round critical',
+  check('Divine Atlas guarantees every third-round critical',
     atlas.playerAtkMult === 0.50 && atlas.nextAttackAutoCrit === true
     && atlas.flags.atlas_crit_atk_down === true);
 
-  const titan = genesisState({ playerHP: 40 });
+  const titan = divineState({ playerHP: 40 });
   PASSIVE_REGISTRY.titan(titan);
-  check('Genesis Titan arms low-HP lifesteal and reprieve',
+  check('Divine Titan arms low-HP lifesteal and reprieve',
     titan.flags.titan_lifesteal_pct === 0.50
     && titan.flags.titan_reprieve_available === true);
 
@@ -300,9 +305,9 @@ check('class base and per-level scaling match the balance table',
     { mode: 'raid', rng: () => 0.10 },
   );
   const kiriRoundOne = roundEvents(kiriBattle, 1);
-  check('Genesis Kiri battle log shows its +20% stack',
+  check('Divine Kiri battle log shows its +20% stack',
     hasEvent(kiriRoundOne, 'Damage +20% (total +20%)'));
-  check('Genesis Kiri battle log shows a double-strike proc',
+  check('Divine Kiri battle log shows a double-strike proc',
     hasEvent(kiriRoundOne, 'Double strike triggered')
     && hasEvent(kiriRoundOne, '*(Double!)*'));
 
@@ -311,7 +316,7 @@ check('class base and per-level scaling match the balance table',
     mob({ skillKey: 'sigbin_shadow_step', atk: 0, hp: 10_000, def: 0 }),
     { mode: 'raid', rng: () => 0 },
   );
-  check('Genesis Moira bypasses evasion without a false evade log',
+  check('Divine Moira bypasses evasion without a false evade log',
     dmgOf(roundEvents(moiraVsEvade, 1), 'Hero attacks') > 0
     && !hasEvent(roundEvents(moiraVsEvade, 1), 'Shadow Step'));
 
@@ -323,10 +328,27 @@ check('class base and per-level scaling match the balance table',
     }),
     { mode: 'duel', rng: () => 0 },
   );
-  check('Genesis Moira does not bypass absolute damage negation',
+  check('Divine Moira does not bypass absolute damage negation',
     dmgOf(roundEvents(moiraVsAbsorb, 1), 'Hero attacks') === 0
     && hasEvent(roundEvents(moiraVsAbsorb, 1), 'incoming hit ignored entirely')
     && !hasEvent(roundEvents(moiraVsAbsorb, 1), 'Enemy DEF reduced'));
+
+  const moiraPersistentShred = resolveBattle(
+    player({
+      weaponPassiveKey: 'moira', weaponName: 'Moira', classPassive: null,
+      atk: 100, hp: 100_000, def: 0, crit: 0,
+    }),
+    mob({
+      mobType: 'boss', skillKey: 'stone_stare',
+      atk: 0, hp: 100_000, def: 200, crit: 0,
+    }),
+    { mode: 'boss', rng: () => 0.5 },
+  );
+  check('Divine Moira keeps accumulated DEF shred through a skipped attack',
+    hasEvent(roundEvents(moiraPersistentShred, 4), 'unable to act (petrify)')
+      && dmgOf(roundEvents(moiraPersistentShred, 3), 'Hero attacks') === 55
+      && dmgOf(roundEvents(moiraPersistentShred, 5), 'Hero attacks') === 58,
+    roundEvents(moiraPersistentShred, 5).join(' | '));
 }
 
 // Explicit negative-effect metadata and category-scoped removal.
@@ -555,6 +577,14 @@ check('class base and per-level scaling match the balance table',
     echoVidarNext.bs.playerAtkMult === 0.30
       && echoVidarFlags.echo_vidar_revenge_pending === false);
 
+  const handledEchoVidar = runPassive('echo_vidar', {
+    flags: { echo_vidar_crit_latch_handled: true },
+    playerWasCritted: true,
+  });
+  check('Echo Vidar does not re-arm a crit already handled in the same round',
+    handledEchoVidar.bs.flags.echo_vidar_revenge_pending !== true
+      && handledEchoVidar.bs.flags.echo_vidar_crit_latch_handled === false);
+
   const echoIdiyanaleFlags = {};
   runPassive('echo_idiyanale', {
     currentTurn: 6,
@@ -707,22 +737,22 @@ check('class base and per-level scaling match the balance table',
   check('round 2 not marked CRIT', !hasEvent(roundEvents(sim, 2), '(CRIT!)'));
 }
 
-// — Genesis replaces its former +50% rider with one +100% rider. —
+// — Divine replaces its former +50% rider with one +100% rider. —
 {
   const target = mob({ atk: 0, hp: 100_000, def: 0, crit: 0 });
-  const genesis = resolveBattle(player({
+  const divine = resolveBattle(player({
     class: 'Test', classPassive: null, atk: 100, hp: 100_000, def: 0, crit: 0,
-    weaponTier: 'Genesis', bonusDmgPct: 50, weaponPassiveKey: 'none',
+    weaponTier: 'Divine', bonusDmgPct: 50, weaponPassiveKey: 'none',
   }), target, { mode: 'boss', rng: () => 0.5 });
   const otherTier = resolveBattle(player({
     class: 'Test', classPassive: null, atk: 100, hp: 100_000, def: 0, crit: 0,
     weaponTier: 'Legendary', bonusDmgPct: 50, weaponPassiveKey: 'none',
   }), target, { mode: 'boss', rng: () => 0.5 });
-  check('Genesis 100 base-equivalent attack becomes 200 through the existing damage lane',
-    dmgOf(roundEvents(genesis, 1), 'Hero attacks') === 200);
-  check('Genesis old +50% is replaced instead of stacked into 250 damage',
-    dmgOf(roundEvents(genesis, 1), 'Hero attacks') !== 250);
-  check('the same stored rider remains unchanged for a non-Genesis weapon tier',
+  check('Divine 100 base-equivalent attack becomes 200 through the existing damage lane',
+    dmgOf(roundEvents(divine, 1), 'Hero attacks') === 200);
+  check('Divine old +50% is replaced instead of stacked into 250 damage',
+    dmgOf(roundEvents(divine, 1), 'Hero attacks') !== 250);
+  check('the same stored rider remains unchanged for a non-Divine weapon tier',
     dmgOf(roundEvents(otherTier, 1), 'Hero attacks') === 150);
 }
 
@@ -1387,7 +1417,7 @@ check('class base and per-level scaling match the balance table',
       rng: scripted([
         0.99, 0.5, 0.99, 0.5,
         0.99, 0.5, 0.99, 0.5,
-        0.00, 0.5, 0.99, 0.00, 0.5,
+        0.00, 0.5, 0.00, 0.99, 0.00, 0.5, 0.99, 0.5,
       ], 0.5),
     },
   );
@@ -1472,18 +1502,18 @@ check('class base and per-level scaling match the balance table',
         .filter((event) => event.includes('Supreme Weapon:')).length === 1
       && hasEvent(roundEvents(supremeArcher, 2), 'total +20%'));
 
-  const genesisArcher = resolveBattle(
+  const divineArcher = resolveBattle(
     base({
       class: 'Archer', classPassive: 'pierce',
-      weaponPassiveKey: 'none', weaponTier: 'Genesis', bonusDmgPct: 50,
+      weaponPassiveKey: 'none', weaponTier: 'Divine', bonusDmgPct: 50,
     }),
     target(),
     { mode: 'boss', rng: () => 0 },
   );
-  const genesisArcherR1 = attackLines(genesisArcher, 1);
-  check('Genesis +100% rider applies equally to Archer primary and additional attacks',
-    genesisArcherR1.length === 2
-      && genesisArcherR1.every((event) => dmgOf([event], 'attacks') === 180));
+  const divineArcherR1 = attackLines(divineArcher, 1);
+  check('Divine +100% rider applies equally to Archer primary and additional attacks',
+    divineArcherR1.length === 2
+      && divineArcherR1.every((event) => dmgOf([event], 'attacks') === 180));
 
   const turnSafety = resolveBattle(
     base({ class: 'Archer', classPassive: 'pierce', atk: 0 }),
@@ -1561,16 +1591,16 @@ check('class base and per-level scaling match the balance table',
     `max=${Math.max(...multiHitTicks)}`);
 }
 
-// — Mage Overcharge: fires rounds 3/6/9, fixed ×4.0, crit suppressed —
+// — Mage Overcharge: fires rounds 3/6/9, rolls ×4.0/×5.0, crit suppressed —
 {
   const mk = () => player({ class: 'Mage', classPassive: 'overcharge' });
   // raid draws/round: critPre, playerVar, mobCrit, mobVar. Round 3 = overcharge; its
   // crit pre-roll is forced to 0.0 (would crit) to prove the crit is voided anyway.
   const script = [0.0, /* r1 */ 0.99, 0.5, 0.99, 0.5, /* r2 */ 0.99, 0.5, 0.99, 0.5,
-    /* r3 */ 0.0, 0.5, 0.99, 0.5];
+    /* r3 */ 0.0, 0.5, 0.0, 0.99, 0.99, 0.5];
   const sim = resolveBattle(mk(), mob({ hp: 100000 }), { seed: 1, rng: scripted(script) });
-  // ×4.0 fixed base multiplier (no crit, no rider) → exact pipeline result 857.
-  check('Overcharge fires round 3 = 857 (×4.0)', dmgOf(roundEvents(sim, 3), 'attacks') === 857,
+  // Low roll selects ×4.0 (no crit, no rider) → exact pipeline result 857.
+  check('Overcharge low roll fires round 3 = 857 (×4.0)', dmgOf(roundEvents(sim, 3), 'attacks') === 857,
     `got ${dmgOf(roundEvents(sim, 3), 'attacks')}`);
   check('Overcharge release marker on round 3', hasEvent(roundEvents(sim, 3), 'Charge 3/3 — Released!'));
   check('Overcharge charges on rounds 1/2',
@@ -1586,9 +1616,26 @@ check('class base and per-level scaling match the balance table',
   check('Overcharge round 3 never crits (pre-roll latch voided)', !hasEvent(roundEvents(sim, 3), '(CRIT!)'));
   check('round 1/2 are plain hits = 214', dmgOf(roundEvents(sim, 1), 'attacks') === 214 && dmgOf(roundEvents(sim, 2), 'attacks') === 214,
     `r1=${dmgOf(roundEvents(sim, 1), 'attacks')} r2=${dmgOf(roundEvents(sim, 2), 'attacks')}`);
-  check('Overcharge uses the exact ×4.0 base multiplier',
+  check('Overcharge low roll uses the exact ×4.0 base multiplier',
     dmgOf(roundEvents(sim, 3), 'attacks')
       === Math.floor(300 * (1 - 80 / (80 + 200)) * 4.0));
+
+  // The 4×/5× roll multiplies the complete normal non-crit lane. A +50% weapon
+  // bonus therefore produces 150 on a plain hit and 600 on a 4× Overcharge hit,
+  // rather than the old additive 450 result.
+  const bonusLane = resolveBattle(
+    player({ class: 'Mage', classPassive: 'overcharge', atk: 100, hp: 100000, def: 0, crit: 0, bonusDmgPct: 50 }),
+    mob({ hp: 100000, atk: 0, def: 0, crit: 0 }),
+    { mode: 'boss', rng: () => 0.5 },
+  );
+  check('Overcharge multiplies the complete bonus-damage lane',
+    dmgOf(roundEvents(bonusLane, 1), 'attacks') === 150
+      && dmgOf(roundEvents(bonusLane, 3), 'attacks') === 600
+      && dmgOf(roundEvents(bonusLane, 3), 'attacks') === dmgOf(roundEvents(bonusLane, 1), 'attacks') * 4,
+    `r1=${dmgOf(roundEvents(bonusLane, 1), 'attacks')} r3=${dmgOf(roundEvents(bonusLane, 3), 'attacks')}`);
+  check('Mage battle passive and attack use the registered class emoji',
+    hasEvent(roundEvents(bonusLane, 1), `${emojiForDisplay('Mage', '🔮')} Mage Passive: Overcharge`)
+      && hasEvent(roundEvents(bonusLane, 1), `${emojiForDisplay('Mage', '🔮')} Hero attacks`));
 }
 
 // — Overcharge re-fires every 3rd round (fallback-driven; not 4/5) —
@@ -2154,6 +2201,27 @@ check('class base and per-level scaling match the balance table',
   check('Vidar returns a received crit on his same-round next attack',
     hasEvent(roundEvents(vidar, 1), 'Vidar: Silent Vengeance')
       && roundEvents(vidar, 1).some((event) => event.includes('Hero attacks') && event.includes('(CRIT!)')));
+
+  for (const channel of ['deityBlessingKey', 'echoBlessingKey']) {
+    const rolls = [0.5, 0, 0.99, 0.5, 0.5, 0.99, 0.99, 0.5, 0.5];
+    const echoVidar = resolveBattle(
+      player({
+        [channel]: 'echo_vidar', classPassive: null,
+        atk: 100, hp: 100_000, def: 0, crit: 0,
+      }),
+      player({
+        name: 'Critter', classPassive: null,
+        atk: 10, hp: 100_000, def: 0, crit: 50,
+      }),
+      { mode: 'duel', rng: scripted(rolls, 0.99) },
+    );
+    check(`Echo Vidar reacts immediately from the ${channel === 'deityBlessingKey' ? 'primary' : 'secondary'} channel`,
+      dmgOf(roundEvents(echoVidar, 1), 'Hero attacks') === 130
+        && hasEvent(roundEvents(echoVidar, 1), 'Echo · Vidar: Silent Vengeance'));
+    check(`Echo Vidar consumes one received crit exactly once in the ${channel === 'deityBlessingKey' ? 'primary' : 'secondary'} channel`,
+      dmgOf(roundEvents(echoVidar, 2), 'Hero attacks') === 100
+        && !hasEvent(roundEvents(echoVidar, 2), 'Echo · Vidar: Silent Vengeance'));
+  }
 }
 
 // Surt says each hit: Labrys' second hit on r3 must add a second Burn stack.
@@ -2183,6 +2251,47 @@ check('class base and per-level scaling match the balance table',
     roundEvents(sim, 2).join(' | '));
 }
 
+// A resisted Charm must not produce Aphrodite's success state or success log.
+{
+  const rolls = [0, 0.99, 0.99, 0, 0.5, 0.5];
+  const sim = resolveBattle(
+    player({
+      deityBlessingKey: 'aphrodite_enchanting_aura',
+      classPassive: null, atk: 100, hp: 10_000, def: 0, crit: 0,
+    }),
+    player({
+      name: 'Warded', armorPassiveKey: 'anting_anting_sash',
+      classPassive: null, atk: 100, hp: 10_000, def: 0, crit: 0,
+    }),
+    { mode: 'duel', rng: scripted(rolls, 0.5) },
+  );
+  check('Aphrodite does not report a Charm that Charmed Hide nullified',
+    hasEvent(roundEvents(sim, 1), 'first crowd-control effect was nullified')
+      && !hasEvent(roundEvents(sim, 1), 'Enemy charmed!')
+      && hasEvent(roundEvents(sim, 1), 'Warded attacks'));
+}
+
+// Echo-type deities can occupy slot 1. Additional attacks must re-roll Echo
+// Njord there just as they do when Njord supplies the secondary channel.
+{
+  const sim = resolveBattle(
+    player({
+      weaponPassiveKey: 'labrys', classPassive: null,
+      atk: 100, hp: 100_000, def: 0, crit: 0,
+    }),
+    player({
+      name: 'Njord', deityBlessingKey: 'echo_njord', classPassive: null,
+      atk: 0, hp: 100_000, def: 0, crit: 0,
+    }),
+    { mode: 'duel', rng: () => 0 },
+  );
+  const r3 = roundEvents(sim, 3);
+  check('primary-channel Echo Njord re-rolls for every Labrys attack',
+    r3.filter((event) => event.includes("Echo · Njord: Sea's Favor")).length === 2
+      && r3.filter((event) => event.includes('Hero attacks')).length === 2,
+    r3.join(' | '));
+}
+
 // Explicit end-of-turn stacks: turn 1 is unbuffed; five completed turns yield +50%.
 {
   const run = (deityBlessingKey) => resolveBattle(
@@ -2200,6 +2309,39 @@ check('class base and per-level scaling match the balance table',
       dmgOf(roundEvents(sim, 1), 'Hero attacks') === dmgOf(roundEvents(base, 1), 'Hero attacks'));
     check(`${name} reaches +50% after five completed turns`,
       dmgOf(roundEvents(sim, 6), 'Hero attacks') > dmgOf(roundEvents(base, 6), 'Hero attacks') * 1.45);
+  }
+}
+
+// Echo Ares uses the same Blood Frenzy end-turn ramp as the primary blessing and
+// must coexist with Bathala's Divine Vessel without disappearing from the log.
+{
+  const opponent = (mode) => mode === 'duel'
+    ? player({ name: 'Rival', class: 'Test', classPassive: null, atk: 0, hp: 100000, def: 0, crit: 0 })
+    : mob({ hp: 100000, atk: 0, def: 0, crit: 0 });
+  for (const mode of ['raid', 'boss', 'duel']) {
+    const sim = resolveBattle(
+      player({
+        class: 'Test', classPassive: null, atk: 100, hp: 100000, def: 0, crit: 0,
+        deityBlessingKey: 'bathala_divine_vessel', echoBlessingKey: 'echo_ares',
+      }),
+      opponent(mode),
+      { mode, rng: () => 0.5 },
+    );
+    const r1 = roundEvents(sim, 1);
+    const r2 = roundEvents(sim, 2);
+    const r6 = roundEvents(sim, 6);
+    check(`Echo Ares activates in ${mode} mode`,
+      hasEvent(r2, 'Echo · Ares: Blood Frenzy — end-turn stack +10% ATK')
+        && hasEvent(r6, 'Echo · Ares: Blood Frenzy — end-turn stack +10% ATK (total +50%, 5/5).'),
+      r2.concat(r6).join(' | '));
+    check(`Echo Ares and Bathala coexist in ${mode} mode`,
+      hasEvent(r2, 'Bathala: Divine Vessel')
+        && dmgOf(r2, 'Hero attacks') === 130
+        && dmgOf(r1, 'Hero attacks') === 110,
+      `r1=${dmgOf(r1, 'Hero attacks')} r2=${dmgOf(r2, 'Hero attacks')}`);
+    check(`Echo Ares cap holds in ${mode} mode`,
+      !hasEvent(roundEvents(sim, 7), 'Echo · Ares: Blood Frenzy')
+        && dmgOf(roundEvents(sim, 7), 'Hero attacks') === 220);
   }
 }
 
@@ -2616,6 +2758,57 @@ check('class base and per-level scaling match the balance table',
     roundEvents(sim, 2).join(' | '));
   check('Sidapa: second lethal kills (once per battle)', sim.winner === 'b' && sim.rounds.length === 2,
     `winner=${sim.winner} rounds=${sim.rounds.length}`);
+}
+
+// Reprieve bonuses begin when the lethal hit is survived, including when the
+// wearer still has an action later in that same duel round.
+{
+  const reprieveBattle = (passiveField, passiveKey) => {
+    const rolls = [0.5, 0.99, 0.99, 0.5, 0.5];
+    return resolveBattle(
+      player({
+        [passiveField]: passiveKey,
+        classPassive: null, atk: 100, hp: 100, def: 0, crit: 0,
+      }),
+      player({
+        name: 'Rival', classPassive: null,
+        atk: 200, hp: 10_000, def: 0, crit: 0,
+      }),
+      { mode: 'duel', rng: scripted(rolls, 0.99) },
+    );
+  };
+  const sidapa = reprieveBattle('deityBlessingKey', 'sidapa_deaths_reprieve');
+  check('Sidapa +50% ATK applies to a pending same-round action',
+    hasEvent(roundEvents(sidapa, 1), "Death's Reprieve")
+      && dmgOf(roundEvents(sidapa, 1), 'Hero attacks') === 150,
+    roundEvents(sidapa, 1).join(' | '));
+
+  const titan = reprieveBattle('weaponPassiveKey', 'titan');
+  check('Titan +100% damage applies to a pending same-round action',
+    hasEvent(roundEvents(titan, 1), 'survives at 1 HP, damage +100%')
+      && dmgOf(roundEvents(titan, 1), 'Hero attacks') === 200,
+    roundEvents(titan, 1).join(' | '));
+}
+
+// Titan's threshold is evaluated at the landed hit, not frozen at the earlier
+// passive phase. An enemy-first hit can therefore raise this attack's drain to 50%.
+{
+  const rolls = [0.5, 0.99, 0.99, 0.5, 0.5];
+  const sim = resolveBattle(
+    player({
+      weaponPassiveKey: 'titan', classPassive: null,
+      atk: 100, hp: 1_000, def: 0, crit: 0,
+    }),
+    player({
+      name: 'Rival', classPassive: null,
+      atk: 600, hp: 100_000, def: 0, crit: 0,
+    }),
+    { mode: 'duel', rng: scripted(rolls, 0.99) },
+  );
+  check('Titan switches to 50% lifesteal after crossing half HP before attacking',
+    hasEvent(roundEvents(sim, 1), 'Lifesteal 50% while below half HP')
+      && hasEvent(roundEvents(sim, 1), 'Forgefire Veins — healed 50 HP'),
+    roundEvents(sim, 1).join(' | '));
 }
 
 // Baldur triggers strictly below 50% user HP, heals from user max HP, and guards one turn.

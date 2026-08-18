@@ -41,11 +41,11 @@ const CHESTS = {
     column: 'diamond_chest', action: 'Diamond Chest',
     drops: [['Mythic', 0.50], ['Legendary', 0.50]],
   },
-  // [Genesis update] Genesis Chest — always one of the five Genesis weapons
+  // Divine Chest — always one of the five Divine weapons
   // (weapon-only: the open flow skips the weapon/armor split for this tier).
   gnc: {
-    column: 'genesis_chest', action: 'Genesis Chest',
-    drops: [['Genesis', 1.00]],
+    column: 'genesis_chest', action: 'Divine Chest', emojiName: 'divine_chest',
+    drops: [['Divine', 1.00]],
     maxOpen: 1, // premium chest — opens one at a time (like Supreme)
   },
 };
@@ -94,22 +94,22 @@ const SUPREME_STATS = {
   bonus_dmg_pct: 50.00,
 };
 
-// [Genesis update] Genesis fixed weapon stats (specs/genesis_tier_weapons.md):
+// Divine fixed weapon stats (the five First Arms):
 // ATK 1600 · Crit Rate 20%. The shared +100% damage bonus is carried by the
 // same damage-rider stat the Supreme tier uses (bonus_dmg_pct) — the engine
 // has no separate crit-damage stat.
-const GENESIS_STATS = {
+const DIVINE_STATS = {
   atk: 1600, crit: 20.0,
   bonus_dmg_pct: 100.00,
 };
 
 /**
- * Effective battle/display damage rider for an owned weapon. Existing Genesis
+ * Effective battle/display damage rider for an owned weapon. Existing Divine
  * rows may still store the former 50 value, so the tier's current fixed config
  * wins at runtime without mutating persistent equipment data.
  */
 function effectiveWeaponBonusDmgPct(tier, storedValue) {
-  if (tier === 'Genesis') return GENESIS_STATS.bonus_dmg_pct;
+  if (tier === 'Divine') return DIVINE_STATS.bonus_dmg_pct;
   const value = Number(storedValue);
   return Number.isFinite(value) ? value : 0;
 }
@@ -169,7 +169,7 @@ const NATIVE_SOCKET_ROLL = {
   Mythic:    [[1, 0.40], [2, 0.60]],
   Legendary: [[2, 1.00]],
   Supreme:   [[2, 1.00]],
-  Genesis:   [[2, 1.00]],
+  Divine:    [[2, 1.00]],
 };
 
 /** Roll how many native sockets a freshly-dropped gear piece has, by tier. */
@@ -203,8 +203,8 @@ function rollWeaponStats(tier, type) {
   if (tier === 'Supreme') {
     return { ...SUPREME_STATS };
   }
-  if (tier === 'Genesis') {
-    return { ...GENESIS_STATS }; // fixed — no roll, no type banding
+  if (tier === 'Divine') {
+    return { ...DIVINE_STATS }; // fixed — no roll, no type banding
   }
 
   const range = TIER_RANGES[tier];
@@ -256,7 +256,7 @@ module.exports = {
   TYPE_PROFILES,
   BAND_FRACTIONS,
   SUPREME_STATS,
-  GENESIS_STATS,
+  DIVINE_STATS,
   ARMOR_TIER_RANGES,
   ARMOR_TYPE_PROFILES,
   SUPREME_ARMOR,

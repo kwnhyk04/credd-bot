@@ -58,7 +58,7 @@ const RESET_WEAPON_LOADOUT_FIELDS = Object.freeze([
 // type alias → users_bag column (accepts open-cmd aliases too).
 const CHEST_COLUMNS = {
   silver: 'silver_chest', gold: 'gold_chest', boss_treasure: 'boss_treasure_chest',
-  boss_golden: 'boss_golden_chest', supreme: 'supreme_chest', genesis: 'genesis_chest',
+  boss_golden: 'boss_golden_chest', supreme: 'supreme_chest', divine: 'genesis_chest',
   sc: 'silver_chest', gc: 'gold_chest', btc: 'boss_treasure_chest',
   bgtc: 'boss_golden_chest', supc: 'supreme_chest', gnc: 'genesis_chest',
 };
@@ -268,11 +268,11 @@ async function giveBeliefShards(message, args, devId) {
 // ── crd dev givechest @user <type> <amount> ────────────────────────────────
 async function giveChest(message, args, devId) {
   const target = message.mentions.users.first();
-  if (!target) return reply(message, 'Usage: `crd dev givechest @user <silver|gold|boss_treasure|boss_golden|supreme|genesis> <amount>`');
+  if (!target) return reply(message, 'Usage: `crd dev givechest @user <silver|gold|boss_treasure|boss_golden|supreme|divine> <amount>`');
   const rest = nonMentionArgs(args);
   const type = (rest[0] || '').toLowerCase();
   const col = CHEST_COLUMNS[type];
-  if (!col) return reply(message, 'Type must be one of: silver, gold, boss_treasure, boss_golden, supreme, genesis (or sc/gc/btc/bgtc/supc/gnc).');
+  if (!col) return reply(message, 'Type must be one of: silver, gold, boss_treasure, boss_golden, supreme, divine (or sc/gc/btc/bgtc/supc/gnc).');
   const amount = parseAmount(rest[1]);
   if (amount == null) return reply(message, 'Amount must be a positive whole number.');
   if (amount > INT_MAX) return reply(message, 'Amount is too large.');
@@ -764,11 +764,11 @@ async function enhanceEquipment(message, args, devId) {
   }
 }
 
-// ── crd dev enhancedeity @user <deity name> <+sigils> [ascend] ──────────────
+// ── crd dev ascend @user <deity name> <+sigils> [ascend] ────────────────────
 // [Ascension §3.5] Repurposed: sets the Sigil count (0–10) and, with the
 // trailing `ascend` keyword, the ascended flag. Stats are computed at read
 // time — no curr_* writes.
-async function enhanceDeity(message, args, devId) {
+async function ascendDeity(message, args, devId) {
   const target = message.mentions.users.first();
   let rest = nonMentionArgs(argsWithoutConfirm(args));
   const wantAscend = rest[rest.length - 1]?.toLowerCase() === 'ascend';
@@ -776,13 +776,13 @@ async function enhanceDeity(message, args, devId) {
   const level = parseLevel(rest[rest.length - 1]);
   const name = rest.slice(0, -1).join(' ').trim();
   if (!target || !name || level == null) {
-    return reply(message, 'Usage: `crd dev enhancedeity @user <deity name> <+0..+10 sigils> [ascend]`');
+    return reply(message, 'Usage: `crd dev ascend @user <deity name> <+0..+10 sigils> [ascend]`');
   }
   if (wantAscend && level !== 10) {
     return reply(message, 'Ascension requires 10/10 Sigils — use `+10 ascend`.');
   }
   const token = `confirm:${target.id}:${level}`;
-  const guard = highValueGuardMessage(args, token, `crd dev enhancedeity @user ${name} +${level}${wantAscend ? ' ascend' : ''} ${token}`);
+  const guard = highValueGuardMessage(args, token, `crd dev ascend @user ${name} +${level}${wantAscend ? ' ascend' : ''} ${token}`);
   if (guard) return reply(message, guard);
 
   const client = await pool.connect();
@@ -803,12 +803,12 @@ async function enhanceDeity(message, args, devId) {
       [d.user_deity_id, level, wantAscend]
     );
     const stats = computeSigilStats(d, level);
-    await logDev(client, devId, 'enhance_deity', target.id, `${d.name} → ${level}/10 sigils${wantAscend ? ' (ascended)' : ''}`);
+    await logDev(client, devId, 'ascend_deity', target.id, `${d.name} → ${level}/10 sigils${wantAscend ? ' (ascended)' : ''}`);
     await client.query('COMMIT');
     return reply(message, `✅ **${d.name}** (<@${target.id}>) set to **${level}/10 Sigils**${wantAscend ? ' · **Ascended ✦**' : ''} — ATK ${stats.curr_atk} · HP ${stats.curr_hp} · DEF ${stats.curr_def}.`);
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-    console.error('[dev enhancedeity]', err.message);
+    console.error('[dev ascend]', err.message);
     return reply(message, 'Failed — nothing changed.');
   } finally {
     client.release();
@@ -1346,7 +1346,7 @@ const USAGE = [
   '`giveessence @user <epic|mythic|legendary|supreme> <count>` · `givebag @user <lesser|greater|divine> <count>`',
   '`ban @user` · `unban @user`',
   '`resetplayer @user confirm:<id>` · `resetweapons [@user] confirm:<id>` · `resetweapons all confirm:RESET_ALL_GEAR`',
-  '`enhanceequipment <equipment_id> <+level>` · `enhancedeity @user <deity name> <+sigils 0..10> [ascend]`',
+  '`enhanceequipment <equipment_id> <+level>` · `ascend @user <deity name> <+sigils 0..10> [ascend]`',
   '`battle [mob name] [seed <n>]` — engine smoke test (no rewards)',
   '`setbosshp <boss name> <hp>` · `spawnboss [boss name]` — boss smoke-test enablers',
   '`quest` · `quest refresh <q1|q2|q3>` — view / refresh quests (cap bypassed)',
@@ -1381,7 +1381,9 @@ async function execute(message, { args }) {
     case 'granttitle':       return devGrantTitle(message, args, devId);
     case 'enhanceequipment': return enhanceEquipment(message, args, devId);
     case 'enhanceweapon':    return enhanceEquipment(message, args, devId); // back-compat alias
-    case 'enhancedeity':     return enhanceDeity(message, args, devId);
+    case 'ascend':           return ascendDeity(message, args, devId);
+    case 'ascenddeity':      return ascendDeity(message, args, devId);
+    case 'enhancedeity':     return ascendDeity(message, args, devId); // back-compat alias
     case 'battle':           return devBattle(message, args, devId);
     case 'setbosshp':        return setBossHp(message, args, devId);
     case 'spawnboss':        return devSpawnBoss(message, args, devId, 1);

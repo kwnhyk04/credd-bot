@@ -2776,3 +2776,103 @@ Validation:
   self-test chain, golden harnesses, and `git diff --check` were run after the updates.
 - No database, SQL script, RAG pipeline, metadata schema, or vector index was modified or
   executed.
+
+## Follow-up: Divine weapon naming, passive audit, and stats display correction
+
+Timestamp: 2026-08-19 +08:00
+Patch name: Divine weapon, passive audit, and stats display correction
+Commit: not created (working tree only)
+
+The weapon-only Genesis-to-Divine conversion is complete. Weapon tier labels, metadata,
+display values, shop/inventory references, enhancement displays, combat stat references,
+weapon emojis, and weapon asset paths now use Divine. Divine weapon assets load from the
+`weapons/divine` Cloudflare R2 folder. The manually updated Divine weapon emoji values in
+`game_items.txt` remain the source for display; no duplicate emoji definitions were added.
+Genesis avatar names and avatar paths, including the Genesis avatar style, remain unchanged.
+
+Divine weapon enhancement now supports +0 through +20: +1 through +10 add 10% of base ATK
+per level, +11 through +20 add 20% of base ATK per level, and armor remains capped at +10.
+The Divine weapon reference values are 1,600 base ATK, 20% CRIT, +100% damage, and a
+2,000,000 base sell value. The Supreme shared enhancement rider remains +10% ATK per turn,
+stacking to +50%.
+
+Deity enhancement wording uses **Ascend** and the `/crd stats` deity display now shows only
+equipped deity names, with the compact spacing restored between the `DEITIES` label, names,
+and blessing line. Enhancement and Ascension data remain intact and are still used by
+combat and blessing calculations.
+
+The passive audit corrected runtime behavior for resisted Aphrodite Charm, Echo Vidar's
+received-critical next-attack bonus in both blessing channels, persistent Moira DEF shred,
+Echo Njord during slot-1 additional attacks, Titan's per-hit lifesteal threshold, Sidapa and
+Titan reprieve ATK visibility to the pending same-round action, and Ares/Echo Ares end-turn
+ATK stacking. Mage Overcharge is documented and implemented as every third battle turn,
+with a 60% 4.0x / 40% 5.0x roll, no crit, and one equally likely 25% post-hit debuff; DEF
+Down and ATK Down reduce the affected stat by 50%. Echo descriptions and Alan's Reversed
+Hands description were synchronized with their runtime behavior.
+
+The active source-of-truth docs were updated without changing their format: the class and
+combat pages now use battle-turn Overcharge wording and the corrected damage formula, the
+deity page now contains the current Echo descriptions, and the enhancement page uses
+Ascension wording instead of describing deities as forged. The deployable description
+migration is recorded at `scripts/migrations/20260819_01_passive_audit_descriptions.sql`
+but was not applied to the database.
+
+Validation:
+
+- `npm run selftest:full` passed: 493 combat cases, 36 combat-log cases, 30 font cases,
+  71 weapon passive cases, 41 active deity passive keys across 201 mode-channel battles,
+  default plus 15 stats layouts, 5 golden renderer cases, and schema checks.
+- `node scripts/deity-passive-selftest.js` and
+  `node scripts/stats-deity-display-selftest.js` passed independently.
+- Source/config scans, JavaScript syntax checks, golden renders, and `git diff --check`
+  passed after the documentation and handoff updates.
+- No database migration, production SQL, RAG pipeline, metadata schema, or vector index was
+  executed.
+
+## Follow-up: Mandarangan War Frenzy passive audit correction
+
+Timestamp: 2026-08-19 +08:00
+Patch name: Restore Mandarangan War Frenzy description
+Commit: not created (working tree only)
+
+The Mandarangan roster passive audit was corrected to match the player-facing deity card:
+`War Frenzy — End of each turn: +10% ATK, stacking up to +50% (reached turn 5). Stacks
+persist all battle.` The correction is applied to the final description definitions, the
+deployable passive-audit migration, the legacy SQL synchronization, and the active deity
+source-of-truth documentation.
+
+Mandarangan's separate `echo_mandarangan` handler and weaker Echo description remain
+unchanged for Echo resolution; the roster card continues to use the
+`mandarangan_war_frenzy` description.
+
+Validation:
+
+- The passive audit self-tests now distinguish the roster description from the separate
+  Echo runtime description, and the stale `ATK +5% ... +15%` text is no longer used for
+  Mandarangan's roster blessing.
+- No database migration or production SQL was executed.
+
+## Follow-up: synchronize live production deity glossary passives
+
+Timestamp: 2026-08-19 +08:00
+Patch name: Sync all deity roster passive descriptions from production
+Commit: not created (working tree only)
+
+The 41 deity roster blessing names and descriptions shown in the live production glossary
+screenshots were synchronized into the local passive audit definitions, deployable SQL and
+migration sources, passive registry ledger, and active deity source-of-truth documentation.
+This includes the updated Philippine, Norse, and Greek roster passives rather than only the
+Mandarangan row. The existing Echo runtime keys and their separate Echo descriptions remain
+intact; this update changes the player-facing roster/glossary descriptions only.
+
+Bathala, Odin, and Zeus continue to use their existing dedicated description update scripts,
+while the final roster synchronization keeps its existing 38-deity scope and the audit
+migration keeps its existing 26 Echo-type rows plus the weapon row.
+
+Validation:
+
+- The deity passive self-test, requested-patch self-test, and full battle self-test passed
+  after the roster description synchronization.
+- `git diff --check` passed.
+- No database migration, production SQL, RAG pipeline, metadata schema, or vector index was
+  executed.

@@ -21,9 +21,12 @@
 // Base crit multiplier for players and enemies (a crit doubles the hit).
 const CRIT_MULT = 2.0;
 
-// Mage Overcharge: a fixed base multiplier on the primary attack every 3rd round
-// (cannot crit). The engine keeps the existing additive damage-% rider lane.
+// Mage Overcharge: the primary attack every 3rd round rolls between these two
+// base multipliers and cannot crit. The engine multiplies the complete normal
+// non-crit damage lane, including any additive damage-% rider.
 const OVERCHARGE_MULT = 4.0;
+const OVERCHARGE_HIGH_MULT = 5.0;
+const OVERCHARGE_BASE_CHANCE = 0.60;
 
 // Idiyanale "double damage" is a GUARANTEED crit-level hit (base CRIT_MULT) that DOES
 // take the damage-% rider — so Supreme + double = ×2.5, Supreme + deity 50% + double =
@@ -69,6 +72,8 @@ const PETRIFY_DEFAULT_DAMAGE_AMP = 0.25;
 module.exports = {
   CRIT_MULT,
   OVERCHARGE_MULT,
+  OVERCHARGE_HIGH_MULT,
+  OVERCHARGE_BASE_CHANCE,
   TIER_DAMAGE_PCT,
   SUPREME_WEAPON_ATK_PER_TURN,
   SUPREME_WEAPON_ATK_MAX,

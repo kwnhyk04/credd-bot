@@ -26,11 +26,11 @@ function clampPageForTotal(page, total) {
   return ((p % totalPages) + totalPages) % totalPages; // circular carousel wrap
 }
 
-// Strongest-first order shared by weapon and armor inventories. Genesis is
+// Strongest-first order shared by weapon and armor inventories. Divine is
 // currently weapon-only, but keeping one list prevents the two queries from
-// drifting if Genesis armor is ever introduced.
+// drifting if Divine armor is ever introduced.
 const GEAR_TIER_STRENGTH = Object.freeze([
-  'Genesis', 'Supreme', 'Legendary', 'Mythic', 'Rare', 'Common',
+  'Divine', 'Supreme', 'Legendary', 'Mythic', 'Rare', 'Common',
 ]);
 
 function tierOrderSql(column) {

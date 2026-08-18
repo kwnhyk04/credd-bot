@@ -43,7 +43,7 @@ const REGISTRY_PATHS = [
 const ANIMATED_NAMES = new Set([
   // chest / relic / rune-bag open animations
   'silver_open', 'gold_open', 'tboss_open', 'gboss_open', 'supreme_open',
-  'diamond_open', 'genesis_open',
+  'diamond_open', 'divine_open',
   'rsacred_open', 'rsupreme_open', 'lesser_bag_open', 'greater_bag_open', 'divine_bag_open',
   // card flip + summon-skin base + summon-skin flip animations
   'card_flip', 'rune_glow', 'aurora_ribbon', 'eternal_supernova', 'stardust_constellation',
@@ -89,7 +89,7 @@ const DEITY_TIER_EMOJI_NAMES = Object.freeze({
 // 'Common' is intentionally absent: no asset, and Common does not drop from
 //     chests, so those rows render with no tier icon.
 const GEAR_TIER_EMOJI_NAMES = Object.freeze({
-  Genesis: 'eqgenesis_icon',
+  Divine: 'eqdivine_icon',
   Supreme: 'eqsupreme_icon',
   Legendary: 'eqlegendary_icon',
   Mythic: 'eqmythic_icon',

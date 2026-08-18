@@ -45,7 +45,7 @@ const CHESTS = [
   // [Genesis update S6] premium chests join the Chests category.
   { code: 'dmc',  name: 'Diamond Chest',       emojiName: 'diamond_chest',       openCmd: 'crd open dmc' },
   { code: 'supc', name: 'Supreme Chest',       emojiName: 'supreme_chest',       openCmd: 'crd open supc' },
-  { code: 'gnc',  name: 'Genesis Chest',       emojiName: 'genesis_chest',       openCmd: 'crd open gnc' },
+  { code: 'gnc',  name: 'Divine Chest',        emojiName: 'divine_chest',        openCmd: 'crd open gnc' },
   // Boss-earned chests form a separate visual group after the progression chests.
   { code: 'btc',  name: 'Boss Treasure Chest', emojiName: 'boss_treasure_chest', openCmd: 'crd open btc' },
   { code: 'bgtc', name: 'Boss Golden Chest',   emojiName: 'boss_golden_chest',   openCmd: 'crd open bgtc' },

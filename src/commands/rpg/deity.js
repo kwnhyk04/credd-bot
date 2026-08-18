@@ -421,7 +421,7 @@ async function buildDeityInfoPayload(d, { ownerId, ownerDisplayName = null }) {
   if (ascended) {
     sigilBlock =
       `**Sigils ${sigilEmoji}**\n${MAX_SIGILS}/${MAX_SIGILS} — Ascended ✦\n` +
-      `Enhancement: **+${Math.max(0, (Number(d.enhancement) || 1) - 1)}** — use \`crd deity enhance ${d.name.toLowerCase()}\``;
+      `Ascension: **+${Math.max(0, (Number(d.enhancement) || 1) - 1)}** — use \`crd deity ascend ${d.name.toLowerCase()}\``;
   } else if (sigils >= MAX_SIGILS) {
     sigilBlock =
       `**Sigils ${sigilEmoji}**\n${sigils}/${MAX_SIGILS} — Ready to Ascend\n` +
@@ -629,12 +629,12 @@ function sigilStepFailureText(result) {
 }
 
 /**
- * `crd deity enhance <name>` opens the forge after Ascension. Before that,
+ * `crd deity ascend <name>` opens the Ascension view after the first Ascension. Before that,
  * Sigils and Ascension remain managed from the deity info card.
  */
-async function enhance(message, name) {
+async function ascend(message, name) {
   if (!name) {
-    await reply(message, { content: 'Usage: `crd deity enhance <deity name>`' });
+    await reply(message, { content: 'Usage: `crd deity ascend <deity name>`' });
     return;
   }
   const discordId = message.author.id;
@@ -658,18 +658,18 @@ async function enhance(message, name) {
   if (!row.ascended) {
     await reply(message, {
       content:
-        `**${row.roster_name}** must Ascend before it can be enhanced.\n` +
+        `**${row.roster_name}** must Ascend before it can continue.\n` +
         `Current progress: **${row.sigils}/${MAX_SIGILS} Sigils**. Use \`crd deity info ${row.roster_name.toLowerCase()}\` to continue.`,
     });
     return;
   }
 
-  const forge = await fetchDeityForgeData(discordId, row.user_deity_id);
-  if (!forge) {
+  const ascension = await fetchDeityForgeData(discordId, row.user_deity_id);
+  if (!ascension) {
     await reply(message, { content: `You haven't summoned ${row.roster_name} yet.` });
     return;
   }
-  await reply(message, await buildDeityForgePayload(forge, discordId));
+  await reply(message, await buildDeityForgePayload(ascension, discordId));
 }
 
 async function fetchDeityForgeData(discordId, userDeityId) {
@@ -700,16 +700,16 @@ async function buildDeityForgePayload(deity, ownerId, resultLine = null) {
     .setAccentColor(TIER_COLOR[deity.tier] ?? BRAND);
   const thumbnailUrl = await firstAvailablePublicImage(resolveDeityPortraitPath(deity), {
     system: 'deity',
-    command: 'deity_enhance',
+    command: 'deity_ascend',
     imageType: 'deity_thumbnail',
     userId: ownerId,
   });
   if (thumbnailUrl) {
     container.addSectionComponents((section) => section
-      .addTextDisplayComponents((td) => td.setContent(`## Forge — ${deity.name} +${currentLevel}`))
+      .addTextDisplayComponents((td) => td.setContent(`## Ascend — ${deity.name} +${currentLevel}`))
       .setThumbnailAccessory(new ThumbnailBuilder().setURL(thumbnailUrl)));
   } else {
-    container.addTextDisplayComponents((td) => td.setContent(`## Forge — ${deity.name} +${currentLevel}`));
+    container.addTextDisplayComponents((td) => td.setContent(`## Ascend — ${deity.name} +${currentLevel}`));
   }
   container
     .addSeparatorComponents(sep)
@@ -726,7 +726,7 @@ async function buildDeityForgePayload(deity, ownerId, resultLine = null) {
         `ATK: ${preview.curr_atk.toLocaleString()} · HP: ${preview.curr_hp.toLocaleString()} · DEF: ${preview.curr_def.toLocaleString()}`
       ));
   } else {
-    container.addSeparatorComponents(sep).addTextDisplayComponents((td) => td.setContent('Maximum enhancement reached (+10).'));
+    container.addSeparatorComponents(sep).addTextDisplayComponents((td) => td.setContent('Maximum Ascension reached (+10).'));
   }
   if (resultLine) container.addSeparatorComponents(sep).addTextDisplayComponents((td) => td.setContent(resultLine));
   const essenceEmoji = emoji(`${String(deity.tier).toLowerCase()}_essence`);
@@ -737,7 +737,7 @@ async function buildDeityForgePayload(deity, ownerId, resultLine = null) {
     components: [container, new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`denhance:attempt:${deity.user_deity_id}:${ownerId}`)
-        .setLabel('Enhance')
+        .setLabel('Ascend')
         .setStyle(ButtonStyle.Success)
         .setDisabled(!enabled),
       new ButtonBuilder()
@@ -795,7 +795,7 @@ async function attemptDeityEnhance(client, discordId, userDeityId) {
   );
   await client.query(
     `INSERT INTO game_logs (discord_id, action, item_type, previous_essence_count, updated_essence_count)
-     VALUES ($1, 'Deity Enhance', $2, $3, $4)`,
+     VALUES ($1, 'Deity Ascend', $2, $3, $4)`,
     [discordId, essenceColumn, essence, essence - next.cost]
   );
   await client.query('COMMIT');
@@ -804,7 +804,7 @@ async function attemptDeityEnhance(client, discordId, userDeityId) {
 
 async function handleEnhanceAttempt(interaction, userDeityId, ownerId) {
   if (interaction.user.id !== ownerId) {
-    await interaction.reply({ content: 'This forge is not yours.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: 'This Ascension is not yours.', flags: MessageFlags.Ephemeral });
     return;
   }
   await interaction.deferUpdate();
@@ -822,16 +822,16 @@ async function handleEnhanceAttempt(interaction, userDeityId, ownerId) {
       return;
     }
     const resultLine = result.status === 'done'
-      ? `Enhanced ${result.name}: +${result.previousLevel} to +${result.level}.`
+      ? `Ascended ${result.name}: +${result.previousLevel} to +${result.level}.`
       : result.status === 'maxed'
-        ? `${result.name} is already at maximum enhancement.`
+        ? `${result.name} is already at maximum Ascension.`
         : result.status === 'insufficient'
           ? `Not enough ${result.tier} Essence: need ${result.need}, have ${result.have}.`
-          : `${result.name} must Ascend before it can be enhanced.`;
+          : `${result.name} must Ascend before it can continue.`;
     await interaction.editReply(await buildDeityForgePayload(forge, ownerId, resultLine));
   } catch (err) {
     if (client) await client.query('ROLLBACK').catch(() => {});
-    console.error('[deity enhance] failed:', err.message);
+    console.error('[deity ascend] failed:', err.message);
     await interaction.followUp({ content: 'Something went wrong. No Essence was spent.', flags: MessageFlags.Ephemeral }).catch(() => {});
   } finally {
     if (client) client.release();
@@ -840,7 +840,7 @@ async function handleEnhanceAttempt(interaction, userDeityId, ownerId) {
 
 async function handleEnhanceCancel(interaction, ownerId) {
   if (interaction.user.id !== ownerId) {
-    await interaction.reply({ content: 'This forge is not yours.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: 'This Ascension is not yours.', flags: MessageFlags.Ephemeral });
     return;
   }
   await interaction.update({ components: [], flags: MessageFlags.IsComponentsV2 });
@@ -1281,7 +1281,7 @@ async function deities(message) {
   });
 }
 
-// ── dispatcher: crd deity [collection|list|info|equip|enhance|echo|deities|unequip] ──
+// ── dispatcher: crd deity [collection|list|info|equip|ascend|echo|deities|unequip] ──
 async function execute(message, { args }) {
   const sub = (args[0] || '').toLowerCase();
   const rest = args.slice(1).join(' ').trim();
@@ -1289,12 +1289,12 @@ async function execute(message, { args }) {
   if (sub === 'collection' || sub === 'list' || sub === '') return collection(message);
   if (sub === 'info') return info(message, rest);
   if (sub === 'equip') return equip(message, rest);
-  if (sub === 'enhance') return enhance(message, rest);
+  if (sub === 'ascend' || sub === 'enhance') return ascend(message, rest); // enhance: back-compat alias
   if (sub === 'echo') return echo(message, rest);
   if (sub === 'deities' || sub === 'party') return deities(message);
   if (sub === 'unequip') return unequip(message, rest);
 
-  await reply(message, { content: 'Usage: `crd deity collection` · `crd deity info <name>` · `crd deity equip <name> [1|2|3]` · `crd deity enhance <name>` · `crd deity echo <name>` · `crd deities`' });
+  await reply(message, { content: 'Usage: `crd deity collection` · `crd deity info <name>` · `crd deity equip <name> [1|2|3]` · `crd deity ascend <name>` · `crd deity echo <name>` · `crd deities`' });
 }
 
 module.exports = {

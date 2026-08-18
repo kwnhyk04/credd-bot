@@ -14,7 +14,7 @@
 --   DB-15 log tables carry no FK (preserved if player deleted)
 --   BS-1  active_battles.player_attack_count / enemy_attack_count  [SUPERSEDED -> removed; see v4-PATCH TIMING]
 --   BS-8  mob_roster.special_flags (first_strike, multi_attack, etc.)
---   CON-2 deity enhancement uniform (no identity column)
+--   CON-2 deity Ascension progression uniform (no identity column)
 --   CON-3 users_bag starter currencies DEFAULT 0 (granted at char creation)
 --   GACHA-2 essence model: user_deities.duplicate_count REMOVED;
 --           users_bag.{epic,mythic,legendary,supreme}_essence added
@@ -499,7 +499,7 @@ CREATE INDEX essence_exchange_submissions_created_at_idx
 CREATE TABLE game_logs (
     id                     BIGSERIAL   PRIMARY KEY,
     discord_id             VARCHAR(20) NOT NULL,   -- no FK
-    action                 VARCHAR(30) NOT NULL,   -- Bestow/Enhance/Daily/Deity Pull/Deity Enhance/<Chest>/Sacred Relic/Supreme Relic/Sell Weapon
+    action                 VARCHAR(30) NOT NULL,   -- Bestow/Enhance/Daily/Deity Pull/Deity Ascend/<Chest>/Sacred Relic/Supreme Relic/Sell Weapon
     item_type              VARCHAR(30),            -- DB-12: which chest/relic/essence tier moved
     previous_credux        BIGINT,
     updated_credux         BIGINT,
@@ -509,7 +509,7 @@ CREATE TABLE game_logs (
     updated_chest_count    INTEGER,
     previous_relic_count   INTEGER,
     updated_relic_count    INTEGER,
-    previous_essence_count INTEGER,                -- GACHA-2: essence gained (pull) / spent (deity enhance)
+    previous_essence_count INTEGER,                -- GACHA-2: essence gained (pull) / spent (deity Ascension)
     updated_essence_count  INTEGER,
     timestamp              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

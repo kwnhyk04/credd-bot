@@ -36,7 +36,7 @@ Weapon and armor pages wrap around: Previous on the first page lands on the last
 |---|---|
 | Currencies | Credux, Belief Shards, Valor Medals |
 | Relics | Sacred Relic, Supreme Relic |
-| Chests | Silver, Gold, Boss Treasure, Boss Golden, Supreme, Diamond, Genesis |
+| Chests | Silver, Gold, Boss Treasure, Boss Golden, Supreme, Diamond, Divine |
 | Essence | Epic, Mythic, Legendary, Supreme |
 | Rune bags | Lesser, Greater, Divine |
 | Usable items | Character Class Change, Custom Avatar Token, Custom Deity Token |
@@ -49,7 +49,7 @@ Every chest rolls a tier, then rolls whether that drop is a weapon or an armor (
 
 <!-- src: src/config/dropRates.js:17 -->
 
-| Chest | Alias | Rare | Mythic | Legendary | Supreme | Genesis | Max per command |
+| Chest | Alias | Rare | Mythic | Legendary | Supreme | Divine | Max per command |
 |---|---|---|---|---|---|---|---|
 | Silver Chest | `sc` | 85% | 15% | — | — | — | 20 |
 | Gold Chest | `gc` | 65% | 30% | 5% | — | — | 20 |
@@ -57,9 +57,9 @@ Every chest rolls a tier, then rolls whether that drop is a weapon or an armor (
 | Boss Golden Chest | `bgtc` | — | 45% | 45% | 10% | — | 20 |
 | Supreme Chest | `supc` | — | — | 70% | 30% | — | **1** |
 | Diamond Chest | `dmc` | — | 50% | 50% | — | — | 20 |
-| Genesis Chest | `gnc` | — | — | — | — | 100% | **1** |
+| Divine Chest | `gnc` | — | — | — | — | 100% | **1** |
 
-The Genesis Chest is weapon-only — it always drops one of the five Genesis weapons and
+The Divine Chest is weapon-only — it always drops one of the five Divine weapons and
 skips the weapon/armor split entirely.
 
 ## How do I open chests
@@ -85,7 +85,7 @@ Rules:
 |---|---|
 | Amount must be a whole number | *"Amount must be a whole number between 1 and 20."* |
 | Amount above the chest's cap | Rejected with the cap named |
-| Supreme and Genesis chests | *"Supreme Chests can only be opened one at a time."* |
+| Supreme and Divine chests | Each can only be opened one at a time |
 | Not enough chests | Rejected; nothing is consumed |
 | Unknown alias | *"Unknown chest. Try: `sc`, `gc`, `btc`, `bgtc`, `supc`, `dmc`, `gnc`."* |
 
@@ -99,7 +99,7 @@ Relics feed the deity gacha; rune bags feed the rune system. Both use `crd open`
 
 | Alias | Item | Result |
 |---|---|---|
-| `sr` | Sacred Relic | 10 deity pulls, pity applies |
+| `sr` | Sacred Relic | 30 deity pulls, pity applies |
 | `supr` | Supreme Relic | 1 forced Supreme deity pull, pity untouched |
 | `lb` | Lesser Rune Bag | Runes, up to 20 bags per command |
 | `gb` | Greater Rune Bag | Runes, up to 20 bags per command |
@@ -117,7 +117,7 @@ letters, and they are a separate namespace from chest aliases and shop product I
 | ID | Item | Effect |
 |---|---|---|
 | `cc` | Character Class Change | Opens the Change Character flow |
-| `sr` | Sacred Relic | 10 deity pulls |
+| `sr` | Sacred Relic | 30 deity pulls |
 | `supr` | Supreme Relic | 1 forced Supreme deity pull |
 | `at` | Custom Avatar Token | Redeems into a custom-avatar work-order ticket |
 | `dt` | Custom Deity Token | Redeems into a custom-deity work-order ticket |
@@ -211,8 +211,8 @@ crd sell all
 | Target | Meaning |
 |---|---|
 | An 8-character ID | Sells that one item (or rune) |
-| `common`, `rare`, `mythic`, `legendary`, `supreme`, `genesis` | Bulk-sells that tier |
-| `all` | Bulk-sells everything **except** Legendary, Supreme and Genesis |
+| `common`, `rare`, `mythic`, `legendary`, `supreme`, `divine` | Bulk-sells that tier |
+| `all` | Bulk-sells everything **except** Legendary, Supreme and Divine |
 
 <!-- src: src/config/sellPrices.js:65 -->
 
@@ -230,7 +230,7 @@ locked items are always excluded.
 | Mythic | 50,000 |
 | Legendary | 100,000 |
 | Supreme | 1,000,000 |
-| Genesis | 2,000,000 |
+| Divine | 2,000,000 |
 
 Enhanced items additionally refund 30% of the canonical costs of the levels they
 successfully reached. Rune sell prices are in the Rune System document.

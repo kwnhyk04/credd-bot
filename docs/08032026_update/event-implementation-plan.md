@@ -15,7 +15,7 @@ Yes. Sacred Relic is the existing CRD Bag item `sr`.
 - Inventory column: `users_bag.sacred_relics`
 - Emoji key: `sacred_relic`
 - Use path: `crd use sr` delegates to the same atomic flow as `crd open sr` in `src/commands/rpg/open.js`.
-- Sink: one Sacred Relic is consumed for 10 deity rolls through `runSummon`; pity applies. Consumption and the summon results are committed in one transaction, so a failed summon does not consume the relic.
+- Sink: one Sacred Relic is consumed for 30 deity rolls through `runSummon`; pity applies. Consumption and the summon results are committed in one transaction, so a failed summon does not consume the relic.
 - Other existing acquisition/sink context: the PvP shop sells Sacred Relics, and the weekly quest grand reward grants one.
 
 Therefore no new item, icon, inventory column, or sink is needed. Fourteen event relics are usable: they represent 140 deity rolls. The event is not anticlimactic on this point.

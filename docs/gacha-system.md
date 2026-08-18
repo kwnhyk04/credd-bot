@@ -96,7 +96,7 @@ the tier roll entirely.
 ## What happens when I pull a duplicate deity
 
 A duplicate does not add a second copy. It converts into essence of that deity's own
-tier, which is the currency used for Sigils, Ascension and deity enhancement.
+tier, which is the currency used for Sigils and Ascension progression.
 
 <!-- src: src/config/gachaRates.js:34 -->
 
@@ -145,7 +145,7 @@ they never cost Belief Shards.
 
 | Relic | Open command | Pulls | Tier behaviour | Pity |
 |---|---|---|---|---|
-| Sacred Relic | `crd open sr` | 10 | Normal weighted rolls | Applies normally |
+| Sacred Relic | `crd open sr` | 30 | Normal weighted rolls | Applies normally |
 | Supreme Relic | `crd open supr` | 1 | **Forced Supreme** | Untouched |
 
 Both relics open exactly one at a time. Passing a quantity is rejected:
@@ -172,8 +172,8 @@ crd use supr
 | Auto raid claim | Scaled Belief Shards (20% of expected raid yield) |
 | Boss defeat | 1,000 / 1,500 / 2,000 Belief Shards by boss variant |
 | Daily attendance | 100–1,000 Belief Shards by 30-day reward-cycle day |
-| Daily quests | 5–18 Belief Shards per completed quest |
-| Weekly quest grand reward | 1 Sacred Relic |
+| Daily quests | 500–1,000 Belief Shards per completed quest, based on difficulty |
+| Weekly quests | 1 Sacred Relic per completed quest |
 | PvP Shop | Sacred Relic 800 Valor, Supreme Relic 15,000 Valor |
 | Ranked weekly and season rewards | Relics by bracket payload |
 
@@ -221,6 +221,6 @@ seeded stream. Unlike battles, summons are not reproducible.
 | Pity threshold | 500 |
 | Reputation EXP per pull | 10 |
 | Daily reputation EXP cap | 1,500 |
-| Sacred Relic pulls | 10 |
+| Sacred Relic pulls | 30 |
 | Supreme Relic pulls | 1, forced Supreme |
 | Relics opened per command | 1 |

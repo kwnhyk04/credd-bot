@@ -316,7 +316,7 @@ Duels and ranked PvP grant **no** combat EXP. Casino games grant no combat EXP.
 |---|---|
 | Any Credd command | 3 |
 | Each summon pull (`crd summon`) | 10 |
-| Each pull from a Sacred Relic (10 pulls) | 10 per pull, 100 total |
+| Each pull from a Sacred Relic (30 pulls) | 10 per pull, 300 total before the daily cap |
 | Each pull from a Supreme Relic (1 pull) | 10 |
 
 All of these share the 1,500/day PHT cap. Once the cap is reached further activity

@@ -30,7 +30,7 @@ const pool = require('../db/pool');
 
 const BRAND = 0x9b59b6;
 const PER_PAGE = 10;
-const CUSTOM_AVATAR_TOKEN_PRICE = 20;
+const CUSTOM_AVATAR_TOKEN_PRICE = 30;
 
 function customAvatarTokenPurchaseMessage(balance) {
   const mark = String.fromCharCode(96);

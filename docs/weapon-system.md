@@ -19,7 +19,7 @@ Armor System document.
 | Mythic | Silver, Gold, Boss Treasure, Boss Golden, Diamond chests | |
 | Legendary | Gold, Boss Treasure, Boss Golden, Supreme, Diamond chests | 25% chance of a damage rider |
 | Supreme | Boss Golden, Supreme chests | Fixed stats |
-| Genesis | Genesis Chest only | The five First Arms; fixed stats, enhances to +20 |
+| Divine | Divine Chest only | The five First Arms; fixed stats, enhances to +20 |
 
 ## What weapon types exist
 
@@ -68,14 +68,14 @@ value = min + frac * (max - min)
 
 ATK is floored to a whole number; CRIT is rounded to one decimal place.
 
-Supreme and Genesis weapons do **not** roll — their stats are fixed:
+Supreme and Divine weapons do **not** roll — their stats are fixed:
 
 <!-- src: src/config/dropRates.js:92 -->
 
 | Tier | ATK | CRIT | Damage bonus |
 |---|---|---|---|
 | Supreme | 800 | 10.0% | +50% |
-| Genesis | 1,600 | 20.0% | +100% |
+| Divine | 1,600 | 20.0% | +100% |
 
 ## What is the Legendary damage rider
 
@@ -89,7 +89,7 @@ Supreme and Genesis weapons do **not** roll — their stats are fixed:
 | Value when it rolls | +25% damage |
 
 That damage % applies to both critical and non-critical hits, exactly like the Supreme
-and Genesis riders. A Legendary weapon without the rider has no damage bonus.
+and Divine riders. A Legendary weapon without the rider has no damage bonus.
 
 ## How many rune sockets does a weapon have
 
@@ -105,7 +105,7 @@ Native socket count is rolled once, at drop, by tier. Weapon native sockets are 
 | Mythic | — | 40% | 60% |
 | Legendary | — | — | 100% |
 | Supreme | — | — | 100% |
-| Genesis | — | — | 100% |
+| Divine | — | — | 100% |
 
 The maximum native socket count is 2. Opposite-lane sockets exist in the schema but
 unlocking and socketing them is currently disabled.
@@ -240,11 +240,11 @@ for each weapon below and resets after the battle.
 | Thunderbolt of Zeus | Divine Thunder | Each critical attack deals +100% bonus ATK and applies Paralyze for 1 turn |
 | Trident of Poseidon | Tidal Wrath | Every 2nd turn deals +100% bonus ATK and reduces enemy DEF by 20% for 1 turn, with a 30% chance to stun for 1 turn |
 
-## What are the Genesis weapons (First Arms)
+## What are the Divine weapons (First Arms)
 
-Five Genesis weapons exist. They drop only from the Genesis Chest, have fixed stats
+Five Divine weapons exist. They drop only from the Divine Chest, have fixed stats
 (1,600 ATK, 20% CRIT, +100% damage), and are the only weapons that enhance past +10.
-The current Genesis damage bonus is +100%; it replaces the former +50% value.
+The current Divine damage bonus is +100%; it replaces the former +50% value.
 
 <!-- src: assets/data/passive_registry_keys.md:75 -->
 
@@ -281,7 +281,7 @@ levels the item successfully reached.
 | Mythic | 50,000 |
 | Legendary | 100,000 |
 | Supreme | 1,000,000 |
-| Genesis | 2,000,000 |
+| Divine | 2,000,000 |
 
 ```js
 enhancementRefund = floor(successfulEnhancementCost * 0.30)
@@ -290,7 +290,7 @@ total             = basePrice + enhancementRefund
 
 Failed enhancement attempts and actual historical spend are deliberately excluded.
 
-Legendary, Supreme and Genesis weapons are excluded from `crd sell all` and can only be
+Legendary, Supreme and Divine weapons are excluded from `crd sell all` and can only be
 sold individually or by explicit tier.
 
 ## What weapons can I not sell or lose
@@ -299,11 +299,11 @@ sold individually or by explicit tier.
 |---|---|
 | Equipped | *"That equipment is equipped. Unequip it first."* |
 | Locked (`crd lock <id>`) | *"That equipment is locked. Unlock it first."* |
-| Legendary / Supreme / Genesis | Excluded from `crd sell all` |
+| Legendary / Supreme / Divine | Excluded from `crd sell all` |
 
 Selling is permanent and always shows a Confirm / Cancel safeguard first.
 
 ## Where can I look up weapons I do not own
 
 `crd glossary` has a Weapons category listing every available weapon with its tier, type
-and passive, ordered Genesis down to Common, up to 10 entries per page.
+and passive, ordered Divine down to Common, up to 10 entries per page.

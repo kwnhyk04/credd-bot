@@ -74,11 +74,11 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `gungnir` — Never Misses: Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Each attack ignores 30% of enemy DEF and has a 10% chance to pierce all DEF (zero mitigation).
 - `thunderbolt_of_zeus` — Divine Thunder: Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Each critical attack deals +100% bonus ATK and applies Paralyze for 1 turn.
 - `trident_of_poseidon` — Tidal Wrath: Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Every 2nd turn, deals +100% bonus ATK and reduces enemy DEF by 20% for 1 turn, with a 30% chance to stun for 1 turn.
-- `kiri` — Thousand Partings: [Genesis] Each attack increases damage by 20%, stacking up to +120%. Each attack has a 25% chance to strike twice.
-- `moira` — Fate Ignores Iron: [Genesis] All attacks reduce the target's DEF by 10%, stacking up to 50%. Ignores 50% of DEF against targets with a defense buff active. Attacks cannot miss.
-- `sophia` — The Price of Knowing: [Genesis] All damage dealt is increased by 75%, but the wielder takes 20% more damage. Below 30% HP the damage bonus rises to +150% for the rest of the battle.
-- `atlas` — Worldbreaker's Grip: [Genesis] Base attack increased by 50%. Every 3rd turn is a guaranteed critical strike. Enemies hit by a critical strike have their ATK reduced by 30% for 1 turn.
-- `titan` — Forgefire Veins: [Genesis] Heals for 30% of all damage dealt (50% while below 50% HP). Once per battle, upon taking fatal damage, survives at 1 HP and gains +100% damage until the end of battle.
+- `kiri` — Thousand Partings: [Divine] Each attack increases damage by 20%, stacking up to +120%. Each attack has a 25% chance to strike twice.
+- `moira` — Fate Ignores Iron: [Divine] All attacks reduce the target's DEF by 10%, stacking up to 50%. Ignores 50% of DEF against targets with a defense buff active. Attacks cannot miss.
+- `sophia` — The Price of Knowing: [Divine] All damage dealt is increased by 75%, but the wielder takes 20% more damage. Below 30% HP the damage bonus rises to +150% for the rest of the battle.
+- `atlas` — Worldbreaker's Grip: [Divine] Base attack increased by 50%. Every 3rd turn is a guaranteed critical strike. Enemies hit by a critical strike have their ATK reduced by 30% for 1 turn.
+- `titan` — Forgefire Veins: [Divine] Heals for 30% of all damage dealt (50% while below 50% HP). Once per battle, upon taking fatal damage, survives at 1 HP and gains +100% damage until the end of battle.
 
 ## ARMOR passives (armor_roster.passive_key) — [v5]
 
@@ -98,7 +98,12 @@ new and defensive:
 
 ## DEITY blessings (deity_roster.blessing_key)
 
-- `bathala_divine_vessel` — Divine Vessel: Gains +10% ATK and +4% DEF at the start of each turn, stacking up to +100% ATK and +40% DEF.
+Only the 15 deities in `DIVINE_BLESSING_DEITIES` execute these stored keys directly.
+The other 26 roster rows are Echo-type deities: their stored keys remain for database
+compatibility, but live combat maps them through `ECHO_BLESSING_KEY_MAP` to the `echo_*`
+entries in the next section in both the Primary and Secondary channels.
+
+- `bathala_divine_vessel` — Divine Vessel: At the start of each turn before attacking, gains 10% of base battle ATK and 4% of base battle DEF, stacking additively up to 10 times (+100% ATK and +40% DEF). Resets after battle.
 - `sidapa_deaths_reprieve` — Death's Reprieve: Once per battle, the first lethal hit leaves the user at 1 HP. The user then heals 30% max HP and gains +50% ATK for the rest of the battle.
 - `magwayen_soul_drain` — Soul Drain: Heals 30% of all damage actually dealt after mitigation, up to max HP.
 - `mandarangan_war_frenzy` — War Frenzy: End of each turn: +10% ATK, stacking up to +50% (reached turn 5). Stacks persist all battle.
@@ -144,12 +149,12 @@ new and defensive:
 
 - `echo_nike` — Echo · Nike: ATK +12% for the whole battle.
 - `echo_persephone` — Echo · Persephone: Regenerates 3% max HP every 3 turns.
-- `echo_hades` — Echo · Hades: While the enemy's HP is below 30%, ATK +15%.
-- `echo_hera` — Echo · Hera: When hit by a critical, gains DEF +15% for 2 turns.
-- `echo_ares` — Echo · Ares: ATK +4% every 2 turns, stacking up to 16%.
+- `echo_hades` — Echo · Hades: While the enemy is below 30% HP, ATK +15%.
+- `echo_hera` — Echo · Hera: When hit by a critical, gain DEF +15% for 2 turns.
+- `echo_ares` — Echo · Ares: At the end of each turn, gain +10% ATK, stacking up to +50%.
 - `echo_hephaestus` — Echo · Hephaestus: DEF +15% for the whole battle.
 - `echo_apollo` — Echo · Apollo: ATK +10% for the whole battle.
-- `echo_bragi` — Echo · Bragi: Every 4 turns, ATK +10% for that turn.
+- `echo_bragi` — Echo · Bragi: Every 4 turns, gain +10% ATK for that turn.
 - `echo_idunn` — Echo · Idunn: Regenerates 2% max HP every 2 turns.
 - `echo_freyr` — Echo · Freyr: Regenerates 3% max HP every 3 turns.
 - `echo_vidar` — Echo · Vidar: When hit by a critical, the next attack gains +30% ATK.
@@ -157,17 +162,17 @@ new and defensive:
 - `echo_njord` — Echo · Njord: 10% chance each turn to reduce incoming damage by 20%.
 - `echo_freya` — Echo · Freya: While HP is below 40%, DEF +20%.
 - `echo_tyr` — Echo · Tyr: DEF +10% for the whole battle.
-- `echo_surt` — Echo · Surt: Inherits Muspell's Flame exactly: every landed hit adds 3% base ATK Burn for 2 turns, stacking up to 15%.
+- `echo_surt` — Echo · Surt: Each attack adds Burn equal to 3% of the user's base ATK per turn for 2 turns, stacking up to 15%. Attacks deal 50% more damage to enemies that are already burning.
 - `echo_hel` — Echo · Hel: While HP is below 50%, ATK +8% and DEF +8%.
-- `echo_mimir` — Echo · Mimir: Every 5 turns, gains +30% ATK for that turn.
+- `echo_mimir` — Echo · Mimir: Every 5 turns, gain +30% ATK for that turn.
 - `echo_idiyanale` — Echo · Idiyanale: Every 6 turns, the next attack deals double damage.
 - `echo_lakapati` — Echo · Lakapati: Regenerates 2% max HP every turn.
-- `echo_habagat` — Echo · Habagat: 15% chance to deal +30% bonus ATK.
+- `echo_habagat` — Echo · Habagat: Each attack has a 15% chance to deal +30% bonus ATK.
 - `echo_mandarangan` — Echo · Mandarangan: ATK +5% per turn, stacking up to 15%.
-- `echo_magwayen` — Soul Drain: Heals 30% of all damage dealt after mitigation, up to max HP.
+- `echo_magwayen` — Echo · Magwayen: Heals 30% of all damage actually dealt after mitigation, up to max HP.
 - `echo_dian_masalanta` — Echo · Dian Masalanta: While HP is below 30%, ATK +12%.
 - `echo_mayari` — Echo · Mayari: While HP is below 50%, DEF +15%.
-- `echo_apolaki` — Echo · Apolaki: Inherits Solar Burn exactly: every landed hit applies 10% base ATK Burn for 1 tick.
+- `echo_apolaki` — Echo · Apolaki: Each attack burns the enemy for 10% of the user's base ATK for 1 turn.
 
 ## MOB / BOSS skills (mob_roster.skill_key)
 

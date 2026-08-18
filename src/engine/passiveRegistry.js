@@ -137,10 +137,9 @@ const logOnce = (bs, flagKey, label) => {
   bs.log.push(label);
 };
 
-// A stat debuff applied after a landed hit is decremented at the end of that same
-// round. Store it for two engine ticks so its user-facing one-turn window covers
-// the attacker's next action instead of expiring before it can affect damage.
-const LANDED_STAT_DEBUFF_TURNS = 2;
+// Round-timed status effects are armed by the engine on the round after application,
+// so one stored turn now means one complete affected round regardless of actor order.
+const LANDED_STAT_DEBUFF_TURNS = 1;
 
 // Aegis tuning lives in config/combat.js — shared with battleEngine's grantAegisStone
 // so the reduction applied here and the reduction rolled back on Petrify cannot drift.
@@ -193,6 +192,33 @@ const stackingAtk = (flagKey, step, cap, everyN = 1, labelFn = null) => (bs) => 
     ));
   }
 };
+
+/**
+ * End-of-turn ATK ramp. The passive phase runs at the start of a round, so the
+ * completed-turn offset keeps turn 1 unbuffed and makes the first stack affect
+ * the next real turn. The applied-turn latch also prevents duplicate channel
+ * registration from applying the same ramp twice in one round.
+ */
+const delayedStackingAtk = (flagKey, step, cap, labelFn = null) => (bs) => {
+  const turn = Math.max(0, Math.floor(Number(bs.currentTurn) || 0));
+  const maxStacks = Math.floor((cap / step) + Number.EPSILON);
+  const stacks = Math.min(Math.max(turn - 1, 0), maxStacks);
+  const previous = Number(bs.flags[flagKey]) || 0;
+  const next = Math.min(stacks * step, cap);
+  const appliedTurnKey = `${flagKey}_applied_turn`;
+  if (bs.flags[appliedTurnKey] === turn) return;
+  bs.flags[appliedTurnKey] = turn;
+  bs.flags[flagKey] = next;
+  bs.playerAtkMult += next;
+  if (labelFn && next > previous) {
+    const label = labelFn(next, previous, stacks);
+    if (label) bs.log.push(label);
+  }
+};
+
+const bloodFrenzyLabel = (prefix) => (total, previous, stacks) =>
+  `🩸 ${prefix}: Blood Frenzy — end-turn stack +${Math.round((total - previous) * 100)}% ATK ` +
+  `(total +${Math.round(total * 100)}%, ${stacks}/5).`;
 
 /** chance → apply an enemy debuff (draw always happens; immunity gated after). */
 const chanceEnemyDebuff = (chance, tag, turns, valueFn, label) => (bs) => {
@@ -680,8 +706,8 @@ const PASSIVE_REGISTRY = {
   },
 
   // ─────────────────────────────────────────────────────────────────────────
-  // GENESIS TIER — the five First Arms (specs/genesis_tier_weapons.md).
-  // Tier above Supreme; weapon-only drops from the Genesis Chest.
+  // DIVINE TIER — the five First Arms.
+  // Tier above Supreme; weapon-only drops from the Divine Chest.
   // ─────────────────────────────────────────────────────────────────────────
 
   'kiri': (bs) => {
@@ -787,9 +813,8 @@ const PASSIVE_REGISTRY = {
 
   'galdrastafir': (bs) => {
     // Runebreaker: +10% damage, and landed hits shred 20% enemy DEF for 1 turn.
-    // The DEF shred already behaved correctly (LANDED_STAT_DEBUFF_TURNS = 2 is the
-    // encoding for a one-turn user-facing window — see the constant's comment); only
-    // the damage component was missing.
+    // The shared round lifecycle keeps this one-turn DEF shred active through the
+    // attacker's next complete round; only the damage component was missing.
     bs.playerAtkMult += 0.10;
     logOnce(bs, 'galdrastafir_logged', '🔻 Runebreaker — outgoing damage +10%.');
     bs.onLandedHit(() => {
@@ -1371,8 +1396,12 @@ const PASSIVE_REGISTRY = {
 
   'ares_blood_frenzy': (bs) => {
     // Earn +10% at each turn end, cap +50%; apply stacks earned on prior turns.
-    const stacks = Math.min(Math.max(bs.currentTurn - 1, 0), 5);
-    bs.playerAtkMult += stacks * 0.10;
+    delayedStackingAtk(
+      'ares_blood_frenzy_stack',
+      0.10,
+      0.50,
+      bloodFrenzyLabel('Ares'),
+    )(bs);
   },
 
   'poseidon_tidal_force': (bs) => {
@@ -1444,9 +1473,8 @@ const PASSIVE_REGISTRY = {
     // 25% chance each turn to charm the enemy (skips its attack via the debuff)
     const proc = bs.rng() < 0.25;
     bs.flags.aphrodite_charm_check = false;
-    if (proc && !bs.enemyImmune('charm')) {
+    if (proc && !bs.enemyImmune('charm') && bs.applyDebuff('charm', 1)) {
       bs.flags.aphrodite_charm_check = true;
-      bs.applyDebuff('charm', 1);
       bs.log.push('💗 Aphrodite: Enchanting Aura — Enemy charmed! Skips attack!');
     }
   },
@@ -1493,7 +1521,12 @@ const PASSIVE_REGISTRY = {
     }
   },
 
-  'echo_ares': stackingAtk('echo_ares_stack', 0.04, 0.16, 2),
+  'echo_ares': delayedStackingAtk(
+    'ares_blood_frenzy_stack',
+    0.10,
+    0.50,
+    bloodFrenzyLabel('Echo · Ares'),
+  ),
 
   'echo_hephaestus': constantSelfBuff(0, 0.15, 0),
 
@@ -1519,9 +1552,12 @@ const PASSIVE_REGISTRY = {
     (heal) => `🌾 Echo · Freyr: Harvest Bounty — Regenerated ${heal} HP!`),
 
   'echo_vidar': (bs) => {
-    if (bs.flags.player_was_critted && !bs.flags.echo_vidar_revenge_pending) {
-      bs.flags.echo_vidar_revenge_pending = true;
-      bs.log.push('⚔️ Echo · Vidar: Silent Vengeance — Next attack +30% ATK!');
+    if (bs.flags.player_was_critted) {
+      if (!bs.flags.echo_vidar_crit_latch_handled && !bs.flags.echo_vidar_revenge_pending) {
+        bs.flags.echo_vidar_revenge_pending = true;
+        bs.log.push('⚔️ Echo · Vidar: Silent Vengeance — Next attack +30% ATK!');
+      }
+      bs.flags.echo_vidar_crit_latch_handled = false;
     }
     bs.onAttack(() => {
       if (!bs.flags.echo_vidar_revenge_pending) return;
