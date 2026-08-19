@@ -35,12 +35,11 @@ assets/skins/testers/*
 # Generated skin-alignment artifacts (scripts/alignSkins.js, scripts/skinPreview.js)
 tmp/
 
+# Local-only documentation and specification notes stay local.
+docs/
+specs/
+
 # Agent instruction and scratch files stay local.
-#
-# docs/ is TRACKED. CLAUDE.md makes /docs the documentation source of truth —
-# every file there is ingested by the site's RAG chatbot, and the docs index is
-# required to list every document. Ignoring the directory contradicted that, and
-# meant documentation work could never actually land.
 AGENTS.md
 AGENT.md
 CLAUDE.md
