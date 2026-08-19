@@ -640,8 +640,8 @@ function resolveBattle(a, b, opts = {}) {
     specialFlags: f.specialFlags || {},
     bossPassiveState: f.bossPassiveState || {},
     isBoss: f.mobType === 'boss',
-    debuffs: [],            // [{tag, turnsLeft, value}]
-    flags: {},              // durable bs.flags.* state for the current battle
+    debuffs: [],            // temporary status/DOT effects; duration cleanup owns these
+    flags: {},              // durable battle-local passive state; reset only by its mechanic
     // Alan's immunity is intrinsic and must exist before either duelist's passive
     // phase; otherwise the first actor could land a round-1 debuff before Alan ran.
     statusImmune: f.weaponPassiveKey === 'alans_reversed_hands'
@@ -1877,6 +1877,10 @@ function resolveBattle(a, b, opts = {}) {
 
   // ── round-start bookkeeping ────────────────────────────────────────────────
   const resetScratch = (side) => {
+    // Only per-round scratch and explicitly derived flags belong in this reset.
+    // Persistent battle stacks/passive latches remain in `side.flags`; temporary
+    // status/DOT effects remain in `side.debuffs` and are expired by their own
+    // duration cleanup below.
     side.scratch = {
       damageBonusPct: 0,
       damageReductionPct: 0,

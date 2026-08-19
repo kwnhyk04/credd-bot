@@ -295,9 +295,22 @@ audit('spear_of_ares', () => {
     bs.currentTurn = turn;
     bs.playerAtkMult = 0;
     invoke('spear_of_ares', bs);
+    const stacks = Math.min(turn, 5);
+    close(bs.playerAtkMult, stacks * 0.10, `Spear of Ares turn ${turn} ATK modifier`);
+    assert.equal(bs.flags.spear_of_ares_stacks, stacks,
+      `Spear of Ares turn ${turn} persistent stack count`);
+    assert.equal(
+      bs.log[bs.log.length - 1],
+      `🔥 Bloodlust — ATK +${stacks * 10}% (${stacks} stacks)`,
+      `Spear of Ares turn ${turn} active-state log`,
+    );
   }
   close(bs.playerAtkMult, 0.50, 'Spear of Ares stack cap');
-  assert(bs.log.some((line) => line.includes('ATK +50% (5 stacks)')));
+  assert.equal(
+    bs.log.filter((line) => line.includes('Bloodlust')).length,
+    10,
+    'Spear of Ares reports its persistent state after reaching the cap',
+  );
 });
 
 audit('juru_pakal', () => {

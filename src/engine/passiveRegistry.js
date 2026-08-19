@@ -37,6 +37,9 @@
 const { CANONICAL_ON_HIT_EFFECTS } = require('./combatEffects');
 const { LOG_PRIORITY: LOG } = require('./combatLog');
 
+const BLOODLUST_ATK_PER_STACK = 0.10;
+const BLOODLUST_MAX_STACKS = 5;
+
 // Fenrir's passive configuration and state transitions live with the passive
 // registry so the boss skill key, thresholds, multipliers, and announcements
 // have one authoritative home. These helpers are exposed non-enumerably below
@@ -979,13 +982,19 @@ const PASSIVE_REGISTRY = {
   },
 
   'spear_of_ares': (bs) => {
-    const previous = bs.flags.spear_of_ares_stacks || 0;
-    const stacks = Math.min(previous + 1, 5);
+    // Bloodlust is a persistent battle stack. It lives in durable `flags`, while
+    // `playerAtkMult` is rebuilt from scratch every round. Never put this stack in
+    // the temporary debuff collection or decrement it during normal turn cleanup.
+    const previous = Number(bs.flags.spear_of_ares_stacks) || 0;
+    const stacks = Math.min(previous + 1, BLOODLUST_MAX_STACKS);
     bs.flags.spear_of_ares_stacks = stacks;
-    bs.playerAtkMult += stacks * 0.10;
-    if (stacks > previous) {
-      bs.log.push(`🔥 Bloodlust — ATK +${stacks * 10}% (${stacks} stacks)`);
-    }
+    const atkPct = stacks * BLOODLUST_ATK_PER_STACK;
+    bs.playerAtkMult += atkPct;
+
+    // The state line is intentionally emitted on every active turn, including
+    // capped turns. Keep it derived from the same value used by damage math so
+    // the log cannot report a different percentage or stack count.
+    bs.log.push(`🔥 Bloodlust — ATK +${Math.round(atkPct * 100)}% (${stacks} stacks)`);
   },
 
   'helm_of_darkness': (bs) => {

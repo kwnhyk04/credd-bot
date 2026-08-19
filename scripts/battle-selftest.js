@@ -2363,7 +2363,9 @@ check('class base and per-level scaling match the balance table',
     JSON.stringify(incoming));
 }
 
-// Magwayen drains 30% of dealt damage and Bloodlust gains one start-turn stack.
+// Magwayen drains 30% of dealt damage. Bloodlust is a persistent battle stack:
+// its active state remains visible after the cap, its damage modifier is retained,
+// and its battle-local state starts fresh in a new battle.
 {
   const rolls = [0.99, 0.99, 0.5, 0.5]; // boss first-strike; both hits non-crit, pinned variance
   const magwayen = resolveBattle(
@@ -2383,6 +2385,41 @@ check('class base and per-level scaling match the balance table',
   );
   check('Spear of Ares Bloodlust starts at one +10% stack',
     spear.winner === 'a' && hasEvent(allEvents(spear), 'Bloodlust — ATK +10% (1 stacks)'));
+
+  const bloodlust = resolveBattle(
+    player({
+      classPassive: null, weaponPassiveKey: 'spear_of_ares',
+      atk: 100, hp: 10_000, def: 0, crit: 0,
+    }),
+    mob({ atk: 0, hp: 100_000, def: 0, crit: 0 }),
+    { mode: 'raid', rng: () => 0.5 },
+  );
+  const expectedStacks = (turn) => Math.min(turn, 5);
+  for (const turn of [1, 5, 6, 7, 10]) {
+    const stacks = expectedStacks(turn);
+    const events = roundEvents(bloodlust, turn);
+    check(`Bloodlust remains displayed on turn ${turn}`,
+      hasEvent(events, `Bloodlust — ATK +${stacks * 10}% (${stacks} stacks)`),
+      events.join(' | '));
+    check(`Bloodlust modifier remains active on turn ${turn}`,
+      dmgOf(events, 'Hero attacks') === 100 + stacks * 10,
+      events.join(' | '));
+  }
+  const bloodlustLines = allEvents(bloodlust).filter((event) => event.includes('Bloodlust'));
+  check('Bloodlust stays active through the battle after reaching five stacks',
+    bloodlustLines.length === bloodlust.rounds.length
+      && bloodlust.rounds.slice(4).every((round) => hasEvent(round.events, 'Bloodlust — ATK +50% (5 stacks)')),
+    `lines=${bloodlustLines.length} rounds=${bloodlust.rounds.length}`);
+
+  const freshBattle = resolveBattle(
+    player({ classPassive: null, weaponPassiveKey: 'spear_of_ares', atk: 100, hp: 1_000, def: 0, crit: 0 }),
+    mob({ atk: 0, hp: 100_000, def: 0, crit: 0 }),
+    { mode: 'raid', rng: () => 0.5 },
+  );
+  check('Bloodlust is battle-local and starts at one stack in a new battle',
+    hasEvent(roundEvents(freshBattle, 1), 'Bloodlust — ATK +10% (1 stacks)')
+      && !hasEvent(roundEvents(freshBattle, 1), 'Bloodlust — ATK +20%'),
+    roundEvents(freshBattle, 1).join(' | '));
 }
 
 // Tyrfing executes on the subsequent attack after a target falls below its threshold.
