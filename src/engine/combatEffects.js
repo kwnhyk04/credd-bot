@@ -20,6 +20,10 @@ const EFFECT_DEFINITIONS = Object.freeze({
   charm: defineEffect(EFFECT_CATEGORY.STATUS, { crowdControl: true }),
   confuse: defineEffect(EFFECT_CATEGORY.STATUS, { crowdControl: true }),
   atk_down: defineEffect(EFFECT_CATEGORY.STATUS),
+  // Atlas uses a dedicated action-timed ATK reduction. Keeping it in the
+  // status registry preserves the shared immunity, cleanse, and ward paths
+  // without forcing its lifetime through the round-based stat-debuff clock.
+  atlas_atk_down: defineEffect(EFFECT_CATEGORY.STATUS),
   def_down: defineEffect(EFFECT_CATEGORY.STATUS),
   crit_down: defineEffect(EFFECT_CATEGORY.STATUS),
   darkened: defineEffect(EFFECT_CATEGORY.STATUS),

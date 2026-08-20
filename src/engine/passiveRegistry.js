@@ -780,8 +780,9 @@ const PASSIVE_REGISTRY = {
 
   'atlas': (bs) => {
     // Worldbreaker's Grip — +50% ATK, every 3rd round is a guaranteed critical
-    // strike, and any critical strike cuts the enemy's ATK by 50% for 1 turn
-    // (engine applies it on the landed crit via atlas_crit_atk_down).
+    // strike, and any critical strike cuts the enemy's final effective ATK by
+    // 50% for its next completed attack action (engine applies/consumes it via
+    // atlas_crit_atk_down).
     bs.playerAtkMult += 0.50;
     bs.flags.atlas_crit_atk_down = true;
     if (!bs.flags.atlas_passive_logged) {
@@ -800,7 +801,7 @@ const PASSIVE_REGISTRY = {
     // once per battle survive fatal damage at 1 HP with +100% damage for the
     // rest of the battle. The engine reads titan_lifesteal_pct on every landed
     // hit and consumes titan_reprieve_available on the lethal blow.
-    bs.playerAtkMult += 0.50;
+    bs.flags.titan_outgoing_damage_mult = 1.50;
     logOnce(bs, 'titan_damage_logged',
       '🔥 Titan: Forgefire Veins — Damage +50%.');
     const lifestealPct = bs.playerHP < bs.playerMaxHP * 0.50 ? 0.50 : 0.30;
@@ -818,7 +819,6 @@ const PASSIVE_REGISTRY = {
       bs.flags.titan_reprieve_logged = true;
       bs.log.push('🔥 Titan: Forgefire Veins — Fatal reprieve armed.');
     }
-    if (bs.flags.titan_atk_bonus > 0) bs.playerAtkMult += bs.flags.titan_atk_bonus;
   },
 
   'galdrastafir': (bs) => {
@@ -1065,12 +1065,17 @@ const PASSIVE_REGISTRY = {
     // Ignores 30% DEF; each actual attack has a separate 20% chance to use
     // exactly 60% total DEF penetration for that attack instead.
     if (0.30 > bs.ignoreDefPct) bs.ignoreDefPct = 0.30;
-    logOnce(bs, 'gungnir_pierce_logged',
-      '🏹 Gungnir: Never Misses — 30% of enemy DEF ignored.');
+    if (bs.enemyImmune('armor_pierce')) {
+      logOnce(bs, 'gungnir_pierce_blocked_logged',
+        '🚫 Gungnir: Never Misses — DEF penetration blocked by immunity.');
+    } else {
+      logOnce(bs, 'gungnir_pierce_logged',
+        '🏹 Gungnir: Never Misses — 30% of enemy DEF ignored.');
+    }
     bs.onAttack(() => {
       const proc = bs.rng() < 0.20;
       bs.flags.gungnir_attack_pierce_pct = proc ? 0.60 : 0.30;
-      if (proc) {
+      if (proc && !bs.enemyImmune('armor_pierce')) {
         bs.log.push('🏹 Gungnir: Never Misses — 60% DEF penetration for this attack!');
       }
     });

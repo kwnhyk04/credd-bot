@@ -87,6 +87,13 @@ function integerBalance(value) {
   return Number.isSafeInteger(n) && n > 0 ? n : 0;
 }
 
+/** Compact all-chest balance line used at the bottom of the conversion view. */
+function chestBalanceLine(bag) {
+  return CHEST_BALANCE_COLUMNS
+    .map((column) => `${emoji(column)} ${integerBalance(bag?.[column]).toLocaleString()}`)
+    .join(' • ');
+}
+
 /** Read the five relevant chest balances for one player. */
 async function fetchBalances(discordId) {
   const { rows } = await pool.query(
@@ -104,10 +111,10 @@ function conversionSelectRow(type, ownerId) {
     .addOptions(CONVERSION_TYPES.map((key) => {
       const def = CHEST_CONVERSIONS[key];
       return {
-        label: `${def.sourceName} → ${def.destinationName}`,
+        label: def.destinationName,
         value: key,
-        description: `${def.rate} ${def.sourceName.replace(' Chest', '')} : 1 ${def.destinationName.replace(' Chest', '')}`,
-        emoji: emoji(def.sourceEmoji),
+        description: `Cost: ${def.rate} ${def.sourceName}s`,
+        emoji: emoji(def.destinationEmoji),
         default: key === type,
       };
     }));
@@ -175,8 +182,6 @@ function insufficientLine(def, amount, bag, maxSource) {
 function buildPayload(bag, type, ownerId, { resultLine = null, color = null } = {}) {
   const def = definitionFor(type) || CHEST_CONVERSIONS[DEFAULT_CONVERSION];
   const selectedType = definitionFor(type) ? type : DEFAULT_CONVERSION;
-  const haveSource = integerBalance(bag?.[def.sourceColumn]);
-  const haveDestination = integerBalance(bag?.[def.destinationColumn]);
   const maximumSource = maxConvertibleSource(def, bag);
   const maximumOutput = maximumSource / def.rate;
 
@@ -193,17 +198,12 @@ function buildPayload(bag, type, ownerId, { resultLine = null, color = null } = 
       + `Requirement: **${def.rate}** ${emoji(def.sourceEmoji)} ${def.sourceName}s`
       + `  →  **1** ${emoji(def.destinationEmoji)} ${def.destinationName}`
   ));
-  container.addSeparatorComponents(sep);
-  container.addTextDisplayComponents((td) => td.setContent(
-    `-# You have ${emoji(def.sourceEmoji)} ${haveSource.toLocaleString()} · `
-      + `Maximum convertible: ${maximumSource.toLocaleString()} · `
-      + `Output: ${maximumOutput.toLocaleString()} ${emoji(def.destinationEmoji)} `
-      + `· ${def.destinationName}: ${haveDestination.toLocaleString()}`
-  ));
   if (resultLine) {
     container.addSeparatorComponents(sep);
     container.addTextDisplayComponents((td) => td.setContent(resultLine));
   }
+  container.addSeparatorComponents(sep);
+  container.addTextDisplayComponents((td) => td.setContent(`-# ${chestBalanceLine(bag)}`));
 
   return {
     components: [container, convertButtonRow(selectedType, ownerId, maximumOutput >= 1)],
@@ -453,6 +453,7 @@ module.exports = {
   maxConvertibleOutput,
   convertBulk,
   CHEST_BALANCE_COLUMNS,
+  chestBalanceLine,
   BRAND,
   GREEN,
 };

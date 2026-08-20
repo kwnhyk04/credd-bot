@@ -63,10 +63,10 @@ const WEAPON_UPDATES = Object.freeze([
   { name: 'Spear of Ares', key: 'spear_of_ares', description: 'ATK +10% at the start of each turn, stacking up to +50% for the battle.' },
   { name: 'Sword of Damocles', key: 'sword_of_damocles', description: 'ATK +5% every turn, stacking up to +100%. While any stacks are active, you take +10% damage.' },
   { name: 'Tyrfing', key: 'tyrfing', description: 'ATK +10% at the start of each turn, stacking up to +30%. Attacks execute non-boss targets below 10% max HP.' },
-  { name: 'Gungnir', key: 'gungnir', description: 'Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Each attack ignores 30% of enemy DEF and has a 10% chance to pierce all DEF (zero mitigation).' },
+  { name: 'Gungnir', key: 'gungnir', description: 'Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Each attack ignores 30% of enemy DEF and has a 20% chance to use 60% total DEF penetration for that attack.' },
   { name: 'Thunderbolt of Zeus', key: 'thunderbolt_of_zeus', description: 'Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Each critical attack deals +100% bonus ATK and applies Paralyze for 1 turn.' },
   { name: 'Katana', key: 'katana', description: 'Each attack deals 30% additional damage (×1.30 on a normal hit; ×2.30 on a critical hit).' },
-  { name: 'Kiri', key: 'kiri', description: 'Each attack increases damage by 20%, stacking up to +120%. Each attack has a 25% chance to strike twice.' },
+  { name: 'Kiri', key: 'kiri', description: 'Each attack increases damage by 20%, stacking up to +120%. Each attack has a 25% chance to strike twice as two separate hits.' },
   { name: 'Juru Pakal', key: 'juru_pakal', description: 'Increases outgoing damage by 10% and deals 50% more damage to targets affected by Bleed, Hemorrhage, Rupture, or Venom.' },
   { name: "Alan's Reversed Hands", key: 'alans_reversed_hands', description: 'Increases outgoing damage by 20% and grants immunity to status effects; damage-over-time effects still apply.' },
 ]);

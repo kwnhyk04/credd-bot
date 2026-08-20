@@ -293,7 +293,9 @@ check('class base and per-level scaling match the balance table',
   PASSIVE_REGISTRY.titan(titan);
   check('Divine Titan arms low-HP lifesteal and reprieve',
     titan.flags.titan_lifesteal_pct === 0.50
-    && titan.flags.titan_reprieve_available === true);
+    && titan.flags.titan_reprieve_available === true
+    && titan.flags.titan_outgoing_damage_mult === 1.50
+    && titan.playerAtkMult === 0);
 
   const kiriBattle = resolveBattle(
     player({
@@ -349,12 +351,36 @@ check('class base and per-level scaling match the balance table',
     roundEvents(kiriSwordsman, 1)
       .filter((event) => event.includes('Swordsman Passive — applied Bleed')).length === 2);
 
+  const kiriRampFighter = player({
+    class: 'Test', classPassive: null, weaponPassiveKey: 'kiri', weaponName: 'Kiri',
+    atk: 100, hp: 100_000, def: 0, crit: 0,
+  });
+  const kiriRamp = resolveBattle(
+    kiriRampFighter,
+    mob({ atk: 0, hp: 100_000, def: 0, crit: 0 }),
+    { mode: 'boss', rng: () => 0.50 },
+  );
+  const kiriDamageByTurn = [1, 2, 3, 4, 5, 6, 7]
+    .map((turn) => dmgOf(roundEvents(kiriRamp, turn), 'Hero attacks'));
+  check('Divine Kiri actual attacks ramp +20% through +120% and stay capped',
+    kiriDamageByTurn.join(',') === '120,140,160,180,200,220,220',
+    kiriDamageByTurn.join(','));
+  const kiriFreshBattle = resolveBattle(
+    kiriRampFighter,
+    mob({ atk: 0, hp: 100_000, def: 0, crit: 0 }),
+    { mode: 'boss', rng: () => 0.50 },
+  );
+  check('Divine Kiri damage stacks reset between battles',
+    dmgOf(roundEvents(kiriFreshBattle, 1), 'Hero attacks') === 120
+      && hasEvent(roundEvents(kiriFreshBattle, 1), 'total +20%')
+      && !hasEvent(roundEvents(kiriFreshBattle, 1), 'total +120%'));
+
   const atlasBattle = resolveBattle(
     player({
       class: 'Test', classPassive: null, weaponPassiveKey: 'atlas', weaponName: 'Atlas',
-      atk: 100, hp: 10_000, def: 0, crit: 0,
+      atk: 100, hp: 100_000, def: 0, crit: 0,
     }),
-    mob({ atk: 100, hp: 10_000, def: 0, crit: 0 }),
+    mob({ atk: 1_000, hp: 100_000, def: 0, crit: 0 }),
     { mode: 'raid', rng: () => 0.50 },
   );
   const atlasRoundThree = roundEvents(atlasBattle, 3);
@@ -364,8 +390,73 @@ check('class base and per-level scaling match the balance table',
       && hasEvent(atlasRoundThree, "ATK reduced 50%")
       && !hasEvent(atlasRoundThree, 'ATK reduced 30%'));
   check('Divine Atlas keeps the enemy ATK reduction to one turn',
-    dmgOf(atlasRoundFour, 'Dummy strikes') === 50
-      && hasEvent(atlasRoundFour, 'ATK Down expired'));
+    dmgOf(atlasRoundThree, 'Dummy strikes') === 500
+      && dmgOf(atlasRoundFour, 'Dummy strikes') === 1_000
+      && hasEvent(atlasRoundThree, 'ATK Down expired after the affected action'));
+
+  const atlasActsSecond = resolveBattle(
+    player({
+      class: 'Test', classPassive: null, weaponPassiveKey: 'atlas', weaponName: 'Atlas',
+      atk: 100, hp: 100_000, def: 0, crit: 0,
+    }),
+    player({
+      name: 'Rival', class: 'Test', classPassive: null,
+      weaponTier: 'Supreme', weaponPassiveKey: 'none', bonusDmgPct: 0,
+      atk: 1_000, hp: 100_000, def: 0, crit: 0,
+    }),
+    { mode: 'duel', rng: scripted([0.99], 0.50) },
+  );
+  const atlasSecondR3 = roundEvents(atlasActsSecond, 3);
+  const atlasSecondR4 = roundEvents(atlasActsSecond, 4);
+  const atlasSecondR5 = roundEvents(atlasActsSecond, 5);
+  check('Atlas acting second leaves the prior action untouched and affects the next action',
+    dmgOf(atlasSecondR3, 'Rival attacks') === 1_300
+      && dmgOf(atlasSecondR4, 'Rival attacks') === 700
+      && dmgOf(atlasSecondR5, 'Rival attacks') === 1_500,
+    [atlasSecondR3, atlasSecondR4, atlasSecondR5].flat().join(' | '));
+  check('Atlas halves final effective ATK after positive Supreme modifiers',
+    dmgOf(atlasSecondR4, 'Rival attacks') === Math.floor(1_000 * 1.40 * 0.50)
+      && hasEvent(atlasSecondR4, 'ATK Down expired after the affected action'));
+
+  const atlasRefresh = resolveBattle(
+    player({
+      class: 'Archer', classPassive: 'pierce',
+      weaponPassiveKey: 'atlas', weaponName: 'Atlas',
+      atk: 100, hp: 100_000, def: 0, crit: 100,
+    }),
+    mob({ atk: 1_000, hp: 100_000, def: 0, crit: 0 }),
+    {
+      mode: 'raid',
+      rng: scripted([0.50, 0.50, 0.50, 0.00, 0.50, 0.50, 0.50, 0.50]),
+    },
+  );
+  const atlasRefreshR1 = roundEvents(atlasRefresh, 1);
+  check('Repeated Atlas crits refresh one non-stacking reduction before the target action',
+    atlasRefreshR1.filter((event) => event.includes("ATK reduced 50% for its next action")).length === 1
+      && atlasRefreshR1.filter((event) => event.includes('50% ATK reduction refreshed')).length === 1
+      && dmgOf(atlasRefreshR1, 'Dummy strikes') === 500
+      && atlasRefreshR1.filter((event) => event.includes('ATK Down expired after')).length === 1,
+    atlasRefreshR1.join(' | '));
+
+  const atlasVsTitanReprieve = resolveBattle(
+    player({
+      class: 'Test', classPassive: null, weaponPassiveKey: 'atlas', weaponName: 'Atlas',
+      atk: 200, hp: 100_000, def: 0, crit: 100,
+    }),
+    player({
+      name: 'Titan Rival', class: 'Test', classPassive: null,
+      weaponPassiveKey: 'titan', weaponName: 'Titan',
+      atk: 100, hp: 100, def: 0, crit: 0,
+    }),
+    { mode: 'duel', rng: scripted([0.00], 0.50) },
+  );
+  const atlasReprieveR1 = roundEvents(atlasVsTitanReprieve, 1);
+  check('A lethal Atlas crit still applies ATK Down when Titan reprieve preserves the target',
+    hasEvent(atlasReprieveR1, 'survives at 1 HP, damage +100%')
+      && hasEvent(atlasReprieveR1, "Titan Rival's ATK reduced 50% for its next action")
+      && dmgOf(atlasReprieveR1, 'Titan Rival attacks') === 150
+      && hasEvent(atlasReprieveR1, 'ATK Down expired after the affected action'),
+    atlasReprieveR1.join(' | '));
 
   const moiraVsEvade = resolveBattle(
     player({ weaponPassiveKey: 'moira', weaponName: 'Moira', atk: 100, hp: 10_000, def: 0, crit: 0 }),
@@ -856,6 +947,33 @@ check('class base and per-level scaling match the balance table',
       && dmgOf(roundEvents(gungnirNormal, 1), 'Hero attacks') === 20
       && !hasEvent(roundEvents(gungnirNormal, 1), '60% DEF penetration'));
 
+  const gungnirImmune = resolveBattle(
+    supremePlayer({ weaponTier: null, weaponPassiveKey: 'gungnir', bonusDmgPct: 0 }),
+    target({ def: 1_000, immunityTags: ['armor_pierce'] }),
+    { mode: 'raid', rng: scripted([0.99, 0.99, 0.00, 0.00], 0.50) },
+  );
+  const gungnirImmuneR1 = roundEvents(gungnirImmune, 1);
+  check('Gungnir immunity blocks penetration math and reports only the blocked outcome',
+    dmgOf(gungnirImmuneR1, 'Hero attacks') === 15
+      && hasEvent(gungnirImmuneR1, 'DEF penetration blocked by immunity')
+      && !hasEvent(gungnirImmuneR1, '30% of enemy DEF ignored')
+      && !hasEvent(gungnirImmuneR1, '60% DEF penetration'),
+    gungnirImmuneR1.join(' | '));
+
+  const gungnirTransient = resolveBattle(
+    supremePlayer({ weaponTier: null, weaponPassiveKey: 'gungnir', bonusDmgPct: 0 }),
+    target({ def: 1_000 }),
+    {
+      mode: 'raid',
+      rng: scripted([0.99, 0.99, 0.00, 0.50, 0.99, 0.50, 0.99, 0.20, 0.50, 0.99, 0.50]),
+    },
+  );
+  check('Gungnir 60% penetration is attack-local and returns to 30% next attack',
+    dmgOf(roundEvents(gungnirTransient, 1), 'Hero attacks') === 33
+      && dmgOf(roundEvents(gungnirTransient, 2), 'Hero attacks') === 22
+      && hasEvent(roundEvents(gungnirTransient, 1), '60% DEF penetration')
+      && !hasEvent(roundEvents(gungnirTransient, 2), '60% DEF penetration'));
+
   for (const weaponPassiveKey of supremeKeys) {
     const sim = resolveBattle(supremePlayer({ weaponPassiveKey }), target(), {
       mode: 'boss', rng: () => 0.5,
@@ -863,6 +981,28 @@ check('class base and per-level scaling match the balance table',
     check(`Supreme shared ATK stack applies alongside ${weaponPassiveKey}`,
       hasEvent(roundEvents(sim, 1), 'Supreme Weapon: +10% ATK stack gained (total +10%)'));
   }
+
+  const supremeCrit = resolveBattle(
+    supremePlayer({ crit: 100, bonusDmgPct: 0 }),
+    target(),
+    { mode: 'boss', rng: () => 0.50 },
+  );
+  check('Supreme weapon ATK stacks increase critical-hit damage through the same ATK lane',
+    dmgOf(roundEvents(supremeCrit, 1), 'Hero attacks') === 220
+      && dmgOf(roundEvents(supremeCrit, 5), 'Hero attacks') === 300
+      && hasEvent(roundEvents(supremeCrit, 1), '(CRIT!)')
+      && hasEvent(roundEvents(supremeCrit, 5), '(CRIT!)'));
+
+  const mjolnirCombined = resolveBattle(
+    supremePlayer({ weaponPassiveKey: 'mjolnir', bonusDmgPct: 50 }),
+    target(),
+    { mode: 'boss', rng: () => 0.50 },
+  );
+  check('Mjolnir keeps +30% per attack and one +200% primary rider alongside Supreme stacking',
+    dmgOf(roundEvents(mjolnirCombined, 1), 'Hero attacks') === 210
+      && dmgOf(roundEvents(mjolnirCombined, 3), 'Hero attacks') === 540
+      && roundEvents(mjolnirCombined, 3)
+        .filter((event) => event.includes('CRUSH! +200% ATK!')).length === 1);
 
   const legendary = resolveBattle(
     supremePlayer({ weaponTier: 'Legendary' }), target(), { mode: 'boss', rng: () => 0.5 },
@@ -2894,9 +3034,9 @@ check('class base and per-level scaling match the balance table',
     roundEvents(sidapa, 1).join(' | '));
 
   const titan = reprieveBattle('weaponPassiveKey', 'titan');
-  check('Titan +100% damage applies to a pending same-round action',
+  check('Titan +100% final damage composes with its base multiplier on a pending action',
     hasEvent(roundEvents(titan, 1), 'survives at 1 HP, damage +100%')
-      && dmgOf(roundEvents(titan, 1), 'Hero attacks') === 250,
+      && dmgOf(roundEvents(titan, 1), 'Hero attacks') === 300,
     roundEvents(titan, 1).join(' | '));
 
   const titanBase = resolveBattle(
@@ -2907,10 +3047,90 @@ check('class base and per-level scaling match the balance table',
     mob({ atk: 0, hp: 100_000, def: 0, crit: 0 }),
     { mode: 'boss', rng: () => 0.50 },
   );
-  check('Titan applies its +50% base damage once through the unified ATK lane',
+  check('Titan applies its +50% base damage once through the final outgoing lane',
     dmgOf(roundEvents(titanBase, 1), 'Hero attacks') === 150
       && dmgOf(roundEvents(titanBase, 2), 'Hero attacks') === 150
       && !hasEvent(roundEvents(titanBase, 1), 'damage +100%'));
+
+  const finalDamageTarget = () => mob({ atk: 0, hp: 1_000_000, def: 0, crit: 0 });
+  const finalDamageFighter = (over = {}) => player({
+    class: 'Test', classPassive: null, weaponTier: null, bonusDmgPct: 0,
+    weaponPassiveKey: 'none', atk: 100, hp: 100_000, def: 0, crit: 0,
+    ...over,
+  });
+  const normalControl = resolveBattle(
+    finalDamageFighter(), finalDamageTarget(), { mode: 'boss', rng: () => 0.50 },
+  );
+  const normalTitan = resolveBattle(
+    finalDamageFighter({ weaponPassiveKey: 'titan' }),
+    finalDamageTarget(),
+    { mode: 'boss', rng: () => 0.50 },
+  );
+  const critControl = resolveBattle(
+    finalDamageFighter({ crit: 100 }),
+    finalDamageTarget(),
+    { mode: 'boss', rng: () => 0.50 },
+  );
+  const critTitan = resolveBattle(
+    finalDamageFighter({ weaponPassiveKey: 'titan', crit: 100 }),
+    finalDamageTarget(),
+    { mode: 'boss', rng: () => 0.50 },
+  );
+  check('Titan final multiplier is exactly ×1.50 for ordinary and critical primary hits',
+    dmgOf(roundEvents(normalControl, 1), 'Hero attacks') === 100
+      && dmgOf(roundEvents(normalTitan, 1), 'Hero attacks') === 150
+      && dmgOf(roundEvents(critControl, 1), 'Hero attacks') === 200
+      && dmgOf(roundEvents(critTitan, 1), 'Hero attacks') === 300);
+
+  const swordsmanDivine = (weaponPassiveKey, crit) => resolveBattle(
+    finalDamageFighter({
+      class: 'Swordsman', classPassive: 'bleed', weaponTier: 'Divine',
+      weaponPassiveKey, crit,
+    }),
+    finalDamageTarget(),
+    { mode: 'boss', rng: () => 0.50 },
+  );
+  const swordsmanControl = swordsmanDivine('none', 0);
+  const swordsmanTitan = swordsmanDivine('titan', 0);
+  const swordsmanCritControl = swordsmanDivine('none', 100);
+  const swordsmanCritTitan = swordsmanDivine('titan', 100);
+  check('Titan multiplies Swordsman ATK and the Divine rider after their unified math',
+    dmgOf(roundEvents(swordsmanControl, 5), 'Hero attacks') === 250
+      && dmgOf(roundEvents(swordsmanTitan, 5), 'Hero attacks') === 375);
+  check('Titan final multiplication floors once after a Swordsman Divine critical',
+    dmgOf(roundEvents(swordsmanCritControl, 5), 'Hero attacks') === 375
+      && dmgOf(roundEvents(swordsmanCritTitan, 5), 'Hero attacks') === 562);
+
+  const supremeControl = resolveBattle(
+    finalDamageFighter({ weaponTier: 'Supreme' }),
+    finalDamageTarget(),
+    { mode: 'boss', rng: () => 0.50 },
+  );
+  const supremeTitan = resolveBattle(
+    finalDamageFighter({ weaponTier: 'Supreme', weaponPassiveKey: 'titan' }),
+    finalDamageTarget(),
+    { mode: 'boss', rng: () => 0.50 },
+  );
+  check('Titan final multiplier composes after Supreme ATK stacking',
+    dmgOf(roundEvents(supremeControl, 3), 'Hero attacks') === 130
+      && dmgOf(roundEvents(supremeTitan, 3), 'Hero attacks') === 195);
+
+  const archerBattle = (weaponPassiveKey) => resolveBattle(
+    finalDamageFighter({
+      class: 'Archer', classPassive: 'pierce', weaponPassiveKey,
+    }),
+    finalDamageTarget(),
+    { mode: 'boss', rng: () => 0.00 },
+  );
+  const archerControlLines = roundEvents(archerBattle('none'), 1)
+    .filter((event) => event.includes('Hero attacks for **'));
+  const archerTitanLines = roundEvents(archerBattle('titan'), 1)
+    .filter((event) => event.includes('Hero attacks for **'));
+  check('Titan applies once to both primary and generated Archer attacks',
+    archerControlLines.length === 2
+      && archerControlLines.every((event) => dmgOf([event], 'Hero attacks') === 90)
+      && archerTitanLines.length === 2
+      && archerTitanLines.every((event) => dmgOf([event], 'Hero attacks') === 135));
 }
 
 // Titan's threshold is evaluated at the landed hit, not frozen at the earlier

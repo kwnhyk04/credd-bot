@@ -62,7 +62,7 @@
  *
  * DAMAGE PIPELINE (per hit) — ONE unified rule (§35.2 / config/combat):
  *   base = effATK × (1 − effDEF/(effDEF+200)) × variance(0.90–1.10)
- *   then exactly one multiplier:
+ *   then exactly one unified hit multiplier:
  *     overcharge (Mage 3rd-round primary): 60% ×4.0 ×(1 + damage%/100),
  *                                           40% ×5.0 ×(1 + damage%/100), no crit
  *     otherwise:                   ×((critLevel ? 2.0 : 1) + damage%/100)
@@ -72,7 +72,8 @@
  *   non-crit. Supreme 50% → ×1.5 / ×2.5; Divine 100% → ×2.0 / ×3.0;
  *   Supreme + double → ×2.5; Supreme + deity 50% (proc) → ×2.0 / ×3.0. Mob "X% ATK" nukes are a clean ×(pct) and do
  *   not also crit. (+X% ATK riders scale effATK pre-mitigation — see playerAtkMult.)
- *   → floor → defender stack (R3) → apply → death check (§35.3 first-to-0, R5)
+ *   → optional final outgoing attack multiplier (Titan) → floor →
+ *   defender stack (R3) → apply → death check (§35.3 first-to-0, R5)
  *
  * DEFENDER STACK (R3, fixed order):
  *   player defender: evasion -> full-hit negation -> raw post-DEF damage ->
@@ -175,6 +176,10 @@ function classEmojiFor(side) {
 }
 
 const SKIP_TAGS = ['stun', 'paralyze', 'freeze', 'petrify', 'charm', 'confuse', 'miss'];
+// These effects are consumed by the affected combatant's next completed attack
+// action, not by round arming/expiry. Multi-hit and generated attacks remain one
+// action because consumption happens only after the outer action returns.
+const ACTION_TIMED_TAGS = new Set(['atlas_atk_down']);
 // Thor uses separate linked status and DOT IDs so status immunity never blocks damage.
 const DOT_TAGS = Object.keys(EFFECT_DEFINITIONS).filter(isRecurringDamageEffect);
 const DOT_DEATH_TEXT = {
@@ -197,7 +202,8 @@ const DOT_DEATH_CAUSE = {
 const ACTION_TAG_LABELS = {
   bleed: 'Bleed', burn: 'Burn', venom: 'Poison', poison: 'Poison', hp_pct_dot: 'Rot', stun: 'Stun', freeze: 'Freeze',
   paralyze: 'Paralyze', petrify: 'Petrify', charm: 'Charm', confuse: 'Confuse',
-  miss: 'Miss', def_down: 'DEF Down', atk_down: 'ATK Down', crit_down: 'CRIT Down', darkened: 'Darkened',
+  miss: 'Miss', def_down: 'DEF Down', atk_down: 'ATK Down', atlas_atk_down: 'ATK Down',
+  crit_down: 'CRIT Down', darkened: 'Darkened',
   thor_paralyze: 'Paralyze', thor_paralyze_dot: 'Paralysis', frostbite: 'Frostbite',
 };
 
@@ -343,8 +349,14 @@ const sideImmune = (side, tag) => {
   return side.immunityTags.includes('all_debuffs') || side.immunityTags.includes(tag);
 };
 
-const debuffImmune = (side, tag) =>
-  sideImmune(side, tag) || (side.kind === 'player' && side.statusImmune && isStatusEffect(tag));
+const debuffImmune = (side, tag) => {
+  // Atlas has its own timing tag, but authored ATK-down immunity must continue
+  // to protect against it just like every other ATK reduction.
+  const immunityTag = tag === 'atlas_atk_down' ? 'atk_down' : tag;
+  return sideImmune(side, tag)
+    || (immunityTag !== tag && sideImmune(side, immunityTag))
+    || (side.kind === 'player' && side.statusImmune && isStatusEffect(tag));
+};
 
 /** True when the weapon OR the equipped armor carries this passive key. */
 const hasEquippedPassive = (side, key) =>
@@ -357,6 +369,15 @@ function rngOf(seed) {
 }
 
 const applyHitToDefender = (bt, fx, S, O, dmg, info = {}) => {
+  const applyAtlasCritAtkDown = () => {
+    if (O.hp <= 0 || !info.crit || !S.flags.atlas_crit_atk_down) return false;
+    const refreshed = Boolean(findDebuff(O, 'atlas_atk_down'));
+    if (!fx.tryApplyDebuff(O, 'atlas_atk_down', 1, 0.50, S)) return false;
+    bt.shared.events.push(refreshed
+      ? `🥊 Atlas: Worldbreaker's Grip — ${O.name}'s 50% ATK reduction refreshed for its next action!`
+      : `🥊 Atlas: Worldbreaker's Grip — ${O.name}'s ATK reduced 50% for its next action!`);
+    return true;
+  };
   const prepareConfirmedHit = () => {
     if (typeof info.prepareLandedHit !== 'function') return;
     const prepared = info.prepareLandedHit(dmg);
@@ -378,11 +399,7 @@ const applyHitToDefender = (bt, fx, S, O, dmg, info = {}) => {
     dmg = fx.effectDamage(O, dmg);
     fx.damage(O, dmg);
     fx.checkDeaths('attack');
-    if (O.hp > 0 && info.crit && S.flags.atlas_crit_atk_down) {
-      if (fx.tryApplyDebuff(O, 'atk_down', LANDED_STAT_DEBUFF_TURNS, 0.50, S)) {
-        bt.shared.events.push(`🥊 Atlas: Worldbreaker's Grip — ${O.name}'s ATK reduced 50%!`);
-      }
-    }
+    applyAtlasCritAtkDown();
     return { applied: Math.floor(dmg), negated: false };
   }
 
@@ -556,6 +573,7 @@ const applyHitToDefender = (bt, fx, S, O, dmg, info = {}) => {
     bt.shared.events.push(`🌙 Sidapa's Death's Reprieve! ${O.name} survives, heals ${revive} HP, ATK +50%!`);
     fx.grantValkyrieResolve(O);
     fx.grantAegisStone(O, S);
+    applyAtlasCritAtkDown();
     return { applied, negated: false };
   }
 
@@ -564,14 +582,15 @@ const applyHitToDefender = (bt, fx, S, O, dmg, info = {}) => {
     F.titan_reprieve_available = false;
     const applied = O.hp - 1;
     fx.setHp(O, 1);
-    F.titan_atk_bonus = 1.00;
-    // As with Sidapa, a first-strike opponent can trigger this before Titan's
-    // action. Fold the new persistent bonus into the current round as well.
-    O.scratch.playerAtkMult += 1.00;
+    // +100% damage is a final outgoing multiplier, composed with Titan's base
+    // ×1.50 lane. A first-strike opponent can trigger it before Titan's pending
+    // action because this durable flag is read at hit calculation time.
+    F.titan_post_reprieve_damage_mult = 2.00;
     if (info.crit) fx.recordReceivedCrit(O);
     bt.shared.events.push(`🔥 Titan: Forgefire Veins — ${O.name} survives at 1 HP, damage +100%!`);
     fx.grantValkyrieResolve(O);
     fx.grantAegisStone(O, S);
+    applyAtlasCritAtkDown();
     return { applied, negated: false };
   }
 
@@ -579,6 +598,7 @@ const applyHitToDefender = (bt, fx, S, O, dmg, info = {}) => {
   fx.damage(O, dmg);
   const damageTaken = beforeHp - O.hp;
   if (fx.checkDeaths('attack')) return { applied: dmg, negated: false };
+  applyAtlasCritAtkDown();
 
   const reflectSources = [
     [F.enderby_reflect_pct || 0, 'Thornward'],
@@ -604,11 +624,6 @@ const applyHitToDefender = (bt, fx, S, O, dmg, info = {}) => {
   fx.grantValkyrieResolve(O);
   fx.grantAegisStone(O, S);
   if (info.crit) fx.recordReceivedCrit(O);
-  if (info.crit && S.flags.atlas_crit_atk_down) {
-    if (fx.tryApplyDebuff(O, 'atk_down', LANDED_STAT_DEBUFF_TURNS, 0.50, S)) {
-      bt.shared.events.push(`🥊 Atlas: Worldbreaker's Grip — ${O.name}'s ATK reduced 50%!`);
-    }
-  }
   if (O.hp > 0) fx.armLowHpAttackPassives(O);
   return { applied: dmg, negated: false };
 };
@@ -808,14 +823,17 @@ function resolveBattle(a, b, opts = {}) {
       ex.value = Math.max(ex.value, value);
       ex.category = category;
       // A refreshed round-timed status must receive a fresh complete-round window.
-      // DOT and skip-control effects retain their existing action-based lifecycles.
-      if (!DOT_TAGS.includes(tag) && !SKIP_TAGS.includes(tag)) {
+      // DOT, skip-control, and explicit action-timed effects retain their own
+      // lifecycles.
+      if (!DOT_TAGS.includes(tag) && !SKIP_TAGS.includes(tag) && !ACTION_TIMED_TAGS.has(tag)) {
         ex.armed = !roundActionsStarted;
       }
     } else {
       // Skip-CC applied this round is directional and gates the recipient's next
       // turn. It arms at round start, so it never cancels an action already due.
-      const roundTimed = !DOT_TAGS.includes(tag) && !SKIP_TAGS.includes(tag);
+      const roundTimed = !DOT_TAGS.includes(tag)
+        && !SKIP_TAGS.includes(tag)
+        && !ACTION_TIMED_TAGS.has(tag);
       side.debuffs.push({
         tag,
         category,
@@ -981,7 +999,17 @@ function resolveBattle(a, b, opts = {}) {
       : S.classPassive === 'stun'
         ? FIGHTER_DAMAGE_BONUS
         : 0;
-    const raw = S.atk * (1 + mult + extraAtkMult + classBonus - debuffValue(S, 'atk_down'));
+    const positiveMultiplier = 1 + mult + extraAtkMult + classBonus;
+    const ordinaryAtkDownRaw = S.atk
+      * (positiveMultiplier - debuffValue(S, 'atk_down'));
+    // Worldbreaker's Grip is explicitly multiplicative after every positive ATK
+    // modifier. Compare it with the ordinary shared ATK-down lane so concurrent
+    // reductions remain highest-wins instead of stacking together.
+    const atlasAtkDown = debuffValue(S, 'atlas_atk_down');
+    const atlasAtkDownRaw = S.atk * positiveMultiplier * (1 - atlasAtkDown);
+    const raw = atlasAtkDown > 0
+      ? Math.min(ordinaryAtkDownRaw, atlasAtkDownRaw)
+      : ordinaryAtkDownRaw;
     // Keep exact percentage stacks such as 10% + 5% from becoming 114.999999...
     // and being truncated to 114 by the downstream integer damage floor.
     const epsilon = Number.EPSILON * Math.max(1, Math.abs(raw)) * 16;
@@ -1518,6 +1546,12 @@ function resolveBattle(a, b, opts = {}) {
         } else {
           amount *= hitMultiplier(critLevel, damagePct);
         }
+        // Titan multiplies final outgoing attack damage after ATK, mitigation,
+        // variance, crit/Double, and the unified damage-percent rider. Its
+        // post-reprieve +100% composes multiplicatively (×1.50 ×2.00), before
+        // the normal floor. Separate flat/effect damage added later is untouched.
+        amount *= (Number(S.flags.titan_outgoing_damage_mult) || 1)
+          * (Number(S.flags.titan_post_reprieve_damage_mult) || 1);
         return amount;
       };
       let dmg = rolledDamage(reactiveAtkMult);
@@ -1779,7 +1813,12 @@ function resolveBattle(a, b, opts = {}) {
       : S.atk * (1 + (S.flags.bakunawa_atk_bonus_pct || 0)) * (F.enemy_atk_mult || 1.0);
     // ATK Down is a shared effective-ATK debuff, so it must also cover the mob
     // attack path (which does not use the player-only effAtk helper).
-    const atkBase = Math.max(0, rawAtkBase * (1 - debuffValue(S, 'atk_down')));
+    const ordinaryAtkDownBase = rawAtkBase * (1 - debuffValue(S, 'atk_down'));
+    const atlasAtkDown = debuffValue(S, 'atlas_atk_down');
+    const atlasAtkDownBase = rawAtkBase * (1 - atlasAtkDown);
+    const atkBase = Math.max(0, atlasAtkDown > 0
+      ? Math.min(ordinaryAtkDownBase, atlasAtkDownBase)
+      : ordinaryAtkDownBase);
 
     // A "X% ATK" nuke round (enemy_atk_mult set by the mob skill) IS the mob's big hit —
     // it does not also crit-multiply, so a nuke stays a clean ×(pct) and never spikes to
@@ -1897,6 +1936,18 @@ function resolveBattle(a, b, opts = {}) {
       playerAttack(S, O);
     } else {
       mobAttack(S, O);
+    }
+    // Consume Atlas only after a real attack action finishes. Early returns for
+    // crowd control, paralysis, and Dizzy misses leave it armed. The outer
+    // playerAttack call includes all generated attacks, while mobAttack includes
+    // all sub-hits, so exactly one complete action receives the reduction.
+    const atlasEffect = findDebuff(S, 'atlas_atk_down');
+    if (atlasEffect) {
+      S.debuffs = S.debuffs.filter((d) => d !== atlasEffect);
+      if (!result) {
+        logAt(LOG.STATUS, `⌛ ${combatantName(S)}'s ATK Down expired after the affected action.`);
+        healTribalWard(S, 1, 'expired');
+      }
     }
   };
 
@@ -2197,7 +2248,7 @@ function resolveBattle(a, b, opts = {}) {
         if (SKIP_TAGS.includes(d.tag)) {
           d.armed = true;
           armedCC = true;
-        } else if (!DOT_TAGS.includes(d.tag)) {
+        } else if (!DOT_TAGS.includes(d.tag) && !ACTION_TIMED_TAGS.has(d.tag)) {
           d.armed = true;
         }
       }
@@ -2302,12 +2353,14 @@ function resolveBattle(a, b, opts = {}) {
       // the next round; DOT and skip-control effects retain their dedicated action timing.
       for (const side of order) {
         for (const d of side.debuffs) {
-          if (!DOT_TAGS.includes(d.tag) && !SKIP_TAGS.includes(d.tag) && d.armed) {
+          if (!DOT_TAGS.includes(d.tag) && !SKIP_TAGS.includes(d.tag)
+              && !ACTION_TIMED_TAGS.has(d.tag) && d.armed) {
             d.turnsLeft -= 1;
           }
         }
         const expired = side.debuffs.filter(
-          (d) => !DOT_TAGS.includes(d.tag) && !SKIP_TAGS.includes(d.tag) && d.turnsLeft <= 0
+          (d) => !DOT_TAGS.includes(d.tag) && !SKIP_TAGS.includes(d.tag)
+            && !ACTION_TIMED_TAGS.has(d.tag) && d.turnsLeft <= 0
         );
         for (const d of expired) {
           logAt(

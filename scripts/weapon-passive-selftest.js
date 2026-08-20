@@ -749,6 +749,15 @@ audit('gungnir', () => {
   invoke('gungnir', inside);
   attack(inside);
   assert.equal(inside.flags.gungnir_attack_pierce_pct, 0.60, '0.199 is inside a 20% chance');
+
+  const immune = makeBs({ rng: () => 0, enemyImmuneTags: ['armor_pierce'] });
+  invoke('gungnir', immune);
+  attack(immune);
+  assert(immune.log.some((line) => line.includes('blocked by immunity')),
+    'Gungnir reports armor-pierce immunity');
+  assert(!immune.log.some((line) => line.includes('enemy DEF ignored')
+    || line.includes('60% DEF penetration')),
+  'Gungnir emits no successful penetration log against an immune target');
 });
 
 audit('thunderbolt_of_zeus', () => {
@@ -889,7 +898,8 @@ audit('atlas', () => {
 audit('titan', () => {
   const healthy = makeBs({ playerHP: 80, playerMaxHP: 100 });
   invoke('titan', healthy);
-  close(healthy.playerAtkMult, 0.50, 'titan base damage bonus');
+  close(healthy.playerAtkMult, 0, 'titan does not use the additive ATK lane');
+  close(healthy.flags.titan_outgoing_damage_mult, 1.50, 'titan final damage multiplier');
   close(healthy.flags.titan_lifesteal_pct, 0.30, 'titan base lifesteal');
   assert.equal(healthy.flags.titan_reprieve_available, true, 'titan arms the reprieve');
   assert(healthy.log.some((line) => line.includes('Lifesteal 30%')),
@@ -901,10 +911,16 @@ audit('titan', () => {
   invoke('titan', wounded);
   close(wounded.flags.titan_lifesteal_pct, 0.50, 'titan lifesteal below 50% HP');
 
-  const spent = makeBs({ playerHP: 50, playerMaxHP: 100, flags: { titan_reprieve_used: true, titan_atk_bonus: 1.00 } });
+  const spent = makeBs({
+    playerHP: 50,
+    playerMaxHP: 100,
+    flags: { titan_reprieve_used: true, titan_post_reprieve_damage_mult: 2.00 },
+  });
   invoke('titan', spent);
   assert(!spent.flags.titan_reprieve_available, 'titan reprieve is once per battle');
-  close(spent.playerAtkMult, 1.50, 'titan base plus post-reprieve damage bonus');
+  close(spent.playerAtkMult, 0, 'titan reprieve does not use the additive ATK lane');
+  close(spent.flags.titan_outgoing_damage_mult * spent.flags.titan_post_reprieve_damage_mult,
+    3.00, 'titan base and post-reprieve final damage multipliers compose');
 });
 
 assert.deepEqual(

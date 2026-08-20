@@ -6,6 +6,7 @@ const path = require('node:path');
 const chest = require('../src/commands/rpg/chestConvert');
 const aliases = require('../src/config/aliases');
 const { parseMessage } = require('../src/handlers/commandHandler');
+const pool = require('../src/db/pool');
 
 let passed = 0;
 let failed = 0;
@@ -170,8 +171,41 @@ async function run() {
   check('initial view uses Components V2 and owner-scoped controls', payload.flags > 0
     && payloadText.includes('chestx:type:42')
     && payloadText.includes('chestx:convert:42:silver_gold'));
-  check('initial view shows the canonical chest emojis', payloadText.includes('silver_chest')
-    && payloadText.includes('gold_chest'));
+  const containerJson = payloadJson[0];
+  const selectJson = containerJson.components.find((component) => component.type === 1)?.components?.[0];
+  const options = selectJson?.options || [];
+  const expectedOptions = [
+    ['Gold Chest', 'silver_gold', 'Cost: 20 Silver Chests', 'gold_chest'],
+    ['Diamond Chest', 'gold_diamond', 'Cost: 10 Gold Chests', 'diamond_chest'],
+    ['Boss Golden Chest', 'diamond_boss_golden', 'Cost: 10 Diamond Chests', 'boss_golden_chest'],
+    ['Boss Golden Chest', 'boss_treasure_boss_golden', 'Cost: 15 Boss Treasure Chests', 'boss_golden_chest'],
+  ];
+  check('dropdown options are outcome-focused and use destination emojis', options.length === expectedOptions.length
+    && expectedOptions.every(([label, value, description, emojiName], index) => {
+      const option = options[index];
+      return option.label === label
+        && option.value === value
+        && option.description === description
+        && option.emoji?.name === emojiName;
+    }));
+  check('duplicate Boss Golden recipes remain distinct and selectable', options.filter((option) => option.label === 'Boss Golden Chest').length === 2
+    && options.some((option) => option.value === 'diamond_boss_golden')
+    && options.some((option) => option.value === 'boss_treasure_boss_golden')
+    && options.find((option) => option.value === 'diamond_boss_golden')?.description !== options.find((option) => option.value === 'boss_treasure_boss_golden')?.description);
+  check('selected dropdown option uses the outcome label', options.find((option) => option.default)?.value === 'silver_gold'
+    && options.find((option) => option.default)?.label === 'Gold Chest'
+    && options.find((option) => option.default)?.emoji?.name === 'gold_chest');
+  const initialBalanceLine = chest.chestBalanceLine({
+    silver_chest: 127,
+    gold_chest: 4,
+    diamond_chest: 0,
+    boss_treasure_chest: 0,
+    boss_golden_chest: 0,
+  });
+  check('bottom line shows all five live chest balances', containerJson.components.at(-1)?.content === `-# ${initialBalanceLine}`);
+  check('balance footer uses every registered custom chest emoji', [
+    'silver_chest', 'gold_chest', 'diamond_chest', 'boss_treasure_chest', 'boss_golden_chest',
+  ].every((name) => initialBalanceLine.includes(`<:${name}:`)));
 
   for (const [type, [, destination, rate]] of Object.entries(expected)) {
     const sourceAmount = rate * 5;
@@ -191,6 +225,38 @@ async function run() {
     check(`${type} conversion commits one atomic update`, client.commitCount === 1
       && client.sql.filter((sql) => sql.startsWith('UPDATE users_bag')).length === 1);
   }
+
+  await expect('successful conversion refreshes the view with post-transaction balances', async () => {
+    const client = new ChestClient({ type: 'silver_gold', bag: bagFor('silver_gold', 40, 2) });
+    const previousConnect = pool.connect;
+    let refreshedPayload;
+    try {
+      pool.connect = async () => client;
+      const interaction = modalInteraction('20');
+      interaction.message = {
+        edit: async (payload) => {
+          refreshedPayload = payload;
+          return payload;
+        },
+      };
+      await chest.handleModalSubmit(
+        interaction,
+        '42',
+        'silver_gold',
+        '77777777-7777-4777-8777-777777777777',
+      );
+      const refreshedContainer = refreshedPayload.components[0].toJSON();
+      assert.equal(refreshedContainer.components.at(-1).content, `-# ${chest.chestBalanceLine({
+        silver_chest: 20,
+        gold_chest: 3,
+        diamond_chest: 0,
+        boss_treasure_chest: 0,
+        boss_golden_chest: 0,
+      })}`);
+    } finally {
+      pool.connect = previousConnect;
+    }
+  });
 
   for (const [value, message] of [
     ['0', 'positive whole-number'],

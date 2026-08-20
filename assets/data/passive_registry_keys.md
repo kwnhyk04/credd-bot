@@ -71,14 +71,14 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `aegis` — Medusa's Gaze: Each hit taken adds a Stone stack, each granting 10% damage reduction. At 3 stacks the attacker is Petrified for 1 turn and takes 50% more damage while petrified, then the stacks reset. The third stack becomes the Petrify rather than more reduction, so the effective maximum is 2 stacks (20%).
 - `apollos_silver_bow` — Unerring Arrow: Ignores 25% of enemy DEF. Every 3rd turn, the attack is a guaranteed CRIT — counted in the wielder's own attack turns, so a turn lost to crowd control does not burn a count. Resets each battle.
 - `mjolnir` — Crushing Force: Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Attacks deal +30% ATK; every 3rd turn, the primary attack deals an additional +200% ATK.
-- `gungnir` — Never Misses: Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Each attack ignores 30% of enemy DEF and has a 10% chance to pierce all DEF (zero mitigation).
+- `gungnir` — Never Misses: Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Each attack ignores 30% of enemy DEF and has a 20% chance to use 60% total DEF penetration for that attack.
 - `thunderbolt_of_zeus` — Divine Thunder: Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Each critical attack deals +100% bonus ATK and applies Paralyze for 1 turn.
 - `trident_of_poseidon` — Tidal Wrath: Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Every 2nd turn, deals +100% bonus ATK and reduces enemy DEF by 20% for 1 turn, with a 30% chance to stun for 1 turn.
-- `kiri` — Thousand Partings: [Divine] Each attack increases damage by 20%, stacking up to +120%. Each attack has a 25% chance to strike twice.
+- `kiri` — Thousand Partings: [Divine] Each attack increases damage by 20%, stacking up to +120%. Each attack has a 25% chance to strike twice as two separate hits.
 - `moira` — Fate Ignores Iron: [Divine] All attacks reduce the target's DEF by 10%, stacking up to 50%. Ignores 50% of DEF against targets with a defense buff active. Attacks cannot miss.
 - `sophia` — The Price of Knowing: [Divine] All damage dealt is increased by 75%, but the wielder takes 20% more damage. Below 30% HP the damage bonus rises to +150% for the rest of the battle.
-- `atlas` — Worldbreaker's Grip: [Divine] Base attack increased by 50%. Every 3rd turn is a guaranteed critical strike. Enemies hit by a critical strike have their ATK reduced by 30% for 1 turn.
-- `titan` — Forgefire Veins: [Divine] Heals for 30% of all damage dealt (50% while below 50% HP). Once per battle, upon taking fatal damage, survives at 1 HP and gains +100% damage until the end of battle.
+- `atlas` — Worldbreaker's Grip: [Divine] Base attack increased by 50%. Every 3rd turn is a guaranteed critical strike. Enemies hit by a critical strike have their attack reduced by 50% for 1 turn.
+- `titan` — Forgefire Veins: [Divine] Damage dealt is increased by 50%. The wielder heals for 30% of all damage dealt (50% while below 50% HP). Once per battle, upon taking fatal damage, survives at 1 HP and gains +100% damage until the end of battle.
 
 ## ARMOR passives (armor_roster.passive_key) — [v5]
 

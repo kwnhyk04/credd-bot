@@ -22,7 +22,7 @@ BEGIN
     INSERT INTO _supreme_deity_description_targets (roster_type, registry_key, description)
     VALUES
         ('weapon', 'mjolnir', 'Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Attacks deal +30% ATK; every 3rd turn, the primary attack deals an additional +200% ATK.'),
-        ('weapon', 'gungnir', 'Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Each attack ignores 30% of enemy DEF and has a 10% chance to pierce all DEF (zero mitigation).'),
+        ('weapon', 'gungnir', 'Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Each attack ignores 30% of enemy DEF and has a 20% chance to use 60% total DEF penetration for that attack.'),
         ('weapon', 'thunderbolt_of_zeus', 'Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Each critical attack deals +100% bonus ATK and applies Paralyze for 1 turn.'),
         ('weapon', 'trident_of_poseidon', 'Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Every 2nd turn, deals +100% bonus ATK and reduces enemy DEF by 20% for 1 turn, with a 30% chance to stun for 1 turn.'),
         ('deity', 'odin_all_fathers_wisdom', 'Increase ATK by +50%. On even-numbered battle turns, takes 25% less damage and stores the damage prevented. On the immediately following odd-numbered turn, adds the stored amount to the next attack, then clears it. Resets after battle.'),

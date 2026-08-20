@@ -2829,6 +2829,61 @@ Validation:
 - No database migration, production SQL, RAG pipeline, metadata schema, or vector index was
   executed.
 
+## Follow-up: targeted Divine and Supreme weapon balance source-of-truth synchronization
+
+Timestamp: 2026-08-21 +08:00
+Patch name: Atlas, Kiri, Titan, and Gungnir balance description synchronization
+Implementation commit: `d66d2c4`
+
+The targeted combat correction is implemented in `src/engine/passiveRegistry.js` and
+`src/engine/battleEngine.js`:
+
+1. Atlas retains its +50% base attack and every-3rd-turn guaranteed critical behavior;
+   a landed Atlas critical now applies a 50% enemy ATK reduction for 1 turn, with no
+   separate critical-damage multiplier.
+2. Kiri retains its 25% proc chance and +20% attack stacking through +120%. A successful
+   proc now queues one separate second hit through the normal additional-attack resolver,
+   including independent mitigation, critical/variance handling, landed-hit effects,
+   class reactions, and defender reactions. The second hit does not advance the battle
+   turn, cannot recursively proc Kiri, and does not add a second Kiri stack.
+3. Titan now applies +50% base damage through the normal outgoing damage lane. Its 30%
+   lifesteal, 50% below-half-HP lifesteal, once-per-battle Fatal Reprieve, and existing
+   +100% post-Reprieve damage remain unchanged.
+4. Gungnir retains 30% normal DEF penetration, changes its proc chance to 20%, and uses
+   exactly 60% total DEF penetration on a proc attack. The former full-DEF-bypass path
+   was removed. The shared Supreme +10% ATK-per-turn stack, +50% cap, and battle reset
+   remain unchanged.
+
+The exact player-facing descriptions are synchronized in the reusable SQL sources
+`scripts/final-passive-description-updates.sql` and
+`scripts/update-supreme-weapon-deity-atk-descriptions.sql`, the generated manual patch
+`scripts/patch_descriptions.sql`, the matching JS description definitions, and
+`assets/data/passive_registry_keys.md`. The manual patch was regenerated with
+`node scripts/gen_description_patch.js`. The new dated migration
+`scripts/migrations/20260821_01_targeted_weapon_balance_descriptions.sql` updates all
+four roster rows with name, passive key, and tier guards and verifies each result. The
+historical `20260720_08_genesis_weapons.sql` migration was not edited; the new migration
+supersedes its old seeded descriptions as required by the migration policy.
+
+The player-facing weapon reference is documented in `docs/weapon-system.md`. The exact
+descriptions are:
+
+- Atlas: `Base attack increased by 50%. Every 3rd turn is a guaranteed critical strike. Enemies hit by a critical strike have their attack reduced by 50% for 1 turn.`
+- Kiri: `Each attack increases damage by 20%, stacking up to +120%. Each attack has a 25% chance to strike twice as two separate hits.`
+- Titan: `Damage dealt is increased by 50%. The wielder heals for 30% of all damage dealt. Healing increases to 50% while below 50% HP. Once per battle, upon taking fatal damage, survives at 1 HP and gains +100% damage until the end of battle.`
+- Gungnir: `Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Each attack ignores 30% of enemy DEF and has a 20% chance to use 60% total DEF penetration for that attack.`
+
+Validation:
+
+- `npm run selftest:full` passed the complete repository verification chain.
+- The focused battle self-test passed 512 checks, including Atlas duration and value,
+  Kiri two-hit/reflection/class/no-extra-turn behavior, Titan exact base and reprieve
+  damage, Gungnir 30% versus 60% penetration, and unchanged Supreme controls.
+- `npm run selftest:patch`, `npm run selftest:deities`, and
+  `npm run selftest:stats-display` passed.
+- No SQL was executed against Supabase, and no production database or migration state was
+  changed by Codex.
+
 ## Follow-up: Mandarangan War Frenzy passive audit correction
 
 Timestamp: 2026-08-19 +08:00
@@ -2876,3 +2931,36 @@ Validation:
 - `git diff --check` passed.
 - No database migration, production SQL, RAG pipeline, metadata schema, or vector index was
   executed.
+
+## Follow-up: simplify Chest Conversion UI
+
+Timestamp: 2026-08-21 +08:00
+Patch name: Outcome-focused `crd convert chest` / `crd cc` display
+Commit: not created (working tree only)
+
+The Chest Conversion command now changes presentation only:
+
+1. Dropdown options use the destination chest's custom emoji and label, with a
+   `Cost: <rate> <source> Chests` description. The four internal conversion values
+   remain separate, including both Boss Golden Chest recipes.
+2. The selected option keeps the same destination-focused label when the menu is
+   collapsed.
+3. The view footer always shows the live counts for Silver, Gold, Diamond, Boss
+   Treasure, and Boss Golden Chests as one compact custom-emoji line.
+4. After a successful conversion, the message is rebuilt from the post-transaction
+   bag returned by the existing locked update, so the footer is refreshed immediately.
+
+The conversion rates, quantity validation, balance checks, source deduction,
+destination credit, transaction/idempotency protections, aliases, ownership checks,
+timeouts, chest opening, rewards, and drop rates are unchanged. The existing
+`emoji()` resolver continues to source chest icons from `assets/data/game_items.txt`;
+no emoji IDs or conversion SQL were added.
+
+The source-of-truth reference is `docs/chest-conversion-system.md`, and regression
+coverage is in `scripts/chest-convert-selftest.js`.
+
+Validation:
+
+- `npm run selftest:chest-convert` passed 35 checks.
+- `npm run selftest:full` passed the complete repository verification chain.
+- `git diff --check` passed.
