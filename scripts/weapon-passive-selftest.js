@@ -736,19 +736,19 @@ audit('gungnir', () => {
   const bs = makeBs({ rng: () => 0 });
   invoke('gungnir', bs);
   close(bs.ignoreDefPct, 0.30, 'Gungnir base pierce');
-  assert.equal(bs.flags.gungnir_full_pierce, undefined);
+  assert.equal(bs.flags.gungnir_attack_pierce_pct, undefined);
   attack(bs);
-  assert.equal(bs.flags.gungnir_full_pierce, true);
-  // The full-pierce roll is a SEPARATE 10% chance from the 30% DEF ignore, and it
-  // supersedes rather than stacks — the engine zeroes DEF outright on a pierce.
-  const boundary = makeBs({ rng: () => 0.10 });
+  assert.equal(bs.flags.gungnir_attack_pierce_pct, 0.60);
+  // The 60% proc replaces the normal 30% penetration for that attack; it does
+  // not stack to 90% and never zeroes the defender's DEF.
+  const boundary = makeBs({ rng: () => 0.20 });
   invoke('gungnir', boundary);
   attack(boundary);
-  assert.equal(boundary.flags.gungnir_full_pierce, false, '0.10 is outside a 10% chance');
-  const inside = makeBs({ rng: () => 0.099 });
+  assert.equal(boundary.flags.gungnir_attack_pierce_pct, 0.30, '0.20 is outside a 20% chance');
+  const inside = makeBs({ rng: () => 0.199 });
   invoke('gungnir', inside);
   attack(inside);
-  assert.equal(inside.flags.gungnir_full_pierce, true, '0.099 is inside a 10% chance');
+  assert.equal(inside.flags.gungnir_attack_pierce_pct, 0.60, '0.199 is inside a 20% chance');
 });
 
 audit('thunderbolt_of_zeus', () => {
@@ -820,14 +820,20 @@ audit('kiri', () => {
     attack(bs);
   }
   close(bs.playerAtkMult, 1.20, 'kiri stack caps at +120%');
-  assert.equal(bs.nextAttackDouble, false, 'kiri does not double on a failed roll');
+  assert.equal(bs.flags.kiri_double_pending, undefined, 'kiri does not double on a failed roll');
 
   const proc = makeBs({ rng: () => 0.10 }); // < 0.25 → double strike
   invoke('kiri', proc);
   attack(proc);
-  assert.equal(proc.nextAttackDouble, true, 'kiri 25% double strike');
+  assert.equal(proc.flags.kiri_double_pending, true, 'kiri 25% double strike');
   assert(proc.log.some((line) => line.includes('Double strike triggered')),
     'kiri logs a successful double-strike proc');
+
+  proc.playerAtkMult = 0;
+  proc.isPrimaryAttack = false;
+  attack(proc);
+  close(proc.playerAtkMult, 0, 'kiri additional strike does not add another stack');
+  assert.equal(proc.flags.kiri_double_pending, true, 'kiri additional strike does not recurse');
 });
 
 audit('moira', () => {
@@ -883,6 +889,7 @@ audit('atlas', () => {
 audit('titan', () => {
   const healthy = makeBs({ playerHP: 80, playerMaxHP: 100 });
   invoke('titan', healthy);
+  close(healthy.playerAtkMult, 0.50, 'titan base damage bonus');
   close(healthy.flags.titan_lifesteal_pct, 0.30, 'titan base lifesteal');
   assert.equal(healthy.flags.titan_reprieve_available, true, 'titan arms the reprieve');
   assert(healthy.log.some((line) => line.includes('Lifesteal 30%')),
@@ -897,7 +904,7 @@ audit('titan', () => {
   const spent = makeBs({ playerHP: 50, playerMaxHP: 100, flags: { titan_reprieve_used: true, titan_atk_bonus: 1.00 } });
   invoke('titan', spent);
   assert(!spent.flags.titan_reprieve_available, 'titan reprieve is once per battle');
-  close(spent.playerAtkMult, 1.00, 'titan post-reprieve damage bonus');
+  close(spent.playerAtkMult, 1.50, 'titan base plus post-reprieve damage bonus');
 });
 
 assert.deepEqual(

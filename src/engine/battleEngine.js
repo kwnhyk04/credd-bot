@@ -28,7 +28,7 @@
  *        landed-hit weapon draws → [Swordsman] bleed draw (1, only
  *        when the main hit lands — RESERVED for stream stability; the bleed value is now
  *        a deterministic 4%/stack) → primary-only additional-attack generator
- *        rolls → queued additional attacks in Labrys → Glacial Bow → Archer order.
+ *        rolls → queued additional attacks in Kiri → Labrys → Glacial Bow → Archer order.
  *        Each additional attack receives fresh attack-bound, class, crit, variance,
  *        landed-hit, and defensive rolls, but generator hooks are disabled.
  *        MOB attack: per sub-hit → crit (1 draw) + variance (1 draw)
@@ -86,7 +86,7 @@
  * DEF_DOWN COMBINATION (R8): all def_down sources (the def_down debuff — itself
  * merged highest-value — and the Laevateinn stack) combine HIGHEST-WINS, never
  * multiplicatively. Armor pierce is a separate highest-wins lane, gated by
- * armor_pierce immunity (incl. Gungnir full pierce and Archer class pierce).
+ * armor_pierce immunity (including Gungnir's attack penetration and Archer class pierce).
  */
 
 const PASSIVE_REGISTRY = require('./passiveRegistry');
@@ -378,6 +378,11 @@ const applyHitToDefender = (bt, fx, S, O, dmg, info = {}) => {
     dmg = fx.effectDamage(O, dmg);
     fx.damage(O, dmg);
     fx.checkDeaths('attack');
+    if (O.hp > 0 && info.crit && S.flags.atlas_crit_atk_down) {
+      if (fx.tryApplyDebuff(O, 'atk_down', LANDED_STAT_DEBUFF_TURNS, 0.50, S)) {
+        bt.shared.events.push(`🥊 Atlas: Worldbreaker's Grip — ${O.name}'s ATK reduced 50%!`);
+      }
+    }
     return { applied: Math.floor(dmg), negated: false };
   }
 
@@ -600,8 +605,8 @@ const applyHitToDefender = (bt, fx, S, O, dmg, info = {}) => {
   fx.grantAegisStone(O, S);
   if (info.crit) fx.recordReceivedCrit(O);
   if (info.crit && S.flags.atlas_crit_atk_down) {
-    if (fx.tryApplyDebuff(O, 'atk_down', LANDED_STAT_DEBUFF_TURNS, 0.30, S)) {
-      bt.shared.events.push(`🥊 Atlas: Worldbreaker's Grip — ${O.name}'s ATK reduced 30%!`);
+    if (fx.tryApplyDebuff(O, 'atk_down', LANDED_STAT_DEBUFF_TURNS, 0.50, S)) {
+      bt.shared.events.push(`🥊 Atlas: Worldbreaker's Grip — ${O.name}'s ATK reduced 50%!`);
     }
   }
   if (O.hp > 0) fx.armLowHpAttackPassives(O);
@@ -1009,8 +1014,7 @@ function resolveBattle(a, b, opts = {}) {
     const pierceImmune = sideImmune(O, 'armor_pierce');
     if (!pierceImmune) {
       if (S.kind === 'player') {
-        if (mainHit && S.flags.gungnir_full_pierce) return 0;
-        let pierce = S.scratch.ignoreDefPct;
+        let pierce = S.flags.gungnir_attack_pierce_pct ?? S.scratch.ignoreDefPct;
         if (S.classPassive === 'pierce') pierce = Math.max(pierce, ARCHER_PIERCE);
         if (mainHit && S.flags.crossbow_pierce) pierce = Math.max(pierce, 0.25);
         // [Divine] Moira ignores 50% DEF while the target's DEF is buffed —
@@ -1267,6 +1271,15 @@ function resolveBattle(a, b, opts = {}) {
   const collectAdditionalAttacks = (S, allowAdditionalAttackProcs) => {
     const additionalAttacks = [];
     if (allowAdditionalAttackProcs) {
+      if (S.flags.kiri_double_pending) {
+        additionalAttacks.push({
+          source: 'kiri',
+          atkScale: 1,
+          log: '🌫️ Kiri: Thousand Partings — second strike activated!',
+          logPriority: LOG.WEAPON,
+          kiriSecondStrike: true,
+        });
+      }
       if (S.flags.labrys_double_hit) {
         additionalAttacks.push({
           source: 'labrys',
@@ -1301,6 +1314,7 @@ function resolveBattle(a, b, opts = {}) {
     S.flags.labrys_double_hit = false;
     S.flags.extra_turn = false;
     S.flags.auto_fire_shot = false;
+    S.flags.kiri_double_pending = false;
     return additionalAttacks;
   };
 
@@ -1485,7 +1499,7 @@ function resolveBattle(a, b, opts = {}) {
         : null;
       const doubled = mainHit && S.scratch.nextAttackDouble && !overchargeFired;
       const critApplied = crit && !overchargeFired && !doubled;
-      const critLevel = critApplied || doubled; // double = guaranteed crit-level multiplier
+      const critLevel = critApplied || doubled; // Double (Idiyanale) = crit-level multiplier
 
       const surtVsBurning = Boolean(S.flags.surt_on_hit && findDebuff(O, 'burn'));
       const willFighterStun = mainHit
@@ -1557,6 +1571,8 @@ function resolveBattle(a, b, opts = {}) {
       const icon = classEmojiFor(S);
       const attackLabel = attackSource === 'auto_fire'
         ? `${icon} ${S.name}'s Auto-Fire triggered — additional shot`
+        : attackSource === 'kiri'
+          ? `${icon} ${S.name} strikes again`
         : `${icon} ${S.name} ${mainHit ? 'attacks' : 'strikes again'}`;
       // ATTACK priority also opens a new ordering block, so this attack's modifiers
       // can never be sorted under the previous attack's line.
@@ -1652,7 +1668,7 @@ function resolveBattle(a, b, opts = {}) {
       }
       if (mainHit) {
         S.flags.crossbow_pierce = false;
-        S.flags.gungnir_full_pierce = false;
+        S.flags.gungnir_attack_pierce_pct = null;
       }
     };
 
@@ -1721,7 +1737,7 @@ function resolveBattle(a, b, opts = {}) {
     }
 
     // Additional-attack generators are evaluated only by the primary attack.
-    // Their deterministic order is Labrys → Glacial Bow → Archer. Every generated
+    // Their deterministic order is Kiri → Labrys → Glacial Bow → Archer. Every generated
     // attack is otherwise a complete regular attack instance, but its context
     // disables every additional-attack generator to prevent recursion.
     const additionalAttacks = collectAdditionalAttacks(S, allowAdditionalAttackProcs);
@@ -1730,12 +1746,21 @@ function resolveBattle(a, b, opts = {}) {
       if (result || O.hp <= 0) break;
       if (additional.log) logAt(additional.logPriority || LOG.WEAPON, additional.log);
       rerollDefensiveChecks(S, O);
+      const additionalScratchBaseline = additional.kiriSecondStrike
+        ? {
+          ...scratchBaseline,
+          // The second Kiri strike is still the same attack for stacking purposes:
+          // carry its one already-earned stack without carrying any other
+          // attack-bound proc or incrementing the stack again.
+          playerAtkMult: scratchBaseline.playerAtkMult + (Number(S.flags.kiri_stack) || 0),
+        }
+        : scratchBaseline;
       playerAttack(S, O, {
         isPrimaryAttack: false,
         allowAdditionalAttackProcs: false,
         source: additional.source,
         atkScale: additional.atkScale,
-        scratchBaseline,
+        scratchBaseline: additionalScratchBaseline,
       });
     }
   };

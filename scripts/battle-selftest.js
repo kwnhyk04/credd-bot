@@ -266,7 +266,7 @@ check('class base and per-level scaling match the balance table',
   PASSIVE_REGISTRY.kiri(kiri);
   kiri.attackHooks[0]();
   check('Divine Kiri ramps and can double strike',
-    kiri.playerAtkMult === 0.20 && kiri.nextAttackDouble === true);
+    kiri.playerAtkMult === 0.20 && kiri.flags.kiri_double_pending === true);
 
   const moira = divineState();
   PASSIVE_REGISTRY.moira(moira);
@@ -308,7 +308,64 @@ check('class base and per-level scaling match the balance table',
     hasEvent(kiriRoundOne, 'Damage +20% (total +20%)'));
   check('Divine Kiri battle log shows a double-strike proc',
     hasEvent(kiriRoundOne, 'Double strike triggered')
-    && hasEvent(kiriRoundOne, '*(Double!)*'));
+    && kiriRoundOne.filter((event) => event.includes('Hero attacks') || event.includes('Hero strikes again')).length === 2
+    && !hasEvent(kiriRoundOne, '*(Double!)*'));
+
+  const kiriTwoHit = resolveBattle(
+    player({
+      class: 'Test', classPassive: null, weaponPassiveKey: 'kiri', weaponName: 'Kiri',
+      atk: 100, hp: 10_000, def: 0, crit: 0,
+    }),
+    player({
+      name: 'Rival', class: 'Test', classPassive: null, weaponPassiveKey: 'none',
+      armorPassiveKey: 'enderby_shield', atk: 0, hp: 10_000, def: 0, crit: 0,
+    }),
+    { mode: 'duel', rng: () => 0.10 },
+  );
+  const kiriDuelRound = roundEvents(kiriTwoHit, 1);
+  const kiriHitLines = kiriDuelRound.filter((event) =>
+    event.includes('Hero attacks for') || event.includes('Hero strikes again for'));
+  const kiriRivalIndex = kiriDuelRound.findIndex((event) => event.includes('Rival attacks for'));
+  check('Divine Kiri resolves two separate normal hits with one stack increment',
+    kiriHitLines.length === 2
+      && dmgOf([kiriHitLines[0]], 'Hero attacks') === 110
+      && dmgOf([kiriHitLines[1]], 'Hero strikes again') === 110
+      && kiriDuelRound.filter((event) => event.includes('Damage +20%')).length === 1
+      && !hasEvent(kiriDuelRound, '*(Double!)*'));
+  check('Divine Kiri sends each hit through reflection and does not take an extra turn',
+    kiriDuelRound.filter((event) => event.includes('Thornward reflects')).length === 2
+      && kiriDuelRound.filter((event) => event.includes('second strike activated')).length === 1
+      && kiriHitLines[1] && kiriRivalIndex > kiriDuelRound.indexOf(kiriHitLines[1]));
+
+  const kiriSwordsman = resolveBattle(
+    player({
+      class: 'Swordsman', classPassive: 'bleed', weaponPassiveKey: 'kiri', weaponName: 'Kiri',
+      atk: 100, hp: 10_000, def: 0, crit: 0,
+    }),
+    mob({ atk: 0, hp: 10_000, def: 0, crit: 0 }),
+    { mode: 'raid', rng: () => 0.10 },
+  );
+  check('Divine Kiri preserves per-hit class reactions on the second strike',
+    roundEvents(kiriSwordsman, 1)
+      .filter((event) => event.includes('Swordsman Passive — applied Bleed')).length === 2);
+
+  const atlasBattle = resolveBattle(
+    player({
+      class: 'Test', classPassive: null, weaponPassiveKey: 'atlas', weaponName: 'Atlas',
+      atk: 100, hp: 10_000, def: 0, crit: 0,
+    }),
+    mob({ atk: 100, hp: 10_000, def: 0, crit: 0 }),
+    { mode: 'raid', rng: () => 0.50 },
+  );
+  const atlasRoundThree = roundEvents(atlasBattle, 3);
+  const atlasRoundFour = roundEvents(atlasBattle, 4);
+  check('Divine Atlas applies a 50% ATK reduction only on a landed crit',
+    dmgOf(atlasRoundThree, 'Hero attacks') === 300
+      && hasEvent(atlasRoundThree, "ATK reduced 50%")
+      && !hasEvent(atlasRoundThree, 'ATK reduced 30%'));
+  check('Divine Atlas keeps the enemy ATK reduction to one turn',
+    dmgOf(atlasRoundFour, 'Dummy strikes') === 50
+      && hasEvent(atlasRoundFour, 'ATK Down expired'));
 
   const moiraVsEvade = resolveBattle(
     player({ weaponPassiveKey: 'moira', weaponName: 'Moira', atk: 100, hp: 10_000, def: 0, crit: 0 }),
@@ -781,6 +838,23 @@ check('class base and per-level scaling match the balance table',
   check('Supreme weapon stack log reaches +50% once and does not add a turn-6 stack',
     hasEvent(roundEvents(progression, 5), 'total +50%')
       && !hasEvent(roundEvents(progression, 6), 'Supreme Weapon:'));
+
+  const gungnirProc = resolveBattle(
+    supremePlayer({ weaponTier: null, weaponPassiveKey: 'gungnir', bonusDmgPct: 0 }),
+    target({ def: 1_000 }),
+    { mode: 'raid', rng: scripted([0.99, 0.99, 0.00, 0.00], 0.5) },
+  );
+  const gungnirNormal = resolveBattle(
+    supremePlayer({ weaponTier: null, weaponPassiveKey: 'gungnir', bonusDmgPct: 0 }),
+    target({ def: 1_000 }),
+    { mode: 'raid', rng: scripted([0.99, 0.99, 0.20, 0.00], 0.5) },
+  );
+  check('Gungnir proc replaces 30% penetration with exactly 60%',
+    dmgOf(roundEvents(gungnirProc, 1), 'Hero attacks') === 30
+      && hasEvent(roundEvents(gungnirProc, 1), '60% DEF penetration')
+      && !hasEvent(roundEvents(gungnirProc, 1), 'ALL DEF')
+      && dmgOf(roundEvents(gungnirNormal, 1), 'Hero attacks') === 20
+      && !hasEvent(roundEvents(gungnirNormal, 1), '60% DEF penetration'));
 
   for (const weaponPassiveKey of supremeKeys) {
     const sim = resolveBattle(supremePlayer({ weaponPassiveKey }), target(), {
@@ -2822,8 +2896,21 @@ check('class base and per-level scaling match the balance table',
   const titan = reprieveBattle('weaponPassiveKey', 'titan');
   check('Titan +100% damage applies to a pending same-round action',
     hasEvent(roundEvents(titan, 1), 'survives at 1 HP, damage +100%')
-      && dmgOf(roundEvents(titan, 1), 'Hero attacks') === 200,
+      && dmgOf(roundEvents(titan, 1), 'Hero attacks') === 250,
     roundEvents(titan, 1).join(' | '));
+
+  const titanBase = resolveBattle(
+    player({
+      class: 'Test', classPassive: null, weaponPassiveKey: 'titan', weaponName: 'Titan',
+      atk: 100, hp: 100_000, def: 0, crit: 0,
+    }),
+    mob({ atk: 0, hp: 100_000, def: 0, crit: 0 }),
+    { mode: 'boss', rng: () => 0.50 },
+  );
+  check('Titan applies its +50% base damage once through the unified ATK lane',
+    dmgOf(roundEvents(titanBase, 1), 'Hero attacks') === 150
+      && dmgOf(roundEvents(titanBase, 2), 'Hero attacks') === 150
+      && !hasEvent(roundEvents(titanBase, 1), 'damage +100%'));
 }
 
 // Titan's threshold is evaluated at the landed hit, not frozen at the earlier
@@ -2843,7 +2930,7 @@ check('class base and per-level scaling match the balance table',
   );
   check('Titan switches to 50% lifesteal after crossing half HP before attacking',
     hasEvent(roundEvents(sim, 1), 'Lifesteal 50% while below half HP')
-      && hasEvent(roundEvents(sim, 1), 'Forgefire Veins — healed 50 HP'),
+      && hasEvent(roundEvents(sim, 1), 'Forgefire Veins — healed 75 HP'),
     roundEvents(sim, 1).join(' | '));
 }
 

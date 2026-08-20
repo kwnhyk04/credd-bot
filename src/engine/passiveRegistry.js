@@ -718,6 +718,9 @@ const PASSIVE_REGISTRY = {
     // attack has a 25% chance to strike twice. Both are attack-bound so crowd
     // control cannot burn a stack or a double-strike roll on a skipped turn.
     bs.onAttack(() => {
+      // A generated/additional hit is part of the same attack action. It must
+      // not create another Kiri stack or recursively roll another double strike.
+      if (bs.isPrimaryAttack === false) return;
       if (!bs.flags.kiri_stack) bs.flags.kiri_stack = 0;
       const previousStack = bs.flags.kiri_stack;
       if (bs.flags.kiri_stack < 1.20) {
@@ -730,7 +733,7 @@ const PASSIVE_REGISTRY = {
         );
       }
       if (bs.rng() < 0.25) {
-        bs.nextAttackDouble = true;
+        bs.flags.kiri_double_pending = true;
         bs.log.push('🌫️ Kiri: Thousand Partings — Double strike triggered!');
       }
     });
@@ -777,7 +780,7 @@ const PASSIVE_REGISTRY = {
 
   'atlas': (bs) => {
     // Worldbreaker's Grip — +50% ATK, every 3rd round is a guaranteed critical
-    // strike, and any critical strike cuts the enemy's ATK by 30% for 1 turn
+    // strike, and any critical strike cuts the enemy's ATK by 50% for 1 turn
     // (engine applies it on the landed crit via atlas_crit_atk_down).
     bs.playerAtkMult += 0.50;
     bs.flags.atlas_crit_atk_down = true;
@@ -792,10 +795,14 @@ const PASSIVE_REGISTRY = {
   },
 
   'titan': (bs) => {
-    // Forgefire Veins — heal 30% of damage dealt (50% while below 50% HP), and
+    // Forgefire Veins — deal +50% damage, heal 30% of damage dealt (50% while
+    // below 50% HP), and
     // once per battle survive fatal damage at 1 HP with +100% damage for the
     // rest of the battle. The engine reads titan_lifesteal_pct on every landed
     // hit and consumes titan_reprieve_available on the lethal blow.
+    bs.playerAtkMult += 0.50;
+    logOnce(bs, 'titan_damage_logged',
+      '🔥 Titan: Forgefire Veins — Damage +50%.');
     const lifestealPct = bs.playerHP < bs.playerMaxHP * 0.50 ? 0.50 : 0.30;
     if (bs.flags.titan_lifesteal_pct !== lifestealPct) {
       bs.log.push(
@@ -1055,16 +1062,16 @@ const PASSIVE_REGISTRY = {
   },
 
   'gungnir': (bs) => {
-    // Ignores 30% DEF; each actual attack has a separate 10% full-pierce roll. The two
-    // are independent rolls and full-pierce SUPERSEDES rather than stacks — the engine
-    // zeroes DEF entirely on a pierce, so the 30% is simply not consulted.
+    // Ignores 30% DEF; each actual attack has a separate 20% chance to use
+    // exactly 60% total DEF penetration for that attack instead.
     if (0.30 > bs.ignoreDefPct) bs.ignoreDefPct = 0.30;
     logOnce(bs, 'gungnir_pierce_logged',
       '🏹 Gungnir: Never Misses — 30% of enemy DEF ignored.');
     bs.onAttack(() => {
-      bs.flags.gungnir_full_pierce = bs.rng() < 0.10;
-      if (bs.flags.gungnir_full_pierce) {
-        bs.log.push('🏹 Gungnir: Never Misses — ALL DEF PIERCED!');
+      const proc = bs.rng() < 0.20;
+      bs.flags.gungnir_attack_pierce_pct = proc ? 0.60 : 0.30;
+      if (proc) {
+        bs.log.push('🏹 Gungnir: Never Misses — 60% DEF penetration for this attack!');
       }
     });
   },
