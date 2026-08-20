@@ -170,9 +170,8 @@ async function buildBossMessage(view, {
   const calamity = isCalamityBoss(mobRow.name);
   const unlimitedDev = isDev && !calamity;
   const spawnChest = chestForSpawn(state.spawn_id, mobRow.name, {
-    baseHp: mobRow.base_hp,
-    maxHp: state.max_hp,
     spawnSource: state.spawn_source,
+    passiveState: state.passive_state,
   });
   const reward = bossRewards(mobRow.name, spawnChest);
   const bagReward = bossBagReward(mobRow.name, spawnChest);
@@ -295,7 +294,7 @@ async function buildBossMessage(view, {
       .addTextDisplayComponents((td) => td.setContent(`-# ${lore}`));
   }
 
-  // Participation rewards are fixed by the same spawn variant as HP and chest.
+  // Participation rewards are fixed by the same spawn variant as the chest.
   const creduxIcon = emojiForDisplay('Credux Coin', '💰');
   const expIcon = emojiForDisplay('Combat Exp', '✨');
   const chestIcon = emojiForDisplay('Boss Treasure Chest', '🗝️');

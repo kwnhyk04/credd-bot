@@ -40,8 +40,8 @@ const {
 const { beginActivity } = require('../../utils/networkTelemetry');
 const { bossFeatTitlesFor } = require('../../config/titles');
 const {
-  isGreaterBoss, isCalamityBoss, bossRewards, bossBagReward, rollBossChest, hpMultiplierForChest,
-  bossMaxHpForChest, inferChestFromGreaterHp, bossChestForSpawn,
+  isGreaterBoss, isCalamityBoss, bossRewards, bossBagReward, rollBossChest,
+  bossMaxHpForChest, bossChestForSpawn,
   pickWeightedBoss, selectWeightedBossPool, pickBossFromPool,
   MAX_BOSS_ATTACKS_PER_DAY, bossAttackDecision,
 } = require('../../config/bosses');
@@ -272,9 +272,8 @@ async function spawnBoss(client, guildId, {
   const { row, greater, calamity } = pick;
 
   const stats = computeBossStats(row);
-  // Select the fixed chest once so HP, announcement, and payout share one outcome.
+  // Select the fixed chest once so announcement and payout share one outcome.
   const spawnChest = greater || calamity ? bossChestForSpawn(row.name, source) : rollBossChest(row.name);
-  const hpMultiplier = greater ? hpMultiplierForChest(spawnChest) : 1;
   const maxHp = bossMaxHpForChest(
     row.base_hp,
     row.hp_per_level,
@@ -290,8 +289,7 @@ async function spawnBoss(client, guildId, {
     source: `${source}:mob_roster`,
     greater,
     calamity,
-    multiplier: hpMultiplier,
-    reason: spawnChest ? `${spawnChest.column}:x${spawnChest.qty}` : 'normal',
+    chest: spawnChest ? `${spawnChest.column}:x${spawnChest.qty}` : 'normal',
     baseHp: Number(row.base_hp),
     baseAtk: Number(row.base_atk),
     baseDef: Number(row.base_def),
@@ -308,23 +306,32 @@ async function spawnBoss(client, guildId, {
         scaled_atk, scaled_def, spawn_at, expires_at, status,
         spawn_source, last_attack_at, passive_state)
      VALUES ($1, gen_random_uuid(), $2, $3, $3, $4, $5,
-             NOW(), ${ACTIVE_BOSS_EXPIRES_AT_SQL}, 'active', $6, NOW(), '{}'::jsonb)
+             NOW(), ${ACTIVE_BOSS_EXPIRES_AT_SQL}, 'active', $6, NOW(), $7::jsonb)
      ON CONFLICT (guild_id) DO UPDATE SET
        spawn_id = gen_random_uuid(), mob_id = EXCLUDED.mob_id,
        max_hp = EXCLUDED.max_hp, current_hp = EXCLUDED.current_hp,
        scaled_atk = EXCLUDED.scaled_atk,
        scaled_def = EXCLUDED.scaled_def, spawn_at = NOW(),
        expires_at = ${ACTIVE_BOSS_EXPIRES_AT_SQL}, status = 'active',
-       spawn_source = EXCLUDED.spawn_source, last_attack_at = NOW(), passive_state = '{}'::jsonb
+       spawn_source = EXCLUDED.spawn_source, last_attack_at = NOW(), passive_state = EXCLUDED.passive_state
      WHERE boss_state.status <> 'active'
-       AND ($7 OR boss_state.expires_at <= NOW() - INTERVAL '${RESPAWN_COOLDOWN}')
+       AND ($8 OR boss_state.expires_at <= NOW() - INTERVAL '${RESPAWN_COOLDOWN}')
      RETURNING spawn_id`,
-    [guildId, row.mob_id, maxHp, stats.atk, stats.def, source, force]
+    [
+      guildId,
+      row.mob_id,
+      maxHp,
+      stats.atk,
+      stats.def,
+      source,
+      JSON.stringify(greater && spawnChest ? { greaterChest: spawnChest } : {}),
+      force,
+    ]
   );
   if (ins.rows.length === 0) return false; // lost the race / cooldown not over
 
-  // Stash the chest against the new spawn_id so HP, announcement, and payout
-  // keep the same outcome without re-rolling.
+  // Stash the chest against the new spawn_id so announcement and payout keep
+  // the same outcome without re-rolling; passive_state is the restart source.
   if (greater && spawnChest) greaterChests.set(ins.rows[0].spawn_id, spawnChest);
 
   if (source === 'dev') devSpawns.add(ins.rows[0].spawn_id); // test boss: attack rules bypassed
@@ -363,7 +370,7 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
     const flip = await dbc.query(
       `UPDATE boss_state SET status = 'dead', expires_at = NOW()
         WHERE guild_id = $1 AND spawn_id = $2 AND status = 'active' AND current_hp <= 0
-        RETURNING mob_id, max_hp, spawn_source`,
+        RETURNING mob_id, max_hp, spawn_source, passive_state`,
       [guildId, spawnId]
     );
     if (flip.rows.length === 0) {
@@ -372,7 +379,7 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
     }
 
     // Reward bundle + chest keyed off the boss's Greater identity. The chest was
-    // fixed at spawn; after restart it is recovered from persisted max_hp.
+    // fixed at spawn and is recovered from persisted passive_state after restart.
     const mobRes = await dbc.query(
       `SELECT name, base_hp, hp_per_level, base_atk, atk_per_level,
               base_def, def_per_level, base_crit
@@ -384,10 +391,8 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
     const calamity = isCalamityBoss(bossName);
     // [v4.6] the chest fixed at spawn — same outcome the announcement showed, paid to all.
     chest = chestForSpawn(spawnId, bossName, {
-      baseHp: mobRow.base_hp,
-      hpPerLevel: mobRow.hp_per_level,
-      maxHp: flip.rows[0].max_hp,
       spawnSource: flip.rows[0].spawn_source,
+      passiveState: flip.rows[0].passive_state,
     }); // { column (whitelisted), qty, label }
     reward = bossRewards(bossName, chest);
     bagReward = bossBagReward(bossName, chest);
@@ -580,10 +585,8 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
     if (channel) {
       // Recover the fixed variant if presentation resumes after a process restart.
       const c = chest || chestForSpawn(view.state.spawn_id, view.mobRow.name, {
-        baseHp: view.mobRow.base_hp,
-        hpPerLevel: view.mobRow.hp_per_level,
-        maxHp: view.state.max_hp,
         spawnSource: view.state.spawn_source,
+        passiveState: view.state.passive_state,
       });
       const r = reward || bossRewards(view.mobRow.name, c);
       const guaranteedBag = bagReward || bossBagReward(view.mobRow.name, c);
@@ -737,12 +740,18 @@ async function handleAttackImpl(interaction) {
 
       // atomic commit — pool deduction, attack log, daily lock
       try {
+        const nextPassiveState = {
+          ...(sim.b?.bossPassiveState || {}),
+        };
+        if (state.passive_state?.greaterChest) {
+          nextPassiveState.greaterChest = state.passive_state.greaterChest;
+        }
         const upd = await dbc.query(
           `UPDATE boss_state SET current_hp = GREATEST(current_hp - $3, 0),
                 last_attack_at = NOW(), passive_state = $4::jsonb
             WHERE guild_id = $1 AND spawn_id = $2 AND status = 'active' AND current_hp > 0
             RETURNING current_hp`,
-          [guildId, state.spawn_id, net, JSON.stringify(sim.b?.bossPassiveState || {})]
+          [guildId, state.spawn_id, net, JSON.stringify(nextPassiveState)]
         );
         if (upd.rows.length === 0) {
           await dbc.query('ROLLBACK');

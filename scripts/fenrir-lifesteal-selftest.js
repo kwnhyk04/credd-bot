@@ -165,7 +165,7 @@ check('Lifesteal audit table survives hosted SQL-editor autocommit boundaries',
   fenrirMigration.includes('DROP TABLE IF EXISTS _lifesteal_rune_balance_audit')
     && fenrirMigration.includes('CREATE TEMP TABLE _lifesteal_rune_balance_audit AS')
     && !fenrirMigration.includes('ON COMMIT DROP'));
-check('Calamity golden-looking chest never applies Greater 2x HP',
+check('Calamity golden-looking chest never changes the direct DB HP value',
   bossMaxHpForChest(100000, 0, null, bossChestForSpawn('Fenrir', 'natural'), 'Fenrir') === 100000
     && bossMaxHpForChest(100000, 0, null, bossChestForSpawn('Bakunawa', 'dev'), 'Bakunawa') === 100000);
 

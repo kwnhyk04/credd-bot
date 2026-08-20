@@ -18,7 +18,7 @@ const {
 } = require('../../utils/runtimeLogs');
 const { registerMemorySource } = require('../../utils/memoryRegistry');
 const {
-  isGreaterBoss, isCalamityBoss, rollBossChest, inferChestFromGreaterHp, bossChestForSpawn,
+  isGreaterBoss, isCalamityBoss, rollBossChest, greaterVariantForChest, bossChestForSpawn,
 } = require('../../config/bosses');
 const {
   renderMemoryStats, trimBossBanners, dropStatusUrlsForSpawn, dropStatusUrlsForGuild,
@@ -32,9 +32,9 @@ const currentSpawn = new Map();  // guildId → spawnId (for logCache purging)
 const pendingBossRefreshes = new Map(); // guildId -> { timer, spawnId }
 const lastBossReconciliations = new Map(); // guildId -> last scheduler reconciliation attempt
 const nonOfficialRedirects = new Map(); // guildId -> ms of last redirect notice
-// Greater Boss chest rolled once at spawn, keyed by spawn_id. After a restart,
-// chestForSpawn reconstructs the outcome from persisted max_hp before falling
-// back to a roll for legacy spawns that predate chest-linked HP.
+// Greater Boss chest rolled once at spawn, keyed by spawn_id. The selected
+// variant is also persisted in boss_state.passive_state so a restart cannot
+// change the reward now that HP no longer encodes the chest.
 const greaterChests = new Map(); // spawnId → { column, qty, label }
 // Legacy in-memory cache for dev-spawn diagnostics; persisted spawn_source is
 // authoritative, so dev behavior survives a process restart.
@@ -176,15 +176,15 @@ function clearBossRuntimeForGuild(guildId, reason = 'guild-removed') {
 function chestForSpawn(
   spawnId,
   bossName,
-  { baseHp = null, maxHp = null, spawnSource = 'natural' } = {}
+  { spawnSource = 'natural', passiveState = null } = {}
 ) {
   if (isCalamityBoss(bossName)) return bossChestForSpawn(bossName, spawnSource);
   if (!isGreaterBoss(bossName)) return rollBossChest(bossName); // fixed 1× treasure
   if (!greaterChests.has(spawnId)) {
+    const persistedVariant = greaterVariantForChest(passiveState?.greaterChest);
     greaterChests.set(
       spawnId,
-      inferChestFromGreaterHp(baseHp, maxHp)
-        || rollBossChest(bossName)
+      persistedVariant ? { ...persistedVariant.chest } : rollBossChest(bossName)
     );
   }
   return greaterChests.get(spawnId);

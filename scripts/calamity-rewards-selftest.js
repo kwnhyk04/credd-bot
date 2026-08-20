@@ -87,7 +87,7 @@ run('guaranteed boss bags match every existing spawn variant without inheritance
   const greater = bosses.bossBagReward('Jotun', {
     column: 'boss_treasure_chest', qty: 2, label: 'Boss Treasure Chest',
   });
-  const greater2x = bosses.bossBagReward('Jotun', {
+  const greaterGolden = bosses.bossBagReward('Jotun', {
     column: 'boss_golden_chest', qty: 1, label: 'Boss Golden Chest',
   });
   const calamityNatural = bosses.bossBagReward('Fenrir', bosses.bossChestForSpawn('Fenrir', 'natural'));
@@ -98,10 +98,10 @@ run('guaranteed boss bags match every existing spawn variant without inheritance
   assert.deepEqual(greater, {
     column: 'greater_rune_bag', qty: 1, label: 'Greater Bag', emojiName: 'greater_bag',
   });
-  assert.deepEqual(greater2x, {
+  assert.deepEqual(greaterGolden, {
     column: 'greater_rune_bag', qty: 2, label: 'Greater Bag', emojiName: 'greater_bag',
   });
-  assert.equal(greater2x.qty, 2, '2x Greater must not inherit another Greater Bag');
+  assert.equal(greaterGolden.qty, 2, 'Golden Greater must retain exactly two Greater Bags');
   assert.deepEqual(calamityNatural, {
     column: 'greater_rune_bag', qty: 3, label: 'Greater Bag', emojiName: 'greater_bag',
   });
@@ -182,11 +182,11 @@ run('Supreme and Divine independent rolls allow all four outcomes', () => {
 run('reward display uses credited quantities and hides failed Calamity bonuses', () => {
   const normal = bosses.bossBagReward('Medusa');
   const greater = bosses.bossBagReward('Jotun', { column: 'boss_treasure_chest', qty: 2 });
-  const greater2x = bosses.bossBagReward('Jotun', { column: 'boss_golden_chest', qty: 1 });
+  const greaterGolden = bosses.bossBagReward('Jotun', { column: 'boss_golden_chest', qty: 1 });
   const calamity = bosses.bossBagReward('Fenrir');
   assert(bossBagRewardLine(normal).includes('Lesser Bag ×1'));
   assert(bossBagRewardLine(greater).includes('Greater Bag ×1'));
-  assert(bossBagRewardLine(greater2x).includes('Greater Bag ×2'));
+  assert(bossBagRewardLine(greaterGolden).includes('Greater Bag ×2'));
   assert(bossBagRewardLine(calamity).includes('Greater Bag ×3'));
 
   const neither = calamityBonusRewardBlock('dead', {
@@ -277,13 +277,14 @@ check('duel cleanup clears the specific DB lock and releases before rendering',
   && duelSource.indexOf('await safeReleaseDuelLock(duelLock);') < duelSource.indexOf('let battleSkinPath = null;')
   && /finally \{[\s\S]*?safeReleaseDuelLock\(duelLock\)/.test(duelSource));
 
-function bossView(name, { spawnId, hpMultiplier = 1, status = 'active' }) {
+function bossView(name, { spawnId, maxHp = 100, passiveState = {}, status = 'active' }) {
   const baseHp = 100;
   return {
     state: {
-      guild_id: 'guild', spawn_id: spawnId, max_hp: baseHp * hpMultiplier,
-      current_hp: status === 'dead' ? 0 : baseHp * hpMultiplier,
+      guild_id: 'guild', spawn_id: spawnId, max_hp: maxHp,
+      current_hp: status === 'dead' ? 0 : maxHp,
       scaled_atk: 10, scaled_def: 5, status, spawn_source: 'natural',
+      passive_state: passiveState,
       expires_at: new Date(Date.now() + 60_000).toISOString(),
     },
     mobRow: {
@@ -300,8 +301,16 @@ async function finish() {
     const normal = await buildBossMessage(
       bossView('Medusa', { spawnId: 'normal' }), options,
     );
-    const greater2x = await buildBossMessage(
-      bossView('Jotun', { spawnId: 'greater-2x', hpMultiplier: 2 }), options,
+    const greaterGolden = await buildBossMessage(
+      bossView('Jotun', {
+        spawnId: 'greater-golden',
+        maxHp: 100,
+        passiveState: {
+          greaterChest: {
+            column: 'boss_golden_chest', qty: 1, label: 'Boss Golden Chest',
+          },
+        },
+      }), options,
     );
     const calamity = await buildBossMessage(
       bossView('Fenrir', { spawnId: 'calamity', status: 'dead' }),
@@ -311,7 +320,7 @@ async function finish() {
       },
     );
     const normalText = JSON.stringify(normal.components[0].toJSON());
-    const greaterText = JSON.stringify(greater2x.components[0].toJSON());
+    const greaterText = JSON.stringify(greaterGolden.components[0].toJSON());
     const calamityText = JSON.stringify(calamity.components[0].toJSON());
     assert(normalText.includes('Lesser Bag ×1') && normalText.includes('lesser_bag'));
     assert(greaterText.includes('Greater Bag ×2') && greaterText.includes('greater_bag'));

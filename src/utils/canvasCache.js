@@ -38,11 +38,15 @@ const { recordCanvasCache } = require('./networkTelemetry');
 
 const MEMORY_MAX = 5000;
 const MEMORY_MAX_BYTES = Math.max(1024 * 1024, envNumber('CANVAS_MEMORY_CACHE_MAX_MB', 8, { min: 1, max: 2048 }) * 1024 * 1024);
+const CANVAS_CACHE_RETENTION_MS = (24 * 60 * 60 * 1000) + 1000;
+const CANVAS_CACHE_SWEEP_BATCH_SIZE = 500;
+const CANVAS_CACHE_SWEEP_BATCH_DELAY_MS = 250;
 const memory = new Map(); // cacheKey → url (insertion-ordered; trimmed FIFO)
 const inflight = new Map(); // cacheKey → Promise<{url}|null>
 const lastTouched = new Map(); // cacheKey -> ms timestamp of last last_used_at write
 let memoryBytes = 0;
 let warnedDb = false;
+let sweepRunning = false;
 const cacheStats = {
   memoryHits: 0,
   dbHits: 0,
@@ -250,31 +254,117 @@ async function getCachedCanvasUrl(parts, renderPng, imageOptions = {}, cacheOpti
   }
 }
 
+function isCanvasCacheExpired(lastUsedAt, now = Date.now()) {
+  const timestamp = new Date(lastUsedAt).getTime();
+  return Number.isFinite(timestamp) && now - timestamp > CANVAS_CACHE_RETENTION_MS;
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
- * Evict cache entries idle longer than maxAgeDays: delete the R2 object first,
- * then the row (a row is only dropped once its object is gone/404). Batched so
- * one sweep never hammers the API. Wired to a 6h interval in index.js.
+ * Evict cache entries idle longer than the fixed retention window: delete the
+ * R2 object first, then the row. Failed keys remain in the database and are
+ * skipped for this pass so one bad object cannot block the rest of the backlog.
+ * Batches are oldest-first and paced so one sweep never hammers the API.
  */
-async function sweepCanvasCache({ maxAgeDays = Number(process.env.CANVAS_CACHE_MAX_AGE_DAYS || 14), batch = 200 } = {}) {
+async function sweepCanvasCache() {
   if (!enabled()) return 0;
-  let swept = 0;
-  try {
-    const { rows } = await pool.query(
-      `SELECT cache_key, object_key FROM canvas_cache
-        WHERE last_used_at < NOW() - ($1 || ' days')::interval
-        LIMIT $2`,
-      [String(maxAgeDays), batch]
-    );
-    for (const row of rows) {
-      if (!(await r2.deleteObject(row.object_key, { system: 'canvas', command: 'sweep' }))) continue;
-      await pool.query('DELETE FROM canvas_cache WHERE cache_key = $1', [row.cache_key]);
-      forgetMemory(row.cache_key);
-      swept += 1;
-    }
-    if (swept > 0) console.log(`[canvasCache] swept ${swept} cold cache object(s).`);
-  } catch (err) {
-    dbWarn(err);
+  if (sweepRunning) {
+    console.info('[CanvasCache] Sweep skipped: another sweep is already running.');
+    return 0;
   }
+
+  sweepRunning = true;
+  const startedAt = Date.now();
+  const skippedKeys = new Set();
+  let swept = 0;
+  let batches = 0;
+  let r2Failures = 0;
+  let dbFailures = 0;
+  let queryFailures = 0;
+
+  console.info('[CanvasCache] Sweep started');
+  try {
+    while (true) {
+      let rows;
+      try {
+        const result = await pool.query(
+          `SELECT cache_key, object_key FROM canvas_cache
+            WHERE last_used_at < NOW() - INTERVAL '1 day 1 second'
+              AND NOT (cache_key = ANY($1::text[]))
+            ORDER BY last_used_at ASC
+            LIMIT $2`,
+          [[...skippedKeys], CANVAS_CACHE_SWEEP_BATCH_SIZE]
+        );
+        rows = result.rows;
+      } catch (err) {
+        queryFailures += 1;
+        dbWarn(err);
+        console.warn('[CanvasCache] Sweep query failed; stopping this pass:', err.message);
+        break;
+      }
+
+      if (rows.length === 0) break;
+      batches += 1;
+      let batchDeleted = 0;
+
+      for (const row of rows) {
+        let objectDeleted = false;
+        let deleteError = null;
+        try {
+          objectDeleted = await r2.deleteObject(row.object_key, {
+            system: 'canvas',
+            command: 'sweep',
+          });
+        } catch (err) {
+          deleteError = err;
+        }
+
+        if (!objectDeleted) {
+          r2Failures += 1;
+          skippedKeys.add(row.cache_key);
+          console.warn('[CanvasCache] R2 deletion failed; keeping cache row:', {
+            cacheKey: row.cache_key,
+            objectKey: row.object_key,
+            ...(deleteError ? { error: deleteError.message } : {}),
+          });
+          continue;
+        }
+
+        try {
+          await pool.query('DELETE FROM canvas_cache WHERE cache_key = $1', [row.cache_key]);
+          forgetMemory(row.cache_key);
+          swept += 1;
+          batchDeleted += 1;
+        } catch (err) {
+          dbFailures += 1;
+          skippedKeys.add(row.cache_key);
+          console.warn('[CanvasCache] Cache-row deletion failed; keeping cache row:', {
+            cacheKey: row.cache_key,
+            error: err.message,
+          });
+        }
+      }
+
+      console.info(`[CanvasCache] Batch deleted: ${batchDeleted}`);
+      if (rows.length === CANVAS_CACHE_SWEEP_BATCH_SIZE) {
+        await wait(CANVAS_CACHE_SWEEP_BATCH_DELAY_MS);
+      }
+    }
+  } finally {
+    sweepRunning = false;
+    console.info('[CanvasCache] Sweep completed', {
+      deleted: swept,
+      batches,
+      r2Failures,
+      dbFailures,
+      queryFailures,
+      durationMs: Date.now() - startedAt,
+    });
+  }
+
   return swept;
 }
 
@@ -304,6 +394,7 @@ function getCanvasCacheStats() {
     bytes: memoryBytes,
     maxBytes: MEMORY_MAX_BYTES,
     enabled: enabled(),
+    sweepRunning,
   };
 }
 
@@ -316,7 +407,18 @@ module.exports = {
   sweepCanvasCache,
   verifyCanvasCacheReady,
   getCanvasCacheStats,
+  CANVAS_CACHE_RETENTION_MS,
+  CANVAS_CACHE_SWEEP_BATCH_SIZE,
+  CANVAS_CACHE_SWEEP_BATCH_DELAY_MS,
   // Selftest-only hook (scripts/lifecycle-guard-selftest.js): lets the
   // lastTouched prune bound be exercised without a database or R2.
-  __test: { touch, lastTouched, MEMORY_MAX },
+  __test: {
+    touch,
+    lastTouched,
+    MEMORY_MAX,
+    isCanvasCacheExpired,
+    CANVAS_CACHE_RETENTION_MS,
+    CANVAS_CACHE_SWEEP_BATCH_SIZE,
+    CANVAS_CACHE_SWEEP_BATCH_DELAY_MS,
+  },
 };

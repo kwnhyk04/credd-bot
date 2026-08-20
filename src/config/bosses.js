@@ -26,8 +26,6 @@ const CALAMITY_SPAWN_CHANCE = 0.05;
 const GREATER_SPAWN_CHANCE = 0.25;
 const NORMAL_SPAWN_CHANCE = 1 - CALAMITY_SPAWN_CHANCE - GREATER_SPAWN_CHANCE;
 const GREATER_CHEST_GOLDEN_CHANCE = 0.25;
-const GREATER_TREASURE_HP_MULTIPLIER = 1.5;
-const GREATER_GOLDEN_HP_MULTIPLIER = 2;
 
 if (Math.abs(CALAMITY_SPAWN_CHANCE + GREATER_SPAWN_CHANCE + NORMAL_SPAWN_CHANCE - 1) > Number.EPSILON) {
   throw new Error('Boss spawn probabilities must sum to 1');
@@ -62,7 +60,6 @@ const GREATER_VARIANTS = Object.freeze({
   twin: Object.freeze({
     key: 'twin',
     label: 'Twin Chest',
-    hpMultiplier: GREATER_TREASURE_HP_MULTIPLIER,
     chest: Object.freeze({
       column: 'boss_treasure_chest',
       qty: 2,
@@ -73,7 +70,6 @@ const GREATER_VARIANTS = Object.freeze({
   golden: Object.freeze({
     key: 'golden',
     label: 'Boss Golden Chest',
-    hpMultiplier: GREATER_GOLDEN_HP_MULTIPLIER,
     chest: Object.freeze({
       column: 'boss_golden_chest',
       qty: 1,
@@ -127,8 +123,8 @@ function bossRewards(name, chest = null) {
 /**
  * Guaranteed rune-bag reward for the fixed boss spawn variant. Item columns,
  * names, and emoji keys come from the existing rune-bag registry. The Greater
- * Golden variant is the existing 2x-HP Greater Boss and receives exactly two
- * Greater Bags; rewards do not inherit from lower tiers.
+ * Golden variant receives exactly two Greater Bags; rewards do not inherit
+ * from lower tiers.
  */
 function bossBagReward(name, chest = null) {
   let bag = BAGS.lesser;
@@ -168,45 +164,13 @@ function rollBossChest(name, rng = null) {
 }
 
 /**
- * Greater-boss HP adjustment tied to the chest fixed for that spawn.
- * Normal and calamity spawns deliberately remain 1×.
- */
-function hpMultiplierForChest(chest, bossName = null) {
-  if (bossName && isCalamityBoss(bossName)) return 1;
-  return greaterVariantForChest(chest)?.hpMultiplier || 1;
-}
-
-/**
- * Apply the fixed Greater multiplier to base HP. Legacy arguments are accepted for callers.
+ * Resolve max HP from the database value. Legacy arguments are accepted for
+ * callers that still pass level/chest context, but no tier adjustment applies.
  */
 function bossMaxHpForChest(baseHp, hpPerLevel, level, chest = null, bossName = null) {
   const base = Number(baseHp);
   if (!Number.isFinite(base)) return 1;
-  return Math.max(1, Math.floor(base * hpMultiplierForChest(chest, bossName)));
-}
-
-/**
- * Recover a Greater spawn's fixed chest after a process restart from persisted
- * max HP. Legacy formulas remain readable until every pre-change spawn is gone.
- */
-function inferChestFromGreaterHp(baseHp, maxHp) {
-  const base = Math.floor(Number(baseHp));
-  const persisted = Math.floor(Number(maxHp));
-  if (
-    !Number.isFinite(base) || base <= 0
-    || !Number.isFinite(persisted)
-  ) {
-    return null;
-  }
-
-  const variants = [GREATER_VARIANTS.golden, GREATER_VARIANTS.twin];
-  for (const variant of variants) {
-    if (persisted === Math.floor(base * variant.hpMultiplier)) {
-      return { ...variant.chest };
-    }
-  }
-
-  return null;
+  return Math.max(1, Math.floor(base));
 }
 
 function bossChestForSpawn(name, spawnSource = 'natural', rng = null) {
@@ -291,8 +255,6 @@ module.exports = {
   GREATER_SPAWN_CHANCE,
   NORMAL_SPAWN_CHANCE,
   GREATER_CHEST_GOLDEN_CHANCE,
-  GREATER_TREASURE_HP_MULTIPLIER,
-  GREATER_GOLDEN_HP_MULTIPLIER,
   NORMAL_REWARD,
   GREATER_TWIN_REWARD,
   GREATER_GOLDEN_REWARD,
@@ -308,9 +270,7 @@ module.exports = {
   bossRewards,
   bossBagReward,
   rollBossChest,
-  hpMultiplierForChest,
   bossMaxHpForChest,
-  inferChestFromGreaterHp,
   bossChestForSpawn,
   selectWeightedBossPool,
   rotationCandidates,

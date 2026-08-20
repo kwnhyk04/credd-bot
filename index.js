@@ -35,7 +35,7 @@ const {
 setupGlobalErrorHandlers();
 
 const CASINO_SWEEP_MS = 60_000;
-const CANVAS_CACHE_SWEEP_MS = 6 * 3600_000;
+const CANVAS_CACHE_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 let casinoSweepInterval = null;
 let canvasCacheSweepInterval = null;
 let casinoSweepRunning = false;
@@ -184,10 +184,14 @@ client.once('ready', async () => {
   } else {
     console.log('[casino] Casino disabled; prewarm and recovery sweep skipped.');
   }
-  // Canvas-cache eviction (no-op unless R2 write creds are configured).
+  // Canvas-cache eviction (no-op unless R2 write creds are configured): launch
+  // one background pass after normal startup, then keep one hourly timer alive.
+  // Both triggers use runCanvasCacheSweep's shared overlap guard.
+  runCanvasCacheSweep()
+    .catch((err) => console.error('[CanvasCache] startup sweep failed:', err.message));
   canvasCacheSweepInterval = setInterval(() => {
-    runCanvasCacheSweep().catch((err) => console.error('[canvasCache] sweep failed:', err.message));
-  }, CANVAS_CACHE_SWEEP_MS);
+    runCanvasCacheSweep().catch((err) => console.error('[CanvasCache] sweep failed:', err.message));
+  }, CANVAS_CACHE_SWEEP_INTERVAL_MS);
   stopResourceMonitor = startResourceMonitor({ client });
 });
 
