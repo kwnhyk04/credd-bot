@@ -16,7 +16,6 @@
 module.exports = {
   // Account
   reg: 'register',
-  cc: 'create character',
   p: 'profile',
   // Battle
   r: 'raid',
@@ -37,6 +36,7 @@ module.exports = {
   bw: 'bag weapons',
   ba: 'bag armors',
   o: 'open',
+  cc: 'convert chest',
   eq: 'equip',
   ei: 'equipment info',
   enh: 'enhance',

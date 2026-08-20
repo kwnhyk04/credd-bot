@@ -26,7 +26,7 @@ const CATEGORIES = [
     key: 'account', emoji: '⚔️', title: 'Account & Profile',
     lines: [
       { canonical: 'register', cmd: 'crd register (reg)', desc: 'Create your account' },
-      { canonical: 'create', cmd: 'crd create character (cc)', desc: 'Choose your class' },
+      { canonical: 'create', cmd: 'crd create character', desc: 'Choose your class' },
       { canonical: 'class', cmd: 'crd class passives', desc: 'View every class passive', prefixOnly: true },
       { canonical: 'profile', cmd: 'crd profile [@user] (p)', desc: 'Identity + believer progress card' },
       { canonical: 'stats', cmd: 'crd stats [@user]', desc: 'Combat card — gear, deities, stats' },
@@ -83,6 +83,7 @@ const CATEGORIES = [
       { canonical: 'bag', cmd: 'crd bag (b)', desc: 'Bag overview' },
       { canonical: 'bag', cmd: 'crd bag chests / items / weapons / armors (bc/bw/ba)', desc: 'Inventory sections' },
       { canonical: 'open', cmd: 'crd open [chest] (o)', desc: 'Open a chest or relic' },
+      { canonical: 'convert', cmd: 'crd convert chest (cc)', desc: 'Convert chests', prefixOnly: true },
       { canonical: 'use', cmd: 'crd use <id>', desc: 'Use a CRD Bag item (cc/sr/supr/at/dt)', prefixOnly: true },
       { canonical: 'shop', cmd: 'crd shop / crd shop buy <id> [qty]', desc: 'CRD Shop — spend Credux', prefixOnly: true },
       { canonical: 'equip', cmd: 'crd equip [id] (eq)', desc: 'Equip a weapon or armor' },

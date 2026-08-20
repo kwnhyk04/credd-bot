@@ -1,5 +1,6 @@
 Display Name | Emoji Name | Emoji ID
 -----------------------------------------
+Awakening | 'awakening' | '1540085519294402652'
 Supreme Icon | supreme_icon | '1528916323344711833'
 Legendary Icon | legendary_icon | '1528916318823387328'
 Mythical Icon | mythical_icon | '1528916321390035165'

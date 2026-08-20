@@ -338,6 +338,10 @@ async function main() {
   const deitySource = fs.readFileSync(path.join(__dirname, '..', 'src', 'commands', 'rpg', 'deity.js'), 'utf8');
   assert(/dr\.name, dr\.mythology, dr\.tier, dr\.base_atk/.test(deitySource));
   assert(deitySource.includes('const essenceEmoji = emoji(`${String(deity.tier).toLowerCase()}_essence`);'));
+  assert(deitySource.includes("const sigilLine = `**Sigils ${sigilEmoji} ${sigils}/${MAX_SIGILS}${ascended ? ' Awakened' : ''}**`;"));
+  assert(deitySource.includes('const ascensionLine = `Ascension: ${stars || \'—\'}`;'));
+  assert(!deitySource.includes('formatEnhancedName(d.name, d.enhancement)'));
+  assert(!deitySource.includes('`## Ascend — ${deity.name} +${currentLevel}`'));
 
   const avatarSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'engine', 'avatarSystem.js'), 'utf8');
   assert(/purchasableOnly \? 'AND token_cost > 0' : ''/.test(avatarSource));
@@ -347,16 +351,44 @@ async function main() {
   assert(statsSource.includes('setImage(`attachment://${filename}`)'));
   assert(statsSource.includes('files: [{ attachment: image.buffer, name: filename }]'));
 
-  const deityPayload = await buildDeityInfoPayload({
+  const deityFixture = {
     name: 'Odin', enhancement: 1, tier: 'Supreme', mythology: 'Norse', sigils: 0,
     ascended: false, base_atk: 100, base_hp: 100, base_def: 100,
     blessing_name: 'Foresight', blessing_description: 'Test', lore: 'Test', user_deity_id: 1,
-  }, { ownerId: '123', ownerDisplayName: 'Ignored' });
-  const deityJson = JSON.stringify(deityPayload.components.map((component) => component.toJSON()));
-  assert(deityJson.includes('Odin +0'));
+  };
+  const deityJsonFor = async (overrides = {}) => {
+    const deityPayload = await buildDeityInfoPayload({ ...deityFixture, ...overrides }, {
+      ownerId: '123', ownerDisplayName: 'Ignored',
+    });
+    return JSON.stringify(deityPayload.components.map((component) => component.toJSON()));
+  };
+  const deityJson = await deityJsonFor();
+  assert(deityJson.includes('Odin') && !deityJson.includes('Odin +0'));
+  assert(deityJson.includes(`Sigils ${emoji('supreme_sigil')} 0/10`));
+  assert(deityJson.includes('Ascension: —'));
+  assert(!deityJson.includes('10/10 Awakened'));
   assert(deityJson.includes('Owner: <@123>'));
   assert(deityJson.includes('Supreme Essence'));
   assert(!deityJson.includes("Ignored's"));
+
+  const awakenedJson = await deityJsonFor({ enhancement: 10, sigils: 10, ascended: true });
+  assert(awakenedJson.includes(`Sigils ${emoji('supreme_sigil')} 10/10 Awakened`));
+  assert(awakenedJson.includes('Ascension: ⭐⭐⭐⭐⭐⭐⭐⭐⭐ — use `crd deity ascend odin`'));
+  assert(!awakenedJson.includes('Odin +9'));
+
+  const maxSigilsNotAwakenedJson = await deityJsonFor({ enhancement: 10, sigils: 10, ascended: false });
+  assert(maxSigilsNotAwakenedJson.includes(`Sigils ${emoji('supreme_sigil')} 10/10`));
+  assert(!maxSigilsNotAwakenedJson.includes('10/10 Awakened'));
+
+  const partialSigilsJson = await deityJsonFor({ enhancement: 4, sigils: 7, ascended: false });
+  assert(partialSigilsJson.includes(`Sigils ${emoji('supreme_sigil')} 7/10`));
+  assert(partialSigilsJson.includes('Ascension: ⭐⭐⭐'));
+  assert(!partialSigilsJson.includes('7/10 Awakened'));
+
+  for (const level of [1, 3, 5, 9, 10]) {
+    const starsJson = await deityJsonFor({ enhancement: level + 1, sigils: 10, ascended: true });
+    assert(starsJson.includes(`Ascension: ${'⭐'.repeat(level)}`), `missing ${level} ascension stars`);
+  }
 
   const gearPayload = await buildInfoPayload({
     kind: 'armor', discord_id: '123', name: 'Mail of Brokkr', tier: 'Supreme', enhancement: 11,

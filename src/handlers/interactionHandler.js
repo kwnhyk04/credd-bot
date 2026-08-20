@@ -17,6 +17,7 @@ const ticketsCmd = require('../commands/rpg/tickets');
 const leaderboardCmd = require('../commands/rpg/leaderboard');
 const titleCmd = require('../commands/rpg/title');
 const exchangeEssenceCmd = require('../commands/rpg/exchangeEssence');
+const chestConvertCmd = require('../commands/rpg/chestConvert');
 const questsCmd = require('../commands/economy/quests');
 const autoRaidCmd = require('../commands/rpg/autoRaid');
 const glossaryCmd = require('../commands/rpg/glossary');
@@ -91,8 +92,13 @@ async function handleInteractionInner(interaction) {
     if (namespace === 'lb') { await leaderboardCmd.handleSelect(interaction); return; }
     if (namespace === 'title' && action === 'cat') { await titleCmd.handleSelect(interaction); return; }
     if (namespace === 'essx' && action === 'tier') { await exchangeEssenceCmd.handleSelect(interaction); return; }
+    if (namespace === 'chestx' && action === 'type') { await chestConvertCmd.handleSelect(interaction); return; }
     if (isModal && namespace === 'essx' && action === 'amount') {
       await exchangeEssenceCmd.handleModalSubmit(interaction, parts[2], parts[3], parts[4]);
+      return;
+    }
+    if (isModal && namespace === 'chestx' && action === 'amount') {
+      await chestConvertCmd.handleModalSubmit(interaction, parts[2], parts[3], parts[4]);
       return;
     }
     if (namespace === 'quest' && action === 'scope') { await questsCmd.handleScopeSelect(interaction); return; }
@@ -105,6 +111,10 @@ async function handleInteractionInner(interaction) {
     }
     if (namespace === 'essx' && action === 'convert') {
       await exchangeEssenceCmd.handleConvert(interaction, parts[2], parts[3]);
+      return;
+    }
+    if (namespace === 'chestx' && action === 'convert') {
+      await chestConvertCmd.handleConvert(interaction, parts[2], parts[3]);
       return;
     }
     if (namespace === 'quest' && action === 'claim') {
@@ -279,7 +289,7 @@ async function handleInteractionInner(interaction) {
 
 const INTERACTION_COMMANDS = {
   sshop: 'skin', sprev: 'skin', avat: 'avatar', avatprev: 'avatar', tickets: 'supporter', runes: 'rune', lb: 'leaderboards',
-  title: 'title', essx: 'exchange', quest: 'quests', gloss: 'glossary', araid: 'auto',
+  title: 'title', essx: 'exchange', chestx: 'convert', quest: 'quests', gloss: 'glossary', araid: 'auto',
   register: 'register', boss: 'boss', bj: 'blackjack', crash: 'crash', weapons: 'bag',
   armors: 'bag', chests: 'bag', deities: 'deity', dsigil: 'deity', denhance: 'deity',
   enhance: 'enhance', sell: 'sell', create: 'create', chgclass: 'use', duel: 'duel',

@@ -38,6 +38,7 @@ const dailyLimitsCmd = require('../commands/economy/dailyLimits');
 const devCmd = require('../commands/rpg/dev');
 const essenceShopCmd = require('../commands/rpg/essenceShop');
 const exchangeCmd = require('../commands/rpg/exchange');
+const chestConvertCmd = require('../commands/rpg/chestConvert');
 const pvpShopCmd = require('../commands/rpg/pvpShop');
 const socketCmd = require('../commands/rpg/socket');
 const runeCmd = require('../commands/rpg/rune');
@@ -111,6 +112,7 @@ const COMMANDS = {
   dev:      { mw: 'dev',  run: devCmd.execute, requiresCharacter: false },
   essence:  { mw: 'full', run: essenceShopCmd.execute, requiresCharacter: true },  // essence shop
   exchange: { mw: 'full', run: exchangeCmd.execute, requiresCharacter: true },
+  convert:  { mw: 'full', run: chestConvertCmd.execute, requiresCharacter: true }, // convert chest
   pvp:      { mw: 'full', run: pvpShopCmd.execute, requiresCharacter: true },  // pvp shop (Valor sink)
   socket:   { mw: 'full', run: socketCmd.socket, requiresCharacter: true },
   unsocket: { mw: 'full', run: socketCmd.unsocket, requiresCharacter: true },

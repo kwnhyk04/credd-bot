@@ -16,7 +16,7 @@ const { registerMemorySource } = require('../../utils/memoryRegistry');
 const { TIER_ALIAS, TIER_COLOR, TIER_ESSENCE_COLUMN } = require('../../config/gachaRates');
 const { smallDivider: sep } = require('../../utils/componentsV2');
 const { emojiForDisplay, emoji } = require('../../utils/emojis');
-const { formatEnhancedName } = require('../../utils/enhancementFormat');
+const { displayEnhancement } = require('../../utils/enhancementFormat');
 const { makeOptimizedAttachment, attachmentFromOptimizedImage } = require('../../utils/imageOutput');
 const { getCachedCanvasUrl } = require('../../utils/canvasCache');
 
@@ -35,7 +35,7 @@ const {
   MAX_SIGILS, nextSigilCost, ascensionCost,
 } = require('../../config/ascension');
 const {
-  computeDeityStats, computeDeityProgressionStats, nextDeityAttempt,
+  MAX_ENHANCEMENT, computeDeityStats, computeDeityProgressionStats, nextDeityAttempt,
 } = require('../../engine/deityEnhancement');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 const { releaseCanvas } = require('../../utils/canvasEncode');
@@ -388,14 +388,23 @@ async function firstAvailablePublicImage(paths, logContext = {}) {
  * then Sigils → Stats → Blessing → Lore sections, plus ONE dynamic button:
  *   sigils < 10          → Unlock Sigil (cost: N <Tier> Essence)
  *   10/10, not ascended  → Ascend (N Essence + N Credux)
- *   ascended             → no button.
+ *   ascended             → no button; the ascended flag is the awakened state.
  */
+function ascensionStars(enhancement) {
+  const level = Math.max(0, Math.min(
+    MAX_ENHANCEMENT - 1,
+    displayEnhancement(enhancement),
+  ));
+  return '⭐'.repeat(level);
+}
+
 async function buildDeityInfoPayload(d, { ownerId, ownerDisplayName = null }) {
   const alias = TIER_ALIAS[d.tier];
   const mythologyLabel = MYTHOLOGY_LABEL[d.mythology] ?? `${d.mythology} Mythology`;
   const btype = DIVINE_BLESSING_DEITIES.has(d.name) ? 'Divine' : 'Echo';
   const sigils = Math.max(0, Math.min(MAX_SIGILS, Number(d.sigils) || 0));
   const ascended = Boolean(d.ascended);
+  const stars = ascensionStars(d.enhancement);
   const sigilEmoji = emoji(`${String(d.tier).toLowerCase()}_sigil`);
   const essenceEmoji = emoji(`${String(d.tier).toLowerCase()}_essence`);
   const buttonEmoji = /^<a?:[a-z0-9_]+:\d+>$/i.test(essenceEmoji) ? essenceEmoji : null;
@@ -417,18 +426,18 @@ async function buildDeityInfoPayload(d, { ownerId, ownerDisplayName = null }) {
   // Sigils section + button state share the same cost lookups.
   const sigilCost = nextSigilCost(d.tier, sigils);
   const ascCost = ascensionCost(d.tier);
+  const sigilLine = `**Sigils ${sigilEmoji} ${sigils}/${MAX_SIGILS}${ascended ? ' Awakened' : ''}**`;
+  const ascensionLine = `Ascension: ${stars || '—'}`;
   let sigilBlock;
   if (ascended) {
     sigilBlock =
-      `**Sigils ${sigilEmoji}**\n${MAX_SIGILS}/${MAX_SIGILS} — Ascended ✦\n` +
-      `Ascension: **+${Math.max(0, (Number(d.enhancement) || 1) - 1)}** — use \`crd deity ascend ${d.name.toLowerCase()}\``;
+      `${sigilLine}\n${ascensionLine} — use \`crd deity ascend ${d.name.toLowerCase()}\``;
   } else if (sigils >= MAX_SIGILS) {
     sigilBlock =
-      `**Sigils ${sigilEmoji}**\n${sigils}/${MAX_SIGILS} — Ready to Ascend\n` +
-      `Ascension: ${essenceEmoji} **${ascCost.essence}** ${d.tier} Essence + **${ascCost.credux.toLocaleString()}** Credux`;
+      `${sigilLine}\n${ascensionLine}\nReady to Ascend: ${essenceEmoji} **${ascCost.essence}** ${d.tier} Essence + **${ascCost.credux.toLocaleString()}** Credux`;
   } else {
     sigilBlock =
-      `**Sigils ${sigilEmoji}**\n${sigils}/${MAX_SIGILS}\n` +
+      `${sigilLine}\n${ascensionLine}\n` +
       `Next Sigil: ${essenceEmoji} **${sigilCost.essence}** ${d.tier} Essence`;
   }
 
@@ -443,7 +452,7 @@ async function buildDeityInfoPayload(d, { ownerId, ownerDisplayName = null }) {
     ? `**${btype} Blessing — ${d.blessing_name}**\n${d.blessing_description || 'No blessing description.'}`
     : '**Blessing**\nBlessing dormant — ascend this deity to awaken it.';
 
-  const titleLine = `## 🕯️ ${formatEnhancedName(d.name, d.enhancement)}`;
+  const titleLine = `## 🕯️ ${d.name}`;
   const ownerLine = ownerId ? `-# Owner: <@${ownerId}>` : null;
   const headerText = ownerLine ? `${titleLine}\n${ownerLine}` : titleLine;
 
@@ -695,7 +704,6 @@ async function fetchDeityForgeData(discordId, userDeityId) {
 
 async function buildDeityForgePayload(deity, ownerId, resultLine = null) {
   const next = nextDeityAttempt(deity.tier, deity.enhancement);
-  const currentLevel = Math.max(0, (Number(deity.enhancement) || 1) - 1);
   const container = new ContainerBuilder()
     .setAccentColor(TIER_COLOR[deity.tier] ?? BRAND);
   const thumbnailUrl = await firstAvailablePublicImage(resolveDeityPortraitPath(deity), {
@@ -706,10 +714,10 @@ async function buildDeityForgePayload(deity, ownerId, resultLine = null) {
   });
   if (thumbnailUrl) {
     container.addSectionComponents((section) => section
-      .addTextDisplayComponents((td) => td.setContent(`## Ascend — ${deity.name} +${currentLevel}`))
+      .addTextDisplayComponents((td) => td.setContent(`## Ascend — ${deity.name}`))
       .setThumbnailAccessory(new ThumbnailBuilder().setURL(thumbnailUrl)));
   } else {
-    container.addTextDisplayComponents((td) => td.setContent(`## Ascend — ${deity.name} +${currentLevel}`));
+    container.addTextDisplayComponents((td) => td.setContent(`## Ascend — ${deity.name}`));
   }
   container
     .addSeparatorComponents(sep)
