@@ -340,7 +340,9 @@ async function main() {
   assert(deitySource.includes('const essenceEmoji = emoji(`${String(deity.tier).toLowerCase()}_essence`);'));
   assert(deitySource.includes("const sigilLine = `**Sigils ${sigilEmoji} ${sigils}/${MAX_SIGILS}${ascended ? ' Awakened' : ''}**`;"));
   assert(deitySource.includes('const ascensionLine = `Ascension: ${stars || \'—\'}`;'));
-  assert(deitySource.includes("return emoji('awakening').repeat(level);"));
+  assert(deitySource.includes('const ascensionHelpLine = ascensionLevel < MAX_ENHANCEMENT - 1'));
+  assert(deitySource.includes("const ascensionBlock = [ascensionLine, ascensionHelpLine].filter(Boolean).join('\\n');"));
+  assert(deitySource.includes("return emoji('awakening').repeat(deityAscensionLevel(enhancement));"));
   assert(!deitySource.includes('formatEnhancedName(d.name, d.enhancement)'));
   assert(!deitySource.includes('`## Ascend — ${deity.name} +${currentLevel}`'));
 
@@ -366,7 +368,7 @@ async function main() {
   const deityJson = await deityJsonFor();
   assert(deityJson.includes('Odin') && !deityJson.includes('Odin +0'));
   assert(deityJson.includes(`Sigils ${emoji('supreme_sigil')} 0/10`));
-  assert(deityJson.includes('Ascension: —'));
+  assert(deityJson.includes('Ascension: —\\nUse `crd deity ascend odin` to ascend'));
   assert(!deityJson.includes('10/10 Awakened'));
   assert(deityJson.includes('Owner: <@123>'));
   assert(deityJson.includes('Supreme Essence'));
@@ -374,22 +376,44 @@ async function main() {
 
   const awakenedJson = await deityJsonFor({ enhancement: 10, sigils: 10, ascended: true });
   assert(awakenedJson.includes(`Sigils ${emoji('supreme_sigil')} 10/10 Awakened`));
-  assert(awakenedJson.includes(`Ascension: ${emoji('awakening').repeat(9)} — use \`crd deity ascend odin\``));
+  assert(awakenedJson.includes(
+    `Ascension: ${emoji('awakening').repeat(9)}\\nUse \`crd deity ascend odin\` to ascend`,
+  ));
+  assert(!awakenedJson.includes(`${emoji('awakening').repeat(9)} — use`));
   assert(!awakenedJson.includes('⭐'));
   assert(!awakenedJson.includes('Odin +9'));
+
+  const bathalaJson = await deityJsonFor({
+    name: 'Bathala', enhancement: 10, sigils: 10, ascended: true,
+  });
+  assert(bathalaJson.includes('Use `crd deity ascend bathala` to ascend'));
+  assert(!bathalaJson.includes('crd deity ascend odin'));
+
+  const maxAscensionJson = await deityJsonFor({ enhancement: 11, sigils: 10, ascended: true });
+  assert(maxAscensionJson.includes(`Ascension: ${emoji('awakening').repeat(10)}`));
+  assert(!maxAscensionJson.includes('Use `crd deity ascend odin` to ascend'));
+  assert(!maxAscensionJson.includes(' — use `crd deity ascend odin`'));
 
   const maxSigilsNotAwakenedJson = await deityJsonFor({ enhancement: 10, sigils: 10, ascended: false });
   assert(maxSigilsNotAwakenedJson.includes(`Sigils ${emoji('supreme_sigil')} 10/10`));
   assert(!maxSigilsNotAwakenedJson.includes('10/10 Awakened'));
+  assert(maxSigilsNotAwakenedJson.includes('Use `crd deity ascend odin` to ascend'));
 
   const partialSigilsJson = await deityJsonFor({ enhancement: 4, sigils: 7, ascended: false });
   assert(partialSigilsJson.includes(`Sigils ${emoji('supreme_sigil')} 7/10`));
-  assert(partialSigilsJson.includes(`Ascension: ${emoji('awakening').repeat(3)}`));
+  assert(partialSigilsJson.includes(
+    `Ascension: ${emoji('awakening').repeat(3)}\\nUse \`crd deity ascend odin\` to ascend`,
+  ));
   assert(!partialSigilsJson.includes('7/10 Awakened'));
 
   for (const level of [1, 3, 5, 9, 10]) {
     const awakeningJson = await deityJsonFor({ enhancement: level + 1, sigils: 10, ascended: true });
     assert(awakeningJson.includes(`Ascension: ${emoji('awakening').repeat(level)}`), `missing ${level} Awakening emojis`);
+    assert.equal(
+      awakeningJson.includes('Use `crd deity ascend odin` to ascend'),
+      level < 10,
+      `unexpected Ascension help visibility at level ${level}`,
+    );
     assert(!awakeningJson.includes('⭐'));
   }
 

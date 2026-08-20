@@ -390,12 +390,15 @@ async function firstAvailablePublicImage(paths, logContext = {}) {
  *   10/10, not ascended  → Ascend (N Essence + N Credux)
  *   ascended             → no button; the ascended flag is the awakened state.
  */
-function ascensionStars(enhancement) {
-  const level = Math.max(0, Math.min(
+function deityAscensionLevel(enhancement) {
+  return Math.max(0, Math.min(
     MAX_ENHANCEMENT - 1,
     displayEnhancement(enhancement),
   ));
-  return emoji('awakening').repeat(level);
+}
+
+function ascensionStars(enhancement) {
+  return emoji('awakening').repeat(deityAscensionLevel(enhancement));
 }
 
 async function buildDeityInfoPayload(d, { ownerId, ownerDisplayName = null }) {
@@ -404,6 +407,7 @@ async function buildDeityInfoPayload(d, { ownerId, ownerDisplayName = null }) {
   const btype = DIVINE_BLESSING_DEITIES.has(d.name) ? 'Divine' : 'Echo';
   const sigils = Math.max(0, Math.min(MAX_SIGILS, Number(d.sigils) || 0));
   const ascended = Boolean(d.ascended);
+  const ascensionLevel = deityAscensionLevel(d.enhancement);
   const stars = ascensionStars(d.enhancement);
   const sigilEmoji = emoji(`${String(d.tier).toLowerCase()}_sigil`);
   const essenceEmoji = emoji(`${String(d.tier).toLowerCase()}_essence`);
@@ -428,16 +432,19 @@ async function buildDeityInfoPayload(d, { ownerId, ownerDisplayName = null }) {
   const ascCost = ascensionCost(d.tier);
   const sigilLine = `**Sigils ${sigilEmoji} ${sigils}/${MAX_SIGILS}${ascended ? ' Awakened' : ''}**`;
   const ascensionLine = `Ascension: ${stars || '—'}`;
+  const ascensionHelpLine = ascensionLevel < MAX_ENHANCEMENT - 1
+    ? `Use \`crd deity ascend ${d.name.toLowerCase()}\` to ascend`
+    : null;
+  const ascensionBlock = [ascensionLine, ascensionHelpLine].filter(Boolean).join('\n');
   let sigilBlock;
   if (ascended) {
-    sigilBlock =
-      `${sigilLine}\n${ascensionLine} — use \`crd deity ascend ${d.name.toLowerCase()}\``;
+    sigilBlock = `${sigilLine}\n${ascensionBlock}`;
   } else if (sigils >= MAX_SIGILS) {
     sigilBlock =
-      `${sigilLine}\n${ascensionLine}\nReady to Ascend: ${essenceEmoji} **${ascCost.essence}** ${d.tier} Essence + **${ascCost.credux.toLocaleString()}** Credux`;
+      `${sigilLine}\n${ascensionBlock}\nReady to Ascend: ${essenceEmoji} **${ascCost.essence}** ${d.tier} Essence + **${ascCost.credux.toLocaleString()}** Credux`;
   } else {
     sigilBlock =
-      `${sigilLine}\n${ascensionLine}\n` +
+      `${sigilLine}\n${ascensionBlock}\n` +
       `Next Sigil: ${essenceEmoji} **${sigilCost.essence}** ${d.tier} Essence`;
   }
 
