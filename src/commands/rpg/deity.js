@@ -395,7 +395,7 @@ function ascensionStars(enhancement) {
     MAX_ENHANCEMENT - 1,
     displayEnhancement(enhancement),
   ));
-  return '⭐'.repeat(level);
+  return emoji('awakening').repeat(level);
 }
 
 async function buildDeityInfoPayload(d, { ownerId, ownerDisplayName = null }) {

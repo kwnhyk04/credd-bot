@@ -340,6 +340,7 @@ async function main() {
   assert(deitySource.includes('const essenceEmoji = emoji(`${String(deity.tier).toLowerCase()}_essence`);'));
   assert(deitySource.includes("const sigilLine = `**Sigils ${sigilEmoji} ${sigils}/${MAX_SIGILS}${ascended ? ' Awakened' : ''}**`;"));
   assert(deitySource.includes('const ascensionLine = `Ascension: ${stars || \'—\'}`;'));
+  assert(deitySource.includes("return emoji('awakening').repeat(level);"));
   assert(!deitySource.includes('formatEnhancedName(d.name, d.enhancement)'));
   assert(!deitySource.includes('`## Ascend — ${deity.name} +${currentLevel}`'));
 
@@ -373,7 +374,8 @@ async function main() {
 
   const awakenedJson = await deityJsonFor({ enhancement: 10, sigils: 10, ascended: true });
   assert(awakenedJson.includes(`Sigils ${emoji('supreme_sigil')} 10/10 Awakened`));
-  assert(awakenedJson.includes('Ascension: ⭐⭐⭐⭐⭐⭐⭐⭐⭐ — use `crd deity ascend odin`'));
+  assert(awakenedJson.includes(`Ascension: ${emoji('awakening').repeat(9)} — use \`crd deity ascend odin\``));
+  assert(!awakenedJson.includes('⭐'));
   assert(!awakenedJson.includes('Odin +9'));
 
   const maxSigilsNotAwakenedJson = await deityJsonFor({ enhancement: 10, sigils: 10, ascended: false });
@@ -382,12 +384,13 @@ async function main() {
 
   const partialSigilsJson = await deityJsonFor({ enhancement: 4, sigils: 7, ascended: false });
   assert(partialSigilsJson.includes(`Sigils ${emoji('supreme_sigil')} 7/10`));
-  assert(partialSigilsJson.includes('Ascension: ⭐⭐⭐'));
+  assert(partialSigilsJson.includes(`Ascension: ${emoji('awakening').repeat(3)}`));
   assert(!partialSigilsJson.includes('7/10 Awakened'));
 
   for (const level of [1, 3, 5, 9, 10]) {
-    const starsJson = await deityJsonFor({ enhancement: level + 1, sigils: 10, ascended: true });
-    assert(starsJson.includes(`Ascension: ${'⭐'.repeat(level)}`), `missing ${level} ascension stars`);
+    const awakeningJson = await deityJsonFor({ enhancement: level + 1, sigils: 10, ascended: true });
+    assert(awakeningJson.includes(`Ascension: ${emoji('awakening').repeat(level)}`), `missing ${level} Awakening emojis`);
+    assert(!awakeningJson.includes('⭐'));
   }
 
   const gearPayload = await buildInfoPayload({
