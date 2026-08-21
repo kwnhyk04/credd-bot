@@ -42,7 +42,10 @@ const MEMORY_MAX_BYTES = Math.max(1024 * 1024, envNumber('CANVAS_MEMORY_CACHE_MA
 // deliberately not environment-configurable, so every deployment cleans the
 // database it is already connected to using the same conservative idle TTL.
 const CANVAS_CACHE_MAX_AGE_DAYS = 1;
-const CANVAS_CACHE_RETENTION_MS = CANVAS_CACHE_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+const CANVAS_CACHE_RETENTION_GRACE_MS = 1000;
+const CANVAS_CACHE_RETENTION_MS = (
+  CANVAS_CACHE_MAX_AGE_DAYS * 24 * 60 * 60 * 1000
+) + CANVAS_CACHE_RETENTION_GRACE_MS;
 const CANVAS_CACHE_SWEEP_BATCH_SIZE = 500;
 const CANVAS_CACHE_SWEEP_BATCH_DELAY_MS = 250;
 const memory = new Map(); // cacheKey → url (insertion-ordered; trimmed FIFO)
@@ -267,114 +270,191 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isMissingR2ObjectError(err) {
+  const status = Number(
+    err?.status
+    ?? err?.statusCode
+    ?? err?.$metadata?.httpStatusCode
+  );
+  const code = String(err?.code || err?.name || '').toLowerCase();
+  const message = String(err?.message || '');
+  return status === 404
+    || code === 'notfound'
+    || code === 'nosuchkey'
+    || code === 'nosuchobject'
+    || /\b(?:not\s*found|no\s*such\s*key)\b/i.test(message);
+}
+
 /**
- * Evict cache entries idle longer than the hardcoded retention window. The
- * database batch is deleted atomically first so an R2 outage cannot retain
- * expired Supabase rows; matching R2 objects are then removed best-effort.
- * Batches are oldest-first and paced so one sweep never hammers either service.
+ * Evict cache entries idle longer than the hardcoded retention window. Each
+ * batch is selected with a stable (last_used_at, cache_key) cursor, R2 cleanup
+ * is attempted first, and every selected expired database row is then deleted
+ * regardless of the object-store result. Advancing the cursor after selection
+ * ensures a failed object is considered only once and cannot pin later batches.
  */
 async function sweepCanvasCache() {
   if (sweepRunning) {
-    console.info('[CACHE CLEANUP] Skipped canvas_cache cleanup: another sweep is already running.');
+    console.info('[CanvasCache] Sweep skipped: another sweep is already running.');
     return 0;
   }
 
   sweepRunning = true;
   const startedAt = Date.now();
-  let swept = 0;
+  let expiredConsidered = 0;
+  let dbRowsDeleted = 0;
   let batches = 0;
-  let r2Deleted = 0;
-  let r2Failures = 0;
+  let r2ObjectsDeleted = 0;
+  let r2CleanupFailures = 0;
   let cleanupErrors = 0;
-  const cutoff = new Date(startedAt - CANVAS_CACHE_RETENTION_MS);
+  let remainingExpiredRows = null;
+  let cursorLastUsedAt = null;
+  let cursorCacheKey = '';
+  const initialCutoff = new Date(startedAt - CANVAS_CACHE_RETENTION_MS);
 
-  console.info('[CACHE CLEANUP] Starting canvas_cache cleanup');
-  console.info(
-    `[CACHE CLEANUP] cutoff=${cutoff.toISOString()} `
-    + `retention_days=${CANVAS_CACHE_MAX_AGE_DAYS} batch_size=${CANVAS_CACHE_SWEEP_BATCH_SIZE}`
-  );
+  console.info('[CanvasCache] Sweep started', {
+    cutoff: initialCutoff.toISOString(),
+    retentionMs: CANVAS_CACHE_RETENTION_MS,
+    batchSize: CANVAS_CACHE_SWEEP_BATCH_SIZE,
+    batchDelayMs: CANVAS_CACHE_SWEEP_BATCH_DELAY_MS,
+  });
   try {
     while (true) {
       let rows;
+      const batchCutoff = new Date(Date.now() - CANVAS_CACHE_RETENTION_MS);
       try {
         const result = await pool.query(
-          `WITH expired AS (
-             SELECT cache_key
-               FROM canvas_cache
-              WHERE last_used_at < $1
-              ORDER BY last_used_at ASC
-              LIMIT $2
-              FOR UPDATE SKIP LOCKED
-           )
-           DELETE FROM canvas_cache cache
-            USING expired
-            WHERE cache.cache_key = expired.cache_key
-           RETURNING cache.cache_key, cache.object_key`,
-          [cutoff, CANVAS_CACHE_SWEEP_BATCH_SIZE]
+          `SELECT cache_key, object_key,
+                  last_used_at::text AS last_used_at_cursor
+             FROM canvas_cache
+            WHERE last_used_at < $1
+              AND (
+                $2::timestamptz IS NULL
+                OR (last_used_at, cache_key) > ($2::timestamptz, $3::text)
+              )
+            ORDER BY last_used_at ASC, cache_key ASC
+            LIMIT $4`,
+          [batchCutoff, cursorLastUsedAt, cursorCacheKey, CANVAS_CACHE_SWEEP_BATCH_SIZE]
         );
         rows = result.rows;
       } catch (err) {
         cleanupErrors += 1;
-        console.error('[CACHE CLEANUP] canvas_cache database cleanup failed:', err.message);
+        console.error('[CanvasCache] Expired-row selection failed:', err.message);
         break;
       }
 
       if (rows.length === 0) break;
       batches += 1;
+      expiredConsidered += rows.length;
+      const lastRow = rows[rows.length - 1];
+      // Keep the PostgreSQL text value so sub-millisecond timestamp precision
+      // is not lost through JavaScript Date parsing between cursor queries.
+      cursorLastUsedAt = lastRow.last_used_at_cursor;
+      cursorCacheKey = lastRow.cache_key;
 
-      for (const row of rows) {
-        forgetMemory(row.cache_key);
-      }
-      swept += rows.length;
-
-      console.info(`[CACHE CLEANUP] batch=${batches} deleted=${rows.length}`);
-
-      // Database retention must not depend on an external object-store DELETE.
-      // Once the expired rows are gone, remove R2 objects as best effort. A
-      // bucket lifecycle rule can collect any object orphaned by an outage.
+      let batchR2Deleted = 0;
+      let batchR2Failures = 0;
+      const failureSamples = [];
       if (r2.isConfigured()) {
         for (const row of rows) {
           let objectDeleted = false;
-          let objectError = null;
+          let failureMessage = 'delete returned false';
           try {
             objectDeleted = await r2.deleteObject(row.object_key, {
               system: 'canvas',
               command: 'sweep',
             });
           } catch (err) {
-            objectError = err;
+            if (isMissingR2ObjectError(err)) {
+              objectDeleted = true;
+            } else {
+              failureMessage = err.message;
+            }
           }
           if (objectDeleted) {
-            r2Deleted += 1;
+            r2ObjectsDeleted += 1;
+            batchR2Deleted += 1;
           } else {
-            r2Failures += 1;
-            console.warn('[CACHE CLEANUP] R2 cleanup failed after Supabase row deletion:', {
-              cacheKey: row.cache_key,
-              objectKey: row.object_key,
-              ...(objectError ? { error: objectError.message } : {}),
-            });
+            r2CleanupFailures += 1;
+            batchR2Failures += 1;
+            if (failureSamples.length < 5) {
+              failureSamples.push({
+                cacheKey: row.cache_key,
+                objectKey: row.object_key,
+                error: failureMessage,
+              });
+            }
           }
         }
       }
+
+      if (batchR2Failures > 0) {
+        console.warn('[CanvasCache] R2 cleanup failures in batch; database deletion will continue.', {
+          batch: batches,
+          failures: batchR2Failures,
+          samples: failureSamples,
+        });
+      }
+
+      let batchDbDeleted = 0;
+      try {
+        const result = await pool.query(
+          `DELETE FROM canvas_cache
+            WHERE cache_key = ANY($1::text[])
+              AND last_used_at < $2
+          RETURNING cache_key`,
+          [rows.map((row) => row.cache_key), batchCutoff]
+        );
+        batchDbDeleted = Number(result.rowCount ?? result.rows.length) || 0;
+        dbRowsDeleted += batchDbDeleted;
+        for (const row of result.rows) forgetMemory(row.cache_key);
+      } catch (err) {
+        cleanupErrors += 1;
+        console.error('[CanvasCache] Expired-row database deletion failed; sweep will advance:', {
+          batch: batches,
+          error: err.message,
+        });
+      }
+
+      console.info('[CanvasCache] Sweep batch processed', {
+        batch: batches,
+        expiredConsidered: rows.length,
+        dbRowsDeleted: batchDbDeleted,
+        r2ObjectsDeleted: batchR2Deleted,
+        r2CleanupFailures: batchR2Failures,
+      });
 
       if (rows.length === CANVAS_CACHE_SWEEP_BATCH_SIZE) {
         await wait(CANVAS_CACHE_SWEEP_BATCH_DELAY_MS);
       }
     }
   } finally {
+    try {
+      const finalCutoff = new Date(Date.now() - CANVAS_CACHE_RETENTION_MS);
+      const result = await pool.query(
+        `SELECT COUNT(*)::bigint AS remaining_expired_rows
+           FROM canvas_cache
+          WHERE last_used_at < $1`,
+        [finalCutoff]
+      );
+      remainingExpiredRows = Number(result.rows[0]?.remaining_expired_rows || 0);
+    } catch (err) {
+      cleanupErrors += 1;
+      console.error('[CanvasCache] Remaining expired-row validation failed:', err.message);
+    }
     sweepRunning = false;
-    console.info(`[CACHE CLEANUP] database_deleted=${swept}`);
-    console.info(`[CACHE CLEANUP] r2_deleted=${r2Deleted}`);
-    console.info(`[CACHE CLEANUP] r2_failed=${r2Failures}`);
-    console.info('[CACHE CLEANUP] Completed canvas_cache cleanup', {
-      table: 'canvas_cache',
+    console.info('[CanvasCache] Sweep complete', {
+      expiredConsidered,
+      dbRowsDeleted,
+      r2ObjectsDeleted,
+      r2CleanupFailures,
+      remainingExpiredRows,
       batches,
       cleanupErrors,
       durationMs: Date.now() - startedAt,
     });
   }
 
-  return swept;
+  return dbRowsDeleted;
 }
 
 async function verifyCanvasCacheReady() {
@@ -417,6 +497,7 @@ module.exports = {
   verifyCanvasCacheReady,
   getCanvasCacheStats,
   CANVAS_CACHE_RETENTION_MS,
+  CANVAS_CACHE_RETENTION_GRACE_MS,
   CANVAS_CACHE_MAX_AGE_DAYS,
   CANVAS_CACHE_SWEEP_BATCH_SIZE,
   CANVAS_CACHE_SWEEP_BATCH_DELAY_MS,
@@ -427,7 +508,9 @@ module.exports = {
     lastTouched,
     MEMORY_MAX,
     isCanvasCacheExpired,
+    isMissingR2ObjectError,
     CANVAS_CACHE_RETENTION_MS,
+    CANVAS_CACHE_RETENTION_GRACE_MS,
     CANVAS_CACHE_SWEEP_BATCH_SIZE,
     CANVAS_CACHE_SWEEP_BATCH_DELAY_MS,
   },
