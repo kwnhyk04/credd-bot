@@ -70,10 +70,10 @@ DOTs = 2 ticks; first-hit = first-action flag; stacks per turn; bonus hits are r
 - `helm_of_darkness` — Veil of Hades: 30% chance to evade each incoming hit. A successful evade grants Unseen, causing the next attack to ignore 50% of the target's DEF.
 - `aegis` — Medusa's Gaze: Each hit taken adds a Stone stack, each granting 10% damage reduction. At 3 stacks the attacker is Petrified for 1 turn and takes 50% more damage while petrified, then the stacks reset. The third stack becomes the Petrify rather than more reduction, so the effective maximum is 2 stacks (20%).
 - `apollos_silver_bow` — Unerring Arrow: Ignores 25% of enemy DEF. Every 3rd turn, the attack is a guaranteed CRIT — counted in the wielder's own attack turns, so a turn lost to crowd control does not burn a count. Resets each battle.
-- `mjolnir` — Crushing Force: Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Attacks deal +30% ATK; every 3rd turn, the primary attack deals an additional +200% ATK.
-- `gungnir` — Never Misses: Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Each attack ignores 30% of enemy DEF and has a 20% chance to use 60% total DEF penetration for that attack.
-- `thunderbolt_of_zeus` — Divine Thunder: Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Each critical attack deals +100% bonus ATK and applies Paralyze for 1 turn.
-- `trident_of_poseidon` — Tidal Wrath: Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Every 2nd turn, deals +100% bonus ATK and reduces enemy DEF by 20% for 1 turn, with a 30% chance to stun for 1 turn.
+- `mjolnir` — Crushing Force: Normal attacks deal +50% damage. Every 3rd turn, the primary attack gains +200% ATK instead; the +50% damage bonus does not apply to that burst.
+- `gungnir` — Never Misses: Each attack ignores 30% of enemy DEF and has a 20% chance to use 60% total DEF penetration for that attack.
+- `thunderbolt_of_zeus` — Divine Thunder: Each critical attack deals +100% bonus ATK and applies Paralyze for 1 turn.
+- `trident_of_poseidon` — Tidal Wrath: Every 2nd turn, deals +100% bonus ATK and reduces enemy DEF by 20% for 1 turn, with a 30% chance to stun for 1 turn.
 - `kiri` — Thousand Partings: [Divine] Each attack increases damage by 20%, stacking up to +120%. Each attack has a 25% chance to strike twice as two separate hits.
 - `moira` — Fate Ignores Iron: [Divine] All attacks reduce the target's DEF by 10%, stacking up to 50%. Ignores 50% of DEF against targets with a defense buff active. Attacks cannot miss.
 - `sophia` — The Price of Knowing: [Divine] All damage dealt is increased by 75%, but the wielder takes 20% more damage. Below 30% HP the damage bonus rises to +150% for the rest of the battle.

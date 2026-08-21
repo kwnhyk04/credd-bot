@@ -39,6 +39,7 @@ const { LOG_PRIORITY: LOG } = require('./combatLog');
 
 const BLOODLUST_ATK_PER_STACK = 0.10;
 const BLOODLUST_MAX_STACKS = 5;
+const MJOLNIR_NORMAL_DAMAGE_PCT = 50;
 
 // Fenrir's passive configuration and state transitions live with the passive
 // registry so the boss skill key, thresholds, multipliers, and announcements
@@ -1048,15 +1049,19 @@ const PASSIVE_REGISTRY = {
   // ── WEAPON PASSIVES — Supreme ────────────────────────────────────────────
 
   'mjolnir': (bs) => {
-    // Actual attacks gain +30%; the every-3rd-turn +200% rider belongs only to
-    // that turn's primary attack and is not repeated by additional attacks.
+    // Normal attacks use exactly +50% in the unified damage lane. The every-3rd
+    // turn primary instead suppresses Mjolnir's equipped-weapon damage rider and
+    // keeps the existing +200% ATK burst. Other damage sources remain separate;
+    // additional attacks on that turn are ordinary attacks.
     bs.onAttack(() => {
-      bs.playerAtkMult += 0.30;
+      const equippedDamagePct = Number(bs.weaponDamageBonusPct) || 0;
       if (bs.currentTurn % 3 === 0 && bs.isPrimaryAttack !== false) {
+        bs.damageBonusPct -= equippedDamagePct;
         bs.playerAtkMult += 2.00;
-        bs.log.push('⚡ Mjolnir: Crushing Force — CRUSH! +200% ATK!');
+        bs.log.push('⚡ Mjolnir: Crushing Force — +200% ATK!');
       } else {
-        bs.log.push('⚡ Mjolnir: Crushing Force — +30% ATK bonus!');
+        bs.damageBonusPct += MJOLNIR_NORMAL_DAMAGE_PCT - equippedDamagePct;
+        bs.log.push('⚡ Mjolnir: Crushing Force — +50% Damage!');
       }
     });
   },

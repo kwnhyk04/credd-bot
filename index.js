@@ -184,9 +184,9 @@ client.once('ready', async () => {
   } else {
     console.log('[casino] Casino disabled; prewarm and recovery sweep skipped.');
   }
-  // Canvas-cache eviction (no-op unless R2 write creds are configured): launch
-  // one background pass after normal startup, then keep one hourly timer alive.
-  // Both triggers use runCanvasCacheSweep's shared overlap guard.
+  // Canvas-cache database eviction is authoritative and independent of R2:
+  // launch one background pass after normal startup, then keep one hourly
+  // timer alive. Both triggers use runCanvasCacheSweep's shared overlap guard.
   runCanvasCacheSweep()
     .catch((err) => console.error('[CanvasCache] startup sweep failed:', err.message));
   canvasCacheSweepInterval = setInterval(() => {

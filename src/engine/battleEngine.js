@@ -69,7 +69,8 @@
  *   critLevel = a rolled crit OR a Double (Idiyanale, a guaranteed crit-level hit that DOES
  *   take the rider). damage% = weapon bonusDmgPct + procced sources (Katana +30, future
  *   deity blessings via scratch.damageBonusPct), summed additively, applied to crit AND
- *   non-crit. Supreme 50% → ×1.5 / ×2.5; Divine 100% → ×2.0 / ×3.0;
+ *   non-crit. Supreme 50% → ×1.5 / ×2.5; Divine 100% → ×2.0 / ×3.0. Mjolnir's
+ *   every-third-turn primary cancels its weapon rider in scratch so that burst is ATK-only;
  *   Supreme + double → ×2.5; Supreme + deity 50% (proc) → ×2.0 / ×3.0. Mob "X% ATK" nukes are a clean ×(pct) and do
  *   not also crit. (+X% ATK riders scale effATK pre-mitigation — see playerAtkMult.)
  *   → optional final outgoing attack multiplier (Titan) → floor →
@@ -106,7 +107,6 @@ const {
 const {
   CRIT_MULT, OVERCHARGE_MULT, OVERCHARGE_HIGH_MULT, OVERCHARGE_BASE_CHANCE,
   hitMultiplier,
-  SUPREME_WEAPON_ATK_PER_TURN, SUPREME_WEAPON_ATK_MAX,
   AEGIS_DR_PER_STACK, AEGIS_STACKS_TO_PETRIFY, AEGIS_PETRIFY_DAMAGE_AMP,
   PETRIFY_DEFAULT_DAMAGE_AMP,
 } = require('../config/combat');
@@ -892,6 +892,9 @@ function resolveBattle(a, b, opts = {}) {
     set playerStatusImmune(v) { self.statusImmune = !!v; },
     get damageBonusPct() { return self.scratch.damageBonusPct; },
     set damageBonusPct(v) { self.scratch.damageBonusPct = v; },
+    // Read-only durable weapon rider used by Mjolnir to replace or suppress its
+    // own +50% damage contribution for the current attack.
+    get weaponDamageBonusPct() { return self.bonusDmgPct; },
     get damageReductionPct() { return self.scratch.damageReductionPct; },
     set damageReductionPct(v) { self.scratch.damageReductionPct = v; },
     get incomingDamageIncreasePct() { return self.scratch.incomingDamageIncreasePct; },
@@ -2045,26 +2048,6 @@ function resolveBattle(a, b, opts = {}) {
     }
   };
 
-  /** Apply the shared Supreme-weapon ATK stack once for this side's battle turn. */
-  const processSupremeWeaponPassive = (side) => {
-    if (side.kind !== 'player' || side.hp <= 0 || side.weaponTier !== 'Supreme') return;
-    if (side.flags.supreme_weapon_stack_turn === bt.shared.round) return;
-
-    side.flags.supreme_weapon_stack_turn = bt.shared.round;
-    const previous = Number(side.flags.supreme_weapon_atk_bonus_pct) || 0;
-    const next = Math.min(
-      SUPREME_WEAPON_ATK_MAX,
-      previous + SUPREME_WEAPON_ATK_PER_TURN,
-    );
-    side.flags.supreme_weapon_atk_bonus_pct = next;
-    side.scratch.playerAtkMult += next;
-    if (next > previous) {
-      logAt(LOG.WEAPON,
-        `⚔️ Supreme Weapon: +${Math.round((next - previous) * 100)}% ATK stack gained ` +
-        `(total +${Math.round(next * 100)}%).`);
-    }
-  };
-
   const runRegistry = (key, perspective) => {
     if (result) return;
     const fn = PASSIVE_REGISTRY[key] || PASSIVE_REGISTRY.none;
@@ -2287,7 +2270,6 @@ function resolveBattle(a, b, opts = {}) {
       for (const side of order) {
         const P = perspectiveOf(side);
         collectPassiveEvents(side, LOG.WEAPON, () => {
-          processSupremeWeaponPassive(side);
           runRegistry(side.weaponPassiveKey, P);
         });
         collectPassiveEvents(side, LOG.BLESSING, () => runRegistry(side.deityBlessingKey, P));
@@ -2297,7 +2279,6 @@ function resolveBattle(a, b, opts = {}) {
       }
     } else {
       collectPassiveEvents(bt.A, LOG.WEAPON, () => {
-        processSupremeWeaponPassive(bt.A);
         runRegistry(bt.A.weaponPassiveKey, PA);
       });
       collectPassiveEvents(bt.A, LOG.BLESSING, () => runRegistry(bt.A.deityBlessingKey, PA));

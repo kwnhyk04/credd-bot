@@ -507,7 +507,10 @@ async function postFreshLiveMessage(client, guildId, payload, channelIdHint = nu
 }
 
 function repointLiveMessage(guildId, msg) {
-  liveMessages.set(guildId, { channelId: msg.channel.id, messageId: msg.id });
+  const channelId = msg?.channelId || msg?.channel?.id;
+  if (!channelId || !msg?.id) return false;
+  liveMessages.set(guildId, { channelId, messageId: msg.id });
+  return true;
 }
 
 async function deleteLiveMessage(client, guildId) {
@@ -535,6 +538,7 @@ async function refreshLiveMessage(client, guildId, options = {}) {
     const channel = await client.channels.fetch(ref.channelId).catch(() => null);
     msg = channel ? await channel.messages.fetch(ref.messageId).catch(() => null) : null;
   }
+  if (!msg && options.allowCreate === false) return false;
   // A local spawn banner already lives on Discord. Reuse that CDN URL and
   // retain only its attachment ID during progress/final edits, avoiding both
   // a second upload and a visual downgrade. Old status attachments are not
@@ -563,8 +567,19 @@ async function refreshLiveMessage(client, guildId, options = {}) {
     // HP/leaderboard visible. Keep the flag for fresh-message recovery only.
     const editablePayload = { ...payload };
     delete editablePayload.flags;
-    const edited = await msg.edit({ ...editablePayload, attachments: retainedAttachments }).catch(() => null);
+    let editError = null;
+    const edited = await msg.edit({ ...editablePayload, attachments: retainedAttachments }).catch((err) => {
+      editError = err;
+      return null;
+    });
     if (edited) return true;
+    console.warn('[boss] live message edit failed', {
+      guildId,
+      channelId: ref.channelId,
+      messageId: ref.messageId,
+      code: editError?.code || 'unknown',
+      error: editError?.message || 'Discord returned no edited message',
+    });
     // A tracked message that rejected an edit must not produce a duplicate
     // boss message for every attack. The bounded scheduler retry can try again;
     // `crd boss` remains the explicit recovery path when the message is gone or
@@ -589,6 +604,10 @@ async function refreshLiveMessageProgress(client, guildId, {
     phase,
     telemetryCommand,
     shouldApply,
+    // A button interaction identifies the message to edit. Never turn a
+    // post-attack refresh into a second boss post if message tracking was lost;
+    // scheduler reconciliation remains the explicit reconstruction path.
+    allowCreate: phase === 'background',
   });
 }
 

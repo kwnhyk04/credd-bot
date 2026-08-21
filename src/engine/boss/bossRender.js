@@ -603,6 +603,7 @@ module.exports = {
   bossStatusCardHeight,
   bossStatusText,
   bossStatusImage,
+  bossStatusCacheParts,
   renderBossStatusCard,
   trimBossBanners,
   dropBossBannersForPath,

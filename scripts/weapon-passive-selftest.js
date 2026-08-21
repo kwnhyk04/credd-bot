@@ -85,6 +85,7 @@ function makeBs(overrides = {}) {
     flags: {},
     log: [],
     damageBonusPct: 0,
+    weaponDamageBonusPct: 50,
     damageReductionPct: 0,
     incomingDamageIncreasePct: 0,
     playerAtkMult: 0,
@@ -721,15 +722,26 @@ audit('mjolnir', () => {
   const normal = makeBs({ currentTurn: 1 });
   invoke('mjolnir', normal);
   attack(normal);
-  close(normal.playerAtkMult, 0.30, 'Mjolnir normal turn');
+  close(normal.playerAtkMult, 0, 'Mjolnir normal turn has no ATK rider');
+  close(normal.damageBonusPct, 0, 'existing +50 weapon damage is retained exactly once');
+  assert(normal.log.some((line) => line.includes('+50% Damage')));
   const crush = makeBs({ currentTurn: 3 });
   invoke('mjolnir', crush);
   attack(crush);
-  close(crush.playerAtkMult, 2.30, 'Mjolnir third-turn crush');
+  close(crush.playerAtkMult, 2.00, 'Mjolnir third-turn +200% ATK crush');
+  close(crush.damageBonusPct, -50, 'Mjolnir crush suppresses equipped +50% damage');
+  assert(crush.log.some((line) => line.includes('+200% ATK')));
+  assert(!crush.log.some((line) => line.includes('+50% Damage')));
   const additional = makeBs({ currentTurn: 3, isPrimaryAttack: false });
   invoke('mjolnir', additional);
   attack(additional);
-  close(additional.playerAtkMult, 0.30, 'Mjolnir additional attack');
+  close(additional.playerAtkMult, 0, 'Mjolnir additional attack has no ATK rider');
+  close(additional.damageBonusPct, 0, 'additional attack keeps normal +50% damage');
+  assert(additional.log.some((line) => line.includes('+50% Damage')));
+  const legacy = makeBs({ currentTurn: 1, weaponDamageBonusPct: 0 });
+  invoke('mjolnir', legacy);
+  attack(legacy);
+  close(legacy.damageBonusPct, 50, 'Mjolnir normalizes a legacy row to +50% damage');
 });
 
 audit('gungnir', () => {

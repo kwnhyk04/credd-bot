@@ -10,6 +10,6 @@ CREATE TABLE IF NOT EXISTS canvas_cache (
   last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Sweep support: sweepCanvasCache() evicts rows (and their R2 objects) idle
--- longer than CANVAS_CACHE_MAX_AGE_DAYS (default 14).
+-- Sweep support: the startup/hourly sweep uses the single hardcoded retention
+-- policy in src/utils/canvasCache.js and bounded oldest-first batches.
 CREATE INDEX IF NOT EXISTS canvas_cache_last_used_idx ON canvas_cache (last_used_at);

@@ -639,7 +639,11 @@ async function distributeRewards(client, guildId, spawnId, { includeStatusImage 
   return attackerIds.length;
 }
 
-async function handleAttackImpl(interaction) {
+async function handleAttackImpl(interaction, {
+  buildPlayerFighterFn = buildPlayerFighter,
+  isBannedFn = isBanned,
+  resolveBattleFn = resolveBattle,
+} = {}) {
   const guildId = interaction.guildId;
   const discordId = interaction.user.id;
   const started = Date.now();
@@ -656,12 +660,12 @@ async function handleAttackImpl(interaction) {
       return fail(`Monster bosses are currently hosted in the official support server: ${supportMarkdownLink()}.`);
     }
     // gate 1 — registered + character
-    const fighter = await buildPlayerFighter(pool, discordId);
+    const fighter = await buildPlayerFighterFn(pool, discordId);
     if (!fighter) {
       return fail('You need a character first — `crd register`, then `crd create character`.');
     }
     // gate 2 — not banned (buttons bypass message middleware)
-    if (await isBanned(discordId)) {
+    if (await isBannedFn(discordId)) {
       return fail('You cannot attack the boss right now.');
     }
     // gate 3 — boss still active
@@ -735,7 +739,7 @@ async function handleAttackImpl(interaction) {
       Object.assign(state, locked.rows[0]);
       unlimitedDev = devBossHasUnlimitedAttacks(state, mobRow);
       const boss = { ...buildBossFighter(mobRow, state), crit: bossCrit(mobRow) };
-      sim = resolveBattle(fighter, boss, { mode: 'boss', seed: Date.now() >>> 0 });
+      sim = resolveBattleFn(fighter, boss, { mode: 'boss', seed: Date.now() >>> 0 });
       net = Math.max(0, Math.floor(sim.totals.netDamage));
 
       // atomic commit — pool deduction, attack log, daily lock
@@ -809,6 +813,12 @@ async function handleAttackImpl(interaction) {
 
       rememberBossLog(state.spawn_id, discordId, sim);
       rememberSpawn(guildId, state.spawn_id);
+
+      // liveMessages is process-local and can be empty after a deployment or
+      // after a transient edit failure. The successful button interaction
+      // carries the exact existing Discord message, so restore that reference
+      // before refreshing instead of requiring `crd boss` or posting a copy.
+      repointLiveMessage(guildId, interaction.message);
 
       // The attack transaction is committed. Refresh the live HP/leaderboard
       // immediately; scheduler reconciliation keeps its normal debounce.

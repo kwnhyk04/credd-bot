@@ -68,10 +68,6 @@ const { CLASSES, CLASS_PASSIVE_VALUES, computeClassStats } = require(path.join(R
 const { emojiForDisplay } = require(path.join(ROOT, 'src', 'utils', 'emojis'));
 const { runeDescription } = require(path.join(ROOT, 'src', 'config', 'runes'));
 const {
-  SUPREME_WEAPON_ATK_PER_TURN,
-  SUPREME_WEAPON_ATK_MAX,
-} = require(path.join(ROOT, 'src', 'config', 'combat'));
-const {
   GREATER_BOSSES, CALAMITY_BOSSES, CALAMITY_SPAWN_CHANCE, GREATER_SPAWN_CHANCE, NORMAL_SPAWN_CHANCE,
   GREATER_CHEST_GOLDEN_CHANCE, GREATER_TWIN_REWARD, GREATER_GOLDEN_REWARD,
   bossRewards, rollBossChest, bossMaxHpForChest, bossChestForSpawn, pickWeightedBoss,
@@ -410,12 +406,12 @@ check('class base and per-level scaling match the balance table',
   const atlasSecondR4 = roundEvents(atlasActsSecond, 4);
   const atlasSecondR5 = roundEvents(atlasActsSecond, 5);
   check('Atlas acting second leaves the prior action untouched and affects the next action',
-    dmgOf(atlasSecondR3, 'Rival attacks') === 1_300
-      && dmgOf(atlasSecondR4, 'Rival attacks') === 700
-      && dmgOf(atlasSecondR5, 'Rival attacks') === 1_500,
+    dmgOf(atlasSecondR3, 'Rival attacks') === 1_000
+      && dmgOf(atlasSecondR4, 'Rival attacks') === 500
+      && dmgOf(atlasSecondR5, 'Rival attacks') === 1_000,
     [atlasSecondR3, atlasSecondR4, atlasSecondR5].flat().join(' | '));
-  check('Atlas halves final effective ATK after positive Supreme modifiers',
-    dmgOf(atlasSecondR4, 'Rival attacks') === Math.floor(1_000 * 1.40 * 0.50)
+  check('Atlas halves final effective ATK without a removed Supreme modifier',
+    dmgOf(atlasSecondR4, 'Rival attacks') === Math.floor(1_000 * 0.50)
       && hasEvent(atlasSecondR4, 'ATK Down expired after the affected action'));
 
   const atlasRefresh = resolveBattle(
@@ -903,7 +899,7 @@ check('class base and per-level scaling match the balance table',
     dmgOf(roundEvents(otherTier, 1), 'Hero attacks') === 150);
 }
 
-// — Every Supreme weapon gains one +10% ATK stack per turn, capped at +50%. —
+// — Supreme has no generic ATK ramp; Mjolnir alternates damage and burst lanes. —
 {
   const supremeKeys = [
     'mjolnir', 'gungnir', 'thunderbolt_of_zeus', 'trident_of_poseidon',
@@ -916,19 +912,22 @@ check('class base and per-level scaling match the balance table',
     atk: 0, hp: 100_000, def: 0, crit: 0, ...over,
   });
 
-  check('Supreme weapon stack constants are +10% per turn and +50% maximum',
-    SUPREME_WEAPON_ATK_PER_TURN === 0.10 && SUPREME_WEAPON_ATK_MAX === 0.50);
-
   const progression = resolveBattle(supremePlayer(), target(), {
     mode: 'boss', rng: () => 0.5,
   });
   const damageByTurn = [1, 2, 3, 4, 5, 6]
     .map((turn) => dmgOf(roundEvents(progression, turn), 'Hero attacks'));
-  check('Supreme weapon ATK progresses +10/+20/+30/+40/+50 and stays capped',
-    damageByTurn.join(',') === '110,120,130,140,150,150', damageByTurn.join(','));
-  check('Supreme weapon stack log reaches +50% once and does not add a turn-6 stack',
-    hasEvent(roundEvents(progression, 5), 'total +50%')
-      && !hasEvent(roundEvents(progression, 6), 'Supreme Weapon:'));
+  check('equipping a Supreme weapon no longer increases ATK each turn',
+    damageByTurn.join(',') === '100,100,100,100,100,100', damageByTurn.join(','));
+  check('Supreme weapons can no longer accumulate the removed +50% ATK stack',
+    !hasEvent(allEvents(progression), 'Supreme Weapon:')
+      && !hasEvent(allEvents(progression), 'ATK stack gained'));
+  const engineSource = fs.readFileSync(path.join(ROOT, 'src', 'engine', 'battleEngine.js'), 'utf8');
+  const combatSource = fs.readFileSync(path.join(ROOT, 'src', 'config', 'combat.js'), 'utf8');
+  check('old Supreme stack constants, handlers, and durable flags are absent',
+    !/SUPREME_WEAPON_ATK_|processSupremeWeaponPassive|supreme_weapon_(?:stack|atk)/.test(
+      `${engineSource}\n${combatSource}`
+    ));
 
   const gungnirProc = resolveBattle(
     supremePlayer({ weaponTier: null, weaponPassiveKey: 'gungnir', bonusDmgPct: 0 }),
@@ -978,8 +977,9 @@ check('class base and per-level scaling match the balance table',
     const sim = resolveBattle(supremePlayer({ weaponPassiveKey }), target(), {
       mode: 'boss', rng: () => 0.5,
     });
-    check(`Supreme shared ATK stack applies alongside ${weaponPassiveKey}`,
-      hasEvent(roundEvents(sim, 1), 'Supreme Weapon: +10% ATK stack gained (total +10%)'));
+    check(`removed Supreme ATK stack does not run alongside ${weaponPassiveKey}`,
+      !hasEvent(allEvents(sim), 'Supreme Weapon:')
+        && !hasEvent(allEvents(sim), 'ATK stack gained'));
   }
 
   const supremeCrit = resolveBattle(
@@ -987,45 +987,85 @@ check('class base and per-level scaling match the balance table',
     target(),
     { mode: 'boss', rng: () => 0.50 },
   );
-  check('Supreme weapon ATK stacks increase critical-hit damage through the same ATK lane',
-    dmgOf(roundEvents(supremeCrit, 1), 'Hero attacks') === 220
-      && dmgOf(roundEvents(supremeCrit, 5), 'Hero attacks') === 300
+  check('Supreme critical damage no longer grows from a generic ATK stack',
+    dmgOf(roundEvents(supremeCrit, 1), 'Hero attacks') === 200
+      && dmgOf(roundEvents(supremeCrit, 5), 'Hero attacks') === 200
       && hasEvent(roundEvents(supremeCrit, 1), '(CRIT!)')
       && hasEvent(roundEvents(supremeCrit, 5), '(CRIT!)'));
 
-  const mjolnirCombined = resolveBattle(
+  const mjolnir = resolveBattle(
     supremePlayer({ weaponPassiveKey: 'mjolnir', bonusDmgPct: 50 }),
     target(),
     { mode: 'boss', rng: () => 0.50 },
   );
-  check('Mjolnir keeps +30% per attack and one +200% primary rider alongside Supreme stacking',
-    dmgOf(roundEvents(mjolnirCombined, 1), 'Hero attacks') === 210
-      && dmgOf(roundEvents(mjolnirCombined, 3), 'Hero attacks') === 540
-      && roundEvents(mjolnirCombined, 3)
-        .filter((event) => event.includes('CRUSH! +200% ATK!')).length === 1);
+  const mjolnirDamageByTurn = [1, 2, 3, 4, 5, 6]
+    .map((turn) => dmgOf(roundEvents(mjolnir, turn), 'Hero attacks'));
+  check('Mjolnir normal +50% Damage and every-third-turn +200% ATK stay exclusive',
+    mjolnirDamageByTurn.join(',') === '150,150,300,150,150,300',
+    mjolnirDamageByTurn.join(','));
+  check('Mjolnir normal attacks log only +50% Damage',
+    hasEvent(roundEvents(mjolnir, 1), 'Mjolnir: Crushing Force — +50% Damage!')
+      && !hasEvent(roundEvents(mjolnir, 1), '+200% ATK')
+      && !hasEvent(roundEvents(mjolnir, 1), '+30% ATK'));
+  check('Mjolnir burst attacks log only +200% ATK',
+    hasEvent(roundEvents(mjolnir, 3), 'Mjolnir: Crushing Force — +200% ATK!')
+      && !hasEvent(roundEvents(mjolnir, 3), '+50% Damage')
+      && !hasEvent(roundEvents(mjolnir, 3), '+30% ATK'));
+  check('Mjolnir +50% Damage resumes immediately after its burst',
+    hasEvent(roundEvents(mjolnir, 4), '+50% Damage')
+      && dmgOf(roundEvents(mjolnir, 4), 'Hero attacks') === 150);
 
-  const legendary = resolveBattle(
-    supremePlayer({ weaponTier: 'Legendary' }), target(), { mode: 'boss', rng: () => 0.5 },
+  const mjolnirCrit = resolveBattle(
+    supremePlayer({ weaponPassiveKey: 'mjolnir', bonusDmgPct: 50, crit: 100 }),
+    target(),
+    { mode: 'boss', rng: () => 0.50 },
   );
-  check('non-Supreme weapon tiers do not receive the shared ATK stack',
-    dmgOf(roundEvents(legendary, 1), 'Hero attacks') === 100
-      && !hasEvent(allEvents(legendary), 'Supreme Weapon:'));
+  check('Mjolnir normal +50% is processed in the unified Damage lane, not ATK',
+    dmgOf(roundEvents(mjolnirCrit, 1), 'Hero attacks') === 250
+      && dmgOf(roundEvents(mjolnirCrit, 1), 'Hero attacks') !== 300);
+  check('Mjolnir burst receives +200% ATK without its +50% Damage multiplier',
+    dmgOf(roundEvents(mjolnir, 3), 'Hero attacks') === 300
+      && dmgOf(roundEvents(mjolnir, 3), 'Hero attacks') !== 450);
+
+  const mjolnirLegacyRow = resolveBattle(
+    supremePlayer({ weaponPassiveKey: 'mjolnir', bonusDmgPct: 0 }),
+    target(),
+    { mode: 'boss', rng: () => 0.50 },
+  );
+  check('Mjolnir normal damage is normalized to +50% exactly once',
+    dmgOf(roundEvents(mjolnirLegacyRow, 1), 'Hero attacks') === 150
+      && dmgOf(roundEvents(mjolnirLegacyRow, 3), 'Hero attacks') === 300);
+
+  const thunderbolt = resolveBattle(
+    supremePlayer({ weaponPassiveKey: 'thunderbolt_of_zeus', bonusDmgPct: 50, crit: 100 }),
+    target(),
+    { mode: 'boss', rng: () => 0.50 },
+  );
+  const trident = resolveBattle(
+    supremePlayer({ weaponPassiveKey: 'trident_of_poseidon', bonusDmgPct: 50 }),
+    target(),
+    { mode: 'boss', rng: () => 0.50 },
+  );
+  check('unrelated Thunderbolt and Trident Supreme passives still activate',
+    hasEvent(roundEvents(thunderbolt, 1), 'Thunderbolt of Zeus: Divine Thunder — +100% ATK!')
+      && hasEvent(roundEvents(trident, 2), 'Trident of Poseidon: Tidal Wrath — +100% ATK!'));
 
   const supremeDuel = resolveBattle(
     supremePlayer(), supremePlayer({ name: 'Rival' }),
     { mode: 'duel', rng: () => 0.5 },
   );
-  check('both Supreme weapon owners gain one stack in a duel turn',
-    roundEvents(supremeDuel, 1)
-      .filter((event) => event.includes('Supreme Weapon:')).length === 2);
+  check('neither Supreme owner receives a generic stack in a duel',
+    !hasEvent(allEvents(supremeDuel), 'Supreme Weapon:'));
 
   const reusedFighter = supremePlayer();
   const firstBattle = resolveBattle(reusedFighter, target(), { mode: 'boss', rng: () => 0.5 });
   const secondBattle = resolveBattle(reusedFighter, target(), { mode: 'boss', rng: () => 0.5 });
-  check('Supreme weapon ATK stacks reset between battles',
-    hasEvent(roundEvents(firstBattle, 1), 'total +10%')
-      && hasEvent(roundEvents(secondBattle, 1), 'total +10%')
-      && !hasEvent(roundEvents(secondBattle, 1), 'total +20%'));
+  check('no removed Supreme ATK-stack state survives turns or reused fighter battles',
+    dmgOf(roundEvents(firstBattle, 1), 'Hero attacks') === 100
+      && dmgOf(roundEvents(firstBattle, 6), 'Hero attacks') === 100
+      && dmgOf(roundEvents(secondBattle, 1), 'Hero attacks') === 100
+      && !hasEvent(allEvents(firstBattle), 'Supreme Weapon:')
+      && !hasEvent(allEvents(secondBattle), 'Supreme Weapon:'));
 
   const classOnly = resolveBattle(
     supremePlayer({ class: 'Swordsman', classPassive: 'bleed' }),
@@ -1040,11 +1080,11 @@ check('class base and per-level scaling match the balance table',
     target({ def: 100 }),
     { mode: 'raid', rng: () => 0.5 },
   );
-  check('Supreme ATK combines with class stacks and an effect rune',
-    dmgOf(roundEvents(classOnly, 1), 'Hero attacks') === 76
-      && dmgOf(roundEvents(classAndRune, 1), 'Hero attacks') === 82
+  check('class stacks and effect runes remain unchanged without a Supreme ATK stack',
+    dmgOf(roundEvents(classOnly, 1), 'Hero attacks') === 70
+      && dmgOf(roundEvents(classAndRune, 1), 'Hero attacks') === 75
       && hasEvent(roundEvents(classAndRune, 1), 'Current bonus: 5%')
-      && hasEvent(roundEvents(classAndRune, 1), 'total +10%'));
+      && !hasEvent(roundEvents(classAndRune, 1), 'Supreme Weapon:'));
 }
 
 // — Odin and Zeus add constant +50% ATK without replacing their unique effects. —
@@ -1096,9 +1136,9 @@ check('class base and per-level scaling match the balance table',
     target(),
     { mode: 'raid', rng: () => 0.5 },
   );
-  check('Supreme weapon and Odin ATK bonuses combine additively',
-    dmgOf(roundEvents(supremeOdin, 1), 'Hero attacks') === 240
-      && hasEvent(roundEvents(supremeOdin, 1), 'total +10%'));
+  check('Supreme damage and Odin ATK combine without a generic Supreme ATK stack',
+    dmgOf(roundEvents(supremeOdin, 1), 'Hero attacks') === 225
+      && !hasEvent(roundEvents(supremeOdin, 1), 'Supreme Weapon:'));
 
   const supremeZeusRolls = [0.5, 0.99, 0, 0.5];
   const supremeZeus = resolveBattle(
@@ -1109,9 +1149,10 @@ check('class base and per-level scaling match the balance table',
     target(),
     { mode: 'raid', rng: scripted(supremeZeusRolls, 0.5) },
   );
-  check('Supreme weapon and Zeus constant/proc bonuses combine additively',
-    dmgOf(roundEvents(supremeZeus, 1), 'Hero attacks') === 315
-      && hasEvent(roundEvents(supremeZeus, 1), 'Chain Lightning'));
+  check('Supreme damage and Zeus constant/proc bonuses combine without the removed stack',
+    dmgOf(roundEvents(supremeZeus, 1), 'Hero attacks') === 300
+      && hasEvent(roundEvents(supremeZeus, 1), 'Chain Lightning')
+      && !hasEvent(roundEvents(supremeZeus, 1), 'Supreme Weapon:'));
 }
 
 // — Idiyanale: every 3rd turn the attack deals +75% more damage via the effATK lane
@@ -1694,10 +1735,12 @@ check('class base and per-level scaling match the balance table',
   const mjolnirR3 = attackLines(mjolnirArcher, 3);
   check('turn-based Mjolnir crush applies only to the primary attack',
     mjolnirR3.length === 2
-      && dmgOf([mjolnirR3[0]], 'attacks') === 297
-      && dmgOf([mjolnirR3[1]], 'attacks') === 117
+      && dmgOf([mjolnirR3[0]], 'attacks') === 270
+      && dmgOf([mjolnirR3[1]], 'attacks') === 135
       && roundEvents(mjolnirArcher, 3)
-        .filter((event) => event.includes('CRUSH!')).length === 1);
+        .filter((event) => event.includes('+200% ATK!')).length === 1
+      && roundEvents(mjolnirArcher, 3)
+        .filter((event) => event.includes('+50% Damage!')).length === 1);
 
   const supremeArcher = resolveBattle(
     base({
@@ -1708,12 +1751,10 @@ check('class base and per-level scaling match the balance table',
     { mode: 'boss', rng: () => 0 },
   );
   const supremeArcherR1 = attackLines(supremeArcher, 1);
-  check('Archer additional attack does not increment the Supreme weapon stack',
+  check('Archer additional attack has no removed Supreme weapon stack',
     supremeArcherR1.length === 2
-      && supremeArcherR1.every((event) => dmgOf([event], 'attacks') === 99)
-      && roundEvents(supremeArcher, 1)
-        .filter((event) => event.includes('Supreme Weapon:')).length === 1
-      && hasEvent(roundEvents(supremeArcher, 2), 'total +20%'));
+      && supremeArcherR1.every((event) => dmgOf([event], 'attacks') === 90)
+      && !hasEvent(allEvents(supremeArcher), 'Supreme Weapon:'));
 
   const divineArcher = resolveBattle(
     base({
@@ -2249,7 +2290,7 @@ check('class base and per-level scaling match the balance table',
   check('Apolaki Burn is applied by the user landed attack',
     hasEvent(roundEvents(sim, 1), 'Apolaki: Solar Burn'));
   check('Apolaki Burn uses 10% user base ATK, not the buffed effective ATK',
-    dmgOf(roundEvents(sim, 1), 'Hero attacks') === 130 &&
+    dmgOf(roundEvents(sim, 1), 'Hero attacks') === 150 &&
       hasEvent(roundEvents(sim, 1), 'suffers 10 Burn damage'),
     roundEvents(sim, 1).join(' | '));
 }
@@ -3111,9 +3152,9 @@ check('class base and per-level scaling match the balance table',
     finalDamageTarget(),
     { mode: 'boss', rng: () => 0.50 },
   );
-  check('Titan final multiplier composes after Supreme ATK stacking',
-    dmgOf(roundEvents(supremeControl, 3), 'Hero attacks') === 130
-      && dmgOf(roundEvents(supremeTitan, 3), 'Hero attacks') === 195);
+  check('Titan final multiplier is unaffected by removal of Supreme ATK stacking',
+    dmgOf(roundEvents(supremeControl, 3), 'Hero attacks') === 100
+      && dmgOf(roundEvents(supremeTitan, 3), 'Hero attacks') === 150);
 
   const archerBattle = (weaponPassiveKey) => resolveBattle(
     finalDamageFighter({
@@ -3902,7 +3943,7 @@ console.log(`\n${'═'.repeat(50)}`);
   check('no_immunities bypasses boss immunity gates',
     /side\.isBoss && side\.specialFlags\.no_immunities === true\) return false/.test(engineSource));
   check('boss simulation follows the row lock and omits legacy level writes',
-    bossSource.indexOf('FOR UPDATE') < bossSource.indexOf('resolveBattle(fighter, boss')
+    bossSource.indexOf('FOR UPDATE') < bossSource.search(/resolveBattle(?:Fn)?\(fighter, boss/)
       && !/boss_level|enemy_level/.test(bossSource));
   check('boss status card height follows wrapped passive line count',
     bossStatusCardHeight(1) === 190

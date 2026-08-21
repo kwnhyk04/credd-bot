@@ -638,6 +638,10 @@ async function main() {
     path.join(__dirname, 'update-supreme-weapon-deity-atk-descriptions.sql'),
     'utf8',
   );
+  const supremeManualSql = fs.readFileSync(
+    path.join(__dirname, 'update-supreme-weapon-passives-20260822.sql'),
+    'utf8',
+  );
   const deitySql = fs.readFileSync(path.join(__dirname, 'deity-passive-description-update.sql'), 'utf8');
   const userWordingSql = fs.readFileSync(path.join(__dirname, 'update-user-passive-descriptions.sql'), 'utf8');
   assert(
@@ -650,7 +654,18 @@ async function main() {
   const passiveLineByKey = new Map(
     [...passiveData.matchAll(/^- `([^`]+)` — ([^\r\n]+)$/gm)].map((match) => [match[1], match[2]]),
   );
-  const supremeDescription = 'Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle.';
+  const supremeDescriptions = new Map([
+    ['mjolnir', 'Normal attacks deal +50% damage. Every 3rd turn, the primary attack gains +200% ATK instead; the +50% damage bonus does not apply to that burst.'],
+    ['gungnir', 'Each attack ignores 30% of enemy DEF and has a 20% chance to use 60% total DEF penetration for that attack.'],
+    ['thunderbolt_of_zeus', 'Each critical attack deals +100% bonus ATK and applies Paralyze for 1 turn.'],
+    ['trident_of_poseidon', 'Every 2nd turn, deals +100% bonus ATK and reduces enemy DEF by 20% for 1 turn, with a 30% chance to stun for 1 turn.'],
+  ]);
+  const supremeNames = new Map([
+    ['mjolnir', 'Mjolnir'],
+    ['gungnir', 'Gungnir'],
+    ['thunderbolt_of_zeus', 'Thunderbolt of Zeus'],
+    ['trident_of_poseidon', 'Trident of Poseidon'],
+  ]);
   const deityDescription = 'Increase ATK by +50%.';
   const registryDescription = (key) => {
     const line = passiveLineByKey.get(key);
@@ -658,14 +673,28 @@ async function main() {
     const separator = line.indexOf(': ');
     return separator === -1 ? undefined : line.slice(separator + 2);
   };
-  for (const key of [
-    'mjolnir', 'gungnir', 'thunderbolt_of_zeus', 'trident_of_poseidon',
-  ]) {
-    assert(registryDescription(key)?.startsWith(supremeDescription),
-      `Supreme weapon description does not start with the shared ATK text for ${key}`);
-    assert(supremeSql.includes(`'weapon', '${key}', '${supremeDescription}`),
-      `Supreme description SQL is missing ${key}`);
+  for (const [key, description] of supremeDescriptions) {
+    assert.equal(registryDescription(key), description,
+      `Supreme weapon description is not exact for ${key}`);
+    assert(supremeSql.includes(`'weapon', '${key}', '${description}'`),
+      `Supreme description SQL is missing the exact text for ${key}`);
+    assert(supremeManualSql.includes(`passive_key = '${key}'`),
+      `targeted Supreme SQL is missing the passive-key guard for ${key}`);
+    assert(supremeManualSql.includes(`WHERE name = '${supremeNames.get(key)}'`),
+      `targeted Supreme SQL is missing the exact weapon-name guard for ${key}`);
+    assert(supremeManualSql.includes(`passive_description = '${description}'`),
+      `targeted Supreme SQL is missing the exact text for ${key}`);
   }
+  assert.equal((supremeManualSql.match(/^UPDATE public\.weapon_roster$/gm) || []).length, 4,
+    'targeted Supreme SQL must contain exactly four weapon-roster updates');
+  assert.equal((supremeManualSql.match(/AND tier = 'Supreme'/g) || []).length, 4,
+    'every targeted Supreme SQL update must guard the tier');
+  assert.equal((supremeManualSql.match(/AND passive_key = '/g) || []).length, 4,
+    'every targeted Supreme SQL update must guard the passive key');
+  assert(!/\b(?:DELETE|TRUNCATE|ALTER|DROP|INSERT)\b/i.test(supremeManualSql),
+    'targeted Supreme SQL must only update descriptions');
+  assert(!/(?:deity_roster|player|inventory|battle|economy)/i.test(supremeManualSql),
+    'targeted Supreme SQL must not reference persistent non-weapon game tables');
   for (const key of ['odin_all_fathers_wisdom', 'zeus_thunder_sovereign']) {
     assert(registryDescription(key)?.startsWith(deityDescription),
       `deity description does not start with the constant ATK text for ${key}`);

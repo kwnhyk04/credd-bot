@@ -35,10 +35,6 @@ const OVERCHARGE_BASE_CHANCE = 0.60;
 // Per-tier weapon damage-% riders (the only damage bonus a drop carries now).
 const TIER_DAMAGE_PCT = { Legendary: 25, Supreme: 50 };
 
-// Every Supreme weapon also gains this battle-local ATK stack once per turn.
-const SUPREME_WEAPON_ATK_PER_TURN = 0.10;
-const SUPREME_WEAPON_ATK_MAX = 0.50;
-
 // Katana passive: +30% damage (merged from the old crit-only ×2.30 rider).
 const KATANA_DAMAGE_PCT = 30;
 
@@ -75,8 +71,6 @@ module.exports = {
   OVERCHARGE_HIGH_MULT,
   OVERCHARGE_BASE_CHANCE,
   TIER_DAMAGE_PCT,
-  SUPREME_WEAPON_ATK_PER_TURN,
-  SUPREME_WEAPON_ATK_MAX,
   KATANA_DAMAGE_PCT,
   hitMultiplier,
   AEGIS_DR_PER_STACK,

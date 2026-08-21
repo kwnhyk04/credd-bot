@@ -47,7 +47,7 @@ BEGIN
             'Gungnir',
             'gungnir',
             'Supreme',
-            'Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Each attack ignores 30% of enemy DEF and has a 20% chance to use 60% total DEF penetration for that attack.'
+            'Each attack ignores 30% of enemy DEF and has a 20% chance to use 60% total DEF penetration for that attack.'
         );
 
     IF (SELECT COUNT(*) FROM _targeted_weapon_balance_descriptions) <> 4 THEN

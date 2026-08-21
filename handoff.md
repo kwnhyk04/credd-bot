@@ -1301,7 +1301,7 @@ Measured findings:
 4. The battle start-frame cache key included randomized final fighter HP and other non-rendered simulation state. Identical start-frame pixels therefore received different cache keys and were uploaded repeatedly.
 5. `BATTLE_FRAME_RENDER_MODE=start_and_final` renders only snapshot zero and the final snapshot. No intermediate battle frames are rendered or uploaded.
 6. Generated profile, stats, battle, raid, boss, summon, equipment, and casino outputs remain request-local. Forced garbage collection found zero generated profile/stats output buffers reachable.
-7. The idle recurring application traffic is the one-minute battle reaper query, the one-minute official boss query, the optional one-minute casino recovery transaction, Discord gateway heartbeats, daily reset/season jobs, and the six-hour canvas sweep. There is no application health-check HTTP server.
+7. The idle recurring application traffic is the one-minute battle reaper query, the one-minute official boss query, the optional one-minute casino recovery transaction, Discord gateway heartbeats, daily reset/season jobs, and the hourly canvas sweep. There is no application health-check HTTP server.
 
 Focused changes:
 
@@ -2206,7 +2206,7 @@ Additional attacks are now resolved as complete regular attack instances through
 5. The illustrative “normal 100%” Labrys wording in the second attachment conflicted with the first attachment's explicit instruction and the existing implementation to preserve 70%. The preserved 70% value is treated as a normal independent attack calculation at a 0.70 ATK scale.
 6. Mage Overcharge was 250% before this task. The second attachment explicitly defines and tests 275%, so the primary attack on rounds 3, 6, 9, and so on now uses the existing Overcharge lane at a 2.75 base multiplier and cannot crit. Labrys and every other additional attack remain normal, independently crit-eligible attacks and never inherit Overcharge.
 7. Swordsman applies its existing 4% Bleed stack independently on each successful primary or additional hit, still capped at 20%. Fighter gets one independent 25% Stun/Bash roll per attack while the existing no-refresh guard preserves exactly one skipped turn and the visible Dizzy feedback. Knight's existing +30% outgoing multiplier is applied once inside each attack calculation; its 25% damage reduction is unchanged.
-8. Turn-indexed weapon effects do not repeat on additional attacks. Hephaestus Hammer's fourth-turn strike, Apollo's fourth-turn guaranteed crit, Mjolnir's third-turn +200% rider, and Trident's even-turn Tidal Wrath remain primary-only. Mjolnir's ordinary +30% per-attack bonus remains eligible on additional attacks.
+8. Turn-indexed weapon effects do not repeat on additional attacks. Hephaestus Hammer's fourth-turn strike, Apollo's fourth-turn guaranteed crit, Mjolnir's third-turn +200% rider, and Trident's even-turn Tidal Wrath remain primary-only. A later balance update replaced Mjolnir's legacy per-attack ATK rider with +50% Damage; additional attacks receive that normal damage rider.
 9. Battle logs identify the source activation before each generated attack, so Labrys, Glacial Bow, and Archer attacks are visually separated while their normal damage, crit, passive-healing, status, and HP lines remain intact.
 10. Archer's public passive wording now says “additional attack.” The checked-in Labrys registry description now states that every third eligible primary attack is followed by one 70% ATK additional strike and that both attacks can crit and trigger eligible attack effects.
 11. The local manual description patch in `scripts/patch_descriptions.sql` was updated with the same Labrys wording but was not executed. The owner must review and run the existing patch process if the live database description should be synchronized.
@@ -2756,8 +2756,9 @@ updated without changing the existing document structure or RAG/upsert infrastru
   consecutive Streak, uses the player-facing `Streak` terminology, and lists the repeatable
   15/30+ milestone chest rewards and reset behavior.
 - `deity-system.md` appends the implemented +50% battle ATK to Odin and Zeus. The Supreme
-  section of `weapon-system.md` documents the shared +10% per-turn stack up to +50%; its
-  Genesis section records the implemented +100% damage value.
+  section of `weapon-system.md` now documents that the former shared turn-based ATK stack
+  was removed and records Mjolnir's mutually exclusive +50% Damage / +200% ATK states;
+  its Genesis section records the implemented +100% damage value.
 
 The boss rotation, boss participation bundles, Calamity independent bonus rolls, daily
 attendance base values, and active completed-event status already matched the current
@@ -2793,8 +2794,8 @@ Genesis avatar names and avatar paths, including the Genesis avatar style, remai
 Divine weapon enhancement now supports +0 through +20: +1 through +10 add 10% of base ATK
 per level, +11 through +20 add 20% of base ATK per level, and armor remains capped at +10.
 The Divine weapon reference values are 1,600 base ATK, 20% CRIT, +100% damage, and a
-2,000,000 base sell value. The Supreme shared enhancement rider remains +10% ATK per turn,
-stacking to +50%.
+2,000,000 base sell value. A later balance update removed the generic Supreme
+turn-based ATK rider, leaving only each Supreme weapon's unique passive.
 
 Deity enhancement wording uses **Ascend** and the `/crd stats` deity display now shows only
 equipped deity names, with the compact spacing restored between the `DEITIES` label, names,
@@ -2851,8 +2852,7 @@ The targeted combat correction is implemented in `src/engine/passiveRegistry.js`
    +100% post-Reprieve damage remain unchanged.
 4. Gungnir retains 30% normal DEF penetration, changes its proc chance to 20%, and uses
    exactly 60% total DEF penetration on a proc attack. The former full-DEF-bypass path
-   was removed. The shared Supreme +10% ATK-per-turn stack, +50% cap, and battle reset
-   remain unchanged.
+   was removed. A later balance update removed the generic Supreme turn-based ATK stack.
 
 The exact player-facing descriptions are synchronized in the reusable SQL sources
 `scripts/final-passive-description-updates.sql` and
@@ -2871,7 +2871,7 @@ descriptions are:
 - Atlas: `Base attack increased by 50%. Every 3rd turn is a guaranteed critical strike. Enemies hit by a critical strike have their attack reduced by 50% for 1 turn.`
 - Kiri: `Each attack increases damage by 20%, stacking up to +120%. Each attack has a 25% chance to strike twice as two separate hits.`
 - Titan: `Damage dealt is increased by 50%. The wielder heals for 30% of all damage dealt. Healing increases to 50% while below 50% HP. Once per battle, upon taking fatal damage, survives at 1 HP and gains +100% damage until the end of battle.`
-- Gungnir: `Gains +10% ATK at the start of each turn, stacking up to +50%; all stacks reset after battle. Each attack ignores 30% of enemy DEF and has a 20% chance to use 60% total DEF penetration for that attack.`
+- Gungnir: `Each attack ignores 30% of enemy DEF and has a 20% chance to use 60% total DEF penetration for that attack.`
 
 Validation:
 
@@ -2931,6 +2931,37 @@ Validation:
 - `git diff --check` passed.
 - No database migration, production SQL, RAG pipeline, metadata schema, or vector index was
   executed.
+
+## Follow-up: Supreme weapon passive rebalance
+
+Timestamp: 2026-08-22 +08:00
+Patch name: Remove generic Supreme ATK ramp and rebalance Mjolnir
+Commit: not created (working tree only)
+
+The generic Supreme weapon turn-based ATK ramp was removed from combat configuration,
+turn processing, durable battle flags, and logs. Equipping a Supreme weapon no longer
+adds or accumulates an automatic ATK modifier; Gungnir, Thunderbolt of Zeus, and Trident
+of Poseidon retain their existing unique passive handlers.
+
+Mjolnir's normal attack behavior now uses exactly +50% in the unified Damage category
+and no longer adds an ATK modifier. On every third-turn primary attack, the weapon's
++50% Damage contribution is suppressed for that attack and the existing +200% ATK burst
+is applied. Normal +50% Damage behavior resumes on the following attack. An additional
+attack on a burst turn remains a normal Mjolnir attack and does not inherit the
+primary-only burst.
+
+Canonical descriptions and reusable synchronization sources were updated. The exact,
+four-row manual SQL is in `scripts/update-supreme-weapon-passives-20260822.sql`; every
+statement guards weapon name, Supreme tier, and passive key, and changes only
+`weapon_roster.passive_description`. It was not executed against Supabase.
+
+Validation:
+
+- Combat self-test: 533 passed, 0 failed.
+- Weapon-passive audit: all 71 passives plus `none` passed.
+- Requested-patch description/SQL contract self-test passed.
+- `npm run selftest:full` passed the complete repository verification chain.
+- JavaScript syntax checks and `git diff --check` passed.
 
 ## Follow-up: simplify Chest Conversion UI
 

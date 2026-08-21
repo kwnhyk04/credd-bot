@@ -1,8 +1,11 @@
 process.env.BOSS_IMAGE_REFRESH_ENABLED = 'false';
+process.env.RESOURCE_LOGS = 'false';
 
 const assert = require('node:assert/strict');
 const pool = require('../src/db/pool');
 const bossMessages = require('../src/engine/boss/bossMessages');
+const bossProgress = require('../src/engine/boss/bossProgress');
+const bossRender = require('../src/engine/boss/bossRender');
 const bossRuntime = require('../src/engine/boss/bossRuntime');
 
 const guildId = 'boss-refresh-selftest-guild';
@@ -49,6 +52,7 @@ function payloadText(payload) {
 
 async function main() {
   const realQuery = pool.query;
+  const realConnect = pool.connect;
   const realSetTimeout = global.setTimeout;
   const realClearTimeout = global.clearTimeout;
   const previousImageRefresh = process.env.BOSS_IMAGE_REFRESH_ENABLED;
@@ -60,6 +64,8 @@ async function main() {
   let editStartedResolve = null;
   let editGate = null;
   let editGateResolve = null;
+  let expectPostCommitRead = false;
+  const flowEvents = [];
 
   const check = (condition, message) => {
     checks += 1;
@@ -67,6 +73,8 @@ async function main() {
   };
 
   const message = {
+    id: 'message',
+    channelId: 'channel',
     attachments: new Map([
       ['banner', { id: 'banner-id', name: 'boss_banner.webp', url: 'https://cdn.test/banner.webp' }],
     ]),
@@ -92,7 +100,13 @@ async function main() {
 
   pool.query = async (sql) => {
     const text = String(sql);
-    if (text.includes('FROM boss_state')) return { rows: [model.state] };
+    if (text.includes('FROM boss_state')) {
+      if (expectPostCommitRead) {
+        flowEvents.push('post-commit-state-read');
+        expectPostCommitRead = false;
+      }
+      return { rows: [model.state] };
+    }
     if (text.includes('count(*)::int AS attacker_count')) {
       return { rows: [{ attacker_count: model.attackers.length }] };
     }
@@ -104,12 +118,22 @@ async function main() {
       };
     }
     if (text.includes('FROM mob_roster')) return { rows: [model.mob] };
+    if (text.includes('INSERT INTO active_battles')) return { rows: [{ battle_id: 1 }], rowCount: 1 };
+    if (text.includes('DELETE FROM active_battles')) return { rows: [], rowCount: 1 };
     throw new Error(`unexpected SQL in boss refresh self-test: ${text.slice(0, 100)}`);
   };
 
   bossRuntime.liveMessages.set(guildId, { channelId: 'channel', messageId: 'message' });
 
   try {
+    const fullCacheParts = bossRender.bossStatusCacheParts(makeState(), model.mob);
+    const damagedCacheParts = bossRender.bossStatusCacheParts(makeState({ currentHp: 9_000 }), model.mob);
+    check(fullCacheParts.currentHp !== damagedCacheParts.currentHp,
+      'boss status cache key changes with current HP instead of reusing a stale render');
+    check(!bossRender.renderBossStatusCard(makeState(), model.mob)
+      .equals(bossRender.renderBossStatusCard(makeState({ currentHp: 9_000 }), model.mob)),
+    'boss status HP bar render changes after damage');
+
     model.state = makeState({ currentHp: 9_000 });
     model.attackers = [{ discord_id: 'A', total_damage: 1_000 }];
     await bossMessages.refreshLiveMessageProgress(client, guildId, { telemetryCommand: 'boss:attack' });
@@ -192,6 +216,117 @@ async function main() {
     check(!text.includes('boss:attack:'), 'final boss payload has no active attack button');
     check(sends.length === 0, 'final boss refresh edits the existing message without duplication');
 
+    // Full attack integration: stage the HP/log writes inside a fake
+    // transaction and expose them to pool reads only after COMMIT. Start with
+    // an empty process-local message map to reproduce a deployment/restart.
+    edits.length = 0;
+    model.state = { ...makeState(), spawn_source: 'dev' };
+    model.attackers = [];
+    bossRuntime.liveMessages.delete(guildId);
+
+    const sendsBeforeMissingRef = sends.length;
+    const missingRefUpdated = await bossMessages.refreshLiveMessageProgress(client, guildId);
+    check(missingRefUpdated === false && sends.length === sendsBeforeMissingRef,
+      'post-attack refresh without a message reference never creates a duplicate');
+
+    pool.connect = async () => {
+      let stagedState = null;
+      let stagedAttackers = null;
+      return {
+        async query(sql, params = []) {
+          const text = String(sql).trim();
+          if (text === 'BEGIN') return { rows: [], rowCount: 0 };
+          if (text === 'ROLLBACK') {
+            stagedState = null;
+            stagedAttackers = null;
+            return { rows: [], rowCount: 0 };
+          }
+          if (text === 'COMMIT') {
+            model.state = stagedState;
+            model.attackers = stagedAttackers;
+            flowEvents.push('attack-commit');
+            expectPostCommitRead = true;
+            return { rows: [], rowCount: 0 };
+          }
+          if (text.includes('FROM boss_state') && text.includes('FOR UPDATE')) {
+            stagedState = { ...model.state };
+            stagedAttackers = model.attackers.map((row) => ({ ...row }));
+            return { rows: [{ ...model.state }], rowCount: 1 };
+          }
+          if (text.startsWith('UPDATE boss_state SET current_hp')) {
+            stagedState.current_hp = Math.max(0, Number(stagedState.current_hp) - Number(params[2]));
+            stagedState.last_attack_at = new Date();
+            stagedState.passive_state = JSON.parse(params[3]);
+            return { rows: [{ current_hp: stagedState.current_hp }], rowCount: 1 };
+          }
+          if (text.startsWith('INSERT INTO boss_attack_log')) {
+            const discordId = params[2];
+            const damage = Number(params[4]);
+            const existing = stagedAttackers.find((row) => row.discord_id === discordId);
+            if (existing) existing.total_damage += damage;
+            else stagedAttackers.push({ discord_id: discordId, total_damage: damage });
+            return { rows: [{ id: 1 }], rowCount: 1 };
+          }
+          if (text.startsWith('UPDATE user_character SET boss_top_damage')) {
+            return { rows: [], rowCount: 1 };
+          }
+          throw new Error(`unexpected transaction SQL in boss refresh self-test: ${text.slice(0, 100)}`);
+        },
+        release() {},
+      };
+    };
+
+    const damageQueue = [1_000, 2_500];
+    const attackReplies = [];
+    const interaction = {
+      guildId,
+      channelId: 'channel',
+      customId: `boss:attack:${guildId}`,
+      user: { id: 'attack-user' },
+      client,
+      message,
+      async deferReply() {},
+      async editReply(payload) { attackReplies.push(payload); },
+    };
+    const attackDeps = {
+      buildPlayerFighterFn: async () => ({ name: 'Attacker', hp: 10_000 }),
+      isBannedFn: async () => false,
+      resolveBattleFn: () => {
+        const damage = damageQueue.shift();
+        return {
+          seed: 1,
+          winner: 'player',
+          outcome: 'boss_timeout',
+          mode: 'boss',
+          a: { name: 'Attacker' },
+          b: { name: 'Medusa', bossPassiveState: {} },
+          totals: { netDamage: damage },
+          rounds: [],
+          bossThresholdEvents: [],
+        };
+      },
+    };
+
+    await bossProgress.handleAttackImpl(interaction, attackDeps);
+    await bossProgress.handleAttackImpl(interaction, attackDeps);
+    text = payloadText(edits.at(-1));
+    check(model.state.current_hp === 6_500, 'successful attacks commit cumulative boss HP damage');
+    check(model.attackers.length === 1 && model.attackers[0].total_damage === 3_500,
+      'successful attacks commit cumulative user damage ranking totals');
+    check(text.includes('**HP:** 6,500 / 10,000'),
+      'post-attack message renders the newly committed boss HP');
+    check(text.includes('**#1** · <@attack-user> · 3,500'),
+      'post-attack message renders the newly committed damage ranking');
+    check(flowEvents.filter((event) => event === 'attack-commit').length === 2
+      && flowEvents.filter((event) => event === 'post-commit-state-read').length === 2
+      && flowEvents.indexOf('attack-commit') < flowEvents.indexOf('post-commit-state-read'),
+    'each refresh reads through the pool only after its attack transaction commits');
+    check(bossRuntime.liveMessages.get(guildId)?.messageId === message.id,
+      'a successful button attack restores the existing live-message reference');
+    check(sends.length === sendsBeforeMissingRef,
+      'attack recovery edits the clicked boss message without sending a duplicate');
+    check(attackReplies.length === 2, 'both successful attacks acknowledge the attacker');
+
     // Timer-only assertions: scheduler delay remains 15 seconds, while an
     // attack cancels/rearms it at zero and marks an in-flight render to rerun.
     const timers = [];
@@ -217,6 +352,7 @@ async function main() {
     bossRuntime.liveMessages.delete(guildId);
     bossRuntime.currentSpawn.delete(guildId);
     pool.query = realQuery;
+    pool.connect = realConnect;
     global.setTimeout = realSetTimeout;
     global.clearTimeout = realClearTimeout;
     if (previousImageRefresh === undefined) delete process.env.BOSS_IMAGE_REFRESH_ENABLED;
